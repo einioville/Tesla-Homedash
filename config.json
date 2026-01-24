@@ -4,163 +4,339 @@
             "category": "Charging",
             "unit": "W",
             "log": true,
-            "formula": null
+            "formula": null,
+            "stream_id": 0
         },
         "BatteryLevel": {
             "category": "Charging",
             "unit": "%",
             "log": true,
-            "formula": null
+            "formula": null,
+            "stream_id": 1
         },
         "BmsFullchargecomplete": {
             "category": "Charging",
             "unit": null,
             "log": false,
-            "formula": null
+            "formula": null,
+            "stream_id": 2
         },
         "ChargeAmps": {
             "category": "Charging",
             "unit": "A",
             "log": true,
-            "formula": null
+            "formula": null,
+            "stream_id": 3
         },
         "BMSState": {
             "category": "Charging",
             "unit": null,
             "log": true,
-            "formula": null
+            "formula": null,
+            "stream_id": 4
         },
         "ChargeLimitSoc": {
             "category": "Charging",
             "unit": "%",
             "log": false,
-            "formula": null
+            "formula": null,
+            "stream_id": 5
         },
         "ChargeRateMilePerHour": {
             "category": "Charging",
             "unit": "km/h",
             "log": true,
-            "formula": "x * 1.609344"
+            "formula": "x * 1.609344",
+            "stream_id": 6
         },
         "ChargerPhases": {
             "category": "Charging",
             "unit": null,
             "log": false,
-            "formula": null
+            "formula": null,
+            "stream_id": 7
         },
         "ChargerVoltage": {
             "category": "Charging",
             "unit": "V",
             "log": true,
-            "formula": null
+            "formula": null,
+            "stream_id": 8
         },
         "DetailedChargeState": {
             "category": "Charging",
             "unit": null,
             "log": true,
-            "formula": null
+            "formula": null,
+            "stream_id": 9
         },
         "DriverSeatOccupied": {
             "category": "Driving",
             "unit": null,
             "log": true,
-            "formula": null
+            "formula": null,
+            "stream_id": 10
         },
         "EnergyRemaining": {
             "category": "Charging",
             "unit": "kWh",
             "log": true,
-            "formula": null
+            "formula": null,
+            "stream_id": 11
         },
         "EstimatedHoursToChargeTermination": {
             "category": "Charging",
             "unit": "h",
             "log": false,
-            "formula": null
+            "formula": null,
+            "stream_id": 12
         },
         "Gear": {
             "category": "Driving",
             "unit": null,
             "log": true,
-            "formula": null
+            "formula": null,
+            "stream_id": 13
         },
         "HvacACEnabled": {
             "category": "Climate",
             "unit": null,
             "log": false,
-            "formula": null
+            "formula": null,
+            "stream_id": 14
         },
         "HvacLeftTemperatureRequest": {
             "category": "Climate",
             "unit": "°C",
             "log": false,
-            "formula": null
+            "formula": null,
+            "stream_id": 15
         },
         "HvacRightTemperatureRequest": {
             "category": "Climate",
             "unit": "°C",
             "log": false,
-            "formula": null
+            "formula": null,
+            "stream_id": 16
         },
         "InsideTemp": {
             "category": "Climate",
             "unit": "°C",
             "log": false,
-            "formula": null
+            "formula": null,
+            "stream_id": 17
         },
         "LifetimeEnergyUsed": {
             "category": "Charging",
             "unit": "kWh",
             "log": true,
-            "formula": null
+            "formula": null,
+            "stream_id": 18
         },
         "Location": {
             "category": "Location",
             "unit": null,
             "log": true,
-            "formula": null
+            "formula": null,
+            "stream_id": 19
         },
         "Locked": {
             "category": "Vehicle state",
             "unit": null,
             "log": true,
-            "formula": null
+            "formula": null,
+            "stream_id": 20
         },
         "Odometer": {
             "category": "Vehicle state",
             "unit": "km",
             "log": true,
-            "formula": "x * 1.609344"
+            "formula": "x * 1.609344",
+            "stream_id": 21
         },
         "OutsideTemp": {
             "category": "Climate",
             "unit": "°C",
             "log": true,
-            "formula": null
+            "formula": null,
+            "stream_id": 22
         },
         "RatedRange": {
             "category": "Charging",
             "unit": "km",
             "log": true,
-            "formula":"x * 1.609344"
+            "formula": "x * 1.609344",
+            "stream_id": 23
         },
         "TimeToFullCharge": {
             "category": "Charging",
             "unit": "h",
             "log": false,
-            "formula": null
+            "formula": null,
+            "stream_id": 24
         },
         "VehicleSpeed": {
             "category": "Driving",
             "unit": "km/h",
             "log": true,
-            "formula":"x * 1.609344"
+            "formula": "x * 1.609344",
+            "stream_id": 25
         },
         "VehicleOnline": {
             "category": "Vehicle state",
             "unit": null,
             "log": false,
-            "formula": null
+            "formula": null,
+            "stream_id": 26
+        },
+        "GpsHeading": {
+            "category": "Driving",
+            "unit": null,
+            "log": true,
+            "formula": null,
+            "stream_id": 29
+        },
+        "AutoSeatClimateLeft": {
+            "category": "Climate",
+            "unit": null,
+            "log": false,
+            "formula": null,
+            "stream_id": 30
+        },
+        "AutoSeatClimateRight": {
+            "category": "Climate",
+            "unit": null,
+            "log": false,
+            "formula": null,
+            "stream_id": 31
+        },
+        "ClimateSeatCoolingFrontLeft": {
+            "category": "Climate",
+            "unit": null,
+            "log": false,
+            "formula": null,
+            "stream_id": 32
+        },
+        "ClimateSeatCoolingFrontRight": {
+            "category": "Climate",
+            "unit": null,
+            "log": false,
+            "formula": null,
+            "stream_id": 33
+        },
+        "DefrostForPreconditioning": {
+            "category": "Climate",
+            "unit": null,
+            "log": false,
+            "formula": null,
+            "stream_id": 34
+        },
+        "DefrostMode": {
+            "category": "Climate",
+            "unit": null,
+            "log": false,
+            "formula": null,
+            "stream_id": 35
+        },
+        "HvacAutoMode": {
+            "category": "Climate",
+            "unit": null,
+            "log": false,
+            "formula": null,
+            "stream_id": 36
+        },
+        "HvacFanSpeed": {
+            "category": "Climate",
+            "unit": null,
+            "log": false,
+            "formula": null,
+            "stream_id": 37
+        },
+        "HvacFanStatus": {
+            "category": "Climate",
+            "unit": null,
+            "log": false,
+            "formula": null,
+            "stream_id": 38
+        },
+        "HvacPower": {
+            "category": "Climate",
+            "unit": null,
+            "log": false,
+            "formula": null,
+            "stream_id": 39
+        },
+        "HvacSteeringWheelHeatLevel": {
+            "category": "Climate",
+            "unit": null,
+            "log": false,
+            "formula": null,
+            "stream_id": 40
+        },
+        "PreconditioningEnabled": {
+            "category": "Climate",
+            "unit": null,
+            "log": false,
+            "formula": null,
+            "stream_id": 41
+        },
+        "RearDefrostEnabled": {
+            "category": "Climate",
+            "unit": null,
+            "log": false,
+            "formula": null,
+            "stream_id": 42
+        },
+        "SeatHeaterLeft": {
+            "category": "Climate",
+            "unit": null,
+            "log": false,
+            "formula": null,
+            "stream_id": 43
+        },
+        "SeatHeaterRight": {
+            "category": "Climate",
+            "unit": null,
+            "log": false,
+            "formula": null,
+            "stream_id": 44
         }
-    }
+    },
+    "calculated tesla data": {
+        "DrivenToday": {
+            "category": "Driving",
+            "unit": "km",
+            "log": "false",
+            "formula": "x * 1.609344",
+            "source_data_property_id": "Odometer",
+            "period": "day",
+            "calculation_formula": "y - x",
+            "stream_id": 27
+        },
+        "DrivenThisMonth": {
+            "category": "Driving",
+            "unit": "km",
+            "log": "false",
+            "formula": "x * 1.609344",
+            "source_data_property_id": "Odometer",
+            "period": "month",
+            "calculation_formula": "y - x",
+            "stream_id": 28
+        }
+    },
+    "radioMediaIds": {
+        "Radio Suomipop": 2278513,
+        "Radio Rock": 2278512,
+        "HitMix": 2278509,
+        "Loop": 2278510,
+        "Easy Hits": 2278511,
+        "Classic Hits": 4319232,
+        "Kantriradio": 3984003,
+        "Aito Iskelmä": 3519118
+    },
+    "defaultRadioStation": "Radio Suomipop",
+    "spotifyDeviceId": "",
+    "spotifyCachePath": "",
+    "spotifyRedirectUri": "",
+    "timeZone": "Europe/Helsinki"
 }
