@@ -10,3 +10,8 @@ class ConfigUtils:
         config_path = os.getenv("CONFIG_PATH")
         with open(config_path, 'r') as file:
             return json.load(file)
+
+    @staticmethod
+    def get_env(key: str):
+        load_dotenv()
+        return os.getenv(key)
