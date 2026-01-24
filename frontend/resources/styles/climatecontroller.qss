@@ -1,0 +1,12 @@
+#ClimateController {
+    background: qradialgradient(
+        cx: 0.0, cy: 0.0,
+        radius: 1.5,
+        fx: 0.0, fy: 0.0,
+        stop: 0.0 rgb(3, 0, 46),
+        stop: 0.45 rgb(3, 0, 46),
+        stop: 1.0 rgb(0, 0, 0)
+    );
+    border: none;
+    border-radius: 5px;
+}

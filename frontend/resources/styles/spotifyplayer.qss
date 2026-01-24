@@ -1,0 +1,75 @@
+#progressbar {
+    QProgressBar {
+        background-color: #333333;
+        border: none;
+        border-color: #2a2a2a;
+        border-radius: 2px;
+    }
+    QProgressBar::chunk {
+        background-color: #ffffff;
+        border: none;
+        border-color: #5c5c5c;
+        border-radius: 2px;
+    }
+}
+
+#spotifybutton {
+    border-radius: 9px;
+    border: none;
+    background: transparent;
+}
+
+#spotifyplayer {
+    background-color: #121212;
+    border-radius: 5px;
+    border: none;
+}
+
+#covertart {
+    border: none;
+    border-radius: 5px;
+    background: transparent
+}
+
+#title {
+    background: transparent;
+}
+
+#timelabel {
+    background: transparent;
+}
+
+QSlider {
+    background: transparent;
+    height: 10px;
+}
+
+QSlider::groove:horizontal {
+    background-color: #333333;
+    height: 4px;
+    border: none;
+    border-radius: 2px;
+}
+
+QSlider::handle:horizontal {
+    background: #ffffff;
+    width: 10px;
+    height: 10px;
+    border-radius: 5px;
+    margin: -3px 0px;
+    border: none;
+}
+
+QSlider::add-page:horizontal {
+    background: #333333;
+    border: none;
+    border-radius: 2px;
+}
+
+QSlider::sub-page:horizontal {
+    background: #ffffff;
+    border: none;
+    border-radius: 2px;
+}
+
+

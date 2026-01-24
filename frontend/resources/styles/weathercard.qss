@@ -1,0 +1,10 @@
+#weathercard {
+    background-color: rgba(92, 92, 92, 50);
+    border-radius: 2px;
+    border-width: 1px;
+    border-color: rgba(255, 255, 255, 120);
+    border-style: solid;
+}
+QLabel {
+    background: transparent;
+}

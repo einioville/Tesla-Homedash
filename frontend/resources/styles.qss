@@ -1,0 +1,11 @@
+#sinleTeslaDataEntry {
+    background-color: yellow;
+}
+
+#titleLabel {
+    background-color: blue;
+}
+
+#valueLabel {
+    background-color: red;
+}
