@@ -1,0 +1,31 @@
+<svg
+   width="48"
+   height="48"
+   viewBox="0 0 48 48"
+   xmlns="http://www.w3.org/2000/svg">
+
+  <g transform="scale(-1,1) translate(-48,0)">
+    <g id="layer1">
+      <circle style="fill:#000000" cx="24" cy="24" r="24" />
+    </g>
+
+    <g id="layer2">
+      <path
+         style="fill:#ffffff;stroke:#ffffff;stroke-width:3.90202;stroke-linecap:round;stroke-linejoin:round"
+         d="m 21.201142,14.215738 -6.437717,3.716818 -6.4377171,3.716818 0,-7.433636 0,-7.4336352 6.4377171,3.7168182 z"
+         transform="matrix(1.372783,0,0,-1.1960789,2.248923,41.003145)" />
+    </g>
+
+    <g id="layer3">
+      <rect
+         style="fill:#ffffff;stroke:#ffffff;stroke-width:3;stroke-linecap:round;stroke-linejoin:round"
+         width="2"
+         height="20"
+         x="33.5"
+         y="14"
+         rx="1"
+         ry="1" />
+    </g>
+  </g>
+
+</svg>

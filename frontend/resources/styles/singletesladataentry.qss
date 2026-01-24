@@ -1,0 +1,9 @@
+#titleLabel {
+    background-color: #5c5c5c;
+    color: #c0c0c0
+}
+
+#valueLabel {
+    background-color: #5c5c5c;
+    color: #ffffff
+}

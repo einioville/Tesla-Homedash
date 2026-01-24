@@ -1,0 +1,32 @@
+<RCC>
+    <qresource prefix="/">
+        <file>resources/styles/singletesladataentry.qss</file>
+        <file>resources/styles/tesladataentrylist.qss</file>
+        <file>resources/fonts/gothamrnd_medium.otf</file>
+        <file>resources/icons/skip_forward.svg</file>
+        <file>resources/icons/skip_backward.svg</file>
+        <file>resources/icons/play.svg</file>
+        <file>resources/icons/pause.svg</file>
+        <file>resources/styles/spotifyplayer.qss</file>
+        <file>src/tesla/widgets/map/map.qml</file>
+        <file>resources/icons/arrow.svg</file>
+        <file>resources/styles/mainweather.qss</file>
+        <file>resources/styles/currentweathercard.qss</file>
+        <file>resources/styles/weathercard.qss</file>
+        <file>resources/icons/seat.svg</file>
+        <file>resources/icons/steering.svg</file>
+        <file>resources/icons/minus.svg</file>
+        <file>resources/icons/plus.svg</file>
+        <file>resources/icons/power_off.svg</file>
+        <file>resources/icons/power_on.svg</file>
+        <file>resources/icons/redshadow.png</file>
+        <file>resources/icons/yellowshadow.png</file>
+        <file>resources/icons/greenshadow.png</file>
+        <file>resources/styles/climatecontroller.qss</file>
+        <file>resources/icons/arrow_left.svg</file>
+        <file>resources/icons/arrow_right.svg</file>
+        <file>resources/icons/cooling.png</file>
+        <file>resources/icons/heating.png</file>
+        <file>resources/icons/power_pending.svg</file>
+    </qresource>
+</RCC>

@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   width="48"
+   height="48"
+   viewBox="0 0 48 48"
+   version="1.1"
+   id="svg1"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <defs
+     id="defs1" />
+  <g
+     id="layer1">
+    <ellipse
+       style="fill:#ffffff;stroke:#ffffff;stroke-width:5;stroke-linecap:round;stroke-linejoin:round;paint-order:stroke fill markers"
+       id="path1"
+       cx="23.594761"
+       cy="17.706585"
+       rx="14.341913"
+       ry="10.724891" />
+    <circle
+       style="fill:#000000;fill-opacity:1;stroke:none;stroke-width:5.00001;stroke-linecap:round;stroke-linejoin:round;paint-order:stroke fill markers"
+       id="path2"
+       cx="24"
+       cy="24"
+       r="24" />
+    <rect
+       style="fill:#ffffff;fill-opacity:1;stroke:#ffffff;stroke-width:3;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;paint-order:stroke fill markers"
+       id="rect7"
+       width="2"
+       height="20"
+       x="17.5"
+       y="14"
+       ry="1"
+       rx="1" />
+    <rect
+       style="fill:#ffffff;fill-opacity:1;stroke:#ffffff;stroke-width:3;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:none;stroke-opacity:1;paint-order:stroke fill markers"
+       id="rect7-4"
+       width="2"
+       height="20"
+       x="28.5"
+       y="14"
+       ry="1"
+       rx="1" />
+  </g>
+</svg>
