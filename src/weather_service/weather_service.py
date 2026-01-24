@@ -6,6 +6,7 @@ import struct
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from ..tesla_service.tcp_server import TeslaDataServer
+from ..utils.config_parser import ConfigUtils
 
 
 class ForecastMeasurement:
@@ -54,7 +55,6 @@ class WeatherService:
     FORECAST_TOTAL_CLOUD_COVER = 0x34
 
     def __init__(self, server: TeslaDataServer):
-        self.__forecasts = {}
         self.__loop = asyncio.get_running_loop()
         self.__server = server
         self.__scheduler = AsyncIOScheduler()
@@ -63,6 +63,7 @@ class WeatherService:
             func=self.__update_forecast,
             trigger=CronTrigger(hour="*", minute="0,15,30,45"),
         )
+        self.__timezone = ConfigUtils.get_config()["timeZone"]
 
     async def __update_forecast(self) -> None:
         now = (
