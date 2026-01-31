@@ -120,6 +120,8 @@ signals:
 
     void onSeatHeaterRightUpdate(const double &value, const quint64 &timestamp);
 
+    void onEstBatteryRangeUpdate(const double &value, const quint64 &timestamp);
+
     void onTeslaRequest(const QByteArray &packet);
 
 private:

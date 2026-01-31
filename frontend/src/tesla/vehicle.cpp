@@ -82,6 +82,7 @@ Vehicle::Vehicle(QObject *parent) : QObject{parent} {
     };
     properties["SeatHeaterLeft"] = {.data_stream_id = 43, .data_id = "SeatHeaterLeft", .unit = "", .value_type = 0};
     properties["SeatHeaterRight"] = {.data_stream_id = 44, .data_id = "SeatHeaterRight", .unit = "", .value_type = 0};
+    properties["EstBatteryRange"] = {.data_stream_id = 45, .data_id = "EstBatteryRange", .unit = "km", .value_type = 0};
 }
 
 TeslaDataProperty *Vehicle::getProperty(const QString &data_id) {
