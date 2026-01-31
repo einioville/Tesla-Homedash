@@ -147,6 +147,10 @@ void TeslaDataHandler::processStreamData(const QByteArray &packet) {
                     emit onSeatHeaterRightUpdate(value, timestamp);
                     break;
 
+                case 45:
+                    emit onEstBatteryRangeUpdate(value, timestamp);
+                    break;
+
                 default:
                     break;
             }
@@ -511,6 +515,11 @@ void TeslaDataHandler::connectToDataUpdateSignal(const quint16 &data_id,
                     tesla_data_widget, &TeslaDataWidget::updateDataDouble);
             break;
 
+        case 45:
+            connect(this, &TeslaDataHandler::onEstBatteryRangeUpdate,
+                tesla_data_widget, &TeslaDataWidget::updateDataDouble);
+            break;
+
         default:
             break;
     }
@@ -743,6 +752,11 @@ void TeslaDataHandler::connectToDataUpdateSignal(const QVector<quint16> &data_id
             case 44:
                 connect(this, &TeslaDataHandler::onSeatHeaterRightUpdate,
                         tesla_data_widget, &TeslaDataMultiWidget::updateDataDouble);
+                break;
+
+            case 45:
+                connect(this, &TeslaDataHandler::onEstBatteryRangeUpdate,
+                    tesla_data_widget, &TeslaDataMultiWidget::updateDataDouble);
                 break;
 
             default:

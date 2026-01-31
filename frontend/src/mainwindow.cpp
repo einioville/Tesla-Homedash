@@ -25,7 +25,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     QVector<TeslaDataProperty *> props;
     props.push_back(vehicle->getProperty("VehicleSpeed"));
     props.push_back(vehicle->getProperty("BatteryLevel"));
-    props.push_back(vehicle->getProperty("RatedRange"));
+    props.push_back(vehicle->getProperty("EstBatteryRange"));
 
     QVector<QString> titles;
     titles.push_back("Nopeus");

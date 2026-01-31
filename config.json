@@ -300,6 +300,13 @@
             "log": false,
             "formula": null,
             "stream_id": 44
+        },
+        "EstBatteryRange": {
+            "category": "Charging",
+            "unit": "km",
+            "log": true,
+            "formula": "x * 1.609344",
+            "stream_id": 45
         }
     },
     "calculated tesla data": {
@@ -336,7 +343,7 @@
     },
     "defaultRadioStation": "Radio Suomipop",
     "spotifyDeviceId": "",
-    "spotifyCachePath": "",
-    "spotifyRedirectUri": "",
+    "spotifyCachePath": "P:\\Tesla-Homedash\\backend\\src\\spotify_service\\.cache",
+    "spotifyRedirectUri": "https://127.0.0.1/callback",
     "timeZone": "Europe/Helsinki"
 }
