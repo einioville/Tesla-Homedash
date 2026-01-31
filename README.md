@@ -28,4 +28,4 @@ This is my side project I will be working on besides school
 	- Web radio
 - Hourly weather forecast
 - Climate controller
-[Tesla-Homedash/docs/images/Screenshot 2026-01-29 154107.png at main · einioville/Tesla-Homedash](https://github.com/einioville/Tesla-Homedash/blob/main/docs/images/Screenshot%202026-01-29%20154107.png?raw=true)
+![Main Screen](https://github.com/einioville/Tesla-Homedash/blob/main/docs/images/Screenshot%202026-01-29%20154107.png?raw=true)
