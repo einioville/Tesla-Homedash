@@ -1,10 +1,10 @@
 from __future__ import annotations
+
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .vehicle import Vehicle
-    from ..spotify_service.spotify_service import SpotifyService
-    from ..media_player.media_player import MediaPlayer
+    from ..media_service.media_manager import MediaManager
 
 import asyncio
 import struct
@@ -34,9 +34,9 @@ class TeslaDataServer:
     TESLA_MINUS_TARGET_TEMP = 0x61
     TESLA_PLUS_TARGET_TEMP = 0x62
 
-    def __init__(self, vehicle: Vehicle = None, media_player: MediaPlayer = None):
+    def __init__(self, vehicle: Vehicle = None, media_manager: MediaManager = None):
         self.__vehicle = vehicle
-        self.__media_player = media_player
+        self.__media_manager = media_manager
         self.__active_connections = {}
 
     async def __recv_message(self, reader: asyncio.StreamReader) -> tuple:
@@ -140,7 +140,7 @@ class TeslaDataServer:
         self.__active_connections[writer] = set()
         print(writer.get_extra_info("peername"))
 
-        await self.__media_player.stream_everything()
+        await self.__media_manager.stream_everything()
 
         while True:
             try:
@@ -151,23 +151,23 @@ class TeslaDataServer:
                     continue
 
                 if msg_type == TeslaDataServer.MEDIA_SKIP:
-                    await self.__media_player.skip_forward()
+                    await self.__media_manager.skip_forward()
                     continue
 
                 if msg_type == TeslaDataServer.MEDIA_SKIP_BACKWARD:
-                    await self.__media_player.skip_backward()
+                    await self.__media_manager.skip_backward()
                     continue
 
                 if msg_type == TeslaDataServer.MEDIA_PAUSE_PLAY:
-                    await self.__media_player.pause_play()
+                    await self.__media_manager.pause_play()
                     continue
 
                 if msg_type == TeslaDataServer.MEDIA_SET_PROGRESS:
-                    await self.__media_player.set_progress(
+                    await self.__media_manager.set_progress(
                         struct.unpack("!I", payload[:4])[0]
                     )
                     continue
-                
+
                 if msg_type == TeslaDataServer.TESLA_SWITCH_CLIMATE_STATE:
                     await self.__vehicle.switch_climate_state()
                     continue
@@ -175,7 +175,7 @@ class TeslaDataServer:
                 if msg_type == TeslaDataServer.TESLA_MINUS_TARGET_TEMP:
                     await self.__vehicle.minus_temp()
                     continue
-                
+
                 if msg_type == TeslaDataServer.TESLA_PLUS_TARGET_TEMP:
                     await self.__vehicle.plus_temp()
                     continue
@@ -192,8 +192,8 @@ class TeslaDataServer:
     def set_vehicle(self, vehicle: Vehicle) -> None:
         self.__vehicle = vehicle
 
-    def set_media_player(self, media_player: MediaPlayer) -> None:
-        self.__media_player = media_player
+    def set_media_manager(self, media_manager: MediaManager) -> None:
+        self.__media_manager = media_manager
 
     async def start(self) -> None:
         self.__server = await asyncio.start_server(

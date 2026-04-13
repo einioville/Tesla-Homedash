@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tesla-homedash-backend"
+version = "0.1.0"
+description = "Backend services for Tesla-Homedash"
+requires-python = ">=3.10"
+dependencies = [
+    "APScheduler>=3.10,<4",
+    "aiohttp>=3.9,<4",
+    "fmiopendata>=0.4",
+    "influxdb-client>=1.43,<2",
+    "numpy>=1.26,<3",
+    "python-dotenv>=1.0,<2",
+    "python-vlc>=3.0,<4",
+    "spotipy>=2.25.2,<3",
+    "sympy>=1.12,<2",
+    "teslemetry_stream",
+]
+
+[project.optional-dependencies]
+ui-plot = [
+    "pyqtgraph>=0.13.7,<1",
+    "PySide6>=6.8,<7",
+]
+
+[project.scripts]
+tesla-homedash = "src.tesla_service.start_tesla_services:main_sync"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
