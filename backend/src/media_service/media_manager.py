@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 import struct
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .radio_player import RadioPlayer
-    from .spotify_service import SpotifyService
+    from .spotify_player import SpotifyPlayer
 
 from ..tesla_service.tcp_server import TeslaDataServer
 from .base_media_player import BaseMediaPlayer
@@ -25,8 +26,10 @@ class MediaManager:
     MEDIA_STREAM_TYPE = 0x1E
 
     def __init__(self, server: TeslaDataServer):
-        self.__radio_player: RadioPlayer | None = None
-        self.__spotify_player: SpotifyService | None = None
+        from .radio_player import RadioPlayer
+        from .spotify_player import SpotifyPlayer
+        self.__radio_player: RadioPlayer = RadioPlayer(media_manager=self)
+        self.__spotify_player: SpotifyPlayer = SpotifyPlayer(media_manager=self)
         self.__active_player: BaseMediaPlayer | None = None
         self.__server = server
 
@@ -108,8 +111,16 @@ class MediaManager:
             await self.__stream_media_type()
             await self.__active_player.stream_everything()
 
-    async def set_spotify_player(self, spotify_player: SpotifyService) -> None:
-        self.__spotify_player = spotify_player
+    async def run(self) -> None:
+        '''
+        Starts the media manager: launches Spotify polling and loads the
+        default media player ready for playback.
+        '''
+        await self.__spotify_player.run()
+        await self.load_default_media_player()
 
-    async def set_radio_player(self, radio_player: RadioPlayer) -> None:
-        self.__radio_player = radio_player
+    def get_run_task(self) -> asyncio.Task:
+        '''
+        Returns an asyncio Task that starts the media manager.
+        '''
+        return asyncio.create_task(self.run())

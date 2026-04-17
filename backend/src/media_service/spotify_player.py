@@ -13,8 +13,10 @@ from .media_manager import MediaManager
 
 logger = logging.getLogger(__name__)
 
+_FAILED = object()
 
-class SpotifyService(BaseMediaPlayer):
+
+class SpotifyPlayer(BaseMediaPlayer):
     _POLL_IDLE = 10
     _POLL_ACTIVE = 2
 
@@ -44,9 +46,13 @@ class SpotifyService(BaseMediaPlayer):
         self._song_id: str | None = None
         self._song_details: dict | None = None
         self._claimed: bool = False
-        self._controls_enabled: bool = True
 
         self._scheduler = AsyncIOScheduler()
+
+    async def run(self) -> None:
+        '''
+        Starts the APScheduler polling loop for periodic Spotify state updates.
+        '''
         self._scheduler.start()
         self._scheduler.add_job(
             func=self._update_state,
@@ -59,20 +65,21 @@ class SpotifyService(BaseMediaPlayer):
 
     async def _call_spotify(self, func, *args, **kwargs):
         '''
-        Runs a spotipy method in an executor. Returns None on any error.
+        Runs a spotipy method in an executor.
+        Returns _FAILED sentinel on any error, otherwise the API result.
         Arguments:
             func (callable): The spotipy method to call
         '''
         try:
-            return await self._loop.run_in_executor(None, lambda: func(*args, **kwargs))
+            return await self._loop.run_in_executor(
+                None, lambda: func(*args, **kwargs)
+            )
         except Exception:
             logger.debug("Spotify API call %s failed", func.__name__)
-            return None
+            return _FAILED
 
     async def _cooldown(self) -> None:
-        self._controls_enabled = False
         await asyncio.sleep(1)
-        self._controls_enabled = True
 
     # ── Controls ──────────────────────────────────────────────────
 
@@ -83,67 +90,78 @@ class SpotifyService(BaseMediaPlayer):
             await self.play()
 
     async def play(self) -> None:
-        if not self._controls_enabled or not self._claimed:
+        if not self._claimed:
             return
-        self._controls_enabled = False
-        await self._call_spotify(
+        result = await self._call_spotify(
             self._spotify.start_playback,
             device_id=self._current_device_id,
         )
-        await self._cooldown()
+        if result is _FAILED:
+            await self._cooldown()
+            return
+        await self._update_state()
 
     async def pause(self) -> None:
-        if not self._controls_enabled or not self._claimed:
+        if not self._claimed:
             return
-        self._controls_enabled = False
-        await self._call_spotify(
+        result = await self._call_spotify(
             self._spotify.pause_playback,
             device_id=self._current_device_id,
         )
-        await self._cooldown()
+        if result is _FAILED:
+            await self._cooldown()
+            return
+        await self._update_state()
 
     async def skip_forward(self) -> None:
-        if not self._controls_enabled or not self._claimed:
+        if not self._claimed:
             return
-        self._controls_enabled = False
-        await self._call_spotify(
+        result = await self._call_spotify(
             self._spotify.next_track,
             device_id=self._current_device_id,
         )
-        await self._cooldown()
+        if result is _FAILED:
+            await self._cooldown()
+            return
+        await self._update_state()
 
     async def skip_backward(self) -> None:
-        if not self._controls_enabled or not self._claimed:
+        if not self._claimed:
             return
-        self._controls_enabled = False
 
         progress = 0
         if self._song_details:
             progress = self._song_details.get("progress_ms", 0)
 
         if progress > 5000:
-            await self._call_spotify(
+            result = await self._call_spotify(
                 self._spotify.seek_track,
                 position_ms=0,
                 device_id=self._current_device_id,
             )
         else:
-            await self._call_spotify(
+            result = await self._call_spotify(
                 self._spotify.previous_track,
                 device_id=self._current_device_id,
             )
-        await self._cooldown()
+
+        if result is _FAILED:
+            await self._cooldown()
+            return
+        await self._update_state()
 
     async def set_progress(self, progress_ms: int) -> None:
-        if not self._controls_enabled or not self._claimed:
+        if not self._claimed:
             return
-        self._controls_enabled = False
-        await self._call_spotify(
+        result = await self._call_spotify(
             self._spotify.seek_track,
             position_ms=progress_ms,
             device_id=self._current_device_id,
         )
-        await self._cooldown()
+        if result is _FAILED:
+            await self._cooldown()
+            return
+        await self._update_state()
 
     # ── Polling / state ───────────────────────────────────────────
 
@@ -151,6 +169,10 @@ class SpotifyService(BaseMediaPlayer):
         playback = await self._call_spotify(
             self._spotify.current_playback, market="FI"
         )
+
+        # API error — skip this cycle
+        if playback is _FAILED:
+            return
 
         if playback is None or playback.get("item") is None:
             self._current_device_id = None
