@@ -341,9 +341,10 @@
         "Kantriradio": 3984003,
         "Aito Iskelmä": 3519118
     },
+    "weatherPlace": "Tampere",
     "defaultRadioStation": "Radio Suomipop",
-    "spotifyDeviceId": "",
-    "spotifyCachePath": "P:\\Tesla-Homedash\\backend\\src\\spotify_service\\.cache",
-    "spotifyRedirectUri": "https://127.0.0.1/callback",
+    "spotifyDeviceId": "98890e96efdff89db32f68bb3a2eb46243c15152",
+    "spotifyCachePath": "P:\\Tesla-Homedash\\backend\\src\\media_service\\.cache",
+    "spotifyRedirectUri": "http://127.0.0.1:8080/callback",
     "timeZone": "Europe/Helsinki"
 }

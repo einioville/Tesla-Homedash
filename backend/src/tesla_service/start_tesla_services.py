@@ -7,8 +7,6 @@ import asyncio
 from .tcp_server import TeslaDataServer as TDS
 from ..media_service.media_manager import MediaManager
 from ..weather_service.weather_service import WeatherService
-from ..media_service.radio_player import RadioPlayer
-from ..media_service.spotify_service import SpotifyService
 
 
 async def main():
@@ -20,11 +18,6 @@ async def main():
     )
     tds = TDS()
     mm = MediaManager(server=tds)
-    ss = SpotifyService(media_manager=mm)
-    await mm.set_spotify_player(ss)
-    rp = RadioPlayer(media_manager=mm)
-    await mm.set_radio_player(rp)
-    await mm.load_default_media_player()
     weather = WeatherService(server=tds)
     vehicle = Vehicle(
         os.getenv(key="VIN"),
@@ -41,8 +34,10 @@ async def main():
 
     t1 = asyncio.create_task(telemetry.start())
     t2 = asyncio.create_task(tds.start())
+    t3 = mm.get_run_task()
+    t4 = weather.get_run_task()
 
-    await asyncio.gather(t1, t2)
+    await asyncio.gather(t1, t2, t3, t4)
 
 
 def main_sync():
