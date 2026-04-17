@@ -64,11 +64,13 @@ void MainWeather::updateForecastData(const QVector<quint8> &times, const QVector
     emit updatePrecipitation(precipitations[0], 69);
     emit updateTotalCloudCover(cloudcovers[0], 69);
 
-    for (int i = 0; i < 5; i++) {
-        emit updateTime(times[i], i);
-        emit updateTemperature(temperatures[i], i);
-        emit updateWindSpeed(windspeeds[i], i);
-        emit updatePrecipitation(precipitations[i], i);
-        emit updateTotalCloudCover(cloudcovers[i], i);
+    // entries 1..5 are the 5 forecast hours; entry 0 is the current-hour observation
+    // already emitted above for CurrentWeatherCard
+    for (int i = 1; i <= 5; i++) {
+        emit updateTime(times[i], i - 1);
+        emit updateTemperature(temperatures[i], i - 1);
+        emit updateWindSpeed(windspeeds[i], i - 1);
+        emit updatePrecipitation(precipitations[i], i - 1);
+        emit updateTotalCloudCover(cloudcovers[i], i - 1);
     }
 }
