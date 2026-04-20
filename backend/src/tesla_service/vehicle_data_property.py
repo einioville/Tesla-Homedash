@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from sympy import symbols, sympify
 from influxdb_client import Point, WritePrecision
 import datetime
@@ -8,6 +9,8 @@ import struct
 from zoneinfo import ZoneInfo
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
+
+logger = logging.getLogger("tesla_service.vehicle_data_property")
 
 
 class VehicleDataProperty:
@@ -60,6 +63,7 @@ class VehicleDataProperty:
                     self._value = value
             if timestamp is not None:
                 self.__timestamp = timestamp
+            logger.debug("Property updated: %s = %s", self.__id, self._value)
 
     async def get_value(self):
         async with self._async_lock:
@@ -109,7 +113,7 @@ class VehicleDataProperty:
                     point = point.field(self.__value_type, self._value)
                 return point
             except Exception as e:
-                print(e)
+                logger.error("Failed to create InfluxDB point for %s: %s", self.__id, e)
                 return
 
     async def get_as_json(self) -> str:
@@ -220,6 +224,7 @@ class CalculatedVehicleDataProperty(VehicleDataProperty):
                 self.update_calculate_value,
                 trigger=CronTrigger(hour=0, minute=0, timezone=ZoneInfo(timezone)),
             )
+        logger.info("Scheduled %s reset for property: %s", self.__period, self._VehicleDataProperty__id)
 
     async def update_calculate_value(self) -> None:
         '''
@@ -250,6 +255,7 @@ class CalculatedVehicleDataProperty(VehicleDataProperty):
             if new_base is None:
                 # Still nothing — defer until the first telemetry reading arrives.
                 self.__unable_to_retrieve_value = True
+                logger.warning("Unable to retrieve baseline for %s, deferring", self._VehicleDataProperty__id)
                 return
 
             self.__calculate_value = new_base
@@ -297,6 +303,7 @@ class CalculatedVehicleDataProperty(VehicleDataProperty):
                 ).evalf()
             )
 
-        print(
-            f"\n\nCalculate value: {self.__calculate_value}\nOg value: {value}\nValue: {self._value}\n\n"
+        logger.debug(
+            "Calculated property updated: id=%s, base=%s, raw=%s, derived=%s",
+            self._VehicleDataProperty__id, self.__calculate_value, value, self._value
         )

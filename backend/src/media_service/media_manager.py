@@ -8,8 +8,12 @@ if TYPE_CHECKING:
     from .radio_player import RadioPlayer
     from .spotify_player import SpotifyPlayer
 
+import logging
+
 from ..tesla_service.tcp_server import TeslaDataServer
 from .base_media_player import BaseMediaPlayer
+
+logger = logging.getLogger("media_service.media_manager")
 
 
 class MediaManager:
@@ -34,22 +38,27 @@ class MediaManager:
         self.__server = server
 
     async def play(self) -> None:
+        logger.debug("Media command: play")
         if self.__active_player:
             await self.__active_player.play()
 
     async def pause(self) -> None:
+        logger.debug("Media command: pause")
         if self.__active_player:
             await self.__active_player.pause()
 
     async def pause_play(self) -> None:
+        logger.debug("Media command: pause_play")
         if self.__active_player:
             await self.__active_player.pause_play()
 
     async def skip_forward(self) -> None:
+        logger.debug("Media command: skip_forward")
         if self.__active_player:
             await self.__active_player.skip_forward()
 
     async def skip_backward(self) -> None:
+        logger.debug("Media command: skip_backward")
         if self.__active_player:
             await self.__active_player.skip_backward()
 
@@ -58,6 +67,7 @@ class MediaManager:
             await self.__server.send_data(data=data)
 
     async def set_progress(self, progress_ms: int) -> None:
+        logger.debug("Media command: set_progress")
         if self.__active_player:
             await self.__active_player.set_progress(progress_ms=progress_ms)
 
@@ -71,6 +81,7 @@ class MediaManager:
         if self.__active_player and self.__active_player != player:
             await self.__active_player.stop()
         self.__active_player = player
+        logger.info("Media control claimed by %s", player.__class__.__name__)
         await self.__active_player.play()
         await self.__stream_media_type()
         await self.__active_player.stream_everything()
@@ -80,6 +91,7 @@ class MediaManager:
         Releases the current player and loads the default media player
         without starting playback.
         '''
+        logger.info("Playback released, loading default radio player")
         await self.load_default_media_player()
 
     async def load_default_media_player(self) -> None:
@@ -93,6 +105,7 @@ class MediaManager:
         await self.__radio_player.load_player()
         await self.__stream_media_type()
         await self.__active_player.stream_everything()
+        logger.info("Default radio player loaded")
 
     async def __stream_media_type(self) -> None:
         media_type = 0x01
@@ -116,6 +129,7 @@ class MediaManager:
         Starts the media manager: launches Spotify polling and loads the
         default media player ready for playback.
         '''
+        logger.info("MediaManager starting")
         await self.__spotify_player.run()
         await self.load_default_media_player()
 

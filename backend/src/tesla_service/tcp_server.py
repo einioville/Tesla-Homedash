@@ -9,6 +9,9 @@ if TYPE_CHECKING:
 import asyncio
 import struct
 import json
+import logging
+
+logger = logging.getLogger("tesla_service.tcp_server")
 
 
 class TeslaDataServer:
@@ -57,7 +60,8 @@ class TeslaDataServer:
         try:
             writer.write(message_stream)
             await writer.drain()
-        except (BrokenPipeError, ConnectionRefusedError):
+        except (BrokenPipeError, ConnectionRefusedError) as e:
+            logger.warning("Failed to send message to client, removing: %s", e)
             if writer in self.__active_connections:
                 self.__active_connections.pop(writer)
 
@@ -138,7 +142,7 @@ class TeslaDataServer:
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
     ) -> None:
         self.__active_connections[writer] = set()
-        print(writer.get_extra_info("peername"))
+        logger.info("Client connected: %s", writer.get_extra_info("peername"))
 
         await self.__media_manager.stream_everything()
 
@@ -169,6 +173,7 @@ class TeslaDataServer:
                     continue
 
                 if msg_type == TeslaDataServer.TESLA_SWITCH_CLIMATE_STATE:
+                    logger.info("Climate toggle command received")
                     await self.__vehicle.switch_climate_state()
                     continue
 
@@ -181,13 +186,16 @@ class TeslaDataServer:
                     continue
 
                 if msg_type == TeslaDataServer.MSG_TERMINATE:
+                    logger.info("Client termination message received")
                     break
 
             except Exception as e:
                 if writer in self.__active_connections:
                     self.__active_connections.pop(writer)
-                print(e)
+                logger.error("Client connection error: %s", e)
                 break
+
+        logger.info("Client disconnected")
 
     def set_vehicle(self, vehicle: Vehicle) -> None:
         self.__vehicle = vehicle
@@ -196,6 +204,7 @@ class TeslaDataServer:
         self.__media_manager = media_manager
 
     async def start(self) -> None:
+        logger.info("TCP data server starting on 0.0.0.0:6969")
         self.__server = await asyncio.start_server(
             self.__handle_connection, host="0.0.0.0", port=6969
         )

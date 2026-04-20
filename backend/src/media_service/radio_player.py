@@ -9,7 +9,7 @@ from ..utils.config_parser import ConfigUtils
 from .base_media_player import BaseMediaPlayer
 from .media_manager import MediaManager
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("media_service.radio_player")
 
 
 class RadioPlayer(BaseMediaPlayer):
@@ -130,6 +130,7 @@ class RadioPlayer(BaseMediaPlayer):
         Fetches the current channel stream and loads it into VLC
         without starting playback.
         '''
+        logger.info("Loading radio player for channel: %s", self.__channel)
         self.__intentional_stop = True
         self.__vlc_player.stop()
         self.__vlc_player.set_media(None)
@@ -146,6 +147,7 @@ class RadioPlayer(BaseMediaPlayer):
         self.__vlc_player.stop()
         self.__vlc_player.set_media(None)
         self.__intentional_stop = False
+        logger.debug("Radio player stopped")
 
     async def pause(self) -> None:
         self.__vlc_player.pause()
@@ -155,6 +157,7 @@ class RadioPlayer(BaseMediaPlayer):
         if not self.__vlc_player.get_media():
             await self.load_player()
         self.__vlc_player.play()
+        logger.debug("Radio playback started for channel: %s", self.__channel)
 
     async def pause_play(self) -> None:
         if self.__vlc_player.is_playing():
@@ -167,6 +170,7 @@ class RadioPlayer(BaseMediaPlayer):
         if self.__channel_index == len(self.__channels):
             self.__channel_index = 0
         self.__channel = self.__channels[self.__channel_index]
+        logger.info("Skipped to next channel: %s", self.__channel)
         await self.load_player()
         self.__vlc_player.play()
 
@@ -175,6 +179,7 @@ class RadioPlayer(BaseMediaPlayer):
         if self.__channel_index == -1:
             self.__channel_index = len(self.__channels) - 1
         self.__channel = self.__channels[self.__channel_index]
+        logger.info("Skipped to previous channel: %s", self.__channel)
         await self.load_player()
         self.__vlc_player.play()
 

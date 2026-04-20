@@ -11,7 +11,7 @@ from ..utils.config_parser import ConfigUtils
 from .base_media_player import BaseMediaPlayer
 from .media_manager import MediaManager
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("media_service.spotify_player")
 
 _FAILED = object()
 
@@ -60,6 +60,7 @@ class SpotifyPlayer(BaseMediaPlayer):
             seconds=self._POLL_IDLE,
             id="spotify_updater",
         )
+        logger.info("SpotifyPlayer polling started, interval=%ds", self._POLL_IDLE)
 
     # ── Spotify API helper ────────────────────────────────────────
 
@@ -75,7 +76,7 @@ class SpotifyPlayer(BaseMediaPlayer):
                 None, lambda: func(*args, **kwargs)
             )
         except Exception:
-            logger.debug("Spotify API call %s failed", func.__name__)
+            logger.error("Spotify API call failed: %s", func.__name__)
             return _FAILED
 
     async def _cooldown(self) -> None:
@@ -184,7 +185,10 @@ class SpotifyPlayer(BaseMediaPlayer):
             return
 
         device = playback["device"]
-        self._current_device_id = device["id"]
+        new_device_id = device["id"]
+        if new_device_id != self._current_device_id:
+            logger.debug("Spotify playback device changed: %s", new_device_id)
+        self._current_device_id = new_device_id
         self._is_playing = playback["is_playing"]
 
         item = playback["item"]
@@ -198,16 +202,19 @@ class SpotifyPlayer(BaseMediaPlayer):
         on_target = self._current_device_id == self._target_device_id
 
         if on_target and not self._claimed:
+            logger.info("Spotify device on target, claiming media control: %s", self._current_device_id)
             self._claimed = True
             await self._media_manager.claim_media_control(player=self)
             self._set_poll_interval(self._POLL_ACTIVE)
         elif not on_target and self._claimed:
+            logger.info("Spotify device left target, releasing playback: %s", self._current_device_id)
             await self._media_manager.release_playback()
             self._claimed = False
             self._set_poll_interval(self._POLL_IDLE)
 
         if self._claimed:
             if song_changed:
+                logger.info("Track changed: %s", item.get('name'))
                 await self._stream_name()
                 await self._stream_artists()
                 await self._stream_duration()
@@ -219,6 +226,7 @@ class SpotifyPlayer(BaseMediaPlayer):
         self._scheduler.reschedule_job(
             job_id="spotify_updater", trigger="interval", seconds=seconds
         )
+        logger.debug("Spotify poll interval set to %ds", seconds)
 
     # ── Streaming ─────────────────────────────────────────────────
 

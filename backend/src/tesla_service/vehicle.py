@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from ..utils.config_parser import ConfigUtils
 from .vehicle_data_property import VehicleDataProperty, CalculatedVehicleDataProperty
 from ..influxdb_service.influxdb_handler import InfluxDBHandler
@@ -7,6 +8,8 @@ from json import dumps
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import aiohttp
 from datetime import datetime, timedelta
+
+logger = logging.getLogger("tesla_service.vehicle")
 
 
 class Vehicle:
@@ -41,10 +44,12 @@ class Vehicle:
                 formula=config["formula"],
                 log=config["log"],
             )
+        logger.debug("Loaded %d vehicle data properties", len(self.__data))
 
     async def init_async_dependent(self) -> None:
         self.__scheduler = AsyncIOScheduler()
         self.__scheduler.start()
+        logger.info("Vehicle async dependencies initialized, scheduler started")
         calculated_data_property_config = ConfigUtils.get_config()[
             "calculated tesla data"
         ]
@@ -100,7 +105,7 @@ class Vehicle:
                 if data_property_id not in self.__data:
                     continue
 
-                print(f"{data_property_id} - {value}")
+                logger.debug("Telemetry update: %s = %s", data_property_id, value)
 
                 data_property = self.__data[data_property_id]
 
@@ -204,13 +209,14 @@ class Vehicle:
 
     async def switch_climate_state(self) -> None:
         if self.__requests_used > 4:
+            logger.warning("Climate control rate limited: %d requests used", self.__requests_used)
             return
 
         data_property = await self.get_data_property("HvacPower")
         value = await data_property.get_value()
         await data_property.update("HvacPowerStatePending", 1)
         await self.stream_data_property(data_property)
-        print(value)
+        logger.debug("HVAC state value: %s", value)
         operation = ""
 
         if value == "HvacPowerStateOn":
@@ -220,6 +226,7 @@ class Vehicle:
         else:
             return
 
+        logger.info("Climate switch requested: %s", operation)
         async with aiohttp.ClientSession() as session:
             async with session.post(
                 url=f"https://api.teslemetry.com/api/1/vehicles/{self.__vin}/command/{operation}",
@@ -229,6 +236,8 @@ class Vehicle:
             ) as response:
                 if response.status == 200:
                     self.__requests_used += 1
+                else:
+                    logger.error("Climate API call failed: status %d", response.status)
 
         if self.__temperature_updated:
             await self.update_temperature()
@@ -246,6 +255,7 @@ class Vehicle:
     async def update_temperature(self) -> None:
         data_property = await self.get_data_property("HvacLeftTemperatureRequest")
         value = await data_property.get_value()
+        logger.info("Temperature update requested: driver=%.1f°C", float(value))
 
         async with aiohttp.ClientSession() as session:
             async with session.post(
@@ -257,6 +267,8 @@ class Vehicle:
             ) as response:
                 if response.status == 200:
                     self.__requests_used += 1
+                else:
+                    logger.error("Temperature API call failed: status %d", response.status)
 
         self.__temperature_updated = False
 
@@ -268,6 +280,7 @@ class Vehicle:
         value_left -= 0.5
 
         if value_left < 15.0:
+            logger.warning("Temperature decrease blocked: minimum 15.0°C reached")
             return
 
         await left.update(value_left, None)
@@ -285,6 +298,7 @@ class Vehicle:
         value_left += 0.5
 
         if value_left > 28.0:
+            logger.warning("Temperature increase blocked: maximum 28.0°C reached")
             return
 
         await left.update(value_left, None)

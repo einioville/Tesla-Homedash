@@ -1,7 +1,10 @@
 from influxdb_client.client.influxdb_client_async import InfluxDBClientAsync
+import logging
 import numpy as np
 from datetime import datetime
 from ..utils.config_parser import ConfigUtils
+
+logger = logging.getLogger("influxdb_service.influxdb_handler")
 
 
 class InfluxDBHandler:
@@ -11,6 +14,7 @@ class InfluxDBHandler:
         self.__org = org
         self.__client = InfluxDBClientAsync(url=url, token=self.__token, org=org)
         self.__bucket = "data"
+        logger.info("InfluxDB handler initialized: url=%s, org=%s", url, org)
 
     async def connected(self) -> bool:
         return await self.__client.ping()
@@ -19,6 +23,7 @@ class InfluxDBHandler:
         await self.__client.close()
 
     async def restart(self) -> None:
+        logger.warning("Restarting InfluxDB client connection")
         await self.close()
         self.__client = InfluxDBClientAsync(
             url=self.__url, token=self.__token, org=self.__org
@@ -62,10 +67,11 @@ class InfluxDBHandler:
         query += '\n  |> keep(columns: ["_time", "_value"])'
 
         result = await self.__client.query_api().query(query=query)
+        logger.debug("Query returned results for property: %s", data_property_id)
 
         if len(result) > 1:
             raise Exception("There was more than one table")
-        
+
         if len(result) == 0:
             return None
 
@@ -82,48 +88,58 @@ class InfluxDBHandler:
         valid_points = [p for p in points if p is not None]
         if len(valid_points) == 0:
             return True
-        return await self.__client.write_api().write(bucket="data", record=valid_points)
+        try:
+            result = await self.__client.write_api().write(bucket="data", record=valid_points)
+            logger.info("Wrote %d points to InfluxDB", len(valid_points))
+            return result
+        except Exception as e:
+            logger.error("Failed to write points to InfluxDB: %s", e)
+            raise
     
     async def read_first_value_day(self, data_property_id: str):
         current_day = datetime.now().astimezone().replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
-        
+
         query = f'from(bucket:"{self.__bucket}")'
         query += f'\n  |> range(start: {current_day})'
         query += '\n  |> filter(fn: (r) => r["_measurement"] == "tesla_data")'
         query += f'\n  |> filter(fn: (r) => r["id"] == "{data_property_id}")'
         query += '\n  |> keep(columns: ["_time", "_value"])'
         query += '\n  |> first()'
-        
+
         result = await self.__client.query_api().query(query=query)
-        
+
         if len(result) > 1:
             raise Exception("There was more than one table")
-        
+
         if len(result) == 0:
             return None
-        
+
         table = result[0]
-        
-        return table.records[0].get_value()
+
+        value = table.records[0].get_value()
+        logger.debug("First value of day for %s: %s", data_property_id, value)
+        return value
     
     async def read_first_value_month(self, data_property_id: str):
         current_day = datetime.now().astimezone().replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
-        
+
         query = f'from(bucket:"{self.__bucket}")'
         query += f'\n  |> range(start: {current_day})'
         query += '\n  |> filter(fn: (r) => r["_measurement"] == "tesla_data")'
         query += f'\n  |> filter(fn: (r) => r["id"] == "{data_property_id}")'
         query += '\n  |> keep(columns: ["_time", "_value"])'
         query += '\n  |> first()'
-        
+
         result = await self.__client.query_api().query(query=query)
-        
+
         if len(result) > 1:
             raise Exception("There was more than one table")
-        
+
         if len(result) == 0:
             return None
-        
+
         table = result[0]
-        
-        return table.records[0].get_value()
+
+        value = table.records[0].get_value()
+        logger.debug("First value of month for %s: %s", data_property_id, value)
+        return value
