@@ -19,13 +19,13 @@ public:
 public slots:
     void updateTime(quint8 time, int id);
 
-    void updateTemperature(double value, int id);
+    void updateTemperature(qint8 value, int id);
 
-    void updateWindSpeed(double value, int id);
+    void updateWindSpeed(quint8 value, int id);
 
-    void updatePrecipitation(double value, int id);
+    void updatePrecipitation(quint8 value, int id);
 
-    void updateTotalCloudCover(double value, int id);
+    void updateTotalCloudCover(quint8 value, int id);
 
 private:
     QHBoxLayout *layout;

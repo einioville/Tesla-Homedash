@@ -22,18 +22,18 @@ public:
 signals:
     void updateTime(quint8 time, int id);
 
-    void updateTemperature(double value, int id);
+    void updateTemperature(qint8 value, int id);
 
-    void updateWindSpeed(double value, int id);
+    void updateWindSpeed(quint8 value, int id);
 
-    void updatePrecipitation(double value, int id);
+    void updatePrecipitation(quint8 value, int id);
 
-    void updateTotalCloudCover(double value, int id);
+    void updateTotalCloudCover(quint8 value, int id);
 
 public slots:
-    void updateForecastData(const QVector<quint8> &times, const QVector<double> &temperatures,
-                            const QVector<double> &windspeeds, const QVector<double> &precipitations,
-                            const QVector<double> &cloudcovers);
+    void updateForecastData(const QVector<quint8> &times, const QVector<qint8> &temperatures,
+                            const QVector<quint8> &windspeeds, const QVector<quint8> &precipitations,
+                            const QVector<quint8> &cloudcovers);
 
 private:
     QGridLayout *layout;

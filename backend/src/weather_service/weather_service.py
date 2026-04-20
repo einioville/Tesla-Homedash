@@ -14,7 +14,7 @@ from fmiopendata.wfs import download_stored_query
 from ..tesla_service.tcp_server import TeslaDataServer
 from ..utils.config_parser import ConfigUtils
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("weather_service.weather_service")
 
 
 class ForecastMeasurement:
@@ -119,6 +119,8 @@ class WeatherService:
         hour observation + upcoming forecast), then schedules periodic refreshes
         every 15 minutes.
         '''
+        logger.info("Weather service starting: place=%s", self.__place)
+        logger.info("Performing initial weather fetch")
         await self.__update_forecast()
         self.__scheduler.start()
         self.__scheduler.add_job(
@@ -138,11 +140,16 @@ class WeatherService:
         harmonie forecast, then broadcasts the merged result to all clients.
         Current hour comes from real measurements; later hours from model data.
         '''
+        logger.debug("Weather update cycle started")
         tz = ZoneInfo(self.__timezone)
         now_local = datetime.now(tz)
 
         observation = await self.__fetch_observation(now_local)
+        if observation is not None:
+            logger.info("Observation fetched successfully")
         forecast_hours = await self.__fetch_forecast(now_local)
+        if forecast_hours:
+            logger.info("Forecast fetched: %d hours", len(forecast_hours))
 
         forecasts: list[ForecastHour] = []
         if observation is not None:
@@ -150,6 +157,7 @@ class WeatherService:
         forecasts.extend(forecast_hours)
 
         if forecasts:
+            logger.info("Broadcasting weather forecast to clients")
             await self.__server.update_forecast(await self.__get_stream_data(forecasts))
 
     async def __fetch_observation(self, now_local: datetime) -> ForecastHour | None:
@@ -183,7 +191,7 @@ class WeatherService:
                 ),
             )
         except Exception:
-            logger.debug("FMI observation fetch failed for place=%s", self.__place)
+            logger.warning("FMI observation fetch failed for place=%s", self.__place)
             return None
 
         if not data or not data.data:
@@ -239,7 +247,7 @@ class WeatherService:
                 ),
             )
         except Exception:
-            logger.debug("FMI forecast fetch failed for place=%s", self.__place)
+            logger.warning("FMI forecast fetch failed for place=%s", self.__place)
             return []
 
         if not data or not data.data:
@@ -266,20 +274,20 @@ class WeatherService:
             forecast_data += struct.pack("!B", forecast.get_time())
 
             forecast_data += struct.pack("!B", WeatherService.FORECAST_TEMPERATURE)
-            forecast_data += struct.pack("!d", forecast.get_value("Air temperature"))
+            forecast_data += struct.pack("!b", round(forecast.get_value("Air temperature")))
 
             forecast_data += struct.pack("!B", WeatherService.FORECAST_WIND_SPEED)
-            forecast_data += struct.pack("!d", forecast.get_value("Wind speed"))
+            forecast_data += struct.pack("!B", round(forecast.get_value("Wind speed")))
 
             forecast_data += struct.pack("!B", WeatherService.FORECAST_PRECIPITATION)
             forecast_data += struct.pack(
-                "!d", forecast.get_value("Precipitation amount")
+                "!B", round(forecast.get_value("Precipitation amount"))
             )
 
             forecast_data += struct.pack(
                 "!B", WeatherService.FORECAST_TOTAL_CLOUD_COVER
             )
-            forecast_data += struct.pack("!d", forecast.get_value("Total cloud cover"))
+            forecast_data += struct.pack("!B", round(forecast.get_value("Total cloud cover")))
 
             data.append(forecast_data)
 

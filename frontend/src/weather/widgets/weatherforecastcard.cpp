@@ -118,28 +118,28 @@ void WeatherForecastCard::updateTime(quint8 time, int id) {
     this->time->setText(time_str);
 }
 
-void WeatherForecastCard::updatePrecipitation(double value, int id) {
+void WeatherForecastCard::updatePrecipitation(quint8 value, int id) {
     if (this->id != id) {
         return;
     }
     precipitation_value->setText(QString::number(value));
 }
 
-void WeatherForecastCard::updateTemperature(double value, int id) {
+void WeatherForecastCard::updateTemperature(qint8 value, int id) {
     if (this->id != id) {
         return;
     }
     temperature_value->setText(QString::number(value));
 }
 
-void WeatherForecastCard::updateTotalCloudCover(double value, int id) {
+void WeatherForecastCard::updateTotalCloudCover(quint8 value, int id) {
     if (this->id != id) {
         return;
     }
     cloudcover_value->setText(QString::number(value));
 }
 
-void WeatherForecastCard::updateWindSpeed(double value, int id) {
+void WeatherForecastCard::updateWindSpeed(quint8 value, int id) {
     if (this->id != id) {
         return;
     }

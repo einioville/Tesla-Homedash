@@ -21,9 +21,9 @@ public slots:
     void onMainForecastUpdate(const QByteArray &packet);
 
 signals:
-    void onMainWeatherUpdate(const QVector<quint8> &times, const QVector<double> &temperatures,
-                             const QVector<double> &windspeeds, const QVector<double> &precipitations,
-                             const QVector<double> &cloudcovers);
+    void onMainWeatherUpdate(const QVector<quint8> &times, const QVector<qint8> &temperatures,
+                             const QVector<quint8> &windspeeds, const QVector<quint8> &precipitations,
+                             const QVector<quint8> &cloudcovers);
 };
 
 #endif //GUI_WEATHERDATAHANDLER_HH

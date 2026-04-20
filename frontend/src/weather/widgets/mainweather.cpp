@@ -50,9 +50,9 @@ MainWeather::MainWeather(QWidget *parent) {
     setGraphicsEffect(shadow);
 }
 
-void MainWeather::updateForecastData(const QVector<quint8> &times, const QVector<double> &temperatures,
-                                     const QVector<double> &windspeeds, const QVector<double> &precipitations,
-                                     const QVector<double> &cloudcovers) {
+void MainWeather::updateForecastData(const QVector<quint8> &times, const QVector<qint8> &temperatures,
+                                     const QVector<quint8> &windspeeds, const QVector<quint8> &precipitations,
+                                     const QVector<quint8> &cloudcovers) {
     if (times.size() < 6 || temperatures.size() < 6 || windspeeds.size() < 6 || precipitations.size() < 6 || cloudcovers
         .size() < 5) {
         return;

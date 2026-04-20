@@ -16,8 +16,8 @@ backend/
       vehicle_data_property.py  # VehicleDataProperty / CalculatedVehicleDataProperty — per-field state, formula eval, binary serialization
     media_service/
       base_media_player.py      # Abstract base for media players
-      media_manager.py          # MediaManager orchestrator — routes controls between Spotify and Radio
-      spotify_service.py        # Spotify Web API polling + playback controls via spotipy
+      media_manager.py          # MediaManager orchestrator — owns both players, routes controls, exposes get_run_task()
+      spotify_player.py         # Spotify Web API polling + playback controls via spotipy; run() starts APScheduler loop
       radio_player.py           # VLC-based internet radio playback (Nelonen Media stations)
     weather_service/
       weather_service.py        # FMI Open Data WFS polling for Tampere weather forecast
@@ -170,10 +170,10 @@ payload[1..N-1] = type-specific data
 ### Weather forecast sub-IDs
 | Byte | Field | Format |
 |------|-------|--------|
-| `0x31` | Temperature | `double(8B)` |
-| `0x32` | Wind speed | `double(8B)` |
-| `0x33` | Precipitation | `double(8B)` |
-| `0x34` | Cloud cover | `double(8B)` |
+| `0x31` | Temperature | `int8(1B)` — rounded °C, signed |
+| `0x32` | Wind speed | `uint8(1B)` — rounded m/s |
+| `0x33` | Precipitation | `uint8(1B)` — rounded mm |
+| `0x34` | Cloud cover | `uint8(1B)` — rounded % (or oktas) |
 | `0x35` | Time (hour) | `uint8(1B)` |
 
 ### Adding a new telemetry field
@@ -293,7 +293,7 @@ User clicks control → build packet → ServerClient.onSendMessageRequest() →
 `CalculatedVehicleDataProperty` (e.g., DrivenToday, DrivenThisMonth) derives values from a source property using a formula like `y - x` where `x` is the first reading of the period (fetched from InfluxDB) and `y` is the latest value. APScheduler resets the base value at midnight / month start.
 
 ### Media player hierarchy
-`MediaManager` orchestrates between `RadioPlayer` (default, VLC-based) and `SpotifyService`. Radio is loaded by default but does not auto-play. When Spotify detects playback on the target device, it calls `claim_media_control()` which stops radio, switches the active player, and auto-plays. When Spotify playback stops or moves to another device, it calls `release_playback()` which loads radio without starting playback.
+`MediaManager` owns and initialises both `RadioPlayer` and `SpotifyPlayer` directly in its `__init__` (deferred local imports avoid the circular import). Call `get_run_task()` to get an asyncio Task that starts the manager: it invokes `SpotifyPlayer.run()` (which starts the APScheduler polling loop) then `load_default_media_player()` (loads radio without auto-play). Radio is the default player. When Spotify's poller detects playback on the target device it calls `claim_media_control()`, which stops radio, switches the active player, and starts playback. When Spotify playback stops or moves to another device it calls `release_playback()`, which reloads radio without starting playback.
 
 ### Frontend architecture
 Both frontends (Widgets and QML prototype) use the same binary protocol. The Widgets version uses a signal/slot routing pattern: `ServerClient` emits packet-type signals → data handlers deserialize → data handlers emit per-field signals → widgets receive updates. The QML prototype collapses this into a single `BackendBridge` class with Q_PROPERTY bindings.

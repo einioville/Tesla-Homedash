@@ -21,10 +21,10 @@ void WeatherDataHandler::onMainForecastUpdate(const QByteArray &packet) {
     QIODevice *device = stream.device();
 
     QVector<quint8> times;
-    QVector<double> temperatures;
-    QVector<double> windspeeds;
-    QVector<double> precipitations;
-    QVector<double> cloudcovers;
+    QVector<qint8> temperatures;
+    QVector<quint8> windspeeds;
+    QVector<quint8> precipitations;
+    QVector<quint8> cloudcovers;
 
     while (true) {
         if (device->bytesAvailable() == 0) {
@@ -42,25 +42,25 @@ void WeatherDataHandler::onMainForecastUpdate(const QByteArray &packet) {
                 break;
 
             case 0x31:
-                double temperature;
+                qint8 temperature;
                 stream >> temperature;
                 temperatures.push_back(temperature);
                 break;
 
             case 0x32:
-                double windspeed;
+                quint8 windspeed;
                 stream >> windspeed;
                 windspeeds.push_back(windspeed);
                 break;
 
             case 0x33:
-                double precipitation;
+                quint8 precipitation;
                 stream >> precipitation;
                 precipitations.push_back(precipitation);
                 break;
 
             case 0x34:
-                double cloudcover;
+                quint8 cloudcover;
                 stream >> cloudcover;
                 cloudcovers.push_back(cloudcover);
                 break;
