@@ -37,6 +37,8 @@ class TeslaDataServer:
     TESLA_MINUS_TARGET_TEMP = 0x61
     TESLA_PLUS_TARGET_TEMP = 0x62
 
+    MAX_MSG_SIZE = 1024 * 1024  # 1 MB — reject oversized packets to prevent OOM
+
     def __init__(self, vehicle: Vehicle = None, media_manager: MediaManager = None):
         self.__vehicle = vehicle
         self.__media_manager = media_manager
@@ -44,6 +46,8 @@ class TeslaDataServer:
 
     async def __recv_message(self, reader: asyncio.StreamReader) -> tuple:
         msg_len = struct.unpack("!I", await reader.readexactly(4))[0]
+        if msg_len == 0 or msg_len > TeslaDataServer.MAX_MSG_SIZE:
+            raise ValueError(f"Invalid message size: {msg_len}")
 
         body = await reader.readexactly(msg_len)
         msg_type = body[0]
@@ -67,7 +71,7 @@ class TeslaDataServer:
 
     async def send_data(self, data: bytes) -> None:
         tasks = []
-        for client in self.__active_connections.keys():
+        for client in list(self.__active_connections.keys()):
             task = asyncio.create_task(coro=self.__send_message_stream(client, data))
             tasks.append(task)
         await asyncio.gather(*tasks)
@@ -86,7 +90,7 @@ class TeslaDataServer:
         message_stream = await self.__build_message_stream(data)
 
         send_tasks = []
-        for client in self.__active_connections.keys():
+        for client in list(self.__active_connections.keys()):
             send_task = asyncio.create_task(
                 coro=self.__send_message_stream(client, message_stream)
             )
@@ -107,7 +111,7 @@ class TeslaDataServer:
         message_stream = await self.__build_spotify_message_stream(data)
 
         send_tasks = []
-        for client in self.__active_connections.keys():
+        for client in list(self.__active_connections.keys()):
             send_task = asyncio.create_task(
                 coro=self.__send_message_stream(client, message_stream)
             )
@@ -130,7 +134,7 @@ class TeslaDataServer:
         message_stream = await self.__build_forecast_stream(data)
 
         send_tasks = []
-        for client in self.__active_connections.keys():
+        for client in list(self.__active_connections.keys()):
             send_task = asyncio.create_task(
                 coro=self.__send_message_stream(client, message_stream)
             )
@@ -148,10 +152,12 @@ class TeslaDataServer:
 
         while True:
             try:
-                msg_type, payload = await self.__recv_message(reader)
+                msg_type, payload = await asyncio.wait_for(
+                    self.__recv_message(reader), timeout=30.0
+                )
 
                 if msg_type == TeslaDataServer.MSG_JSON:
-                    await self.__parse_json(payload, writer)
+                    logger.warning("MSG_JSON received but not implemented, ignoring")
                     continue
 
                 if msg_type == TeslaDataServer.MEDIA_SKIP:
@@ -167,6 +173,9 @@ class TeslaDataServer:
                     continue
 
                 if msg_type == TeslaDataServer.MEDIA_SET_PROGRESS:
+                    if len(payload) < 4:
+                        logger.warning("MEDIA_SET_PROGRESS: payload too short (%d bytes)", len(payload))
+                        continue
                     await self.__media_manager.set_progress(
                         struct.unpack("!I", payload[:4])[0]
                     )
@@ -189,6 +198,11 @@ class TeslaDataServer:
                     logger.info("Client termination message received")
                     break
 
+            except asyncio.TimeoutError:
+                logger.warning("Client connection timed out, disconnecting")
+                if writer in self.__active_connections:
+                    self.__active_connections.pop(writer)
+                break
             except Exception as e:
                 if writer in self.__active_connections:
                     self.__active_connections.pop(writer)
