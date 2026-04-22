@@ -231,7 +231,7 @@ class Vehicle:
             async with session.post(
                 url=f"https://api.teslemetry.com/api/1/vehicles/{self.__vin}/command/{operation}",
                 headers={
-                    f'Authorization": "Bearer {self.__access_token}'
+                    "Authorization": f"Bearer {self.__access_token}"
                 },
             ) as response:
                 if response.status == 200:
@@ -261,7 +261,7 @@ class Vehicle:
             async with session.post(
                 url=f"https://api.teslemetry.com/api/1/vehicles/{self.__vin}/command/set_temps",
                 headers={
-                    f'Authorization": "Bearer {self.__access_token}'
+                    "Authorization": f"Bearer {self.__access_token}"
                 },
                 json={"driver_temp": float(value), "passenger_temp": float(value)},
             ) as response:
