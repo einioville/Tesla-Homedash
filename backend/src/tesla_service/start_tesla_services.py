@@ -19,9 +19,14 @@ async def main():
 
     load_dotenv()
 
+    vin = os.getenv("VIN")
+    api_key = os.getenv("API_KEY")
+    if not vin or not api_key:
+        raise RuntimeError("Required environment variables VIN and API_KEY must be set")
+
     influx_handler = InfluxDBHandler(
-        url="http://localhost:8086",
-        org="Tesla-Homedash",
+        url=os.getenv("INFLUX_URL", "http://localhost:8086"),
+        org=os.getenv("INFLUX_ORG", "Tesla-Homedash"),
     )
     logger.debug("InfluxDB handler initialized")
     tds = TDS()
@@ -31,17 +36,17 @@ async def main():
     weather = WeatherService(server=tds)
     logger.debug("Weather service initialized")
     vehicle = Vehicle(
-        os.getenv(key="VIN"),
+        vin,
         influx_db_handler=influx_handler,
         server=tds,
-        access_token=os.getenv("API_KEY"),
+        access_token=api_key,
     )
     logger.debug("Vehicle initialized")
     tds.set_vehicle(vehicle=vehicle)
     tds.set_media_manager(mm)
     await vehicle.init_async_dependent()
     telemetry = TelemetryHandler(
-        access_token=os.getenv("API_KEY"), server="eu.teslemetry.com", vehicle=vehicle
+        access_token=api_key, server="eu.teslemetry.com", vehicle=vehicle
     )
 
     t1 = asyncio.create_task(telemetry.start())
