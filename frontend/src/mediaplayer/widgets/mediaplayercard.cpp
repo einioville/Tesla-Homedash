@@ -227,7 +227,7 @@ void MediaplayerCard::updatePauseButton() {
 void MediaplayerCard::setBackgroundColor(const QPixmap *cover_art_image) {
     const QImage image = cover_art_image->scaled(100, 100, Qt::KeepAspectRatio, Qt::SmoothTransformation).toImage();
 
-    int k = 7;
+    int k = 5;
     QVector<QVector3D> samples;
     samples.reserve(10'000);
 
@@ -297,18 +297,23 @@ void MediaplayerCard::setBackgroundColor(const QPixmap *cover_art_image) {
         return a.count > b.count;
     });
 
-    QVector<QColor> result;
-    result.reserve(k);
+    QColor best_color;
+    float best_score = -1.0f;
 
-    for (const auto &c: info) {
-        result.emplace_back(
+    for (const auto &c : info) {
+        QColor color(
             std::clamp<int>(c.center.x(), 0, 255),
             std::clamp<int>(c.center.y(), 0, 255),
             std::clamp<int>(c.center.z(), 0, 255)
         );
+        float score = color.hsvSaturationF() * color.valueF();
+        if (score > best_score) {
+            best_score = score;
+            best_color = color;
+        }
     }
 
-    dominant_color = result[4];
+    dominant_color = best_color;
     update();
 }
 
@@ -322,10 +327,16 @@ void MediaplayerCard::paintEvent(QPaintEvent *event) {
     clip.addRoundedRect(rect(), 5, 5);
     painter.setClipPath(clip);
 
+    QColor bottom_color(
+        static_cast<int>(dominant_color.red() * 0.2),
+        static_cast<int>(dominant_color.green() * 0.2),
+        static_cast<int>(dominant_color.blue() * 0.2)
+    );
+
     QLinearGradient gradient(0, 0, 0, height());
     gradient.setColorAt(0.0, dominant_color);
     gradient.setColorAt(0.45, dominant_color);
-    gradient.setColorAt(1.0, Qt::black);
+    gradient.setColorAt(1.0, bottom_color);
 
     painter.fillRect(rect(), gradient);
 }
