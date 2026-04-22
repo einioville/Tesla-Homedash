@@ -1,8 +1,11 @@
 from influxdb_client.client.influxdb_client_async import InfluxDBClientAsync
 import logging
+import re
 import numpy as np
 from datetime import datetime
 from ..utils.config_parser import ConfigUtils
+
+_SAFE_ID = re.compile(r'^[A-Za-z0-9_\-]+$')
 
 logger = logging.getLogger("influxdb_service.influxdb_handler")
 
@@ -46,6 +49,9 @@ class InfluxDBHandler:
             raise ValueError(
                 "relative_time must be None when time_start and time_end are not None or vise versa"
             )
+
+        if not _SAFE_ID.match(data_property_id):
+            raise ValueError(f"Invalid data_property_id: {data_property_id!r}")
 
         query = f'from(bucket:"{self.__bucket}")'
 
@@ -97,6 +103,9 @@ class InfluxDBHandler:
             raise
     
     async def read_first_value_day(self, data_property_id: str):
+        if not _SAFE_ID.match(data_property_id):
+            raise ValueError(f"Invalid data_property_id: {data_property_id!r}")
+
         current_day = datetime.now().astimezone().replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
 
         query = f'from(bucket:"{self.__bucket}")'
@@ -121,6 +130,9 @@ class InfluxDBHandler:
         return value
     
     async def read_first_value_month(self, data_property_id: str):
+        if not _SAFE_ID.match(data_property_id):
+            raise ValueError(f"Invalid data_property_id: {data_property_id!r}")
+
         current_day = datetime.now().astimezone().replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
 
         query = f'from(bucket:"{self.__bucket}")'
