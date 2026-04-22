@@ -129,6 +129,24 @@ MediaplayerCard::MediaplayerCard(QWidget *parent) : QFrame(parent) {
     cover_shadow->setColor(QColor(0, 0, 0, 255));
     cover_art->setGraphicsEffect(cover_shadow);
 
+    auto apply_light_shadow = [](QWidget *widget) {
+        auto *effect = new QGraphicsDropShadowEffect(widget);
+        effect->setBlurRadius(6);
+        effect->setXOffset(0);
+        effect->setYOffset(0);
+        effect->setColor(QColor(0, 0, 0, 120));
+        widget->setGraphicsEffect(effect);
+    };
+
+    apply_light_shadow(title);
+    apply_light_shadow(artist);
+    apply_light_shadow(skip_backward_button);
+    apply_light_shadow(pause_play_button);
+    apply_light_shadow(skip_forward_button);
+    apply_light_shadow(progress_label);
+    apply_light_shadow(duration_label);
+    apply_light_shadow(slider);
+
     connect(slider, &QSlider::valueChanged, this, &MediaplayerCard::sliderMoved);
 }
 
