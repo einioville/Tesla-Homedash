@@ -32,4 +32,4 @@ class BaseMediaPlayer:
         pass
 
     async def stream_everything(self) -> None:
-        pass
+        raise NotImplementedError
