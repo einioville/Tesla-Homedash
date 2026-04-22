@@ -243,9 +243,7 @@ void MediaplayerCard::updatePauseButton() {
 }
 
 void MediaplayerCard::setBackgroundColor(const QPixmap *cover_art_image) {
-    const QImage image = cover_art_image->scaled(50, 50, Qt::KeepAspectRatio, Qt::SmoothTransformation)
-                                        .toImage()
-                                        .convertToFormat(QImage::Format_RGB888);
+    const QImage image = cover_art_image->toImage().convertToFormat(QImage::Format_RGB888);
 
     const int img_width = image.width();
     const int img_height = image.height();
@@ -285,8 +283,28 @@ void MediaplayerCard::setBackgroundColor(const QPixmap *cover_art_image) {
     std::mt19937 random_engine{69420};
     std::uniform_int_distribution<> distribution(0, samples.size() - 1);
 
-    for (int i = 0; i < k; i++) {
-        centers.push_back(samples[distribution(random_engine)]);
+    centers.push_back(samples[distribution(random_engine)]);
+    for (int i = 1; i < k; i++) {
+        QVector<float> distances(samples.size());
+        float total = 0.0f;
+        for (int j = 0; j < samples.size(); j++) {
+            float min_dist = std::numeric_limits<float>::max();
+            for (const QVector3D &c : centers) {
+                float d = (samples[j] - c).lengthSquared();
+                if (d < min_dist) min_dist = d;
+            }
+            distances[j] = min_dist;
+            total += min_dist;
+        }
+        std::uniform_real_distribution<float> real_dist(0.0f, total);
+        float threshold = real_dist(random_engine);
+        float cumulative = 0.0f;
+        int chosen = samples.size() - 1;
+        for (int j = 0; j < samples.size(); j++) {
+            cumulative += distances[j];
+            if (cumulative >= threshold) { chosen = j; break; }
+        }
+        centers.push_back(samples[chosen]);
     }
 
     QVector<int> counts(k, 0);
@@ -348,6 +366,13 @@ void MediaplayerCard::setBackgroundColor(const QPixmap *cover_art_image) {
             std::clamp<int>(c.center.z(), 0, 255)
         );
         float score = color.hsvSaturationF() * color.valueF();
+        const int hue = color.hsvHue();
+        if (hue != -1) {
+            if (hue >= 45 && hue <= 65)
+                score *= 0.2f;  // yellow (light or bright)
+            else if (hue >= 10 && hue <= 40 && color.valueF() < 0.60f)
+                score *= 0.2f;  // brown
+        }
         if (score > best_score) {
             best_score = score;
             best_color = color;
