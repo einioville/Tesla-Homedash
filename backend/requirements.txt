@@ -1,14 +1,3 @@
-APScheduler>=3.10,<4
-aiohttp>=3.9,<4
-fmiopendata>=0.4
-influxdb-client>=1.43,<2
-numpy>=1.26,<3
-python-dotenv>=1.0,<2
-python-vlc>=3.0,<4
-spotipy>=2.25.2,<3
-sympy>=1.12,<2
-teslemetry_stream
-
-# Optional UI plotting dependencies used by backend/src/ui/plot/dataplot.py
-# pyqtgraph>=0.13.7,<1
-# PySide6>=6.8,<7
+# This file is kept for reference only.
+# The project now uses uv. To install dependencies, run `uv sync` in backend/.
+# To regenerate this file (e.g. for Docker/CI without uv): uv export --no-hashes > requirements.txt

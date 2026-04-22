@@ -18,6 +18,7 @@ dependencies = [
     "spotipy>=2.25.2,<3",
     "sympy>=1.12,<2",
     "teslemetry_stream",
+    "aiocsv>=1.2,<2",
 ]
 
 [project.optional-dependencies]
@@ -32,3 +33,6 @@ tesla-homedash = "src.tesla_service.start_tesla_services:main_sync"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["src*"]
+
+[tool.uv]
+link-mode = "copy"
