@@ -106,6 +106,8 @@ class RadioPlayer(BaseMediaPlayer):
         Fetches the stream URL and image URL for the current channel
         from the Nelonen Media API.
         '''
+        self.__stream_url = None
+        self.__image_url = None
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(
@@ -116,14 +118,17 @@ class RadioPlayer(BaseMediaPlayer):
                     response.raise_for_status()
                     data = await response.json()
 
-            self.__stream_url = data["clip"]["playback"]["media"]["streamUrls"][
-                "audioHls"
-            ]["url"]
-            self.__image_url = data["clip"]["playback"]["media"]["images"]["square"][
-                "576x576"
-            ]
-        except Exception:
-            logger.debug("Failed to fetch radio station data for %s", self.__channel)
+            media = (
+                data.get("clip", {})
+                    .get("playback", {})
+                    .get("media", {})
+            )
+            self.__stream_url = media.get("streamUrls", {}).get("audioHls", {}).get("url")
+            self.__image_url = media.get("images", {}).get("square", {}).get("576x576")
+            if not self.__stream_url:
+                logger.warning("Nelonen API response missing streamUrls.audioHls.url for %s", self.__channel)
+        except Exception as e:
+            logger.warning("Failed to fetch radio station data for %s: %s: %s", self.__channel, type(e).__name__, e)
 
     async def load_player(self) -> None:
         '''
