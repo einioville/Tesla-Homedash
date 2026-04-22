@@ -225,21 +225,44 @@ void MediaplayerCard::updatePauseButton() {
 }
 
 void MediaplayerCard::setBackgroundColor(const QPixmap *cover_art_image) {
-    const QImage image = cover_art_image->scaled(100, 100, Qt::KeepAspectRatio, Qt::SmoothTransformation).toImage();
+    const QImage image = cover_art_image->scaled(50, 50, Qt::KeepAspectRatio, Qt::SmoothTransformation)
+                                        .toImage()
+                                        .convertToFormat(QImage::Format_RGB888);
 
+    const int img_width = image.width();
+    const int img_height = image.height();
     int k = 5;
     QVector<QVector3D> samples;
-    samples.reserve(10'000);
 
-    for (int y = 0; y < 100; y++) {
-        for (int x = 0; x < 100; x++) {
-            QColor color = image.pixelColor(x, y);
-            samples.emplace_back(color.red(), color.green(), color.blue());
+    auto scan = [&](bool vibrant_only) {
+        samples.clear();
+        for (int y = 0; y < img_height; y++) {
+            const uchar *line = image.constScanLine(y);
+            for (int x = 0; x < img_width; x++) {
+                const float r = line[x * 3];
+                const float g = line[x * 3 + 1];
+                const float b = line[x * 3 + 2];
+
+                if (vibrant_only) {
+                    const float max_c = std::max({r, g, b});
+                    const float min_c = std::min({r, g, b});
+                    const float v = max_c / 255.0f;
+                    const float s = (max_c > 0) ? (max_c - min_c) / max_c : 0.0f;
+                    if (s < 0.35f || v < 0.25f || v > 0.95f) continue;
+                }
+
+                samples.emplace_back(r, g, b);
+            }
         }
+    };
+
+    scan(true);
+    if (samples.size() < k) {
+        scan(false);
     }
 
     QVector<QVector3D> centers;
-    centers.reserve(5);
+    centers.reserve(k);
 
     std::mt19937 random_engine{69420};
     std::uniform_int_distribution<> distribution(0, samples.size() - 1);
@@ -254,7 +277,7 @@ void MediaplayerCard::setBackgroundColor(const QPixmap *cover_art_image) {
         QVector<QVector3D> new_centers(k, QVector3D(0, 0, 0));
         std::fill(counts.begin(), counts.end(), 0);
 
-        for (const QVector3D &pixel: samples) {
+        for (const QVector3D &pixel : samples) {
             float best_distance = std::numeric_limits<float>::max();
             int best_index = 0;
 
