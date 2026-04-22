@@ -75,8 +75,8 @@ class SpotifyPlayer(BaseMediaPlayer):
             return await self._loop.run_in_executor(
                 None, lambda: func(*args, **kwargs)
             )
-        except Exception:
-            logger.error("Spotify API call failed: %s", func.__name__)
+        except Exception as e:
+            logger.error("Spotify API call failed: %s — %s: %s", func.__name__, type(e).__name__, e)
             return _FAILED
 
     async def _cooldown(self) -> None:
@@ -153,6 +153,8 @@ class SpotifyPlayer(BaseMediaPlayer):
 
     async def set_progress(self, progress_ms: int) -> None:
         if not self._claimed:
+            return
+        if progress_ms < 0:
             return
         result = await self._call_spotify(
             self._spotify.seek_track,
