@@ -273,21 +273,23 @@ class WeatherService:
             forecast_data += struct.pack("!B", WeatherService.FORECAST_TIME)
             forecast_data += struct.pack("!B", forecast.get_time())
 
+            temp = max(-128, min(127, round(forecast.get_value("Air temperature"))))
             forecast_data += struct.pack("!B", WeatherService.FORECAST_TEMPERATURE)
-            forecast_data += struct.pack("!b", round(forecast.get_value("Air temperature")))
+            forecast_data += struct.pack("!b", temp)
 
+            wind = max(0, min(255, round(forecast.get_value("Wind speed"))))
             forecast_data += struct.pack("!B", WeatherService.FORECAST_WIND_SPEED)
-            forecast_data += struct.pack("!B", round(forecast.get_value("Wind speed")))
+            forecast_data += struct.pack("!B", wind)
 
+            precip = max(0, min(255, round(forecast.get_value("Precipitation amount"))))
             forecast_data += struct.pack("!B", WeatherService.FORECAST_PRECIPITATION)
-            forecast_data += struct.pack(
-                "!B", round(forecast.get_value("Precipitation amount"))
-            )
+            forecast_data += struct.pack("!B", precip)
 
+            cloud = max(0, min(255, round(forecast.get_value("Total cloud cover"))))
             forecast_data += struct.pack(
                 "!B", WeatherService.FORECAST_TOTAL_CLOUD_COVER
             )
-            forecast_data += struct.pack("!B", round(forecast.get_value("Total cloud cover")))
+            forecast_data += struct.pack("!B", cloud)
 
             data.append(forecast_data)
 
