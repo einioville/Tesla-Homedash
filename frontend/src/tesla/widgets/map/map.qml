@@ -22,8 +22,10 @@ Item {
     }
 
     Behavior on rotation {
-        NumberAnimation {
-            duration: 999; easing.type: Easing.Linear
+        RotationAnimation {
+            duration: 999
+            easing.type: Easing.Linear
+            direction: RotationAnimation.Shortest
         }
     }
 
