@@ -91,30 +91,48 @@ class VehicleDataProperty:
 
     async def get_influxdb_point(self) -> Point:
         async with self._async_lock:
-            if self._value is None or self.__timestamp is None:
-                return
-            try:
-                point = (
-                    Point("tesla_data")
-                    .tag("vin", self._vehicle.vin)
-                    .tag("category", self.__category)
-                    .tag("id", self.__id)
-                    .time(
-                        datetime.datetime.fromtimestamp(
-                            self.__timestamp / 1000, tz=timezone.utc
-                        ),
-                        WritePrecision.MS,
-                    )
+            return self.__build_point_unlocked(self.__timestamp)
+
+    async def get_snapshot_point(self, timestamp_ms: int) -> Point:
+        '''
+        Builds an InfluxDB point from the current value stamped with the given
+        timestamp (ms since epoch, UTC) rather than the last telemetry event
+        time.  Used by the midnight snapshot job so there is always a record
+        at the start of the day/month for period-boundary queries.
+        Arguments:
+            timestamp_ms (int): Epoch milliseconds to tag the point with.
+        '''
+        async with self._async_lock:
+            return self.__build_point_unlocked(timestamp_ms)
+
+    def __build_point_unlocked(self, timestamp_ms) -> Point:
+        # Caller must hold _async_lock.
+        if self._value is None or timestamp_ms is None:
+            return
+        try:
+            point = (
+                Point("tesla_data")
+                .tag("vin", self._vehicle.vin)
+                .tag("category", self.__category)
+                .tag("id", self.__id)
+                .time(
+                    datetime.datetime.fromtimestamp(
+                        timestamp_ms / 1000, tz=timezone.utc
+                    ),
+                    WritePrecision.MS,
                 )
-                if self.__value_type == "value_dict":
-                    for key, value in self._value.items():
-                        point = point.field(key, value)
-                else:
-                    point = point.field(self.__value_type, self._value)
-                return point
-            except Exception as e:
-                logger.error("Failed to create InfluxDB point for %s: %s", self.__id, e)
-                return
+            )
+            if self.__value_type == "value_dict":
+                for key, value in self._value.items():
+                    point = point.field(key, value)
+            else:
+                point = point.field(self.__value_type, self._value)
+            return point
+        except (ValueError, TypeError, AttributeError) as e:
+            # Typical failures here: unsupported field type, None where not
+            # expected, malformed timestamp.  Anything else should surface.
+            logger.error("Failed to create InfluxDB point for %s: %s: %s", self.__id, type(e).__name__, e)
+            return
 
     async def get_as_json(self) -> str:
         async with self._async_lock:
@@ -166,7 +184,9 @@ class VehicleDataProperty:
 
             if self.__value_type == "value_bool":
                 value_type = struct.pack("!B", 2)
-                value = struct.pack("!B", self._value)
+                # Coerce to int: formula evaluation stores self._value as float
+                # even for bool fields, and struct.pack("!B", ...) rejects floats.
+                value = struct.pack("!B", int(bool(self._value)))
                 return stream_id + value_type + value + timestamp
 
             if self.__value_type == "value_dict":

@@ -189,8 +189,8 @@ When adding a new Tesla data property, **all four locations** must be updated in
 For the QML prototype, also update `frontend_prototype/src/backendbridge.{hh,cpp}` (add Q_PROPERTY, member, parser case).
 
 ### Adding a new command (frontend -> backend)
-1. Define a new message type constant in `backend/src/tesla_service/tcp_server.py` (class attribute)
-2. Add handler case in `TeslaDataServer.__handle_connection()`
+1. Define a new message type constant in `backend/src/utils/protocol.py`
+2. Add handler case in `TeslaDataServer.__handle_connection()`, dispatching on `protocol.<NAME>`
 3. In the frontend, send the packet via `QDataStream` (see `TeslaDataHandler::switchClimateState()` for example)
 
 ## TCP Server Invariants
@@ -198,7 +198,7 @@ These properties of the backend TCP server at `backend/src/tesla_service/tcp_ser
 
 - **No inactivity / receive timeout on client connections.** The frontend is display-only: it sends bytes to the backend **only** in response to user interactions (button clicks, slider releases). Long idle periods are normal and expected. Do NOT wrap `__recv_message()` in `asyncio.wait_for(..., timeout=...)` or add any equivalent read deadline — it will drop the client every idle window and cause the frontend to freeze for the duration of the reconnect interval. Broken connections surface naturally as `IncompleteReadError` / `ConnectionError` from `readexactly()`; no timer is needed.
   - If you need to detect truly dead peers (not just idle ones), use TCP keepalive flags on the socket (`SO_KEEPALIVE` + OS tunables) rather than an application-layer timeout. Do not require the client to send heartbeats.
-- **Broadcasts must never block on a single slow client.** All four send paths (`send_data`, `update_clients`, `update_spotify`, `update_forecast`) spawn one task per client and await them together. If you add per-write logic, do not remove this concurrency.
+- **Broadcasts must never block on a single slow client.** All three send paths (`send_data`, `update_clients`, `update_forecast`) spawn one task per client and await them together. If you add per-write logic, do not remove this concurrency.
 - **Snapshot `__active_connections` before iterating.** All send paths use `list(self.__active_connections.keys())`. Concurrent tasks pop entries on disconnect — iterating the live dict raises `RuntimeError`.
 - **Enforce `MAX_MSG_SIZE` on incoming messages.** The 1 MB cap in `__recv_message()` prevents OOM from malformed or hostile length prefixes.
 
@@ -260,29 +260,19 @@ No automated test suite exists yet. Validate changes manually:
 ## Known Bugs and Hotspots
 
 ### Bugs
-1. **Malformed Authorization header** in `backend/src/tesla_service/vehicle.py` lines 223-225 and 250-252. The header dict uses an f-string that embeds quotes incorrectly:
-   ```python
-   # BROKEN — produces key: 'Authorization"' value: '"Bearer xxx'
-   headers={f'Authorization": "Bearer {self.__access_token}'}
-   # SHOULD BE:
-   headers={"Authorization": f"Bearer {self.__access_token}"}
-   ```
-   This affects `switch_climate_state()` and `update_temperature()` — API calls silently fail auth.
-
-2. **Switch fall-through in `frontend/src/tesla/datahandler/tesladatahandler.cpp`**. Three `case` blocks are missing `break` statements:
+1. **Switch fall-through in `frontend/src/tesla/datahandler/tesladatahandler.cpp`**. Three `case` blocks are missing `break` statements:
    - Line 49: `case 3` (ChargeAmps) falls through to `case 5` (ChargeLimitSoc)
    - Line 177: `case 4` (BMSState) falls through to `case 9` (DetailedChargeState)
    - Line 236: `case 20` (Locked) falls through to `case 26` (VehicleOnline)
 
-3. **HVAC state parsing in QML prototype** (`frontend_prototype/src/backendbridge.cpp` line 296). The code checks for `"on"/"true"/"1"` but the backend sends `"HvacPowerStateOn"/"HvacPowerStateOff"/"HvacPowerStatePending"` — HVAC will never show as enabled in the prototype.
+2. **HVAC state parsing in QML prototype** (`frontend_prototype/src/backendbridge.cpp` line 296). The code checks for `"on"/"true"/"1"` but the backend sends `"HvacPowerStateOn"/"HvacPowerStateOff"/"HvacPowerStatePending"` — HVAC will never show as enabled in the prototype.
 
 ### Fragile Patterns
-- **`ConfigUtils.get_config()`** re-reads and re-parses `config.json` on every call. Same with `get_env()` calling `load_dotenv()` each time. Works but wasteful — consider caching if this becomes a bottleneck.
-- **Weather service** (`weather_service.py`) runs on a cron schedule (every 15 min) but does **not push an initial forecast** on startup. New clients get no weather data until the next cron tick.
-- **`TeslaDataServer` and `MediaManager`** both define identical `MEDIA_*` constants — keep them in sync or extract to a shared location.
-- **InfluxDB Flux queries** in `influxdb_handler.py` use f-string interpolation for `data_property_id`. Currently safe (values come from config), but would be injection-vulnerable if user input ever reached these paths.
+- **Protocol constants live in `backend/src/utils/protocol.py`** — the single source of truth for message-type bytes, weather sub-IDs, and the `MAX_MSG_SIZE` cap. Both `TeslaDataServer` and `MediaManager` import from it. When adding a new message type, add the constant there (not on a class) so both sides stay consistent.
+- **InfluxDB Flux queries** in `influxdb_handler.py` use f-string interpolation for `data_property_id` (gated by the `_SAFE_ID` regex `^[A-Za-z0-9_\-]+$`). Currently safe, but would be injection-vulnerable if any non-config input reached these paths — keep the regex guard in place.
 - **Spotify `_current_device_id` vs `_target_device_id`** comparison drives the claim/release logic. If the target device ID in `config.json` is wrong, Spotify controls will silently not work.
 - **HVAC rate limiting** (`vehicle.py` `__requests_used`): the counter is in-memory and resets on process restart. The threshold check (`> 4`) blocks at request 5, while the scheduler is set at request 4 — the 5th request is blocked but never scheduled for reset.
+- **Midnight snapshot job** in `Vehicle.init_async_dependent()` writes the current value of every logged data property to InfluxDB at 00:00 local time. This guarantees `read_first_value_day` / `read_first_value_month` always return a baseline so that `CalculatedVehicleDataProperty` (DrivenToday, DrivenThisMonth, etc.) never starts the period at `None`. If you change the set of logged fields, this job automatically picks up the change on the next tick.
 
 ## Architecture Notes
 

@@ -124,6 +124,8 @@ class InfluxDBHandler:
             return None
 
         table = result[0]
+        if not table.records:
+            return None
 
         value = table.records[0].get_value()
         logger.debug("First value of day for %s: %s", data_property_id, value)
@@ -151,6 +153,8 @@ class InfluxDBHandler:
             return None
 
         table = result[0]
+        if not table.records:
+            return None
 
         value = table.records[0].get_value()
         logger.debug("First value of month for %s: %s", data_property_id, value)

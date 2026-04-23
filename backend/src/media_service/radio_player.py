@@ -5,6 +5,7 @@ import struct
 import aiohttp
 import vlc
 
+from ..utils import protocol
 from ..utils.config_parser import ConfigUtils
 from .base_media_player import BaseMediaPlayer
 from .media_manager import MediaManager
@@ -98,8 +99,8 @@ class RadioPlayer(BaseMediaPlayer):
         try:
             await self.load_player()
             self.__vlc_player.play()
-        except Exception:
-            logger.debug("Failed to reload radio stream")
+        except (aiohttp.ClientError, asyncio.TimeoutError, OSError) as e:
+            logger.debug("Failed to reload radio stream: %s: %s", type(e).__name__, e)
 
     async def __fetch_radio_station(self) -> None:
         '''
@@ -127,7 +128,8 @@ class RadioPlayer(BaseMediaPlayer):
             self.__image_url = media.get("images", {}).get("square", {}).get("576x576")
             if not self.__stream_url:
                 logger.warning("Nelonen API response missing streamUrls.audioHls.url for %s", self.__channel)
-        except Exception as e:
+        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as e:
+            # ValueError covers JSON decode errors from response.json()
             logger.warning("Failed to fetch radio station data for %s: %s: %s", self.__channel, type(e).__name__, e)
 
     async def load_player(self) -> None:
@@ -197,22 +199,22 @@ class RadioPlayer(BaseMediaPlayer):
                     if response.status != 200:
                         return None
                     return await response.read()
-        except Exception:
-            logger.debug("Failed to download radio channel image")
+        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+            logger.debug("Failed to download radio channel image: %s: %s", type(e).__name__, e)
             return None
 
     async def __stream_channel_image(self) -> None:
         image_data = await self.__download_image()
         if image_data is None:
             return
-        msg_type = struct.pack("!B", MediaManager.MEDIA_STREAM_IMAGE)
+        msg_type = struct.pack("!B", protocol.MEDIA_STREAM_IMAGE)
         packet = (
             struct.pack("!I", len(msg_type) + len(image_data)) + msg_type + image_data
         )
         await self._media_manager.stream_data(data=packet, player=self)
 
     async def __stream_channel_name(self) -> None:
-        msg_type = struct.pack("!B", MediaManager.MEDIA_STREAM_NAME)
+        msg_type = struct.pack("!B", protocol.MEDIA_STREAM_NAME)
         payload = self.__channel.encode("utf-8")
         payload_length = struct.pack("!H", len(payload))
         packet = (
@@ -224,7 +226,7 @@ class RadioPlayer(BaseMediaPlayer):
         await self._media_manager.stream_data(data=packet, player=self)
 
     async def __stream_play_state(self) -> None:
-        msg_type = struct.pack("!B", MediaManager.MEDIA_IS_PLAYING)
+        msg_type = struct.pack("!B", protocol.MEDIA_IS_PLAYING)
         payload = struct.pack("!B", self.__vlc_player.is_playing())
         packet = struct.pack("!I", len(msg_type) + len(payload)) + msg_type + payload
         await self._media_manager.stream_data(data=packet, player=self)

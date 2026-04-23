@@ -1,28 +1,42 @@
 from .telemetry import TelemetryHandler
 from .vehicle import Vehicle
 from ..influxdb_service.influxdb_handler import InfluxDBHandler
-from dotenv import load_dotenv
 import os
 import asyncio
 import logging
 from .tcp_server import TeslaDataServer as TDS
 from ..media_service.media_manager import MediaManager
 from ..weather_service.weather_service import WeatherService
+from ..utils.config_parser import ConfigUtils
 from ..utils.logger_configurator import configure_logging
 
 logger = logging.getLogger("tesla_service.start_tesla_services")
+
+# Env vars required before any service is constructed.  Missing any of these
+# produces surprising mid-startup failures (spotipy NoneType errors, Influx
+# auth 401s), so we fail fast with one clear message instead.
+REQUIRED_ENV_VARS = (
+    "CONFIG_PATH",
+    "VIN",
+    "API_KEY",
+    "INFLUX_TOKEN",
+    "SPOTIFY_CLIENT_ID",
+    "SPOTIFY_CLIENT_SECRET",
+)
 
 
 async def main():
     configure_logging()
     logger.info("Tesla Homedash services starting")
 
-    load_dotenv()
+    missing = [key for key in REQUIRED_ENV_VARS if not ConfigUtils.get_env(key)]
+    if missing:
+        raise RuntimeError(
+            f"Required environment variables not set: {', '.join(missing)}"
+        )
 
-    vin = os.getenv("VIN")
-    api_key = os.getenv("API_KEY")
-    if not vin or not api_key:
-        raise RuntimeError("Required environment variables VIN and API_KEY must be set")
+    vin = ConfigUtils.get_env("VIN")
+    api_key = ConfigUtils.get_env("API_KEY")
 
     influx_handler = InfluxDBHandler(
         url=os.getenv("INFLUX_URL", "http://localhost:8086"),

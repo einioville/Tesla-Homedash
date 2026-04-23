@@ -11,24 +11,13 @@ if TYPE_CHECKING:
 import logging
 
 from ..tesla_service.tcp_server import TeslaDataServer
+from ..utils import protocol
 from .base_media_player import BaseMediaPlayer
 
 logger = logging.getLogger("media_service.media_manager")
 
 
 class MediaManager:
-    MEDIA_STREAM_IMAGE = 0x14
-    MEDIA_STREAM_NAME = 0x15
-    MEDIA_STREAM_PROGRESS = 0x16
-    MEDIA_STREAM_DURATION = 0x17
-    MEDIA_SKIP = 0x18
-    MEDIA_SKIP_BACKWARD = 0x19
-    MEDIA_PAUSE_PLAY = 0x1A
-    MEDIA_IS_PLAYING = 0x1B
-    MEDIA_SET_PROGRESS = 0x1C
-    MEDIA_STREAM_ARTISTS = 0x1D
-    MEDIA_STREAM_TYPE = 0x1E
-
     def __init__(self, server: TeslaDataServer):
         from .radio_player import RadioPlayer
         from .spotify_player import SpotifyPlayer
@@ -108,13 +97,13 @@ class MediaManager:
         logger.info("Default radio player loaded")
 
     async def __stream_media_type(self) -> None:
-        media_type = 0x01
+        media_type = protocol.MEDIA_TYPE_RADIO
         if self.__active_player == self.__radio_player:
-            media_type = 0x01
+            media_type = protocol.MEDIA_TYPE_RADIO
         elif self.__active_player == self.__spotify_player:
-            media_type = 0x02
+            media_type = protocol.MEDIA_TYPE_SPOTIFY
 
-        msg_type = struct.pack("!B", MediaManager.MEDIA_STREAM_TYPE)
+        msg_type = struct.pack("!B", protocol.MEDIA_STREAM_TYPE)
         payload = struct.pack("!B", media_type)
         packet = struct.pack("!I", len(msg_type) + len(payload)) + msg_type + payload
         await self.__server.send_data(data=packet)

@@ -11,34 +11,12 @@ import struct
 import json
 import logging
 
+from ..utils import protocol
+
 logger = logging.getLogger("tesla_service.tcp_server")
 
 
 class TeslaDataServer:
-    MSG_JSON = 0x01
-    MSG_LIST = 0x02
-    MSG_TERMINATE = 0x03
-    MSG_STREAM = 0x04
-
-    MEDIA_STREAM_IMAGE = 0x14
-    MEDIA_STREAM_NAME = 0x15
-    MEDIA_STREAM_PROGRESS = 0x16
-    MEDIA_STREAM_DURATION = 0x17
-    MEDIA_SKIP = 0x18
-    MEDIA_SKIP_BACKWARD = 0x19
-    MEDIA_PAUSE_PLAY = 0x1A
-    MEDIA_IS_PLAYING = 0x1B
-    MEDIA_SET_PROGRESS = 0x1C
-    MEDIA_STREAM_ARTISTS = 0x1D
-
-    WEATHER_FORECAST = 0x30
-
-    TESLA_SWITCH_CLIMATE_STATE = 0x60
-    TESLA_MINUS_TARGET_TEMP = 0x61
-    TESLA_PLUS_TARGET_TEMP = 0x62
-
-    MAX_MSG_SIZE = 1024 * 1024  # 1 MB — reject oversized packets to prevent OOM
-
     def __init__(self, vehicle: Vehicle = None, media_manager: MediaManager = None):
         self.__vehicle = vehicle
         self.__media_manager = media_manager
@@ -46,7 +24,7 @@ class TeslaDataServer:
 
     async def __recv_message(self, reader: asyncio.StreamReader) -> tuple:
         msg_len = struct.unpack("!I", await reader.readexactly(4))[0]
-        if msg_len == 0 or msg_len > TeslaDataServer.MAX_MSG_SIZE:
+        if msg_len == 0 or msg_len > protocol.MAX_MSG_SIZE:
             raise ValueError(f"Invalid message size: {msg_len}")
 
         body = await reader.readexactly(msg_len)
@@ -80,7 +58,7 @@ class TeslaDataServer:
         message_stream = bytes()
 
         for entry in data:
-            msg_type = struct.pack("!B", TeslaDataServer.MSG_STREAM)
+            msg_type = struct.pack("!B", protocol.MSG_STREAM)
             packet_length = struct.pack("!I", len(msg_type) + len(entry))
             message_stream += packet_length + msg_type + entry
 
@@ -98,34 +76,13 @@ class TeslaDataServer:
 
         await asyncio.gather(*send_tasks)
 
-    async def __build_spotify_message_stream(self, data: dict) -> bytes:
-        message_stream = bytes()
-
-        for msg_type, entry in data.items():
-            packet_length = struct.pack("!I", len(msg_type) + len(entry))
-            message_stream += packet_length + msg_type + entry
-
-        return message_stream
-
-    async def update_spotify(self, data: dict) -> None:
-        message_stream = await self.__build_spotify_message_stream(data)
-
-        send_tasks = []
-        for client in list(self.__active_connections.keys()):
-            send_task = asyncio.create_task(
-                coro=self.__send_message_stream(client, message_stream)
-            )
-            send_tasks.append(send_task)
-
-        await asyncio.gather(*send_tasks)
-
     async def __build_forecast_stream(self, data: list) -> bytes:
         message_stream = bytes()
 
         for entry in data:
             message_stream += entry
 
-        msg_type = struct.pack("!B", TeslaDataServer.WEATHER_FORECAST)
+        msg_type = struct.pack("!B", protocol.WEATHER_FORECAST)
         packet_length = struct.pack("!I", len(msg_type) + len(message_stream))
 
         return packet_length + msg_type + message_stream
@@ -158,23 +115,23 @@ class TeslaDataServer:
                 # not by an idle timer. See CLAUDE.md "TCP Server Invariants".
                 msg_type, payload = await self.__recv_message(reader)
 
-                if msg_type == TeslaDataServer.MSG_JSON:
+                if msg_type == protocol.MSG_JSON:
                     logger.warning("MSG_JSON received but not implemented, ignoring")
                     continue
 
-                if msg_type == TeslaDataServer.MEDIA_SKIP:
+                if msg_type == protocol.MEDIA_SKIP:
                     await self.__media_manager.skip_forward()
                     continue
 
-                if msg_type == TeslaDataServer.MEDIA_SKIP_BACKWARD:
+                if msg_type == protocol.MEDIA_SKIP_BACKWARD:
                     await self.__media_manager.skip_backward()
                     continue
 
-                if msg_type == TeslaDataServer.MEDIA_PAUSE_PLAY:
+                if msg_type == protocol.MEDIA_PAUSE_PLAY:
                     await self.__media_manager.pause_play()
                     continue
 
-                if msg_type == TeslaDataServer.MEDIA_SET_PROGRESS:
+                if msg_type == protocol.MEDIA_SET_PROGRESS:
                     if len(payload) < 4:
                         logger.warning("MEDIA_SET_PROGRESS: payload too short (%d bytes)", len(payload))
                         continue
@@ -183,27 +140,40 @@ class TeslaDataServer:
                     )
                     continue
 
-                if msg_type == TeslaDataServer.TESLA_SWITCH_CLIMATE_STATE:
+                if msg_type == protocol.TESLA_SWITCH_CLIMATE_STATE:
                     logger.info("Climate toggle command received")
                     await self.__vehicle.switch_climate_state()
                     continue
 
-                if msg_type == TeslaDataServer.TESLA_MINUS_TARGET_TEMP:
+                if msg_type == protocol.TESLA_MINUS_TARGET_TEMP:
                     await self.__vehicle.minus_temp()
                     continue
 
-                if msg_type == TeslaDataServer.TESLA_PLUS_TARGET_TEMP:
+                if msg_type == protocol.TESLA_PLUS_TARGET_TEMP:
                     await self.__vehicle.plus_temp()
                     continue
 
-                if msg_type == TeslaDataServer.MSG_TERMINATE:
+                if msg_type == protocol.MSG_TERMINATE:
                     logger.info("Client termination message received")
                     break
 
-            except Exception as e:
+            except (asyncio.IncompleteReadError, ConnectionError, OSError) as e:
+                # Peer disconnected or network-layer failure — expected lifecycle event.
                 if writer in self.__active_connections:
                     self.__active_connections.pop(writer)
-                logger.error("Client connection error: %s", e)
+                logger.info("Client disconnect: %s: %s", type(e).__name__, e)
+                break
+            except ValueError as e:
+                # Protocol-level error from __recv_message (oversized/zero length).
+                if writer in self.__active_connections:
+                    self.__active_connections.pop(writer)
+                logger.warning("Protocol error from client: %s", e)
+                break
+            except Exception as e:
+                # Unexpected application error — log with type and tear down the client.
+                if writer in self.__active_connections:
+                    self.__active_connections.pop(writer)
+                logger.error("Unexpected client handler error: %s: %s", type(e).__name__, e)
                 break
 
         logger.info("Client disconnected")

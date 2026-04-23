@@ -3,10 +3,12 @@ import logging
 import struct
 
 import aiohttp
+import requests
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from spotipy import Spotify
+from spotipy import Spotify, SpotifyException
 from spotipy.oauth2 import SpotifyOAuth
 
+from ..utils import protocol
 from ..utils.config_parser import ConfigUtils
 from .base_media_player import BaseMediaPlayer
 from .media_manager import MediaManager
@@ -75,7 +77,10 @@ class SpotifyPlayer(BaseMediaPlayer):
             return await self._loop.run_in_executor(
                 None, lambda: func(*args, **kwargs)
             )
-        except Exception as e:
+        except (SpotifyException, requests.exceptions.RequestException, OSError) as e:
+            # SpotifyException → API errors (4xx/5xx, auth), RequestException →
+            # connection/timeout from the underlying requests client, OSError →
+            # low-level socket errors that sometimes escape requests.
             logger.error("Spotify API call failed: %s — %s: %s", func.__name__, type(e).__name__, e)
             return _FAILED
 
@@ -233,19 +238,19 @@ class SpotifyPlayer(BaseMediaPlayer):
     # ── Streaming ─────────────────────────────────────────────────
 
     async def _stream_progress(self) -> None:
-        msg_type = struct.pack("!B", MediaManager.MEDIA_STREAM_PROGRESS)
+        msg_type = struct.pack("!B", protocol.MEDIA_STREAM_PROGRESS)
         payload = struct.pack("!I", self._song_details["progress_ms"])
         packet = struct.pack("!I", len(msg_type) + len(payload)) + msg_type + payload
         await self._media_manager.stream_data(data=packet, player=self)
 
     async def _stream_duration(self) -> None:
-        msg_type = struct.pack("!B", MediaManager.MEDIA_STREAM_DURATION)
+        msg_type = struct.pack("!B", protocol.MEDIA_STREAM_DURATION)
         payload = struct.pack("!I", self._song_details.get("duration_ms", 0))
         packet = struct.pack("!I", len(msg_type) + len(payload)) + msg_type + payload
         await self._media_manager.stream_data(data=packet, player=self)
 
     async def _stream_name(self) -> None:
-        msg_type = struct.pack("!B", MediaManager.MEDIA_STREAM_NAME)
+        msg_type = struct.pack("!B", protocol.MEDIA_STREAM_NAME)
         payload = self._song_details.get("name", "").encode("utf-8")
         payload_length = struct.pack("!H", len(payload))
         packet = (
@@ -257,7 +262,7 @@ class SpotifyPlayer(BaseMediaPlayer):
         await self._media_manager.stream_data(data=packet, player=self)
 
     async def _stream_artists(self) -> None:
-        msg_type = struct.pack("!B", MediaManager.MEDIA_STREAM_ARTISTS)
+        msg_type = struct.pack("!B", protocol.MEDIA_STREAM_ARTISTS)
 
         item_type = self._song_details.get("type", "track")
         if item_type == "episode":
@@ -281,7 +286,7 @@ class SpotifyPlayer(BaseMediaPlayer):
         image_data = await self._download_image()
         if image_data is None:
             return
-        msg_type = struct.pack("!B", MediaManager.MEDIA_STREAM_IMAGE)
+        msg_type = struct.pack("!B", protocol.MEDIA_STREAM_IMAGE)
         packet = (
             struct.pack("!I", len(msg_type) + len(image_data)) + msg_type + image_data
         )
@@ -312,12 +317,12 @@ class SpotifyPlayer(BaseMediaPlayer):
                     if response.status != 200:
                         return None
                     return await response.read()
-        except Exception:
-            logger.debug("Failed to download album art")
+        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+            logger.debug("Failed to download album art: %s: %s", type(e).__name__, e)
             return None
 
     async def _stream_play_state(self) -> None:
-        msg_type = struct.pack("!B", MediaManager.MEDIA_IS_PLAYING)
+        msg_type = struct.pack("!B", protocol.MEDIA_IS_PLAYING)
         payload = struct.pack("!B", self._is_playing)
         packet = struct.pack("!I", len(msg_type) + len(payload)) + msg_type + payload
         await self._media_manager.stream_data(data=packet, player=self)

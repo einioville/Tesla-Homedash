@@ -12,6 +12,7 @@ from apscheduler.triggers.cron import CronTrigger
 from fmiopendata.wfs import download_stored_query
 
 from ..tesla_service.tcp_server import TeslaDataServer
+from ..utils import protocol
 from ..utils.config_parser import ConfigUtils
 
 logger = logging.getLogger("weather_service.weather_service")
@@ -81,12 +82,6 @@ class ForecastHour:
 
 
 class WeatherService:
-    FORECAST_TIME = 0x35
-    FORECAST_TEMPERATURE = 0x31
-    FORECAST_WIND_SPEED = 0x32
-    FORECAST_PRECIPITATION = 0x33
-    FORECAST_TOTAL_CLOUD_COVER = 0x34
-
     # Maps FMI observation field names to the forecast-compatible names used
     # throughout the rest of the service.  fmiopendata normally uses the same
     # human-readable labels for both query types, but having an explicit map
@@ -190,8 +185,13 @@ class WeatherService:
                     ],
                 ),
             )
-        except Exception:
-            logger.warning("FMI observation fetch failed for place=%s", self.__place)
+        except (OSError, ValueError, KeyError) as e:
+            # OSError covers network/HTTP failures from fmiopendata's urllib layer;
+            # ValueError/KeyError catch malformed XML and unexpected response shapes.
+            logger.warning(
+                "FMI observation fetch failed for place=%s: %s: %s",
+                self.__place, type(e).__name__, e,
+            )
             return None
 
         if not data or not data.data:
@@ -246,8 +246,11 @@ class WeatherService:
                     ],
                 ),
             )
-        except Exception:
-            logger.warning("FMI forecast fetch failed for place=%s", self.__place)
+        except (OSError, ValueError, KeyError) as e:
+            logger.warning(
+                "FMI forecast fetch failed for place=%s: %s: %s",
+                self.__place, type(e).__name__, e,
+            )
             return []
 
         if not data or not data.data:
@@ -258,7 +261,7 @@ class WeatherService:
             for time, value in data.data.items()
         ]
 
-    async def __get_stream_data(self, forecasts: list) -> bytes:
+    async def __get_stream_data(self, forecasts: list) -> list[bytes]:
         '''
         Serialises a list of ForecastHour objects into the binary wire format
         expected by the frontend weather handler.
@@ -270,25 +273,23 @@ class WeatherService:
 
         for forecast in forecasts:
             forecast_data = bytes()
-            forecast_data += struct.pack("!B", WeatherService.FORECAST_TIME)
+            forecast_data += struct.pack("!B", protocol.FORECAST_TIME)
             forecast_data += struct.pack("!B", forecast.get_time())
 
             temp = max(-128, min(127, round(forecast.get_value("Air temperature"))))
-            forecast_data += struct.pack("!B", WeatherService.FORECAST_TEMPERATURE)
+            forecast_data += struct.pack("!B", protocol.FORECAST_TEMPERATURE)
             forecast_data += struct.pack("!b", temp)
 
             wind = max(0, min(255, round(forecast.get_value("Wind speed"))))
-            forecast_data += struct.pack("!B", WeatherService.FORECAST_WIND_SPEED)
+            forecast_data += struct.pack("!B", protocol.FORECAST_WIND_SPEED)
             forecast_data += struct.pack("!B", wind)
 
             precip = max(0, min(255, round(forecast.get_value("Precipitation amount"))))
-            forecast_data += struct.pack("!B", WeatherService.FORECAST_PRECIPITATION)
+            forecast_data += struct.pack("!B", protocol.FORECAST_PRECIPITATION)
             forecast_data += struct.pack("!B", precip)
 
             cloud = max(0, min(255, round(forecast.get_value("Total cloud cover"))))
-            forecast_data += struct.pack(
-                "!B", WeatherService.FORECAST_TOTAL_CLOUD_COVER
-            )
+            forecast_data += struct.pack("!B", protocol.FORECAST_TOTAL_CLOUD_COVER)
             forecast_data += struct.pack("!B", cloud)
 
             data.append(forecast_data)

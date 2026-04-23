@@ -6,8 +6,10 @@ from ..influxdb_service.influxdb_handler import InfluxDBHandler
 from .tcp_server import TeslaDataServer
 from json import dumps
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
 import aiohttp
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 logger = logging.getLogger("tesla_service.vehicle")
 
@@ -50,6 +52,7 @@ class Vehicle:
         self.__scheduler = AsyncIOScheduler()
         self.__scheduler.start()
         logger.info("Vehicle async dependencies initialized, scheduler started")
+        timezone_name = ConfigUtils.get_config()["timeZone"]
         calculated_data_property_config = ConfigUtils.get_config()[
             "calculated tesla data"
         ]
@@ -73,9 +76,45 @@ class Vehicle:
             )
             await self.__data[data_property_id].init_schedulers(
                 self.__scheduler,
-                timezone=ConfigUtils.get_config()["timeZone"],
+                timezone=timezone_name,
             )
             await self.__data[data_property_id].update_calculate_value()
+
+        # Midnight snapshot of every logged property. Without this, a new
+        # calendar day (or month) can start with no InfluxDB record inside the
+        # first-of-period window, which would make CalculatedVehicleDataProperty
+        # reset queries return None and force a fallback to the live value.
+        self.__scheduler.add_job(
+            func=self.__snapshot_logged_properties,
+            trigger=CronTrigger(hour=0, minute=0, timezone=ZoneInfo(timezone_name)),
+        )
+        logger.info("Scheduled midnight snapshot for logged data properties")
+
+    async def __snapshot_logged_properties(self) -> None:
+        '''
+        Writes the current value of every logged data property to InfluxDB
+        with the current timestamp.  Runs daily at 00:00 in the configured
+        timezone so the first-of-day / first-of-month baseline queries used
+        by CalculatedVehicleDataProperty always find a record.
+        '''
+        now_ms = int(datetime.now().timestamp() * 1000)
+        points = []
+        for data_property in self.__data.values():
+            if not await data_property.get_logging():
+                continue
+            point = await data_property.get_snapshot_point(now_ms)
+            if point is not None:
+                points.append(point)
+
+        if not points:
+            logger.debug("Midnight snapshot: no logged properties with values to write")
+            return
+
+        try:
+            await self.__influx_handler.write_tesla_data(points)
+            logger.info("Midnight snapshot: wrote %d points", len(points))
+        except Exception as e:
+            logger.error("Midnight snapshot write failed: %s", e)
 
     def on_telemetry_event(self, data) -> None:
         asyncio.create_task(coro=self.__update(data=data))
@@ -145,7 +184,12 @@ class Vehicle:
                 logging_tasks.append(update_task)
             log_points = await asyncio.gather(*logging_tasks)
 
-            await self.__influx_handler.write_tesla_data(log_points)
+            # Telemetry logging is a side concern — a failing InfluxDB write
+            # must not prevent the frontend broadcast below.
+            try:
+                await self.__influx_handler.write_tesla_data(log_points)
+            except Exception as e:
+                logger.error("Failed to write telemetry to InfluxDB: %s", e)
 
             stream_data = await asyncio.gather(*stream_tasks)
 
@@ -214,7 +258,7 @@ class Vehicle:
 
         data_property = await self.get_data_property("HvacPower")
         value = await data_property.get_value()
-        await data_property.update("HvacPowerStatePending", 1)
+        await data_property.update("HvacPowerStatePending", None)
         await self.stream_data_property(data_property)
         logger.debug("HVAC state value: %s", value)
         operation = ""
