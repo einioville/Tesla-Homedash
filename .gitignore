@@ -169,3 +169,6 @@ start_tesla_services.py
 .vscode/
 .idea/
 .qtcreator/
+
+# Local runtime config (contains device IDs and absolute paths)
+config.json
