@@ -152,9 +152,11 @@ class TeslaDataServer:
 
         while True:
             try:
-                msg_type, payload = await asyncio.wait_for(
-                    self.__recv_message(reader), timeout=30.0
-                )
+                # No inactivity timeout: clients are display-only and are not
+                # required to send anything. Broken connections are surfaced by
+                # readexactly() raising IncompleteReadError / ConnectionError,
+                # not by an idle timer. See CLAUDE.md "TCP Server Invariants".
+                msg_type, payload = await self.__recv_message(reader)
 
                 if msg_type == TeslaDataServer.MSG_JSON:
                     logger.warning("MSG_JSON received but not implemented, ignoring")
@@ -198,11 +200,6 @@ class TeslaDataServer:
                     logger.info("Client termination message received")
                     break
 
-            except asyncio.TimeoutError:
-                logger.warning("Client connection timed out, disconnecting")
-                if writer in self.__active_connections:
-                    self.__active_connections.pop(writer)
-                break
             except Exception as e:
                 if writer in self.__active_connections:
                     self.__active_connections.pop(writer)

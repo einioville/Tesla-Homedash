@@ -193,6 +193,15 @@ For the QML prototype, also update `frontend_prototype/src/backendbridge.{hh,cpp
 2. Add handler case in `TeslaDataServer.__handle_connection()`
 3. In the frontend, send the packet via `QDataStream` (see `TeslaDataHandler::switchClimateState()` for example)
 
+## TCP Server Invariants
+These properties of the backend TCP server at `backend/src/tesla_service/tcp_server.py` are load-bearing. Breaking any of them causes visible freezes or disconnects in the frontend.
+
+- **No inactivity / receive timeout on client connections.** The frontend is display-only: it sends bytes to the backend **only** in response to user interactions (button clicks, slider releases). Long idle periods are normal and expected. Do NOT wrap `__recv_message()` in `asyncio.wait_for(..., timeout=...)` or add any equivalent read deadline — it will drop the client every idle window and cause the frontend to freeze for the duration of the reconnect interval. Broken connections surface naturally as `IncompleteReadError` / `ConnectionError` from `readexactly()`; no timer is needed.
+  - If you need to detect truly dead peers (not just idle ones), use TCP keepalive flags on the socket (`SO_KEEPALIVE` + OS tunables) rather than an application-layer timeout. Do not require the client to send heartbeats.
+- **Broadcasts must never block on a single slow client.** All four send paths (`send_data`, `update_clients`, `update_spotify`, `update_forecast`) spawn one task per client and await them together. If you add per-write logic, do not remove this concurrency.
+- **Snapshot `__active_connections` before iterating.** All send paths use `list(self.__active_connections.keys())`. Concurrent tasks pop entries on disconnect — iterating the live dict raises `RuntimeError`.
+- **Enforce `MAX_MSG_SIZE` on incoming messages.** The 1 MB cap in `__recv_message()` prevents OOM from malformed or hostile length prefixes.
+
 ## Coding Conventions
 - **Indentation**: 4 spaces everywhere (Python, C++, QML, QSS)
 - **Python**: PEP 8 naming — `snake_case` functions/modules, `PascalCase` classes. Use `async`/`await` consistently (the entire backend is asyncio).
