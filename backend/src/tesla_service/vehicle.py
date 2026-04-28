@@ -1,9 +1,10 @@
 import asyncio
 import logging
+from ..utils import protocol
 from ..utils.config_parser import ConfigUtils
 from .vehicle_data_property import VehicleDataProperty, CalculatedVehicleDataProperty
 from ..influxdb_service.influxdb_handler import InfluxDBHandler
-from .tcp_server import TeslaDataServer
+from ..server.server import Server
 from json import dumps
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -19,7 +20,7 @@ class Vehicle:
         self,
         vin: str,
         influx_db_handler: InfluxDBHandler,
-        server: TeslaDataServer,
+        server: Server,
         access_token: str,
     ):
         self.__vin = vin
@@ -193,15 +194,39 @@ class Vehicle:
 
             stream_data = await asyncio.gather(*stream_tasks)
 
-            if len(stream_data) > 0:
-                await self.__server.update_clients(
-                    [data for data in stream_data if data is not None]
-                )
+            framed = b"".join(
+                protocol.frame(protocol.MSG_STREAM, entry)
+                for entry in stream_data if entry is not None
+            )
+            if framed:
+                await self.__server.broadcast(framed)
 
     async def stream_data_property(self, data_property: VehicleDataProperty) -> None:
         stream_data = await data_property.get_stream_data()
         if stream_data is not None:
-            await self.__server.update_clients([stream_data])
+            await self.__server.broadcast(
+                protocol.frame(protocol.MSG_STREAM, stream_data)
+            )
+
+    async def stream_everything(self, client) -> None:
+        '''
+        Sends the full current state of every telemetry property to a
+        single freshly connected client.  Properties without a value yet
+        return None from get_stream_data() and are skipped automatically.
+        Arguments:
+            client: StreamWriter for the new connection.
+        '''
+        async with self.__async_lock:
+            properties = list(self.__data.values())
+        stream_data = await asyncio.gather(
+            *(p.get_stream_data() for p in properties)
+        )
+        framed = b"".join(
+            protocol.frame(protocol.MSG_STREAM, entry)
+            for entry in stream_data if entry is not None
+        )
+        if framed:
+            await self.__server.send_to(client, framed)
 
     async def get_vin(self) -> str:
         async with self.__async_lock:

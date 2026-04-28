@@ -8,10 +8,11 @@ Tesla-Homedash is a 1280x800 desktop dashboard (designed for an embedded display
 ```
 backend/
   src/
+    server/
+      server.py                 # asyncio TCP server on 0.0.0.0:6969 — fans out broadcasts and routes incoming bytes to registered handlers; protocol-agnostic
     tesla_service/
-      start_tesla_services.py   # Entrypoint — wires all services and starts event loop
+      start_tesla_services.py   # Entrypoint — wires all services, registers handlers, starts event loop
       telemetry.py              # WebSocket stream from eu.teslemetry.com via teslemetry_stream
-      tcp_server.py             # asyncio TCP server on 0.0.0.0:6969 — routes packets between frontend and services
       vehicle.py                # Vehicle state, telemetry event handler, Tesla REST commands (HVAC)
       vehicle_data_property.py  # VehicleDataProperty / CalculatedVehicleDataProperty — per-field state, formula eval, binary serialization
     media_service/
@@ -25,6 +26,7 @@ backend/
       influxdb_handler.py       # Async InfluxDB client — telemetry write + historical reads (Flux queries)
     utils/
       config_parser.py          # ConfigUtils: loads config.json and .env values
+      protocol.py               # Binary protocol constants + frame() helper — single source of truth for message-type bytes
     ui/plot/
       dataplot.py               # Optional PySide6/pyqtgraph interactive plot (standalone, not used at runtime)
   pyproject.toml                # Python package metadata + dependency pins
@@ -190,17 +192,19 @@ For the QML prototype, also update `frontend_prototype/src/backendbridge.{hh,cpp
 
 ### Adding a new command (frontend -> backend)
 1. Define a new message type constant in `backend/src/utils/protocol.py`
-2. Add handler case in `TeslaDataServer.__handle_connection()`, dispatching on `protocol.<NAME>`
+2. In `start_tesla_services.py`, register the handler: `server.register_handler(protocol.<NAME>, <async callable>)`. The callable receives the raw payload bytes (without length prefix or type byte) and returns a coroutine. The server itself never references the constant — it just routes by integer.
 3. In the frontend, send the packet via `QDataStream` (see `TeslaDataHandler::switchClimateState()` for example)
 
 ## TCP Server Invariants
-These properties of the backend TCP server at `backend/src/tesla_service/tcp_server.py` are load-bearing. Breaking any of them causes visible freezes or disconnects in the frontend.
+These properties of the backend TCP server at `backend/src/server/server.py` are load-bearing. Breaking any of them causes visible freezes or disconnects in the frontend.
 
 - **No inactivity / receive timeout on client connections.** The frontend is display-only: it sends bytes to the backend **only** in response to user interactions (button clicks, slider releases). Long idle periods are normal and expected. Do NOT wrap `__recv_message()` in `asyncio.wait_for(..., timeout=...)` or add any equivalent read deadline — it will drop the client every idle window and cause the frontend to freeze for the duration of the reconnect interval. Broken connections surface naturally as `IncompleteReadError` / `ConnectionError` from `readexactly()`; no timer is needed.
   - If you need to detect truly dead peers (not just idle ones), use TCP keepalive flags on the socket (`SO_KEEPALIVE` + OS tunables) rather than an application-layer timeout. Do not require the client to send heartbeats.
-- **Broadcasts must never block on a single slow client.** All three send paths (`send_data`, `update_clients`, `update_forecast`) spawn one task per client and await them together. If you add per-write logic, do not remove this concurrency.
-- **Snapshot `__active_connections` before iterating.** All send paths use `list(self.__active_connections.keys())`. Concurrent tasks pop entries on disconnect — iterating the live dict raises `RuntimeError`.
+- **Broadcasts must never block on a single slow client.** Both send paths (`broadcast`, `send_to`) go through `__safe_write`; `broadcast` spawns one task per client and gathers them with `return_exceptions=True`. If you add per-write logic, do not remove this concurrency.
+- **Snapshot `__active_connections` before iterating.** `broadcast` uses `list(self.__active_connections.keys())`. Concurrent tasks pop entries on disconnect — iterating the live dict raises `RuntimeError`.
 - **Enforce `MAX_MSG_SIZE` on incoming messages.** The 1 MB cap in `__recv_message()` prevents OOM from malformed or hostile length prefixes.
+- **Server is protocol-agnostic.** It must not import message-type constants or call methods on concrete services. All routing goes through `register_handler(msg_type, callable)`; all on-connect snapshots go through `register_service(service)` where `service.stream_everything(client)` is duck-typed. Putting an `if msg_type == protocol.X:` branch in `server.py` regresses the abstraction.
+- **Services build framed packets, server only sends them.** Use `protocol.frame(msg_type, payload)` in services to build packets, then call `server.broadcast(packet)` for live updates and `server.send_to(client, packet)` from `stream_everything(client)` for new-connection snapshots.
 
 ## Coding Conventions
 - **Indentation**: 4 spaces everywhere (Python, C++, QML, QSS)
@@ -268,7 +272,7 @@ No automated test suite exists yet. Validate changes manually:
 2. **HVAC state parsing in QML prototype** (`frontend_prototype/src/backendbridge.cpp` line 296). The code checks for `"on"/"true"/"1"` but the backend sends `"HvacPowerStateOn"/"HvacPowerStateOff"/"HvacPowerStatePending"` — HVAC will never show as enabled in the prototype.
 
 ### Fragile Patterns
-- **Protocol constants live in `backend/src/utils/protocol.py`** — the single source of truth for message-type bytes, weather sub-IDs, and the `MAX_MSG_SIZE` cap. Both `TeslaDataServer` and `MediaManager` import from it. When adding a new message type, add the constant there (not on a class) so both sides stay consistent.
+- **Protocol constants live in `backend/src/utils/protocol.py`** — the single source of truth for message-type bytes, weather sub-IDs, the `MAX_MSG_SIZE` cap, and the `frame(msg_type, payload)` helper. Services import from it; the `Server` itself does not (server is opaque to codes by design). When adding a new message type, add the constant there (not on a class) so both sides stay consistent, and use `protocol.frame(...)` to build packets.
 - **InfluxDB Flux queries** in `influxdb_handler.py` use f-string interpolation for `data_property_id` (gated by the `_SAFE_ID` regex `^[A-Za-z0-9_\-]+$`). Currently safe, but would be injection-vulnerable if any non-config input reached these paths — keep the regex guard in place.
 - **Spotify `_current_device_id` vs `_target_device_id`** comparison drives the claim/release logic. If the target device ID in `config.json` is wrong, Spotify controls will silently not work.
 - **HVAC rate limiting** (`vehicle.py` `__requests_used`): the counter is in-memory and resets on process restart. The threshold check (`> 4`) blocks at request 5, while the scheduler is set at request 4 — the 5th request is blocked but never scheduled for reset.
@@ -281,14 +285,16 @@ No automated test suite exists yet. Validate changes manually:
 Teslemetry WS → TelemetryHandler → Vehicle.on_telemetry_event()
     → VehicleDataProperty.update() (formula eval, value store)
     → VehicleDataProperty.get_stream_data() (binary serialize)
-    → TeslaDataServer.update_clients() (broadcast to all connected frontends)
+    → protocol.frame(MSG_STREAM, …) → Server.broadcast() (parallel send to all connected frontends)
     → Also: InfluxDBHandler.write_tesla_data() (persist loggable fields)
 
 Frontend QTcpSocket → ServerClient.onReadyRead() (demux by packet type)
     → TeslaDataHandler.processStreamData() (deserialize, emit per-field signal)
     → TeslaDataWidget.updateDataXxx() (update UI)
 
-User clicks control → build packet → ServerClient.onSendMessageRequest() → TCP → TeslaDataServer.__handle_connection() → Vehicle/MediaPlayer method
+User clicks control → build packet → ServerClient.onSendMessageRequest() → TCP → Server.__read_loop() → registered handler → Vehicle/MediaManager method
+
+New client connects → Server.__handle_connection() → for each registered service: service.stream_everything(client) → protocol.frame(...) per packet → Server.send_to(client, packet) — snapshot is delivered to the new client only.
 ```
 
 ### Calculated properties

@@ -10,7 +10,7 @@ if TYPE_CHECKING:
 
 import logging
 
-from ..tesla_service.tcp_server import TeslaDataServer
+from ..server.server import Server
 from ..utils import protocol
 from .base_media_player import BaseMediaPlayer
 
@@ -18,7 +18,7 @@ logger = logging.getLogger("media_service.media_manager")
 
 
 class MediaManager:
-    def __init__(self, server: TeslaDataServer):
+    def __init__(self, server: Server):
         from .radio_player import RadioPlayer
         from .spotify_player import SpotifyPlayer
         self.__radio_player: RadioPlayer = RadioPlayer(media_manager=self)
@@ -51,9 +51,26 @@ class MediaManager:
         if self.__active_player:
             await self.__active_player.skip_backward()
 
-    async def stream_data(self, data: bytes, player: BaseMediaPlayer) -> None:
-        if player == self.__active_player:
-            await self.__server.send_data(data=data)
+    async def stream_data(
+        self, data: bytes, player: BaseMediaPlayer, client=None
+    ) -> None:
+        '''
+        Routes a framed media packet to the network.  Only the currently
+        active player's packets are sent — packets from a non-active player
+        (e.g. radio left as a fallback while Spotify is claimed) are dropped.
+        Arguments:
+            data (bytes): Pre-framed packet (built via protocol.frame).
+            player (BaseMediaPlayer): The player that produced the packet.
+            client: Optional StreamWriter; when provided, the packet is sent
+                only to that client (used by stream_everything for new
+                connections).  When None, broadcasts to all clients.
+        '''
+        if player != self.__active_player:
+            return
+        if client is None:
+            await self.__server.broadcast(data)
+        else:
+            await self.__server.send_to(client, data)
 
     async def set_progress(self, progress_ms: int) -> None:
         logger.debug("Media command: set_progress")
@@ -73,7 +90,7 @@ class MediaManager:
         logger.info("Media control claimed by %s", player.__class__.__name__)
         await self.__active_player.play()
         await self.__stream_media_type()
-        await self.__active_player.stream_everything()
+        await self.__active_player.stream_everything(client=None)
 
     async def release_playback(self) -> None:
         '''
@@ -93,25 +110,35 @@ class MediaManager:
         self.__active_player = self.__radio_player
         await self.__radio_player.load_player()
         await self.__stream_media_type()
-        await self.__active_player.stream_everything()
+        await self.__active_player.stream_everything(client=None)
         logger.info("Default radio player loaded")
 
-    async def __stream_media_type(self) -> None:
+    async def __stream_media_type(self, client=None) -> None:
         media_type = protocol.MEDIA_TYPE_RADIO
         if self.__active_player == self.__radio_player:
             media_type = protocol.MEDIA_TYPE_RADIO
         elif self.__active_player == self.__spotify_player:
             media_type = protocol.MEDIA_TYPE_SPOTIFY
 
-        msg_type = struct.pack("!B", protocol.MEDIA_STREAM_TYPE)
-        payload = struct.pack("!B", media_type)
-        packet = struct.pack("!I", len(msg_type) + len(payload)) + msg_type + payload
-        await self.__server.send_data(data=packet)
+        packet = protocol.frame(
+            protocol.MEDIA_STREAM_TYPE, struct.pack("!B", media_type)
+        )
+        if client is None:
+            await self.__server.broadcast(packet)
+        else:
+            await self.__server.send_to(client, packet)
 
-    async def stream_everything(self) -> None:
+    async def stream_everything(self, client) -> None:
+        '''
+        Snapshots the current media-player state (active player type plus
+        all per-player fields) into a single new client.  No-op when no
+        player has been initialised yet.
+        Arguments:
+            client: StreamWriter for the new connection.
+        '''
         if self.__active_player:
-            await self.__stream_media_type()
-            await self.__active_player.stream_everything()
+            await self.__stream_media_type(client=client)
+            await self.__active_player.stream_everything(client=client)
 
     async def run(self) -> None:
         '''

@@ -6,6 +6,9 @@ values are single bytes unless noted otherwise.  See CLAUDE.md
 "Binary Protocol Reference" for the authoritative specification.
 '''
 
+import struct
+
+
 # Frontend-to-backend and backend-to-frontend Tesla-data framing
 MSG_JSON = 0x01
 MSG_LIST = 0x02
@@ -44,3 +47,16 @@ TESLA_PLUS_TARGET_TEMP = 0x62
 
 # Maximum accepted size of a single incoming message (defensive cap)
 MAX_MSG_SIZE = 1024 * 1024  # 1 MB
+
+
+def frame(msg_type: int, payload: bytes = b"") -> bytes:
+    '''
+    Wraps a message in the wire format: [4B length][1B type][payload].
+    Length covers the type byte plus the payload.  Used by every service
+    to build packets so the framing logic lives in exactly one place.
+    Arguments:
+        msg_type (int): Single-byte message type from the constants above.
+        payload (bytes): Type-specific payload bytes; empty for commands.
+    '''
+    body = bytes((msg_type,)) + payload
+    return struct.pack("!I", len(body)) + body

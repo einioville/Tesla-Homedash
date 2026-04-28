@@ -203,35 +203,25 @@ class RadioPlayer(BaseMediaPlayer):
             logger.debug("Failed to download radio channel image: %s: %s", type(e).__name__, e)
             return None
 
-    async def __stream_channel_image(self) -> None:
+    async def __stream_channel_image(self, client=None) -> None:
         image_data = await self.__download_image()
         if image_data is None:
             return
-        msg_type = struct.pack("!B", protocol.MEDIA_STREAM_IMAGE)
-        packet = (
-            struct.pack("!I", len(msg_type) + len(image_data)) + msg_type + image_data
-        )
-        await self._media_manager.stream_data(data=packet, player=self)
+        packet = protocol.frame(protocol.MEDIA_STREAM_IMAGE, image_data)
+        await self._media_manager.stream_data(data=packet, player=self, client=client)
 
-    async def __stream_channel_name(self) -> None:
-        msg_type = struct.pack("!B", protocol.MEDIA_STREAM_NAME)
+    async def __stream_channel_name(self, client=None) -> None:
         payload = self.__channel.encode("utf-8")
-        payload_length = struct.pack("!H", len(payload))
-        packet = (
-            struct.pack("!I", len(msg_type) + len(payload_length) + len(payload))
-            + msg_type
-            + payload_length
-            + payload
-        )
-        await self._media_manager.stream_data(data=packet, player=self)
+        body = struct.pack("!H", len(payload)) + payload
+        packet = protocol.frame(protocol.MEDIA_STREAM_NAME, body)
+        await self._media_manager.stream_data(data=packet, player=self, client=client)
 
-    async def __stream_play_state(self) -> None:
-        msg_type = struct.pack("!B", protocol.MEDIA_IS_PLAYING)
+    async def __stream_play_state(self, client=None) -> None:
         payload = struct.pack("!B", self.__vlc_player.is_playing())
-        packet = struct.pack("!I", len(msg_type) + len(payload)) + msg_type + payload
-        await self._media_manager.stream_data(data=packet, player=self)
+        packet = protocol.frame(protocol.MEDIA_IS_PLAYING, payload)
+        await self._media_manager.stream_data(data=packet, player=self, client=client)
 
-    async def stream_everything(self) -> None:
-        await self.__stream_channel_name()
-        await self.__stream_channel_image()
-        await self.__stream_play_state()
+    async def stream_everything(self, client=None) -> None:
+        await self.__stream_channel_name(client=client)
+        await self.__stream_channel_image(client=client)
+        await self.__stream_play_state(client=client)

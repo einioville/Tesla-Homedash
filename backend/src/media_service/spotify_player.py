@@ -237,33 +237,23 @@ class SpotifyPlayer(BaseMediaPlayer):
 
     # ── Streaming ─────────────────────────────────────────────────
 
-    async def _stream_progress(self) -> None:
-        msg_type = struct.pack("!B", protocol.MEDIA_STREAM_PROGRESS)
+    async def _stream_progress(self, client=None) -> None:
         payload = struct.pack("!I", self._song_details["progress_ms"])
-        packet = struct.pack("!I", len(msg_type) + len(payload)) + msg_type + payload
-        await self._media_manager.stream_data(data=packet, player=self)
+        packet = protocol.frame(protocol.MEDIA_STREAM_PROGRESS, payload)
+        await self._media_manager.stream_data(data=packet, player=self, client=client)
 
-    async def _stream_duration(self) -> None:
-        msg_type = struct.pack("!B", protocol.MEDIA_STREAM_DURATION)
+    async def _stream_duration(self, client=None) -> None:
         payload = struct.pack("!I", self._song_details.get("duration_ms", 0))
-        packet = struct.pack("!I", len(msg_type) + len(payload)) + msg_type + payload
-        await self._media_manager.stream_data(data=packet, player=self)
+        packet = protocol.frame(protocol.MEDIA_STREAM_DURATION, payload)
+        await self._media_manager.stream_data(data=packet, player=self, client=client)
 
-    async def _stream_name(self) -> None:
-        msg_type = struct.pack("!B", protocol.MEDIA_STREAM_NAME)
+    async def _stream_name(self, client=None) -> None:
         payload = self._song_details.get("name", "").encode("utf-8")
-        payload_length = struct.pack("!H", len(payload))
-        packet = (
-            struct.pack("!I", len(msg_type) + len(payload_length) + len(payload))
-            + msg_type
-            + payload_length
-            + payload
-        )
-        await self._media_manager.stream_data(data=packet, player=self)
+        body = struct.pack("!H", len(payload)) + payload
+        packet = protocol.frame(protocol.MEDIA_STREAM_NAME, body)
+        await self._media_manager.stream_data(data=packet, player=self, client=client)
 
-    async def _stream_artists(self) -> None:
-        msg_type = struct.pack("!B", protocol.MEDIA_STREAM_ARTISTS)
-
+    async def _stream_artists(self, client=None) -> None:
         item_type = self._song_details.get("type", "track")
         if item_type == "episode":
             show = self._song_details.get("show") or {}
@@ -273,24 +263,16 @@ class SpotifyPlayer(BaseMediaPlayer):
             artist_text = ", ".join(a.get("name", "") for a in artists)
 
         payload = artist_text.encode("utf-8")
-        payload_length = struct.pack("!H", len(payload))
-        packet = (
-            struct.pack("!I", len(msg_type) + len(payload_length) + len(payload))
-            + msg_type
-            + payload_length
-            + payload
-        )
-        await self._media_manager.stream_data(data=packet, player=self)
+        body = struct.pack("!H", len(payload)) + payload
+        packet = protocol.frame(protocol.MEDIA_STREAM_ARTISTS, body)
+        await self._media_manager.stream_data(data=packet, player=self, client=client)
 
-    async def _stream_image(self) -> None:
+    async def _stream_image(self, client=None) -> None:
         image_data = await self._download_image()
         if image_data is None:
             return
-        msg_type = struct.pack("!B", protocol.MEDIA_STREAM_IMAGE)
-        packet = (
-            struct.pack("!I", len(msg_type) + len(image_data)) + msg_type + image_data
-        )
-        await self._media_manager.stream_data(data=packet, player=self)
+        packet = protocol.frame(protocol.MEDIA_STREAM_IMAGE, image_data)
+        await self._media_manager.stream_data(data=packet, player=self, client=client)
 
     async def _download_image(self) -> bytes | None:
         item_type = self._song_details.get("type", "track")
@@ -321,18 +303,17 @@ class SpotifyPlayer(BaseMediaPlayer):
             logger.debug("Failed to download album art: %s: %s", type(e).__name__, e)
             return None
 
-    async def _stream_play_state(self) -> None:
-        msg_type = struct.pack("!B", protocol.MEDIA_IS_PLAYING)
+    async def _stream_play_state(self, client=None) -> None:
         payload = struct.pack("!B", self._is_playing)
-        packet = struct.pack("!I", len(msg_type) + len(payload)) + msg_type + payload
-        await self._media_manager.stream_data(data=packet, player=self)
+        packet = protocol.frame(protocol.MEDIA_IS_PLAYING, payload)
+        await self._media_manager.stream_data(data=packet, player=self, client=client)
 
-    async def stream_everything(self) -> None:
+    async def stream_everything(self, client=None) -> None:
         if self._song_details is None:
             return
-        await self._stream_play_state()
-        await self._stream_name()
-        await self._stream_artists()
-        await self._stream_duration()
-        await self._stream_progress()
-        await self._stream_image()
+        await self._stream_play_state(client=client)
+        await self._stream_name(client=client)
+        await self._stream_artists(client=client)
+        await self._stream_duration(client=client)
+        await self._stream_progress(client=client)
+        await self._stream_image(client=client)

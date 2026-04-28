@@ -31,5 +31,5 @@ class BaseMediaPlayer:
     async def set_progress(self, progress_ms: int) -> None:
         pass
 
-    async def stream_everything(self) -> None:
+    async def stream_everything(self, client=None) -> None:
         raise NotImplementedError

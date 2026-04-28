@@ -11,7 +11,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from fmiopendata.wfs import download_stored_query
 
-from ..tesla_service.tcp_server import TeslaDataServer
+from ..server.server import Server
 from ..utils import protocol
 from ..utils.config_parser import ConfigUtils
 
@@ -93,12 +93,12 @@ class WeatherService:
         "Total cloud cover": "Total cloud cover",
     }
 
-    def __init__(self, server: TeslaDataServer):
+    def __init__(self, server: Server):
         '''
         Initialises the service.  The scheduler is not started here; call
         get_run_task() to start the service as an asyncio Task.
         Arguments:
-            server (TeslaDataServer): TCP server used to broadcast forecast data.
+            server (Server): TCP server used to broadcast forecast data.
         '''
         self.__loop = asyncio.get_running_loop()
         self.__server = server
@@ -107,6 +107,10 @@ class WeatherService:
         self.__timezone: str = config["timeZone"]
         # Observation and forecast place — configure via "weatherPlace" in config.json
         self.__place: str = config["weatherPlace"]
+        # Most recent framed forecast packet, replayed verbatim to any newly
+        # connecting client so its weather UI populates immediately without
+        # waiting for the next 15-minute cron tick.
+        self.__last_forecast: bytes | None = None
 
     async def run(self) -> None:
         '''
@@ -153,7 +157,21 @@ class WeatherService:
 
         if forecasts:
             logger.info("Broadcasting weather forecast to clients")
-            await self.__server.update_forecast(await self.__get_stream_data(forecasts))
+            stream_data = await self.__get_stream_data(forecasts)
+            self.__last_forecast = protocol.frame(
+                protocol.WEATHER_FORECAST, b"".join(stream_data)
+            )
+            await self.__server.broadcast(self.__last_forecast)
+
+    async def stream_everything(self, client) -> None:
+        '''
+        Sends the most recent cached forecast to a single newly connected
+        client.  No-op until the first __update_forecast() cycle has run.
+        Arguments:
+            client: StreamWriter for the new connection.
+        '''
+        if self.__last_forecast is not None:
+            await self.__server.send_to(client, self.__last_forecast)
 
     async def __fetch_observation(self, now_local: datetime) -> ForecastHour | None:
         '''
