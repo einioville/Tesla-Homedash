@@ -38,32 +38,120 @@ class VehicleDataProperty:
         self._async_lock = asyncio.Lock()
         self._vehicle = vehicle
         self.__value_type = None
+        self.__locked_target = None
+        self.__lock_timeout_task: asyncio.Task | None = None
+        self.__lock_generation: int = 0
+
+    @staticmethod
+    def __infer_value_type(value) -> str | None:
+        if isinstance(value, bool):
+            return "value_bool"
+        if isinstance(value, int) or isinstance(value, float):
+            return "value_float"
+        if isinstance(value, str):
+            return "value_string"
+        if isinstance(value, dict):
+            return "value_dict"
+        return None
 
     async def update(self, value, timestamp) -> None:
         if value is None:
             return
         if self.__value_type is None:
-            if isinstance(value, bool):
-                self.__value_type = "value_bool"
-            elif isinstance(value, int) or isinstance(value, float):
-                self.__value_type = "value_float"
-            elif isinstance(value, str):
-                self.__value_type = "value_string"
-            elif isinstance(value, dict):
-                self.__value_type = "value_dict"
+            self.__value_type = self.__infer_value_type(value)
         async with self._async_lock:
             if self.__formula is not None:
-                self._value = float(
+                new_value = float(
                     self.__sympy_expr.subs(self.__sympy_x, value).evalf()
                 )
+            elif self.__value_type == "value_float":
+                new_value = float(value)
             else:
-                if self.__value_type == "value_float":
-                    self._value = float(value)
-                else:
-                    self._value = value
+                new_value = value
+
+            if self.__locked_target is not None:
+                if new_value != self.__locked_target:
+                    # Lock active and incoming value isn't the awaited target —
+                    # drop silently to preserve the placeholder (e.g. stale
+                    # Teslemetry frame for HvacPower while waiting for the
+                    # post-toggle confirmation).
+                    logger.debug(
+                        "Update dropped while locked: id=%s incoming=%s target=%s",
+                        self.__id, new_value, self.__locked_target,
+                    )
+                    return
+                # Target arrived — release lock and fall through to commit.
+                if (
+                    self.__lock_timeout_task is not None
+                    and not self.__lock_timeout_task.done()
+                ):
+                    self.__lock_timeout_task.cancel()
+                self.__lock_timeout_task = None
+                self.__locked_target = None
+                self.__lock_generation += 1
+
+            self._value = new_value
             if timestamp is not None:
                 self.__timestamp = timestamp
             logger.debug("Property updated: %s = %s", self.__id, self._value)
+
+    async def lock_value_until(
+        self,
+        placeholder_value,
+        target_value,
+        timeout_seconds: int = 60,
+    ) -> None:
+        '''
+        Atomically sets the property's value to `placeholder_value` and engages
+        an update-lock that drops subsequent update() calls whose post-formula
+        value is not equal to `target_value`.  When a matching update arrives
+        the lock releases and the update is applied normally.  If
+        `timeout_seconds` elapses with no match, the lock auto-cancels.  The
+        caller is responsible for streaming the placeholder to clients.
+        Arguments:
+            placeholder_value: The value to display while waiting for confirmation
+                (e.g. "HvacPowerStatePending").
+            target_value: The value that releases the lock when seen by update().
+            timeout_seconds (int): Auto-cancel the lock after this many seconds.
+        '''
+        async with self._async_lock:
+            # Re-engagement: cancel any prior timeout so the latest intent wins.
+            if (
+                self.__lock_timeout_task is not None
+                and not self.__lock_timeout_task.done()
+            ):
+                self.__lock_timeout_task.cancel()
+            self.__lock_generation += 1
+            gen = self.__lock_generation
+            self._value = placeholder_value
+            if self.__value_type is None:
+                self.__value_type = self.__infer_value_type(placeholder_value)
+            self.__locked_target = target_value
+            self.__lock_timeout_task = asyncio.create_task(
+                self.__lock_timeout_handler(gen, timeout_seconds)
+            )
+        logger.debug(
+            "Value lock engaged: id=%s placeholder=%s target=%s timeout=%ds",
+            self.__id, placeholder_value, target_value, timeout_seconds,
+        )
+
+    async def __lock_timeout_handler(self, generation: int, seconds: int) -> None:
+        try:
+            await asyncio.sleep(seconds)
+        except asyncio.CancelledError:
+            return
+        async with self._async_lock:
+            # Generation guard: a newer lock may own the state already.
+            if (
+                self.__lock_generation == generation
+                and self.__locked_target is not None
+            ):
+                logger.warning(
+                    "Lock expired without target arriving: id=%s target=%s",
+                    self.__id, self.__locked_target,
+                )
+                self.__locked_target = None
+                self.__lock_timeout_task = None
 
     async def get_value(self):
         async with self._async_lock:
@@ -223,6 +311,14 @@ class CalculatedVehicleDataProperty(VehicleDataProperty):
         self.__unable_to_retrieve_value = False
 
         self.__period = period
+
+    async def lock_value_until(self, *args, **kwargs):
+        # Calculated properties overwrite _value after super().update() with the
+        # calculation formula, which would defeat the lock.  No use case exists
+        # for locking a derived value — fail loudly rather than silently.
+        raise NotImplementedError(
+            "lock_value_until is not supported on calculated properties"
+        )
 
     async def init_schedulers(self, scheduler: AsyncIOScheduler, timezone: str) -> None:
         '''

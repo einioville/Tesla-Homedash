@@ -92,12 +92,12 @@ class Vehicle:
         logger.info("Scheduled midnight snapshot for logged data properties")
 
     async def __snapshot_logged_properties(self) -> None:
-        '''
+        """
         Writes the current value of every logged data property to InfluxDB
         with the current timestamp.  Runs daily at 00:00 in the configured
         timezone so the first-of-day / first-of-month baseline queries used
         by CalculatedVehicleDataProperty always find a record.
-        '''
+        """
         now_ms = int(datetime.now().timestamp() * 1000)
         points = []
         for data_property in self.__data.values():
@@ -196,7 +196,8 @@ class Vehicle:
 
             framed = b"".join(
                 protocol.frame(protocol.MSG_STREAM, entry)
-                for entry in stream_data if entry is not None
+                for entry in stream_data
+                if entry is not None
             )
             if framed:
                 await self.__server.broadcast(framed)
@@ -209,21 +210,20 @@ class Vehicle:
             )
 
     async def stream_everything(self, client) -> None:
-        '''
+        """
         Sends the full current state of every telemetry property to a
         single freshly connected client.  Properties without a value yet
         return None from get_stream_data() and are skipped automatically.
         Arguments:
             client: StreamWriter for the new connection.
-        '''
+        """
         async with self.__async_lock:
             properties = list(self.__data.values())
-        stream_data = await asyncio.gather(
-            *(p.get_stream_data() for p in properties)
-        )
+        stream_data = await asyncio.gather(*(p.get_stream_data() for p in properties))
         framed = b"".join(
             protocol.frame(protocol.MSG_STREAM, entry)
-            for entry in stream_data if entry is not None
+            for entry in stream_data
+            if entry is not None
         )
         if framed:
             await self.__server.send_to(client, framed)
@@ -278,30 +278,37 @@ class Vehicle:
 
     async def switch_climate_state(self) -> None:
         if self.__requests_used > 4:
-            logger.warning("Climate control rate limited: %d requests used", self.__requests_used)
+            logger.warning(
+                "Climate control rate limited: %d requests used", self.__requests_used
+            )
             return
 
         data_property = await self.get_data_property("HvacPower")
         value = await data_property.get_value()
-        await data_property.update("HvacPowerStatePending", None)
-        await self.stream_data_property(data_property)
         logger.debug("HVAC state value: %s", value)
-        operation = ""
 
         if value == "HvacPowerStateOn":
             operation = "auto_conditioning_stop"
+            target_state = "HvacPowerStateOff"
         elif value == "HvacPowerStateOff":
             operation = "auto_conditioning_start"
+            target_state = "HvacPowerStateOn"
         else:
             return
+
+        # Engage the lock BEFORE issuing the REST command so a stale
+        # Teslemetry frame (common on vehicle wake-up) cannot snap the UI
+        # back to the previous state while we wait for confirmation.
+        await data_property.lock_value_until(
+            "HvacPowerStatePending", target_state, timeout_seconds=300
+        )
+        await self.stream_data_property(data_property)
 
         logger.info("Climate switch requested: %s", operation)
         async with aiohttp.ClientSession() as session:
             async with session.post(
                 url=f"https://api.teslemetry.com/api/1/vehicles/{self.__vin}/command/{operation}",
-                headers={
-                    "Authorization": f"Bearer {self.__access_token}"
-                },
+                headers={"Authorization": f"Bearer {self.__access_token}"},
             ) as response:
                 if response.status == 200:
                     self.__requests_used += 1
@@ -329,15 +336,15 @@ class Vehicle:
         async with aiohttp.ClientSession() as session:
             async with session.post(
                 url=f"https://api.teslemetry.com/api/1/vehicles/{self.__vin}/command/set_temps",
-                headers={
-                    "Authorization": f"Bearer {self.__access_token}"
-                },
+                headers={"Authorization": f"Bearer {self.__access_token}"},
                 json={"driver_temp": float(value), "passenger_temp": float(value)},
             ) as response:
                 if response.status == 200:
                     self.__requests_used += 1
                 else:
-                    logger.error("Temperature API call failed: status %d", response.status)
+                    logger.error(
+                        "Temperature API call failed: status %d", response.status
+                    )
 
         self.__temperature_updated = False
 
