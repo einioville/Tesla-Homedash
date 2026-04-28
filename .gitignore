@@ -170,5 +170,8 @@ start_tesla_services.py
 .idea/
 .qtcreator/
 
+# Claude Code local settings (per-machine permissions, not for shared repo)
+.claude/settings.local.json
+
 # Local runtime config (contains device IDs and absolute paths)
 config.json
