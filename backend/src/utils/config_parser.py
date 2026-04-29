@@ -67,6 +67,7 @@ class Config:
         "spotifyDeviceId",
         "spotifyRedirectUri",
         "spotifyCachePath",
+        "spotifyMarket",
     )
 
     def __init__(self, config_path: str):
@@ -155,3 +156,9 @@ class Config:
     @property
     def spotify_cache_path(self) -> str:
         return self.__data["spotifyCachePath"]
+
+    @property
+    def spotify_market(self) -> str:
+        '''ISO 3166-1 alpha-2 country code passed to Spotify playback queries
+        (e.g. "FI"). Determines track/episode availability filtering.'''
+        return self.__data["spotifyMarket"]

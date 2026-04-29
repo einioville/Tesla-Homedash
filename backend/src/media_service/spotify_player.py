@@ -40,6 +40,7 @@ class SpotifyPlayer(BaseMediaPlayer):
 
         self._spotify = Spotify(auth_manager=self._auth_manager)
         self._target_device_id: str = config.spotify_device_id
+        self._market: str = config.spotify_market
         self._loop = asyncio.get_running_loop()
 
         self._current_device_id: str | None = None
@@ -175,7 +176,7 @@ class SpotifyPlayer(BaseMediaPlayer):
 
     async def _update_state(self) -> None:
         playback = await self._call_spotify(
-            self._spotify.current_playback, market="FI", additional_types="episode"
+            self._spotify.current_playback, market=self._market, additional_types="episode"
         )
 
         # API error — skip this cycle
