@@ -12,17 +12,18 @@ import logging
 
 from ..server.server import Server
 from ..utils import protocol
+from ..utils.config_parser import Config
 from .base_media_player import BaseMediaPlayer
 
 logger = logging.getLogger("media_service.media_manager")
 
 
 class MediaManager:
-    def __init__(self, server: Server):
+    def __init__(self, server: Server, config: Config):
         from .radio_player import RadioPlayer
         from .spotify_player import SpotifyPlayer
-        self.__radio_player: RadioPlayer = RadioPlayer(media_manager=self)
-        self.__spotify_player: SpotifyPlayer = SpotifyPlayer(media_manager=self)
+        self.__radio_player: RadioPlayer = RadioPlayer(media_manager=self, config=config)
+        self.__spotify_player: SpotifyPlayer = SpotifyPlayer(media_manager=self, config=config)
         self.__active_player: BaseMediaPlayer | None = None
         self.__server = server
 

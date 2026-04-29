@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from ..utils import protocol
-from ..utils.config_parser import ConfigUtils
+from ..utils.config_parser import Config
 from .vehicle_data_property import VehicleDataProperty, CalculatedVehicleDataProperty
 from ..influxdb_service.influxdb_handler import InfluxDBHandler
 from ..server.server import Server
@@ -10,7 +10,6 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 import aiohttp
 from datetime import datetime, timedelta, timezone
-from zoneinfo import ZoneInfo
 
 logger = logging.getLogger("tesla_service.vehicle")
 
@@ -22,8 +21,11 @@ class Vehicle:
         influx_db_handler: InfluxDBHandler,
         server: Server,
         access_token: str,
+        config: Config,
     ):
         self.__vin = vin
+        self.__config = config
+        self.__timezone = config.zone_info
         self.__data = {}
         self.__calculated_data_ids = {}
         self.__async_lock = asyncio.Lock()
@@ -44,35 +46,30 @@ class Vehicle:
         self.__access_token = access_token
 
     def __load_data_properties(self) -> None:
-        data_property_config = ConfigUtils.get_config()["tesla data"]
-        for data_property_id, config in data_property_config.items():
+        for data_property_id, prop_cfg in self.__config.tesla_data.items():
             self.__data[data_property_id] = VehicleDataProperty(
                 data_id=data_property_id,
-                stream_id=config["stream_id"],
-                category=config["category"],
+                stream_id=prop_cfg["stream_id"],
+                category=prop_cfg["category"],
                 vehicle=self,
-                unit=config["unit"],
-                formula=config["formula"],
-                log=config["log"],
+                unit=prop_cfg["unit"],
+                formula=prop_cfg["formula"],
+                log=prop_cfg["log"],
             )
         logger.debug("Loaded %d vehicle data properties", len(self.__data))
 
     async def init_async_dependent(self) -> None:
-        timezone_name = ConfigUtils.get_config()["timeZone"]
-        # Pin the scheduler to the configured timezone so naive run_dates we
-        # build with `datetime.now(self.__timezone)` line up with how the
-        # scheduler interprets them — and so the codebase is no longer
-        # implicitly dependent on the host OS timezone.
-        self.__timezone = ZoneInfo(timezone_name)
+        # Scheduler is pinned to the configured timezone so naive run_dates
+        # we build with `datetime.now(self.__timezone)` line up with how the
+        # scheduler interprets them.
         self.__scheduler = AsyncIOScheduler(timezone=self.__timezone)
         self.__scheduler.start()
         logger.info(
             "Vehicle async dependencies initialized, scheduler started (tz=%s)",
-            timezone_name,
+            self.__config.timezone,
         )
-        calculated_data_property_config = ConfigUtils.get_config()[
-            "calculated tesla data"
-        ]
+        timezone_name = self.__config.timezone
+        calculated_data_property_config = self.__config.calculated_tesla_data
         for data_property_id, config in calculated_data_property_config.items():
             if config["source_data_property_id"] not in self.__calculated_data_ids:
                 self.__calculated_data_ids[config["source_data_property_id"]] = []

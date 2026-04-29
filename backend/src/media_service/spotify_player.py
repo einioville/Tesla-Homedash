@@ -1,7 +1,6 @@
 import asyncio
 import logging
 import struct
-from zoneinfo import ZoneInfo
 
 import aiohttp
 import requests
@@ -10,7 +9,7 @@ from spotipy import Spotify, SpotifyException
 from spotipy.oauth2 import SpotifyOAuth
 
 from ..utils import protocol
-from ..utils.config_parser import ConfigUtils
+from ..utils.config_parser import Config, get_env
 from .base_media_player import BaseMediaPlayer
 from .media_manager import MediaManager
 
@@ -24,16 +23,14 @@ class SpotifyPlayer(BaseMediaPlayer):
     _POLL_IDLE = 10
     _POLL_ACTIVE = 2
 
-    def __init__(self, media_manager: MediaManager):
+    def __init__(self, media_manager: MediaManager, config: Config):
         super().__init__(media_manager=media_manager)
 
-        config = ConfigUtils.get_config()
-
         self._auth_manager = SpotifyOAuth(
-            client_id=ConfigUtils.get_env("SPOTIFY_CLIENT_ID"),
-            client_secret=ConfigUtils.get_env("SPOTIFY_CLIENT_SECRET"),
-            redirect_uri=config["spotifyRedirectUri"],
-            cache_path=config["spotifyCachePath"],
+            client_id=get_env("SPOTIFY_CLIENT_ID"),
+            client_secret=get_env("SPOTIFY_CLIENT_SECRET"),
+            redirect_uri=config.spotify_redirect_uri,
+            cache_path=config.spotify_cache_path,
             scope=(
                 "user-read-playback-state,"
                 "user-modify-playback-state,"
@@ -42,7 +39,7 @@ class SpotifyPlayer(BaseMediaPlayer):
         )
 
         self._spotify = Spotify(auth_manager=self._auth_manager)
-        self._target_device_id: str = config["spotifyDeviceId"]
+        self._target_device_id: str = config.spotify_device_id
         self._loop = asyncio.get_running_loop()
 
         self._current_device_id: str | None = None
@@ -51,7 +48,7 @@ class SpotifyPlayer(BaseMediaPlayer):
         self._song_details: dict | None = None
         self._claimed: bool = False
 
-        self._scheduler = AsyncIOScheduler(timezone=ZoneInfo(config["timeZone"]))
+        self._scheduler = AsyncIOScheduler(timezone=config.zone_info)
 
     async def run(self) -> None:
         '''

@@ -1,11 +1,25 @@
+'''
+Configuration access for the backend.
+
+Two public surfaces:
+- `Config` — instantiated once in the starter script with a path to the JSON
+  config file.  The whole document is parsed into memory and exposed via
+  property accessors and dict-style indexing.  All services receive the
+  instance via constructor injection so no service ever re-reads the file.
+- `get_env(key)` — module-level accessor for environment variables.
+  Loads `.env` on first call.  Kept separate from `Config` because env vars
+  and JSON config have different lifecycles and validation needs.
+'''
 import json
 import logging
 import os
+from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
 from dotenv import load_dotenv
 
 logger = logging.getLogger("utils.config_parser")
 
-_config_cache: dict | None = None
 _env_loaded: bool = False
 
 
@@ -16,34 +30,128 @@ def _ensure_env() -> None:
         _env_loaded = True
 
 
-class ConfigUtils:
-    @staticmethod
-    def get_config() -> dict:
-        global _config_cache
-        if _config_cache is not None:
-            return _config_cache
+def get_env(key: str) -> str | None:
+    '''
+    Returns the value of the named environment variable, or None if missing.
+    `.env` is loaded once on first call.  Callers that require the variable
+    must check for None — this function does not raise.
+    Arguments:
+        key (str): Environment variable name.
+    '''
+    _ensure_env()
+    value = os.getenv(key)
+    if value is None:
+        logger.warning("Environment variable not set: %s", key)
+    return value
 
-        _ensure_env()
-        config_path = os.getenv("CONFIG_PATH")
+
+class Config:
+    '''
+    In-memory configuration loaded once from a JSON file.
+
+    Validated on construction: missing required keys raise immediately so
+    services do not start in an unusable state.  Currently read-only; the
+    API is shaped to support future writes (`set` + `save`) without
+    breaking callers.
+    Arguments:
+        config_path (str): Absolute path to the JSON config file.
+    '''
+
+    REQUIRED_KEYS = (
+        "timeZone",
+        "tesla data",
+        "calculated tesla data",
+        "weatherPlace",
+        "radioMediaIds",
+        "defaultRadioStation",
+        "spotifyDeviceId",
+        "spotifyRedirectUri",
+        "spotifyCachePath",
+    )
+
+    def __init__(self, config_path: str):
         if not config_path:
-            raise RuntimeError("CONFIG_PATH environment variable is not set")
+            raise RuntimeError("Config path is empty or None")
         if not os.path.isfile(config_path):
             raise FileNotFoundError(f"Config file not found: {config_path}")
         try:
-            with open(config_path, 'r') as file:
-                _config_cache = json.load(file)
-            logger.info("Configuration loaded from %s", config_path)
-            return _config_cache
+            with open(config_path, "r") as f:
+                self.__data: dict = json.load(f)
         except json.JSONDecodeError as e:
             raise ValueError(f"Config file contains invalid JSON: {e}") from e
-        except OSError as e:
-            logger.error("Failed to load configuration from %s: %s", config_path, e)
-            raise
 
-    @staticmethod
-    def get_env(key: str):
-        _ensure_env()
-        value = os.getenv(key)
-        if value is None:
-            logger.warning("Environment variable not set: %s", key)
-        return value
+        missing = [k for k in self.REQUIRED_KEYS if k not in self.__data]
+        if missing:
+            raise RuntimeError(
+                f"Config is missing required keys: {', '.join(missing)}"
+            )
+
+        # Build the ZoneInfo once at load time so services can take it
+        # directly without each re-parsing the IANA string.  Invalid zone
+        # names fail here, not deep inside a service's first scheduler call.
+        try:
+            self.__zone_info = ZoneInfo(self.__data["timeZone"])
+        except ZoneInfoNotFoundError as e:
+            raise ValueError(
+                f"Invalid timeZone in config: {self.__data['timeZone']!r}"
+            ) from e
+
+        self.__path = config_path
+        logger.info(
+            "Configuration loaded from %s (timeZone=%s)",
+            config_path, self.__data["timeZone"],
+        )
+
+    # ── Generic access ─────────────────────────────────────────────
+
+    def __getitem__(self, key: str) -> Any:
+        return self.__data[key]
+
+    def get(self, key: str, default: Any = None) -> Any:
+        return self.__data.get(key, default)
+
+    # ── Typed accessors ────────────────────────────────────────────
+
+    @property
+    def timezone(self) -> str:
+        '''IANA name as configured (e.g. "Europe/Helsinki").'''
+        return self.__data["timeZone"]
+
+    @property
+    def zone_info(self) -> ZoneInfo:
+        '''Pre-built ZoneInfo for the configured timezone — services that
+        need a ZoneInfo for schedulers, datetime arithmetic, or formatting
+        should use this rather than constructing their own.'''
+        return self.__zone_info
+
+    @property
+    def tesla_data(self) -> dict:
+        return self.__data["tesla data"]
+
+    @property
+    def calculated_tesla_data(self) -> dict:
+        return self.__data["calculated tesla data"]
+
+    @property
+    def weather_place(self) -> str:
+        return self.__data["weatherPlace"]
+
+    @property
+    def radio_media_ids(self) -> dict:
+        return self.__data["radioMediaIds"]
+
+    @property
+    def default_radio_station(self) -> str:
+        return self.__data["defaultRadioStation"]
+
+    @property
+    def spotify_device_id(self) -> str:
+        return self.__data["spotifyDeviceId"]
+
+    @property
+    def spotify_redirect_uri(self) -> str:
+        return self.__data["spotifyRedirectUri"]
+
+    @property
+    def spotify_cache_path(self) -> str:
+        return self.__data["spotifyCachePath"]

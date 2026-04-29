@@ -6,7 +6,7 @@ import aiohttp
 import vlc
 
 from ..utils import protocol
-from ..utils.config_parser import ConfigUtils
+from ..utils.config_parser import Config
 from .base_media_player import BaseMediaPlayer
 from .media_manager import MediaManager
 
@@ -14,7 +14,7 @@ logger = logging.getLogger("media_service.radio_player")
 
 
 class RadioPlayer(BaseMediaPlayer):
-    def __init__(self, media_manager: MediaManager):
+    def __init__(self, media_manager: MediaManager, config: Config):
         super().__init__(media_manager=media_manager)
 
         self.__vlc = vlc.Instance(
@@ -41,10 +41,9 @@ class RadioPlayer(BaseMediaPlayer):
             vlc.EventType.MediaPlayerEndReached, self.__on_vlc_event
         )
 
-        config = ConfigUtils.get_config()
-        self.__media_ids = config["radioMediaIds"]
-        self.__channels = list(config["radioMediaIds"].keys())
-        self.__channel = config["defaultRadioStation"]
+        self.__media_ids = config.radio_media_ids
+        self.__channels = list(self.__media_ids.keys())
+        self.__channel = config.default_radio_station
         self.__channel_index = self.__channels.index(self.__channel)
 
         self.__stream_url: str | None = None

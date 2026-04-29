@@ -4,7 +4,7 @@ import re
 import numpy as np
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from ..utils.config_parser import ConfigUtils
+from ..utils.config_parser import get_env
 
 _SAFE_ID = re.compile(r'^[A-Za-z0-9_\-]+$')
 
@@ -12,18 +12,18 @@ logger = logging.getLogger("influxdb_service.influxdb_handler")
 
 
 class InfluxDBHandler:
-    def __init__(self, url: str, org: str, timezone: str):
+    def __init__(self, url: str, org: str, zone_info: ZoneInfo):
         self.__url = url
-        self.__token = ConfigUtils.get_env("INFLUX_TOKEN")
+        self.__token = get_env("INFLUX_TOKEN")
         self.__org = org
         self.__client = InfluxDBClientAsync(url=url, token=self.__token, org=org)
         self.__bucket = "data"
         # Day/month boundary queries must align with the configured timezone
         # used by the midnight snapshot job, not the host OS local time.
-        self.__timezone = ZoneInfo(timezone)
+        self.__timezone = zone_info
         logger.info(
             "InfluxDB handler initialized: url=%s, org=%s, tz=%s",
-            url, org, timezone,
+            url, org, zone_info.key,
         )
 
     async def connected(self) -> bool:

@@ -9,7 +9,7 @@ from ..influxdb_service.influxdb_handler import InfluxDBHandler
 from ..media_service.media_manager import MediaManager
 from ..server.server import Server
 from ..utils import protocol
-from ..utils.config_parser import ConfigUtils
+from ..utils.config_parser import Config, get_env
 from ..utils.logger_configurator import configure_logging
 from ..weather_service.weather_service import WeatherService
 
@@ -55,29 +55,32 @@ async def main():
     configure_logging()
     logger.info("Tesla Homedash services starting")
 
-    missing = [key for key in REQUIRED_ENV_VARS if not ConfigUtils.get_env(key)]
+    missing = [key for key in REQUIRED_ENV_VARS if not get_env(key)]
     if missing:
         raise RuntimeError(
             f"Required environment variables not set: {', '.join(missing)}"
         )
 
-    vin = ConfigUtils.get_env("VIN")
-    api_key = ConfigUtils.get_env("API_KEY")
+    # Load and validate config.json once; every service receives this instance.
+    config = Config(get_env("CONFIG_PATH"))
+
+    vin = get_env("VIN")
+    api_key = get_env("API_KEY")
 
     influx_handler = InfluxDBHandler(
         url=os.getenv("INFLUX_URL", "http://localhost:8086"),
         org=os.getenv("INFLUX_ORG", "Tesla-Homedash"),
-        timezone=ConfigUtils.get_config()["timeZone"],
+        zone_info=config.zone_info,
     )
     logger.debug("InfluxDB handler initialized")
 
     server = Server()
     logger.debug("TCP server initialized")
 
-    mm = MediaManager(server=server)
+    mm = MediaManager(server=server, config=config)
     logger.debug("Media manager initialized")
 
-    weather = WeatherService(server=server)
+    weather = WeatherService(server=server, config=config)
     logger.debug("Weather service initialized")
 
     vehicle = Vehicle(
@@ -85,6 +88,7 @@ async def main():
         influx_db_handler=influx_handler,
         server=server,
         access_token=api_key,
+        config=config,
     )
     logger.debug("Vehicle initialized")
 

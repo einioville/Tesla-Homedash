@@ -13,7 +13,7 @@ from fmiopendata.wfs import download_stored_query
 
 from ..server.server import Server
 from ..utils import protocol
-from ..utils.config_parser import ConfigUtils
+from ..utils.config_parser import Config
 
 logger = logging.getLogger("weather_service.weather_service")
 
@@ -97,21 +97,20 @@ class WeatherService:
         "Total cloud cover": "Total cloud cover",
     }
 
-    def __init__(self, server: Server):
+    def __init__(self, server: Server, config: Config):
         '''
         Initialises the service.  The scheduler is not started here; call
         get_run_task() to start the service as an asyncio Task.
         Arguments:
             server (Server): TCP server used to broadcast forecast data.
+            config (Config): Shared in-memory configuration.
         '''
         self.__loop = asyncio.get_running_loop()
         self.__server = server
-        config = ConfigUtils.get_config()
-        self.__timezone: str = config["timeZone"]
-        self.__zone_info = ZoneInfo(self.__timezone)
+        self.__zone_info = config.zone_info
         self.__scheduler = AsyncIOScheduler(timezone=self.__zone_info)
         # Observation and forecast place — configure via "weatherPlace" in config.json
-        self.__place: str = config["weatherPlace"]
+        self.__place: str = config.weather_place
         # Most recent framed forecast packet, replayed verbatim to any newly
         # connecting client so its weather UI populates immediately without
         # waiting for the next 15-minute cron tick.
