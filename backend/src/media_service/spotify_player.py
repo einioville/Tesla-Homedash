@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import struct
+from zoneinfo import ZoneInfo
 
 import aiohttp
 import requests
@@ -16,6 +17,7 @@ from .media_manager import MediaManager
 logger = logging.getLogger("media_service.spotify_player")
 
 _FAILED = object()
+_IMAGE_FETCH_TIMEOUT = aiohttp.ClientTimeout(total=10)
 
 
 class SpotifyPlayer(BaseMediaPlayer):
@@ -49,7 +51,7 @@ class SpotifyPlayer(BaseMediaPlayer):
         self._song_details: dict | None = None
         self._claimed: bool = False
 
-        self._scheduler = AsyncIOScheduler()
+        self._scheduler = AsyncIOScheduler(timezone=ZoneInfo(config["timeZone"]))
 
     async def run(self) -> None:
         '''
@@ -294,7 +296,9 @@ class SpotifyPlayer(BaseMediaPlayer):
             return None
 
         try:
-            async with aiohttp.ClientSession() as session:
+            # Bounded timeout: a slow CDN response would otherwise stall the
+            # poll cycle, queueing every subsequent _update_state() behind it.
+            async with aiohttp.ClientSession(timeout=_IMAGE_FETCH_TIMEOUT) as session:
                 async with session.get(url) as response:
                     if response.status != 200:
                         return None

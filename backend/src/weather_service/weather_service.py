@@ -47,16 +47,20 @@ class ForecastMeasurement:
 
 
 class ForecastHour:
-    def __init__(self, time: datetime, data: dict):
+    def __init__(self, time: datetime, data: dict, display_tz: ZoneInfo):
         '''
         Stores one hour's worth of weather measurements.
         Arguments:
             time (datetime): UTC-naive (or UTC-aware) datetime for this hour.
             data (dict): Mapping of field name → {"value": ..., "units": ...}.
+            display_tz (ZoneInfo): Timezone to express the forecast hour in,
+                sourced from the configured `timeZone` in config.json.  Was
+                previously hardcoded to Europe/Helsinki — would break for any
+                non-Helsinki timezone in config.
         '''
-        # Treat incoming time as UTC and convert to the display timezone
+        # Treat incoming time as UTC and convert to the configured display tz
         self.__time = time.replace(tzinfo=ZoneInfo("UTC"))
-        self.__time = self.__time.astimezone(ZoneInfo("Europe/Helsinki"))
+        self.__time = self.__time.astimezone(display_tz)
         self.__hours = self.__time.hour
         self.__time = self.__time.strftime("%H")
 
@@ -102,9 +106,10 @@ class WeatherService:
         '''
         self.__loop = asyncio.get_running_loop()
         self.__server = server
-        self.__scheduler = AsyncIOScheduler()
         config = ConfigUtils.get_config()
         self.__timezone: str = config["timeZone"]
+        self.__zone_info = ZoneInfo(self.__timezone)
+        self.__scheduler = AsyncIOScheduler(timezone=self.__zone_info)
         # Observation and forecast place — configure via "weatherPlace" in config.json
         self.__place: str = config["weatherPlace"]
         # Most recent framed forecast packet, replayed verbatim to any newly
@@ -124,7 +129,7 @@ class WeatherService:
         self.__scheduler.start()
         self.__scheduler.add_job(
             func=self.__update_forecast,
-            trigger=CronTrigger(hour="*", minute="0,15,30,45", timezone=ZoneInfo(self.__timezone)),
+            trigger=CronTrigger(hour="*", minute="0,15,30,45", timezone=self.__zone_info),
         )
 
     def get_run_task(self) -> asyncio.Task:
@@ -234,7 +239,7 @@ class WeatherService:
 
         # ForecastHour expects a UTC-naive datetime; convert from local timezone
         current_hour_utc = current_hour_start.astimezone(timezone.utc).replace(tzinfo=None)
-        return ForecastHour(current_hour_utc, normalized)
+        return ForecastHour(current_hour_utc, normalized, self.__zone_info)
 
     async def __fetch_forecast(self, now_local: datetime) -> list[ForecastHour]:
         '''
@@ -275,7 +280,7 @@ class WeatherService:
             return []
 
         return [
-            ForecastHour(time, next(iter(value.values())))
+            ForecastHour(time, next(iter(value.values())), self.__zone_info)
             for time, value in data.data.items()
         ]
 

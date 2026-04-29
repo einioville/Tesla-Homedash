@@ -9,7 +9,7 @@ from json import dumps
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 import aiohttp
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 logger = logging.getLogger("tesla_service.vehicle")
@@ -58,10 +58,18 @@ class Vehicle:
         logger.debug("Loaded %d vehicle data properties", len(self.__data))
 
     async def init_async_dependent(self) -> None:
-        self.__scheduler = AsyncIOScheduler()
-        self.__scheduler.start()
-        logger.info("Vehicle async dependencies initialized, scheduler started")
         timezone_name = ConfigUtils.get_config()["timeZone"]
+        # Pin the scheduler to the configured timezone so naive run_dates we
+        # build with `datetime.now(self.__timezone)` line up with how the
+        # scheduler interprets them — and so the codebase is no longer
+        # implicitly dependent on the host OS timezone.
+        self.__timezone = ZoneInfo(timezone_name)
+        self.__scheduler = AsyncIOScheduler(timezone=self.__timezone)
+        self.__scheduler.start()
+        logger.info(
+            "Vehicle async dependencies initialized, scheduler started (tz=%s)",
+            timezone_name,
+        )
         calculated_data_property_config = ConfigUtils.get_config()[
             "calculated tesla data"
         ]
@@ -95,7 +103,7 @@ class Vehicle:
         # reset queries return None and force a fallback to the live value.
         self.__scheduler.add_job(
             func=self.__snapshot_logged_properties,
-            trigger=CronTrigger(hour=0, minute=0, timezone=ZoneInfo(timezone_name)),
+            trigger=CronTrigger(hour=0, minute=0, timezone=self.__timezone),
         )
         logger.info("Scheduled midnight snapshot for logged data properties")
 
@@ -106,7 +114,10 @@ class Vehicle:
         timezone so the first-of-day / first-of-month baseline queries used
         by CalculatedVehicleDataProperty always find a record.
         """
-        now_ms = int(datetime.now().timestamp() * 1000)
+        # Stamp explicitly in UTC: InfluxDB stores absolute UTC moments, and
+        # the configured `timeZone` is only used at query time / for cron
+        # boundaries — never to shift the stored value.
+        now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
         points = []
         for data_property in self.__data.values():
             if not await data_property.get_logging():
@@ -306,10 +317,13 @@ class Vehicle:
                 self.__scheduler.add_job(
                     func=self.__reset_requests,
                     trigger="date",
-                    run_date=datetime.now() + timedelta(minutes=5),
+                    run_date=datetime.now(self.__timezone) + timedelta(minutes=5),
                 )
                 self.__reset_scheduled = True
-                logger.debug("Rate-limit cooldown armed: 5 minutes from now")
+                logger.debug(
+                    "Rate-limit cooldown armed: 5 minutes from %s",
+                    datetime.now(self.__timezone).isoformat(),
+                )
             return True
 
     async def __rate_limit_refund(self) -> None:
