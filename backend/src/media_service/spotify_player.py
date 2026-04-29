@@ -47,6 +47,7 @@ class SpotifyPlayer(BaseMediaPlayer):
         self._song_id: str | None = None
         self._song_details: dict | None = None
         self._claimed: bool = False
+        self._poll_interval: int = self._POLL_IDLE
 
         self._scheduler = AsyncIOScheduler(timezone=config.zone_info)
 
@@ -174,7 +175,7 @@ class SpotifyPlayer(BaseMediaPlayer):
 
     async def _update_state(self) -> None:
         playback = await self._call_spotify(
-            self._spotify.current_playback, market="FI"
+            self._spotify.current_playback, market="FI", additional_types="episode"
         )
 
         # API error — skip this cycle
@@ -229,6 +230,9 @@ class SpotifyPlayer(BaseMediaPlayer):
             await self._stream_play_state()
 
     def _set_poll_interval(self, seconds: int) -> None:
+        if seconds == self._poll_interval:
+            return
+        self._poll_interval = seconds
         self._scheduler.reschedule_job(
             job_id="spotify_updater", trigger="interval", seconds=seconds
         )
