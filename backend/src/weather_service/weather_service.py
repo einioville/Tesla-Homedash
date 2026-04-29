@@ -144,8 +144,7 @@ class WeatherService:
         Current hour comes from real measurements; later hours from model data.
         '''
         logger.debug("Weather update cycle started")
-        tz = ZoneInfo(self.__timezone)
-        now_local = datetime.now(tz)
+        now_local = datetime.now(self.__zone_info)
 
         observation = await self.__fetch_observation(now_local)
         if observation is not None:
