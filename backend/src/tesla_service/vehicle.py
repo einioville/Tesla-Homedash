@@ -32,7 +32,15 @@ class Vehicle:
         self.__scheduler = None
         self.__load_data_properties()
         self.__temperature_updated = False
+        # HVAC rate-limit state. Reset is armed once per cooldown window: when
+        # any successful command increments the counter and no reset is
+        # currently scheduled, schedule one and set the flag.  __reset_requests
+        # clears the flag after firing.  This is order-independent and survives
+        # any interleaving — pre-fix, the equality check missed when the
+        # counter stepped past 4 and the limiter latched permanently.
         self.__requests_used = 0
+        self.__reset_scheduled = False
+        self.__rate_limit_lock = asyncio.Lock()
         self.__access_token = access_token
 
     def __load_data_properties(self) -> None:
@@ -273,13 +281,57 @@ class Vehicle:
             data_property_id, time_start, time_end
         )
 
-    async def switch_climate_state(self) -> None:
-        if self.__requests_used > 4:
-            logger.warning(
-                "Climate control rate limited: %d requests used", self.__requests_used
-            )
-            return
+    async def __rate_limit_reserve(self) -> bool:
+        '''
+        Atomically checks the rate-limit window and, if a slot is available,
+        reserves it (increments the counter and arms the cooldown reset job
+        if it isn't already armed).  Returns True on reserve, False if the
+        window is full.  The caller MUST refund the slot via
+        __rate_limit_refund() if the subsequent API call does not succeed,
+        otherwise a transient network error would burn rate-limit budget.
 
+        The flag-guarded scheduling makes the reset order-independent:
+        regardless of which command (switch / temperature) opens the window,
+        exactly one reset is scheduled per cooldown.
+        '''
+        async with self.__rate_limit_lock:
+            if self.__requests_used > 4:
+                logger.warning(
+                    "Climate control rate limited: %d requests used",
+                    self.__requests_used,
+                )
+                return False
+            self.__requests_used += 1
+            if not self.__reset_scheduled:
+                self.__scheduler.add_job(
+                    func=self.__reset_requests,
+                    trigger="date",
+                    run_date=datetime.now() + timedelta(minutes=5),
+                )
+                self.__reset_scheduled = True
+                logger.debug("Rate-limit cooldown armed: 5 minutes from now")
+            return True
+
+    async def __rate_limit_refund(self) -> None:
+        '''
+        Refunds a slot reserved by __rate_limit_reserve when the API call
+        does not succeed.  The reset job remains armed; it will fire and
+        clear the counter regardless.
+        '''
+        async with self.__rate_limit_lock:
+            if self.__requests_used > 0:
+                self.__requests_used -= 1
+
+    async def __reset_requests(self) -> None:
+        async with self.__rate_limit_lock:
+            self.__requests_used = 0
+            self.__reset_scheduled = False
+        logger.debug("Rate-limit counter reset")
+
+    async def switch_climate_state(self) -> None:
+        # Pre-flight check: figure out target operation before reserving a
+        # rate-limit slot, so an HVAC field in transient/unknown state does
+        # not burn a slot it never spends.
         data_property = await self.get_data_property("HvacPower")
         value = await data_property.get_value()
         logger.debug("HVAC state value: %s", value)
@@ -293,6 +345,9 @@ class Vehicle:
         else:
             return
 
+        if not await self.__rate_limit_reserve():
+            return
+
         # Engage the lock BEFORE issuing the REST command so a stale
         # Teslemetry frame (common on vehicle wake-up) cannot snap the UI
         # back to the previous state while we wait for confirmation.
@@ -302,34 +357,32 @@ class Vehicle:
         await self.stream_data_property(data_property)
 
         logger.info("Climate switch requested: %s", operation)
+        success = False
         async with aiohttp.ClientSession() as session:
             async with session.post(
                 url=f"https://api.teslemetry.com/api/1/vehicles/{self.__vin}/command/{operation}",
                 headers={"Authorization": f"Bearer {self.__access_token}"},
             ) as response:
                 if response.status == 200:
-                    self.__requests_used += 1
+                    success = True
                 else:
                     logger.error("Climate API call failed: status %d", response.status)
+
+        if not success:
+            await self.__rate_limit_refund()
 
         if self.__temperature_updated:
             await self.update_temperature()
 
-        if self.__requests_used == 4:
-            self.__scheduler.add_job(
-                func=self.__reset_requests,
-                trigger="date",
-                run_date=datetime.now() + timedelta(minutes=5),
-            )
-
-    async def __reset_requests(self) -> None:
-        self.__requests_used = 0
-
     async def update_temperature(self) -> None:
+        if not await self.__rate_limit_reserve():
+            return
+
         data_property = await self.get_data_property("HvacLeftTemperatureRequest")
         value = await data_property.get_value()
         logger.info("Temperature update requested: driver=%.1f°C", float(value))
 
+        success = False
         async with aiohttp.ClientSession() as session:
             async with session.post(
                 url=f"https://api.teslemetry.com/api/1/vehicles/{self.__vin}/command/set_temps",
@@ -337,11 +390,14 @@ class Vehicle:
                 json={"driver_temp": float(value), "passenger_temp": float(value)},
             ) as response:
                 if response.status == 200:
-                    self.__requests_used += 1
+                    success = True
                 else:
                     logger.error(
                         "Temperature API call failed: status %d", response.status
                     )
+
+        if not success:
+            await self.__rate_limit_refund()
 
         self.__temperature_updated = False
 
