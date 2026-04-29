@@ -266,14 +266,11 @@ class Vehicle:
     async def get_data_history(
         self,
         data_property_id: str,
-        relative_time: str = None,
-        time_start: str = None,
-        time_end: str = None,
-        min_value: int = None,
-        max_value: int = None,
+        time_start: str,
+        time_end: str,
     ):
         return await self.__influx_handler.read_tesla_data_property(
-            data_property_id, relative_time, time_start, time_end, min_value, max_value
+            data_property_id, time_start, time_end
         )
 
     async def switch_climate_state(self) -> None:

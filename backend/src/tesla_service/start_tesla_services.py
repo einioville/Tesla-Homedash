@@ -67,6 +67,7 @@ async def main():
     influx_handler = InfluxDBHandler(
         url=os.getenv("INFLUX_URL", "http://localhost:8086"),
         org=os.getenv("INFLUX_ORG", "Tesla-Homedash"),
+        timezone=ConfigUtils.get_config()["timeZone"],
     )
     logger.debug("InfluxDB handler initialized")
 
