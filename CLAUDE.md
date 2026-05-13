@@ -264,12 +264,7 @@ No automated test suite exists yet. Validate changes manually:
 ## Known Bugs and Hotspots
 
 ### Bugs
-1. **Switch fall-through in `frontend/src/tesla/datahandler/tesladatahandler.cpp`**. Three `case` blocks are missing `break` statements:
-   - Line 49: `case 3` (ChargeAmps) falls through to `case 5` (ChargeLimitSoc)
-   - Line 177: `case 4` (BMSState) falls through to `case 9` (DetailedChargeState)
-   - Line 236: `case 20` (Locked) falls through to `case 26` (VehicleOnline)
-
-2. **HVAC state parsing in QML prototype** (`frontend_prototype/src/backendbridge.cpp` line 296). The code checks for `"on"/"true"/"1"` but the backend sends `"HvacPowerStateOn"/"HvacPowerStateOff"/"HvacPowerStatePending"` — HVAC will never show as enabled in the prototype.
+1. **HVAC state parsing in QML prototype** (`frontend_prototype/src/backendbridge.cpp` line 296). The code checks for `"on"/"true"/"1"` but the backend sends `"HvacPowerStateOn"/"HvacPowerStateOff"/"HvacPowerStatePending"` — HVAC will never show as enabled in the prototype.
 
 ### Fragile Patterns
 - **Protocol constants live in `backend/src/utils/protocol.py`** — the single source of truth for message-type bytes, weather sub-IDs, the `MAX_MSG_SIZE` cap, and the `frame(msg_type, payload)` helper. Services import from it; the `Server` itself does not (server is opaque to codes by design). When adding a new message type, add the constant there (not on a class) so both sides stay consistent, and use `protocol.frame(...)` to build packets.

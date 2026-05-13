@@ -46,6 +46,7 @@ void TeslaDataHandler::processStreamData(const QByteArray &packet) {
 
                 case 3:
                     emit onChargeAmpsUpdate(value, timestamp);
+                    break;
 
                 case 5:
                     emit onChargeLimitSocUpdate(value, timestamp);
@@ -175,6 +176,7 @@ void TeslaDataHandler::processStreamData(const QByteArray &packet) {
             switch (data_id) {
                 case 4:
                     emit onBMSStateUpdate(value, timestamp);
+                    break;
 
                 case 9:
                     emit onDetailedChargeStateUpdate(value, timestamp);
@@ -231,6 +233,7 @@ void TeslaDataHandler::processStreamData(const QByteArray &packet) {
 
                 case 20:
                     emit onLockedUpdate(value, timestamp);
+                    break;
 
                 case 26:
                     emit onVehicleOnlineUpdate(value, timestamp);
