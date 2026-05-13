@@ -2,8 +2,8 @@
 // Created by ville on 24.11.2025.
 //
 
-#ifndef GUI_SPOTIFYDATAHANDLER_HH
-#define GUI_SPOTIFYDATAHANDLER_HH
+#ifndef GUI_MEDIAPLAYERDATAHANDLER_HH
+#define GUI_MEDIAPLAYERDATAHANDLER_HH
 #include <QObject>
 #include <QByteArray>
 #include "../widgets/mediaplayercard.hh"
@@ -11,7 +11,7 @@
 #include <QFutureWatcher>
 
 /**
- * MediaplayerDataHandler — parses incoming media-player packets (cover
+ * MediaPlayerDataHandler — parses incoming media-player packets (cover
  * art, song title/artists, progress/duration, play state, media type) and
  * re-emits each as a Qt signal. Also formats outbound transport commands
  * (skip / pause-play / seek) and emits them via onSpotifyRequest.
@@ -19,13 +19,13 @@
  * Cover-art packets are deduplicated by content hash and decoded on the
  * global thread pool so the GUI thread is never blocked by JPEG/PNG decode.
  */
-class MediaplayerDataHandler : public QObject {
+class MediaPlayerDataHandler : public QObject {
     Q_OBJECT
 
 public:
-    explicit MediaplayerDataHandler(QObject *parent);
+    explicit MediaPlayerDataHandler(QObject *parent);
 
-    void connectPlayer(MediaplayerCard *player);
+    void connectPlayer(MediaPlayerCard *player);
 
 public slots:
     void processCovertArtData(const QByteArray &packet);
@@ -78,4 +78,4 @@ private:
     quint64 m_last_cover_hash = 0;
     QFutureWatcher<QPixmap> *m_cover_watcher = nullptr;
 };
-#endif //GUI_SPOTIFYDATAHANDLER_HH
+#endif //GUI_MEDIAPLAYERDATAHANDLER_HH

@@ -22,7 +22,7 @@
  * Owns and lays out every widget (10x16 QGridLayout): map, two telemetry
  * lists, media player card, weather panel, climate controller, plus a
  * corner reboot button. Also constructs the data handlers
- * (TeslaDataHandler, MediaplayerDataHandler, WeatherDataHandler) and the
+ * (TeslaDataHandler, MediaPlayerDataHandler, WeatherDataHandler) and the
  * ServerClient that ties them to the backend's TCP server.
  *
  * Construction is parameterised by AppConfig (env-driven backend address,
@@ -42,25 +42,19 @@ private slots:
 private:
     Vehicle *vehicle;
 
-    //QFrame *frame_1;
-    MediaplayerCard *spotify_player;
-    QFrame *frame_3;
-    QFrame *frame_4;
-    QFrame *frame_6;
-
     QWidget *central;
     QGridLayout *grid;
     TeslaDataEntryList *list_1;
     TeslaDataEntryList *list_2;
-    ClimateControllerCard *cccard;
-
+    ClimateControllerCard *climate_card;
     TeslaMap *map;
+    MediaPlayerCard *media_player_card;
+    MainWeather *main_weather;
 
-    TeslaDataHandler *tth;
-    MediaplayerDataHandler *sdh;
-    WeatherDataHandler *wdh;
+    TeslaDataHandler *tesla_data_handler;
+    MediaPlayerDataHandler *media_data_handler;
+    WeatherDataHandler *weather_data_handler;
     ServerClient *server_client;
-    MainWeather *mw;
     QPushButton *reboot;
 };
 #endif  // MAINWINDOW_HH

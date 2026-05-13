@@ -7,7 +7,7 @@
 #include <QtEndian>
 
 ServerClient::ServerClient(QObject *parent, TeslaDataHandler *tesla_data_handler,
-                           MediaplayerDataHandler *spotify_data_handler, WeatherDataHandler *weather_data_handler,
+                           MediaPlayerDataHandler *spotify_data_handler, WeatherDataHandler *weather_data_handler,
                            QString server_address,
                            quint16 server_port) {
     socket = new QTcpSocket(this);
@@ -31,20 +31,20 @@ void ServerClient::startClient() {
     connect(tesla_data_handler, &TeslaDataHandler::onTeslaRequest, this, &ServerClient::onSendMessageRequest);
 
     connect(this, &ServerClient::spotifyCovertArtPacketReady, spotify_data_handler,
-            &MediaplayerDataHandler::processCovertArtData);
+            &MediaPlayerDataHandler::processCovertArtData);
     connect(this, &ServerClient::spotifySongProgressPacketReady, spotify_data_handler,
-            &MediaplayerDataHandler::processSongProgress);
+            &MediaPlayerDataHandler::processSongProgress);
     connect(this, &ServerClient::spotifySongDurationPacketReady, spotify_data_handler,
-            &MediaplayerDataHandler::processSongDuration);
+            &MediaPlayerDataHandler::processSongDuration);
     connect(this, &ServerClient::spotifySongTitlePacketReady, spotify_data_handler,
-            &MediaplayerDataHandler::processSongTitle);
+            &MediaPlayerDataHandler::processSongTitle);
     connect(this, &ServerClient::spotifyPlayStatePacketReady, spotify_data_handler,
-            &MediaplayerDataHandler::processPlayState);
+            &MediaPlayerDataHandler::processPlayState);
     connect(this, &ServerClient::spotifyArtistsPacketReady, spotify_data_handler,
-            &MediaplayerDataHandler::processArtists);
-    connect(spotify_data_handler, &MediaplayerDataHandler::onSpotifyRequest, this, &ServerClient::onSendMessageRequest);
+            &MediaPlayerDataHandler::processArtists);
+    connect(spotify_data_handler, &MediaPlayerDataHandler::onSpotifyRequest, this, &ServerClient::onSendMessageRequest);
     connect(this, &ServerClient::mediaPlayerMediaTypePacketReady, spotify_data_handler,
-            &MediaplayerDataHandler::processMediaType);
+            &MediaPlayerDataHandler::processMediaType);
 
     connect(this, &ServerClient::mainWeatherPacketReady, weather_data_handler,
             &WeatherDataHandler::onMainForecastUpdate);

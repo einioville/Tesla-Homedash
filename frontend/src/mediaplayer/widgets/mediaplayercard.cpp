@@ -22,7 +22,7 @@
 #include <QFont>
 #include <QtConcurrent>
 
-MediaplayerCard::MediaplayerCard(QWidget *parent) : QFrame(parent) {
+MediaPlayerCard::MediaPlayerCard(QWidget *parent) : QFrame(parent) {
     setObjectName("spotifyplayer");
 
     time_font = QFont("Gotham Rounded Medium", 8);
@@ -133,10 +133,10 @@ MediaplayerCard::MediaplayerCard(QWidget *parent) : QFrame(parent) {
     cover_shadow->setColor(QColor(0, 0, 0, 255));
     cover_art->setGraphicsEffect(cover_shadow);
 
-    connect(slider, &QSlider::valueChanged, this, &MediaplayerCard::sliderMoved);
+    connect(slider, &QSlider::valueChanged, this, &MediaPlayerCard::sliderMoved);
 }
 
-void MediaplayerCard::updateCoverArt(QPixmap cover_art_image) {
+void MediaPlayerCard::updateCoverArt(QPixmap cover_art_image) {
     // Skip the entire scale / clip / k-means pipeline if the exact same
     // QPixmap arrived again (the data handler already dedups by packet
     // hash, but this is a cheap second line of defence).
@@ -181,10 +181,10 @@ void MediaplayerCard::updateCoverArt(QPixmap cover_art_image) {
         m_color_watcher->deleteLater();
         m_color_watcher = nullptr;
     });
-    m_color_watcher->setFuture(QtConcurrent::run(&MediaplayerCard::computeDominantColor, cover_art_image));
+    m_color_watcher->setFuture(QtConcurrent::run(&MediaPlayerCard::computeDominantColor, cover_art_image));
 }
 
-void MediaplayerCard::updateSongProgress(quint32 progress) {
+void MediaPlayerCard::updateSongProgress(quint32 progress) {
     this->progress = progress;
 
     if (slider->isSliderDown()) {
@@ -193,10 +193,10 @@ void MediaplayerCard::updateSongProgress(quint32 progress) {
 
     slider->setValue(progress);
 
-    QTimer::singleShot(1000, this, &MediaplayerCard::updateVirtualProgress);
+    QTimer::singleShot(1000, this, &MediaPlayerCard::updateVirtualProgress);
 }
 
-void MediaplayerCard::sliderMoved(int value) {
+void MediaPlayerCard::sliderMoved(int value) {
     QTime time(0, 0, 0);
     time = time.addMSecs(value);
 
@@ -204,7 +204,7 @@ void MediaplayerCard::sliderMoved(int value) {
     progress_label->setText(time_string);
 }
 
-void MediaplayerCard::updateVirtualProgress() {
+void MediaPlayerCard::updateVirtualProgress() {
     if (slider->isSliderDown()) {
         return;
     }
@@ -218,7 +218,7 @@ void MediaplayerCard::updateVirtualProgress() {
     slider->setValue(progress);
 }
 
-void MediaplayerCard::updateSongDuration(quint32 duration) {
+void MediaPlayerCard::updateSongDuration(quint32 duration) {
     slider->setMaximum(duration);
 
     QTime time(0, 0, 0);
@@ -228,17 +228,17 @@ void MediaplayerCard::updateSongDuration(quint32 duration) {
     duration_label->setText(time_string);
 }
 
-void MediaplayerCard::updateSongTitle(QString name) {
+void MediaPlayerCard::updateSongTitle(QString name) {
     const QString elided = title->fontMetrics().elidedText(name, Qt::ElideRight, width() - 20);
     title->setText(elided);
 }
 
-void MediaplayerCard::updateArtists(QString artists) {
+void MediaPlayerCard::updateArtists(QString artists) {
     QString elided = artist->fontMetrics().elidedText(artists, Qt::ElideRight, width() - 20);
     artist->setText(elided);
 }
 
-void MediaplayerCard::updatePlayState(bool is_playing) {
+void MediaPlayerCard::updatePlayState(bool is_playing) {
     this->is_playing = is_playing;
     if (is_playing) {
         pause_play_button->setIcon(QIcon(":/resources/icons/pause.svg"));
@@ -247,7 +247,7 @@ void MediaplayerCard::updatePlayState(bool is_playing) {
     }
 }
 
-void MediaplayerCard::updatePauseButton() {
+void MediaPlayerCard::updatePauseButton() {
     if (is_playing) {
         pause_play_button->setIcon(QIcon(":/resources/icons/play.svg"));
     } else {
@@ -256,7 +256,7 @@ void MediaplayerCard::updatePauseButton() {
     is_playing = !is_playing;
 }
 
-QColor MediaplayerCard::computeDominantColor(QPixmap cover_art_image) {
+QColor MediaPlayerCard::computeDominantColor(QPixmap cover_art_image) {
     // k-means on the album art with a hue/value gate that biases against
     // yellow and brown. This is intentionally heavy and kept functionally
     // identical to the original GUI-thread implementation — the only change
@@ -400,7 +400,7 @@ QColor MediaplayerCard::computeDominantColor(QPixmap cover_art_image) {
     return best_color;
 }
 
-void MediaplayerCard::rebuildBackgroundCache() {
+void MediaPlayerCard::rebuildBackgroundCache() {
     m_background_cache = QPixmap(size());
     m_background_cache.fill(Qt::transparent);
 
@@ -425,12 +425,12 @@ void MediaplayerCard::rebuildBackgroundCache() {
     painter.fillRect(rect(), gradient);
 }
 
-void MediaplayerCard::resizeEvent(QResizeEvent *event) {
+void MediaPlayerCard::resizeEvent(QResizeEvent *event) {
     QFrame::resizeEvent(event);
     m_background_dirty = true;
 }
 
-void MediaplayerCard::paintEvent(QPaintEvent *event) {
+void MediaPlayerCard::paintEvent(QPaintEvent *event) {
     QFrame::paintEvent(event);
 
     if (m_background_dirty || m_cached_size != size() || m_background_cache.isNull()) {
@@ -443,7 +443,7 @@ void MediaplayerCard::paintEvent(QPaintEvent *event) {
     painter.drawPixmap(0, 0, m_background_cache);
 }
 
-QVector<QPushButton *> MediaplayerCard::getButtonPointers() {
+QVector<QPushButton *> MediaPlayerCard::getButtonPointers() {
     QVector<QPushButton *> buttons;
     buttons.reserve(3);
     buttons.push_back(skip_backward_button);
@@ -452,11 +452,11 @@ QVector<QPushButton *> MediaplayerCard::getButtonPointers() {
     return buttons;
 }
 
-QSlider *MediaplayerCard::getSlider() {
+QSlider *MediaPlayerCard::getSlider() {
     return slider;
 }
 
-void MediaplayerCard::updateMediaType(uint8_t media_type) {
+void MediaPlayerCard::updateMediaType(uint8_t media_type) {
     qDebug() << media_type << "media_type";
     bool show_extras = media_type == 0x01;
     artist->setVisible(!show_extras);

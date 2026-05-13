@@ -7,11 +7,11 @@
 #include <QtConcurrent>
 #include <QHash>
 
-MediaplayerDataHandler::MediaplayerDataHandler(QObject *parent) : QObject{parent} {
+MediaPlayerDataHandler::MediaPlayerDataHandler(QObject *parent) : QObject{parent} {
     return;
 }
 
-void MediaplayerDataHandler::processCovertArtData(const QByteArray &packet) {
+void MediaPlayerDataHandler::processCovertArtData(const QByteArray &packet) {
     // Dedup: identical cover-art packets arrive frequently during normal
     // playback. Hashing is cheap (~tens of microseconds for a ~50 KB JPEG)
     // and avoids the decode + k-means pipeline entirely on repeats.
@@ -46,7 +46,7 @@ void MediaplayerDataHandler::processCovertArtData(const QByteArray &packet) {
     }));
 }
 
-void MediaplayerDataHandler::processSongProgress(const QByteArray &packet) {
+void MediaPlayerDataHandler::processSongProgress(const QByteArray &packet) {
     QDataStream stream(packet);
     stream.setByteOrder(QDataStream::BigEndian);
     quint32 progress;
@@ -54,7 +54,7 @@ void MediaplayerDataHandler::processSongProgress(const QByteArray &packet) {
     emit onSongProgressUpdate(progress);
 }
 
-void MediaplayerDataHandler::processSongDuration(const QByteArray &packet) {
+void MediaPlayerDataHandler::processSongDuration(const QByteArray &packet) {
     QDataStream stream(packet);
     stream.setByteOrder(QDataStream::BigEndian);
     quint32 duration;
@@ -62,7 +62,7 @@ void MediaplayerDataHandler::processSongDuration(const QByteArray &packet) {
     emit onSongDurationUpdate(duration);
 }
 
-void MediaplayerDataHandler::processSongTitle(const QByteArray &packet) {
+void MediaPlayerDataHandler::processSongTitle(const QByteArray &packet) {
     QDataStream stream(packet);
     stream.setByteOrder(QDataStream::BigEndian);
 
@@ -76,7 +76,7 @@ void MediaplayerDataHandler::processSongTitle(const QByteArray &packet) {
     emit onSongTitleUpdate(title);
 }
 
-void MediaplayerDataHandler::processArtists(const QByteArray &packet) {
+void MediaPlayerDataHandler::processArtists(const QByteArray &packet) {
     QDataStream stream(packet);
     stream.setByteOrder(QDataStream::BigEndian);
 
@@ -90,7 +90,7 @@ void MediaplayerDataHandler::processArtists(const QByteArray &packet) {
     emit onArtistsUpdate(artists);
 }
 
-void MediaplayerDataHandler::processPlayState(const QByteArray &packet) {
+void MediaPlayerDataHandler::processPlayState(const QByteArray &packet) {
     QDataStream stream(packet);
     stream.setByteOrder(QDataStream::BigEndian);
 
@@ -107,7 +107,7 @@ void MediaplayerDataHandler::processPlayState(const QByteArray &packet) {
     emit onPlayStateUpdate(state);
 }
 
-void MediaplayerDataHandler::skipBackwards() {
+void MediaPlayerDataHandler::skipBackwards() {
     quint32 packet_length = 1;
     quint8 msg_type = 0x19;
     QByteArray packet;
@@ -117,7 +117,7 @@ void MediaplayerDataHandler::skipBackwards() {
     emit onSpotifyRequest(packet);
 }
 
-void MediaplayerDataHandler::skipForwards() {
+void MediaPlayerDataHandler::skipForwards() {
     quint32 packet_length = 1;
     quint8 msg_type = 0x18;
     QByteArray packet;
@@ -127,7 +127,7 @@ void MediaplayerDataHandler::skipForwards() {
     emit onSpotifyRequest(packet);
 }
 
-void MediaplayerDataHandler::pausePlay() {
+void MediaPlayerDataHandler::pausePlay() {
     quint32 packet_length = 1;
     quint8 msg_type = 0x1A;
     QByteArray packet;
@@ -137,7 +137,7 @@ void MediaplayerDataHandler::pausePlay() {
     emit onSpotifyRequest(packet);
 }
 
-void MediaplayerDataHandler::setProgress() {
+void MediaPlayerDataHandler::setProgress() {
     quint32 value = slider->value();
     quint8 msg_type = 0x1C;
     quint32 packet_length = 5;
@@ -149,7 +149,7 @@ void MediaplayerDataHandler::setProgress() {
     emit onSpotifyRequest(packet);
 }
 
-void MediaplayerDataHandler::processMediaType(const QByteArray &packet) {
+void MediaPlayerDataHandler::processMediaType(const QByteArray &packet) {
     QDataStream stream(packet);
 
     uint8_t media_type;
@@ -158,20 +158,20 @@ void MediaplayerDataHandler::processMediaType(const QByteArray &packet) {
     emit onMediaTypeUpdate(media_type);
 }
 
-void MediaplayerDataHandler::connectPlayer(MediaplayerCard *player) {
-    connect(this, &MediaplayerDataHandler::onCovertArtUpdate, player, &MediaplayerCard::updateCoverArt);
-    connect(this, &MediaplayerDataHandler::onSongProgressUpdate, player, &MediaplayerCard::updateSongProgress);
-    connect(this, &MediaplayerDataHandler::onSongDurationUpdate, player, &MediaplayerCard::updateSongDuration);
-    connect(this, &MediaplayerDataHandler::onSongTitleUpdate, player, &MediaplayerCard::updateSongTitle);
-    connect(this, &MediaplayerDataHandler::onPlayStateUpdate, player, &MediaplayerCard::updatePlayState);
-    connect(this, &MediaplayerDataHandler::onArtistsUpdate, player, &MediaplayerCard::updateArtists);
-    connect(this, &MediaplayerDataHandler::onMediaTypeUpdate, player, &MediaplayerCard::updateMediaType);
+void MediaPlayerDataHandler::connectPlayer(MediaPlayerCard *player) {
+    connect(this, &MediaPlayerDataHandler::onCovertArtUpdate, player, &MediaPlayerCard::updateCoverArt);
+    connect(this, &MediaPlayerDataHandler::onSongProgressUpdate, player, &MediaPlayerCard::updateSongProgress);
+    connect(this, &MediaPlayerDataHandler::onSongDurationUpdate, player, &MediaPlayerCard::updateSongDuration);
+    connect(this, &MediaPlayerDataHandler::onSongTitleUpdate, player, &MediaPlayerCard::updateSongTitle);
+    connect(this, &MediaPlayerDataHandler::onPlayStateUpdate, player, &MediaPlayerCard::updatePlayState);
+    connect(this, &MediaPlayerDataHandler::onArtistsUpdate, player, &MediaPlayerCard::updateArtists);
+    connect(this, &MediaPlayerDataHandler::onMediaTypeUpdate, player, &MediaPlayerCard::updateMediaType);
 
     QVector<QPushButton *> buttons = player->getButtonPointers();
-    connect(buttons[0], &QPushButton::clicked, this, &MediaplayerDataHandler::skipBackwards);
-    connect(buttons[1], &QPushButton::clicked, this, &MediaplayerDataHandler::pausePlay);
-    connect(buttons[2], &QPushButton::clicked, this, &MediaplayerDataHandler::skipForwards);
+    connect(buttons[0], &QPushButton::clicked, this, &MediaPlayerDataHandler::skipBackwards);
+    connect(buttons[1], &QPushButton::clicked, this, &MediaPlayerDataHandler::pausePlay);
+    connect(buttons[2], &QPushButton::clicked, this, &MediaPlayerDataHandler::skipForwards);
 
     slider = player->getSlider();
-    connect(slider, &QSlider::sliderReleased, this, &MediaplayerDataHandler::setProgress);
+    connect(slider, &QSlider::sliderReleased, this, &MediaPlayerDataHandler::setProgress);
 }

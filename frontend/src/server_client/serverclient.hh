@@ -30,7 +30,7 @@ class ServerClient : public QObject {
 
 public:
     explicit ServerClient(QObject *parent, TeslaDataHandler *tesla_data_handler,
-                          MediaplayerDataHandler *spotify_data_handler, WeatherDataHandler *weather_data_handler,
+                          MediaPlayerDataHandler *spotify_data_handler, WeatherDataHandler *weather_data_handler,
                           QString server_address,
                           quint16 server_port);
 
@@ -78,7 +78,7 @@ private:
     QTcpSocket *socket;
     QByteArray buffer;
     TeslaDataHandler *tesla_data_handler;
-    MediaplayerDataHandler *spotify_data_handler;
+    MediaPlayerDataHandler *spotify_data_handler;
     WeatherDataHandler *weather_data_handler;
     QString server_address;
     quint16 server_port;

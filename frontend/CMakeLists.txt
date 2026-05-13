@@ -24,7 +24,7 @@ set(SOURCES
         resources.qrc
         src/tesla/widgets/dataentrylist/tesladataentrylist.cpp
         src/server_client/serverclient.cpp
-        src/tesla/datahandler/TeslaDataHandler.cpp
+        src/tesla/datahandler/tesladatahandler.cpp
         src/tesla/widgets/singletesladataentry.cpp
         src/mediaplayer/widgets/mediaplayercard.cpp
         src/mediaplayer/datahandler/mediaplayerdatahandler.cpp
@@ -34,8 +34,8 @@ set(SOURCES
         src/weather/widgets/mainweather.cpp
         src/weather/widgets/currentweathercard.cpp
         src/weather/datahandler/weatherdatahandler.cpp
-        src/tesla/widgets/climate/ClimateControllerCard.cpp
-        src/tesla/widgets/climate/TemperatureCard.cpp
+        src/tesla/widgets/climate/climatecontrollercard.cpp
+        src/tesla/widgets/climate/temperaturecard.cpp
         src/tesla/widgets/climate/teslaclimatestarter.cpp
         src/tesla/widgets/climate/teslaseatwidget.cpp
         src/tesla/widgets/climate/teslasteeringwidget.cpp
@@ -48,7 +48,7 @@ set(HEADERS
         src/tesla/vehicle.hh
         src/tesla/widgets/dataentrylist/tesladataentrylist.hh
         src/server_client/serverclient.hh
-        src/tesla/datahandler/TeslaDataHandler.hh
+        src/tesla/datahandler/tesladatahandler.hh
         src/tesla/widgets/singletesladataentry.hh
         src/mediaplayer/widgets/mediaplayercard.hh
         src/mediaplayer/datahandler/mediaplayerdatahandler.hh
@@ -58,8 +58,8 @@ set(HEADERS
         src/weather/widgets/mainweather.hh
         src/weather/widgets/currentweathercard.hh
         src/weather/datahandler/weatherdatahandler.hh
-        src/tesla/widgets/climate/ClimateControllerCard.hh
-        src/tesla/widgets/climate/TemperatureCard.hh
+        src/tesla/widgets/climate/climatecontrollercard.hh
+        src/tesla/widgets/climate/temperaturecard.hh
         src/tesla/widgets/climate/teslaclimatestarter.hh
         src/tesla/widgets/climate/teslaseatwidget.hh
         src/tesla/widgets/climate/teslasteeringwidget.hh

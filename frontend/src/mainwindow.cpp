@@ -52,8 +52,8 @@ MainWindow::MainWindow(QWidget *parent, const AppConfig &config) : QMainWindow(p
     map = new TeslaMap(this, props3);
     grid->addWidget(map, 0, 0, 6, 8);
 
-    spotify_player = new MediaplayerCard(this);
-    grid->addWidget(spotify_player, 6, 0, 4, 4);
+    media_player_card = new MediaPlayerCard(this);
+    grid->addWidget(media_player_card, 6, 0, 4, 4);
 
     list_2 = new TeslaDataEntryList(this, 3, props2, titles2, 1);
     grid->addWidget(list_2, 0, 8, 6, 4);
@@ -61,13 +61,13 @@ MainWindow::MainWindow(QWidget *parent, const AppConfig &config) : QMainWindow(p
     list_1 = new TeslaDataEntryList(this, 3, props, titles, 2);
     grid->addWidget(list_1, 0, 12, 6, 4);
 
-    mw = new MainWeather(this);
-    grid->addWidget(mw, 6, 4, 4, 8);
+    main_weather = new MainWeather(this);
+    grid->addWidget(main_weather, 6, 4, 4, 8);
 
-    cccard = new ClimateControllerCard(this, vehicle->getProperty("InsideTemp"), vehicle->getProperty("OutsideTemp"),
-                                       vehicle->getProperty("HvacLeftTemperatureRequest"),
-                                       vehicle->getProperty("HvacPower"));
-    grid->addWidget(cccard, 6, 12, 4, 4);
+    climate_card = new ClimateControllerCard(this, vehicle->getProperty("InsideTemp"), vehicle->getProperty("OutsideTemp"),
+                                             vehicle->getProperty("HvacLeftTemperatureRequest"),
+                                             vehicle->getProperty("HvacPower"));
+    grid->addWidget(climate_card, 6, 12, 4, 4);
 
     setStyleSheet("background-color: #121212");
 
@@ -80,24 +80,19 @@ MainWindow::MainWindow(QWidget *parent, const AppConfig &config) : QMainWindow(p
         setFixedSize(config.window_width, config.window_height);
     }
 
-    tth = new TeslaDataHandler(this, vehicle);
+    tesla_data_handler = new TeslaDataHandler(this, vehicle);
+    media_data_handler = new MediaPlayerDataHandler(this);
+    weather_data_handler = new WeatherDataHandler(this);
 
-    sdh = new MediaplayerDataHandler(this);
+    list_1->connectItems(tesla_data_handler);
+    list_2->connectItems(tesla_data_handler);
+    climate_card->connectItems(tesla_data_handler);
+    map->connectToTeslaDataHandler(tesla_data_handler);
+    media_data_handler->connectPlayer(media_player_card);
+    weather_data_handler->connectMainWeather(main_weather);
 
-    wdh = new WeatherDataHandler(this);
-
-    list_1->connectItems(tth);
-    list_2->connectItems(tth);
-
-    cccard->connectItems(tth);
-
-    map->connectToTeslaDataHandler(tth);
-
-    sdh->connectPlayer(spotify_player);
-
-    wdh->connectMainWeather(mw);
-
-    server_client = new ServerClient(this, tth, sdh, wdh, config.backend_host, config.backend_port);
+    server_client = new ServerClient(this, tesla_data_handler, media_data_handler, weather_data_handler,
+                                     config.backend_host, config.backend_port);
     server_client->startClient();
 
     // Reboot button — placed in a corner of the central widget. Using the

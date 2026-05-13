@@ -20,7 +20,7 @@
 #include <QFutureWatcher>
 
 /**
- * MediaplayerCard — bottom-left card showing the currently playing track:
+ * MediaPlayerCard — bottom-left card showing the currently playing track:
  * album art, title, artist, progress slider, transport buttons.
  *
  * The dominant colour of the album art drives a vertical gradient
@@ -33,11 +33,11 @@
  * drawPixmap call. The cache is invalidated on resize or when the dominant
  * colour changes.
  */
-class MediaplayerCard : public QFrame {
+class MediaPlayerCard : public QFrame {
     Q_OBJECT
 
 public:
-    explicit MediaplayerCard(QWidget *parent);
+    explicit MediaPlayerCard(QWidget *parent);
 
     QVector<QPushButton *> getButtonPointers();
 
