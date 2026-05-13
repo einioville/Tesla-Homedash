@@ -6,6 +6,7 @@
 #include <QByteArray>
 #include <QString>
 #include <QtGlobal>
+#include <QDebug>
 
 namespace {
     bool parseBool(const QByteArray &raw, bool fallback) {
