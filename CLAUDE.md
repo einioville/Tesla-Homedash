@@ -50,7 +50,9 @@ frontend/                       # Qt6 Widgets-based GUI (primary production fron
     main.cpp                    # App entry — loads font, reads AppConfig, creates MainWindow
     mainwindow.{hh,cpp}        # MainWindow — 10x16 grid layout, wires all widgets and data handlers
     config/
-      appconfig.{hh,cpp}        # AppConfig::load() reads runtime env vars (backend host/port, window size, fullscreen)
+      appconfig.{hh,cpp}        # AppConfig::load() reads runtime env vars (backend host/port, window size, fullscreen, log level)
+    utils/
+      logger.{hh,cpp}           # Logger class — stdout sink mirroring backend's logger_configurator
     server_client/
       serverclient.{hh,cpp}    # QTcpSocket client — connects to backend:6969, demuxes binary packets to signals
     tesla/
@@ -142,6 +144,9 @@ the embedded-display target.
 - `TESLA_HOMEDASH_FULLSCREEN` — `1`/`true`/`yes` to open fullscreen (default `false`).
   Fullscreen mode skips the fixed-size lock; windowed mode keeps the 1280x800
   layout assumptions and locks the size to match.
+- `TESLA_HOMEDASH_LOG_LEVEL` — minimum log severity to emit
+  (`debug`/`info`/`warning`/`error`/`critical`, case-insensitive; default `info`).
+  Invalid values fall back to `info` and emit a warning at startup.
 
 External services:
 - InfluxDB on `http://localhost:8086`, org `Tesla-Homedash`, bucket `data`
@@ -300,6 +305,15 @@ These are deliberate decisions baked into the 1.x.x Widgets frontend that are ea
 - The "spotifyplayer" object name on `MediaPlayerCard` is kept for QSS-selector compatibility with the existing `mediaplayercard.qss`. Renaming the object name requires updating every `#spotifyplayer`, `#spotifybutton`, `#spotifyslider` selector in that file.
 - Per-state SVG pixmaps in `TeslaSeatWidget` and `TeslaSteeringwidget` are rendered once at construction (off / heating / cooling for seats; off / heating for the wheel). The per-update path is `m_seat->setPixmap(...)` only.
 - Cover-art decoding and k-means use `QFutureWatcher` rolled per request; an in-flight watcher is cancelled when a newer cover-art packet arrives. Lambdas capture by value; capturing `this` is safe because both classes live for the app lifetime.
+
+### Frontend logging (1.x.x)
+The frontend has a dedicated logger in `frontend/src/utils/logger.{hh,cpp}` that mirrors the backend's logger_configurator (`backend/src/utils/logger_configurator.py`).
+- **Format** is byte-identical to the backend: `LEVEL | YYYY-MM-DD | HH:MM:SS | name | message`. **Destination** is stdout only; no file output, no rotation.
+- **API**: each .cpp gets a file-local `static const Logger logger = Logger::get("<name>");` near the top, then `logger.info("...")` / `logger.warning("...")` / `logger.debug("...")` etc. Source names used today: `app`, `config`, `server_client`, `tesla.data`, `media.data`, `media.card`, `weather.data`, `qt`. New subsystems should pick a hierarchical name following the same shape.
+- **Threshold** is controlled by `TESLA_HOMEDASH_LOG_LEVEL` (default `info`). `Logger::install(level)` is called twice from `main()`: once with INFO before AppConfig reads env vars (so AppConfig's own logs land), then again with the configured level.
+- **Never** call `qInfo` / `qWarning` / `qDebug` / `qCritical` / `qFatal` directly from frontend code. `Logger::install()` registers a `qInstallMessageHandler` that funnels Qt-internal messages (QML, QGraphicsEffect, deprecation notices, etc.) through the same formatter under the source name `qt`, so direct `q*` calls from our code would bypass intent and could double-format.
+- The cover-art and dominant-colour `QtConcurrent` workers hit the logger; writes are serialised by a single static `QMutex` so interleaved lines stay intact. New worker threads that log are automatically safe.
+- Outbound control commands (climate switch, ±temp, skip, pause/play, seek, reboot) are INFO; protocol issues (truncated payload, unknown packet type, value_type mismatch, socket error) are WARNING; per-packet telemetry trace is DEBUG. Adding a new control or protocol path should follow that convention.
 
 ### Known Bug — QML prototype
 The QML prototype tree (`frontend_prototype/`) targets 2.x.x, not 1.0. It still has at least one known parse bug:
