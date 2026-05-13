@@ -7,11 +7,14 @@
 
 #include <QString>
 
+#include "../utils/logger.hh"
+
 /**
  * AppConfig — runtime configuration read from environment variables at
  * startup. Lets the dashboard be redeployed (different backend host, screen
- * size, fullscreen mode) without recompiling. All fields fall back to the
- * 1.0 defaults baked into the binary if the corresponding env var is unset.
+ * size, fullscreen mode, log level) without recompiling. All fields fall
+ * back to the 1.0 defaults baked into the binary if the corresponding env
+ * var is unset.
  *
  * Recognised env vars:
  *   TESLA_HOMEDASH_BACKEND_HOST   (string)  default "127.0.0.1"
@@ -20,6 +23,9 @@
  *   TESLA_HOMEDASH_WINDOW_HEIGHT  (uint)    default 800
  *   TESLA_HOMEDASH_FULLSCREEN     (bool)    default false
  *                                  ("1" / "true" / "yes", case-insensitive)
+ *   TESLA_HOMEDASH_LOG_LEVEL      (string)  default "info"
+ *                                  ("debug" / "info" / "warning" /
+ *                                   "error" / "critical", case-insensitive)
  */
 struct AppConfig {
     QString backend_host;
@@ -27,6 +33,7 @@ struct AppConfig {
     int window_width;
     int window_height;
     bool fullscreen;
+    Logger::Level log_level;
 
     static AppConfig load();
 };

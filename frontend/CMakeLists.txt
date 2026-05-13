@@ -19,6 +19,7 @@ set(SOURCES
         src/main.cpp
         src/mainwindow.cpp
         src/config/appconfig.cpp
+        src/utils/logger.cpp
         src/tesla/widgets/tesladatawidget.cpp
         src/tesla/vehicle.cpp
         resources.qrc
@@ -44,6 +45,7 @@ set(SOURCES
 set(HEADERS
         src/mainwindow.hh
         src/config/appconfig.hh
+        src/utils/logger.hh
         src/tesla/widgets/tesladatawidget.hh
         src/tesla/vehicle.hh
         src/tesla/widgets/dataentrylist/tesladataentrylist.hh
