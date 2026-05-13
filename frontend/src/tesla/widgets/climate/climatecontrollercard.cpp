@@ -89,7 +89,7 @@ ClimateControllerCard::ClimateControllerCard(QWidget *parent, TeslaDataProperty 
     minus_target_temp->setGraphicsEffect(arrow_left_shadow);
     plus_target_temp->setGraphicsEffect(arrow_right_shadow);
 
-    QFile style(":/resources/styles/climatecontroller.qss");
+    QFile style(":/resources/styles/climatecontrollercard.qss");
     if (style.open(QFile::ReadOnly | QFile::Text)) {
         QTextStream stream(&style);
         base_style = stream.readAll();

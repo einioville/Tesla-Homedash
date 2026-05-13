@@ -108,7 +108,7 @@ MediaPlayerCard::MediaPlayerCard(QWidget *parent) : QFrame(parent) {
     layout->addWidget(duration_label, 10, 4, Qt::AlignVCenter | Qt::AlignRight);
     duration_label->hide();
 
-    QFile style(":/resources/styles/spotifyplayer.qss");
+    QFile style(":/resources/styles/mediaplayercard.qss");
     if (style.open(QFile::ReadOnly | QFile::Text)) {
         QTextStream stream(&style);
         base_style = stream.readAll();

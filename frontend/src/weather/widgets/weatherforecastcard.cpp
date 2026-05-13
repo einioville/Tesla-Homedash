@@ -95,7 +95,7 @@ WeatherForecastCard::WeatherForecastCard(QWidget *parent, int id) : QFrame(paren
     cloudcover_layout->addWidget(cloudcover_unit);
     layout->addLayout(cloudcover_layout);
 
-    QFile style(":resources/styles/weathercard.qss");
+    QFile style(":/resources/styles/weatherforecastcard.qss");
     if (style.open(QFile::ReadOnly | QFile::Text)) {
         QTextStream stream(&style);
         QString base_style = stream.readAll();
