@@ -11,8 +11,8 @@
 #include <QHBoxLayout>
 #include <QVBoxLayout>
 #include <QLabel>
+#include <QPixmap>
 #include <vector>
-#include <QSvgRenderer>
 
 class TeslaSteeringwidget : public TeslaDataWidget {
     Q_OBJECT
@@ -39,12 +39,17 @@ private:
 
     void removeHeatingIcons();
 
+    // Renders the steering-wheel SVG once per tint at construction. The
+    // per-update drawWheelIcon path just swaps the cached pixmap.
+    QPixmap renderWheelPixmap(const QColor &tint) const;
+
     QVBoxLayout *m_main_layout;
     QHBoxLayout *m_heat_level_layout;
     QLabel *m_wheel;
+    QPixmap m_icon_off;
+    QPixmap m_icon_heating;
     std::vector<QLabel *> m_heating;
     int m_old_value_heating;
-    QSvgRenderer *m_renderer;
 };
 
 #endif //GUI_TESLASTEERINGWIDGET_HH

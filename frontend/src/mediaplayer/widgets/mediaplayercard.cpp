@@ -20,6 +20,7 @@
 #include <QLinearGradient>
 #include <QTime>
 #include <QFont>
+#include <QtConcurrent>
 
 MediaplayerCard::MediaplayerCard(QWidget *parent) : QFrame(parent) {
     setObjectName("spotifyplayer");
@@ -72,7 +73,6 @@ MediaplayerCard::MediaplayerCard(QWidget *parent) : QFrame(parent) {
     pause_play_button->setFixedHeight(36);
     pause_play_button->setIcon(QIcon(":/resources/icons/pause.svg"));
     pause_play_button->setIconSize(pause_play_button->size());
-    //connect(pause_play_button, &QPushButton::clicked, this, &MediaplayerCard::updatePauseButton);
     layout->addWidget(pause_play_button, 8, 2, 1, 1, Qt::AlignCenter);
 
     skip_forward_button = new QPushButton(this);
@@ -115,6 +115,10 @@ MediaplayerCard::MediaplayerCard(QWidget *parent) : QFrame(parent) {
         setStyleSheet(base_style);
     }
 
+    // Only the outer frame shadow and the cover-art shadow are kept. The
+    // previous "light" shadow on every inner widget (title/artist/buttons/
+    // labels/slider) forced off-screen compositing for each widget and was
+    // visually indistinguishable on the 1280x800 display.
     shadow = new QGraphicsDropShadowEffect(this);
     shadow->setBlurRadius(50);
     shadow->setXOffset(10);
@@ -129,28 +133,18 @@ MediaplayerCard::MediaplayerCard(QWidget *parent) : QFrame(parent) {
     cover_shadow->setColor(QColor(0, 0, 0, 255));
     cover_art->setGraphicsEffect(cover_shadow);
 
-    auto apply_light_shadow = [](QWidget *widget) {
-        auto *effect = new QGraphicsDropShadowEffect(widget);
-        effect->setBlurRadius(6);
-        effect->setXOffset(0);
-        effect->setYOffset(0);
-        effect->setColor(QColor(0, 0, 0, 120));
-        widget->setGraphicsEffect(effect);
-    };
-
-    apply_light_shadow(title);
-    apply_light_shadow(artist);
-    apply_light_shadow(skip_backward_button);
-    apply_light_shadow(pause_play_button);
-    apply_light_shadow(skip_forward_button);
-    apply_light_shadow(progress_label);
-    apply_light_shadow(duration_label);
-    apply_light_shadow(slider);
-
     connect(slider, &QSlider::valueChanged, this, &MediaplayerCard::sliderMoved);
 }
 
 void MediaplayerCard::updateCoverArt(QPixmap cover_art_image) {
+    // Skip the entire scale / clip / k-means pipeline if the exact same
+    // QPixmap arrived again (the data handler already dedups by packet
+    // hash, but this is a cheap second line of defence).
+    if (cover_art_image.cacheKey() == m_last_processed_key) {
+        return;
+    }
+    m_last_processed_key = cover_art_image.cacheKey();
+
     QPixmap scaled = cover_art_image.scaled(cover_art->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation);
 
     QPixmap dest(scaled.size());
@@ -167,7 +161,27 @@ void MediaplayerCard::updateCoverArt(QPixmap cover_art_image) {
     painter.drawPixmap(0, 0, scaled);
 
     cover_art->setPixmap(dest);
-    setBackgroundColor(&cover_art_image);
+
+    // Dispatch the k-means dominant-colour computation to the global thread
+    // pool. The algorithm itself is preserved exactly; only the execution
+    // context moves off the GUI thread. If a newer cover-art update arrives
+    // before this one finishes the in-flight watcher is dropped — the result
+    // would be stale anyway.
+    if (m_color_watcher) {
+        m_color_watcher->disconnect();
+        m_color_watcher->cancel();
+        m_color_watcher->deleteLater();
+        m_color_watcher = nullptr;
+    }
+    m_color_watcher = new QFutureWatcher<QColor>(this);
+    connect(m_color_watcher, &QFutureWatcher<QColor>::finished, this, [this]() {
+        dominant_color = m_color_watcher->result();
+        m_background_dirty = true;
+        update();
+        m_color_watcher->deleteLater();
+        m_color_watcher = nullptr;
+    });
+    m_color_watcher->setFuture(QtConcurrent::run(&MediaplayerCard::computeDominantColor, cover_art_image));
 }
 
 void MediaplayerCard::updateSongProgress(quint32 progress) {
@@ -242,8 +256,12 @@ void MediaplayerCard::updatePauseButton() {
     is_playing = !is_playing;
 }
 
-void MediaplayerCard::setBackgroundColor(const QPixmap *cover_art_image) {
-    const QImage image = cover_art_image->toImage().convertToFormat(QImage::Format_RGB888);
+QColor MediaplayerCard::computeDominantColor(QPixmap cover_art_image) {
+    // k-means on the album art with a hue/value gate that biases against
+    // yellow and brown. This is intentionally heavy and kept functionally
+    // identical to the original GUI-thread implementation — the only change
+    // is the execution context.
+    const QImage image = cover_art_image.toImage().convertToFormat(QImage::Format_RGB888);
 
     const int img_width = image.width();
     const int img_height = image.height();
@@ -379,14 +397,14 @@ void MediaplayerCard::setBackgroundColor(const QPixmap *cover_art_image) {
         }
     }
 
-    dominant_color = best_color;
-    update();
+    return best_color;
 }
 
-void MediaplayerCard::paintEvent(QPaintEvent *event) {
-    QFrame::paintEvent(event);
+void MediaplayerCard::rebuildBackgroundCache() {
+    m_background_cache = QPixmap(size());
+    m_background_cache.fill(Qt::transparent);
 
-    QPainter painter(this);
+    QPainter painter(&m_background_cache);
     painter.setRenderHint(QPainter::Antialiasing);
 
     QPainterPath clip;
@@ -405,6 +423,24 @@ void MediaplayerCard::paintEvent(QPaintEvent *event) {
     gradient.setColorAt(1.0, bottom_color);
 
     painter.fillRect(rect(), gradient);
+}
+
+void MediaplayerCard::resizeEvent(QResizeEvent *event) {
+    QFrame::resizeEvent(event);
+    m_background_dirty = true;
+}
+
+void MediaplayerCard::paintEvent(QPaintEvent *event) {
+    QFrame::paintEvent(event);
+
+    if (m_background_dirty || m_cached_size != size() || m_background_cache.isNull()) {
+        rebuildBackgroundCache();
+        m_background_dirty = false;
+        m_cached_size = size();
+    }
+
+    QPainter painter(this);
+    painter.drawPixmap(0, 0, m_background_cache);
 }
 
 QVector<QPushButton *> MediaplayerCard::getButtonPointers() {
@@ -428,4 +464,3 @@ void MediaplayerCard::updateMediaType(uint8_t media_type) {
     progress_label->setVisible(!show_extras);
     duration_label->setVisible(!show_extras);
 }
-

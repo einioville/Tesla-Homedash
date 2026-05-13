@@ -7,7 +7,6 @@
 #include <QQuickWidget>
 #include <QWidget>
 #include <QQuickItem>
-#include <QGraphicsDropShadowEffect>
 #include <QQuickView>
 #include <QQmlEngine>
 #include <QVBoxLayout>
@@ -42,7 +41,6 @@ private:
     QWidget *container;
     QQmlEngine *engine;
     QQuickItem *map;
-    QGraphicsDropShadowEffect *shadow;
 };
 
 #endif //GUI_MAP_HH

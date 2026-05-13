@@ -13,7 +13,7 @@ set(CMAKE_AUTOUIC ON)
 
 set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Network QuickWidgets Location Positioning Quick Svg Graphs)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Network QuickWidgets Location Positioning Quick Svg Graphs Concurrent)
 
 set(SOURCES
         src/main.cpp
@@ -77,6 +77,7 @@ target_link_libraries(gui PRIVATE
         Qt6::Quick
         Qt6::Svg
         Qt6::Graphs
+        Qt6::Concurrent
 )
 
 target_compile_features(gui PRIVATE cxx_std_20)

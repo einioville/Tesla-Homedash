@@ -16,7 +16,23 @@
 #include <QGraphicsDropShadowEffect>
 #include <QTimer>
 #include <QSlider>
+#include <QPixmap>
+#include <QFutureWatcher>
 
+/**
+ * MediaplayerCard — bottom-left card showing the currently playing track:
+ * album art, title, artist, progress slider, transport buttons.
+ *
+ * The dominant colour of the album art drives a vertical gradient
+ * background. The k-means clustering used to derive that colour is
+ * intentionally heavy (kept functionally identical to the original
+ * implementation) and is therefore dispatched to the global thread pool
+ * via QtConcurrent; the GUI thread only receives the final QColor.
+ *
+ * The rendered gradient is cached as a QPixmap so paintEvent is a single
+ * drawPixmap call. The cache is invalidated on resize or when the dominant
+ * colour changes.
+ */
 class MediaplayerCard : public QFrame {
     Q_OBJECT
 
@@ -38,6 +54,8 @@ public slots:
 
     void paintEvent(QPaintEvent *event) override;
 
+    void resizeEvent(QResizeEvent *event) override;
+
     void updatePlayState(bool is_playing);
 
     void updatePauseButton();
@@ -51,7 +69,11 @@ public slots:
     void updateMediaType(uint8_t media_type);
 
 private:
-    void setBackgroundColor(const QPixmap *cover_art_image);
+    // Pure function: k-means + hue gating over the album art. Safe to invoke
+    // on a worker thread; returns the dominant QColor.
+    static QColor computeDominantColor(QPixmap cover_art_image);
+
+    void rebuildBackgroundCache();
 
     QString base_style;
     QGridLayout *layout;
@@ -72,6 +94,19 @@ private:
     QFont time_font;
     QFont title_font;
     QFont artist_font;
+
+    // Cover-art dedup: skip re-processing if the same QPixmap comes in twice.
+    qint64 m_last_processed_key = 0;
+
+    // Cached gradient background. Rebuilt only on resize or dominant-color
+    // change to avoid per-frame QPainterPath + QLinearGradient allocation.
+    QPixmap m_background_cache;
+    QSize m_cached_size;
+    bool m_background_dirty = true;
+
+    // Rolling worker for dominant-color computation. Cancelled if a newer
+    // cover-art update arrives before the previous worker completes.
+    QFutureWatcher<QColor> *m_color_watcher = nullptr;
 };
 
 #endif //GUI_PLAYER_HH

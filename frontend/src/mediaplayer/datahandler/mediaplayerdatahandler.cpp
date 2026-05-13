@@ -4,15 +4,46 @@
 
 #include "mediaplayerdatahandler.hh"
 #include <QDataStream>
+#include <QtConcurrent>
+#include <QHash>
 
 MediaplayerDataHandler::MediaplayerDataHandler(QObject *parent) : QObject{parent} {
     return;
 }
 
 void MediaplayerDataHandler::processCovertArtData(const QByteArray &packet) {
-    QPixmap pixmap;
-    pixmap.loadFromData(packet);
-    emit onCovertArtUpdate(pixmap);
+    // Dedup: identical cover-art packets arrive frequently during normal
+    // playback. Hashing is cheap (~tens of microseconds for a ~50 KB JPEG)
+    // and avoids the decode + k-means pipeline entirely on repeats.
+    const quint64 h = qHash(packet);
+    if (h == m_last_cover_hash) {
+        return;
+    }
+    m_last_cover_hash = h;
+
+    // Decode the image off the GUI thread. If a newer packet arrives before
+    // the previous decode finishes, the in-flight watcher is dropped since
+    // its result would be stale by the time it lands.
+    if (m_cover_watcher) {
+        m_cover_watcher->disconnect();
+        m_cover_watcher->cancel();
+        m_cover_watcher->deleteLater();
+        m_cover_watcher = nullptr;
+    }
+    m_cover_watcher = new QFutureWatcher<QPixmap>(this);
+    connect(m_cover_watcher, &QFutureWatcher<QPixmap>::finished, this, [this]() {
+        const QPixmap result = m_cover_watcher->result();
+        m_cover_watcher->deleteLater();
+        m_cover_watcher = nullptr;
+        if (!result.isNull()) {
+            emit onCovertArtUpdate(result);
+        }
+    });
+    m_cover_watcher->setFuture(QtConcurrent::run([packet]() {
+        QPixmap p;
+        p.loadFromData(packet);
+        return p;
+    }));
 }
 
 void MediaplayerDataHandler::processSongProgress(const QByteArray &packet) {

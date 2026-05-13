@@ -13,6 +13,10 @@ TeslaMap::TeslaMap(QWidget *parent, QVector<TeslaDataProperty *> td_properties) 
 
     engine = new QQmlEngine(this);
 
+    // Applying QGraphicsEffect to a widget that hosts a QQuickWidget/QQuickView
+    // forces the entire QML scene to render via software rasterization
+    // (no GPU). We keep the rounded-corner setMask in resizeEvent but drop
+    // the drop shadow so the map can render through the qrhi/d3d11 backend.
     view = new QQuickView(engine, nullptr);
     view->setResizeMode(QQuickView::SizeRootObjectToView);
     view->setColor(Qt::transparent);
@@ -24,13 +28,6 @@ TeslaMap::TeslaMap(QWidget *parent, QVector<TeslaDataProperty *> td_properties) 
     container->setFocusPolicy(Qt::StrongFocus);
 
     layout->addWidget(container);
-
-    shadow = new QGraphicsDropShadowEffect(this);
-    shadow->setBlurRadius(50);
-    shadow->setXOffset(10);
-    shadow->setYOffset(10);
-    shadow->setColor(QColor(0, 0, 0, 150));
-    setGraphicsEffect(shadow);
 }
 
 void TeslaMap::updateDataDouble(const double &value, const quint64 &timestamp) {
@@ -41,7 +38,6 @@ void TeslaMap::updateDataDouble(const double &value, const quint64 &timestamp) {
 
 void TeslaMap::updateDataLocation(const double &value_latitude, const double &value_longitude,
                                   const quint64 &timestamp) {
-    qDebug() << "fhskjfghdfkunlghndakughadfngufdahgjfd";
     if (map) {
         map->setProperty("latitude", std::round(value_latitude * 1'000'000.0) / 1'000'000.0);
         map->setProperty("longitude", std::round(value_longitude * 1'000'000.0) / 1'000'000.0);

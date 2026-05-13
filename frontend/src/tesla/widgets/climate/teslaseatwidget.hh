@@ -10,9 +10,9 @@
 #include <QObject>
 #include <QGridLayout>
 #include <QLabel>
+#include <QPixmap>
 #include <vector>
 #include <QGraphicsDropShadowEffect>
-#include <QSvgRenderer>
 #include <QHBoxLayout>
 #include <QVBoxLayout>
 
@@ -47,15 +47,21 @@ private:
 
     void removeHeatingIcons();
 
+    // Renders the seat SVG once and tints it for each climate state so the
+    // per-update path is a single QLabel::setPixmap call instead of an SVG
+    // load + two-pass QPainter.
+    QPixmap renderSeatPixmap(const QColor &tint) const;
+
     QVBoxLayout *m_main_layout;
     QHBoxLayout *m_state_level_layout;
     QLabel *m_seat;
-    //QGraphicsDropShadowEffect *m_shadow;
+    QPixmap m_icon_off;
+    QPixmap m_icon_heating;
+    QPixmap m_icon_cooling;
     std::vector<QLabel *> m_cooling;
     std::vector<QLabel *> m_heating;
     int m_old_value_cooling;
     int m_old_value_heating;
-    QSvgRenderer *m_renderer;
     bool m_driver;
 };
 

@@ -7,10 +7,13 @@
 #include <QPixmap>
 #include <QString>
 #include <QPainter>
+#include <QSvgRenderer>
 
 TeslaSeatWidget::TeslaSeatWidget(QWidget *parent, QVector<TeslaDataProperty *> td_properties,
                                  bool driver) : TeslaDataMultiWidget(
     parent, td_properties) {
+    m_driver = driver;
+
     m_main_layout = new QVBoxLayout(this);
     m_main_layout->setAlignment(Qt::AlignCenter);
     m_main_layout->setContentsMargins(0, 0, 0, 0);
@@ -21,14 +24,6 @@ TeslaSeatWidget::TeslaSeatWidget(QWidget *parent, QVector<TeslaDataProperty *> t
     m_seat->setFixedSize(30, 30);
     m_main_layout->addWidget(m_seat, Qt::AlignCenter);
 
-    /*
-    m_shadow = new QGraphicsDropShadowEffect(this);
-    m_shadow->setColor(QColor(255, 255, 255, 200));
-    m_shadow->setOffset(0, 0);
-    m_shadow->setBlurRadius(10);
-    m_seat->setGraphicsEffect(m_shadow);
-    */
-
     m_state_level_layout = new QHBoxLayout();
     m_state_level_layout->setAlignment(Qt::AlignCenter);
     m_main_layout->addLayout(m_state_level_layout);
@@ -38,7 +33,7 @@ TeslaSeatWidget::TeslaSeatWidget(QWidget *parent, QVector<TeslaDataProperty *> t
         10, 10, Qt::KeepAspectRatio, Qt::SmoothTransformation);
 
     for (uint8_t i = 0; i < 3; i++) {
-        auto *cooling_icon = new QLabel();
+        auto *cooling_icon = new QLabel(this);
         cooling_icon->setFixedSize(10, 10);
         cooling_icon->setPixmap(cooling_pm);
         m_cooling.push_back(cooling_icon);
@@ -51,7 +46,7 @@ TeslaSeatWidget::TeslaSeatWidget(QWidget *parent, QVector<TeslaDataProperty *> t
         10, 10, Qt::KeepAspectRatio, Qt::SmoothTransformation);
 
     for (uint8_t i = 0; i < 3; i++) {
-        auto *heating_icon = new QLabel();
+        auto *heating_icon = new QLabel(this);
         heating_icon->setFixedSize(10, 10);
         heating_icon->setPixmap(heating_pm);
         m_heating.push_back(heating_icon);
@@ -59,9 +54,11 @@ TeslaSeatWidget::TeslaSeatWidget(QWidget *parent, QVector<TeslaDataProperty *> t
         m_state_level_layout->addWidget(heating_icon);
     }
 
-    m_renderer = new QSvgRenderer(this);
-
-    m_driver = driver;
+    // Render the seat silhouette once per tint at construction. The per-update
+    // drawSeatIcon path just swaps the cached pixmap into m_seat.
+    m_icon_off = renderSeatPixmap(QColor(255, 255, 255, 255));
+    m_icon_heating = renderSeatPixmap(QColor(255, 0, 0, 255));
+    m_icon_cooling = renderSeatPixmap(QColor(0, 0, 255, 255));
 
     setStyleSheet("border: none; background: transparent");
 
@@ -69,8 +66,8 @@ TeslaSeatWidget::TeslaSeatWidget(QWidget *parent, QVector<TeslaDataProperty *> t
     drawSeatIcon(OFF);
 }
 
-void TeslaSeatWidget::drawSeatIcon(SeatClimateState seat_climate_state) {
-    m_renderer->load(QString(":/resources/icons/seat.svg"));
+QPixmap TeslaSeatWidget::renderSeatPixmap(const QColor &tint) const {
+    QSvgRenderer renderer(QString(":/resources/icons/seat.svg"));
 
     QPixmap icon_map(30, 30);
     icon_map.fill(Qt::transparent);
@@ -80,53 +77,38 @@ void TeslaSeatWidget::drawSeatIcon(SeatClimateState seat_climate_state) {
         painter.setRenderHint(QPainter::Antialiasing);
         painter.setRenderHint(QPainter::SmoothPixmapTransform);
 
+        // Passenger seat mirrors the driver SVG horizontally.
         if (!m_driver) {
             painter.translate(icon_map.width(), 0);
             painter.scale(-1, 1);
         }
 
-        m_renderer->render(&painter);
+        renderer.render(&painter);
     }
 
     {
         QPainter painter(&icon_map);
         painter.setCompositionMode(QPainter::CompositionMode_SourceIn);
         painter.setRenderHint(QPainter::Antialiasing);
-
-        switch (seat_climate_state) {
-            case OFF:
-                painter.fillRect(icon_map.rect(), QColor(255, 255, 255, 255));
-                break;
-            case HEATING:
-                painter.fillRect(icon_map.rect(), QColor(255, 0, 0, 255));
-                break;
-            case COOLING:
-                painter.fillRect(icon_map.rect(), QColor(0, 0, 255, 255));
-                break;
-            default:
-                painter.fillRect(icon_map.rect(), QColor(255, 255, 255, 255));
-                break;
-        }
+        painter.fillRect(icon_map.rect(), tint);
     }
 
-    m_seat->setPixmap(icon_map);
+    return icon_map;
+}
 
-    /*
+void TeslaSeatWidget::drawSeatIcon(SeatClimateState seat_climate_state) {
     switch (seat_climate_state) {
-        case OFF:
-            m_shadow->setColor(QColor(255, 255, 255, 255));
-            break;
         case HEATING:
-            m_shadow->setColor(QColor(255, 0, 0, 255));
+            m_seat->setPixmap(m_icon_heating);
             break;
         case COOLING:
-            m_shadow->setColor(QColor(0, 0, 255, 255));
+            m_seat->setPixmap(m_icon_cooling);
             break;
+        case OFF:
         default:
-            m_shadow->setColor(QColor(255, 255, 255, 255));
+            m_seat->setPixmap(m_icon_off);
             break;
     }
-    */
 }
 
 void TeslaSeatWidget::removeHeatingIcons() {
@@ -157,4 +139,3 @@ void TeslaSeatWidget::updateDataDouble(const double &value, const quint64 &times
     m_old_value_heating = value;
     m_old_value_cooling = value;
 }
-

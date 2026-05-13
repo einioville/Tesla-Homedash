@@ -5,6 +5,7 @@
 #include "teslasteeringwidget.hh"
 #include <QPixmap>
 #include <QPainter>
+#include <QSvgRenderer>
 
 TeslaSteeringwidget::TeslaSteeringwidget(QWidget *parent, TeslaDataProperty *td_property) : TeslaDataWidget(
     parent, td_property) {
@@ -26,7 +27,7 @@ TeslaSteeringwidget::TeslaSteeringwidget(QWidget *parent, TeslaDataProperty *td_
     QPixmap heating_pm = QPixmap(":/resources/icons/heating.png").scaled(
         10, 10, Qt::KeepAspectRatio, Qt::SmoothTransformation);
     for (uint8_t i = 0; i < 2; i++) {
-        auto *heating_icon = new QLabel();
+        auto *heating_icon = new QLabel(this);
         heating_icon->setFixedSize(10, 10);
         heating_icon->setPixmap(heating_pm);
         m_heating.push_back(heating_icon);
@@ -34,7 +35,9 @@ TeslaSteeringwidget::TeslaSteeringwidget(QWidget *parent, TeslaDataProperty *td_
         heating_icon->setVisible(false);
     }
 
-    m_renderer = new QSvgRenderer(this);
+    // Render the wheel SVG once per tint at construction.
+    m_icon_off = renderWheelPixmap(QColor(255, 255, 255, 255));
+    m_icon_heating = renderWheelPixmap(QColor(255, 0, 0, 255));
 
     setStyleSheet("border: none; background: transparent");
 
@@ -42,8 +45,8 @@ TeslaSteeringwidget::TeslaSteeringwidget(QWidget *parent, TeslaDataProperty *td_
     drawHeatingIcons(0);
 }
 
-void TeslaSteeringwidget::drawWheelIcon(bool heating) {
-    m_renderer->load(QString(":/resources/icons/steering.svg"));
+QPixmap TeslaSteeringwidget::renderWheelPixmap(const QColor &tint) const {
+    QSvgRenderer renderer(QString(":/resources/icons/steering.svg"));
 
     QPixmap icon_map(30, 30);
     icon_map.fill(Qt::transparent);
@@ -52,39 +55,21 @@ void TeslaSteeringwidget::drawWheelIcon(bool heating) {
         QPainter painter(&icon_map);
         painter.setRenderHint(QPainter::Antialiasing);
         painter.setRenderHint(QPainter::SmoothPixmapTransform);
-        m_renderer->render(&painter);
+        renderer.render(&painter);
     }
 
     {
         QPainter painter(&icon_map);
         painter.setCompositionMode(QPainter::CompositionMode_SourceIn);
         painter.setRenderHint(QPainter::Antialiasing);
-
-        if (heating) {
-            painter.fillRect(icon_map.rect(), QColor(255, 0, 0, 255));
-        } else {
-            painter.fillRect(icon_map.rect(), QColor(255, 255, 255, 255));
-        }
+        painter.fillRect(icon_map.rect(), tint);
     }
 
-    m_wheel->setPixmap(icon_map);
+    return icon_map;
+}
 
-    /*
-    switch (seat_climate_state) {
-        case OFF:
-            m_shadow->setColor(QColor(255, 255, 255, 255));
-            break;
-        case HEATING:
-            m_shadow->setColor(QColor(255, 0, 0, 255));
-            break;
-        case COOLING:
-            m_shadow->setColor(QColor(0, 0, 255, 255));
-            break;
-        default:
-            m_shadow->setColor(QColor(255, 255, 255, 255));
-            break;
-    }
-    */
+void TeslaSteeringwidget::drawWheelIcon(bool heating) {
+    m_wheel->setPixmap(heating ? m_icon_heating : m_icon_off);
 }
 
 void TeslaSteeringwidget::removeHeatingIcons() {
@@ -103,10 +88,5 @@ void TeslaSteeringwidget::drawHeatingIcons(const int &value) {
 
 void TeslaSteeringwidget::updateDataDouble(const double &value, const quint64 &timestamp) {
     drawHeatingIcons(value);
-    if (value > 0) {
-        drawWheelIcon(true);
-    } else {
-        drawWheelIcon(false);
-    }
+    drawWheelIcon(value > 0);
 }
-

@@ -8,6 +8,7 @@
 #include <QByteArray>
 #include "../widgets/mediaplayercard.hh"
 #include <QPixmap>
+#include <QFutureWatcher>
 
 class MediaplayerDataHandler : public QObject {
     Q_OBJECT
@@ -59,5 +60,13 @@ signals:
 
 private:
     QSlider *slider;
+
+    // Cover-art dedup + async decode. Repeated cover-art packets for the same
+    // image are common (Spotify polls every few seconds); we hash the packet
+    // bytes and skip decoding entirely when the hash matches. Fresh packets
+    // are decoded on the global thread pool so the GUI thread is never
+    // blocked by JPEG/PNG decode.
+    quint64 m_last_cover_hash = 0;
+    QFutureWatcher<QPixmap> *m_cover_watcher = nullptr;
 };
 #endif //GUI_SPOTIFYDATAHANDLER_HH

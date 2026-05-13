@@ -156,7 +156,9 @@ void ServerClient::onReadyRead() {
 }
 
 void ServerClient::onSendMessageRequest(const QByteArray &packet) const {
+    // Non-blocking write. Qt drains the kernel send buffer on the next event-loop
+    // iteration; control packets are <= 6 bytes so back-pressure never builds.
+    // Previously this called flush() + waitForBytesWritten(1000), which stalled
+    // the GUI thread for up to a second on slow networks.
     socket->write(packet);
-    socket->flush();
-    socket->waitForBytesWritten(1000);
 }
