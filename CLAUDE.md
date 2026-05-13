@@ -3,6 +3,11 @@
 ## Scope
 Tesla-Homedash is a 1280x800 desktop dashboard (designed for an embedded display) combining live Tesla telemetry, media playback, weather forecasts, and HVAC climate controls. A Python async backend streams data over a custom binary TCP protocol to a Qt6 C++20 frontend.
 
+## Frontend Versioning Policy
+- **1.x.x** ships the Qt6 Widgets frontend in `frontend/`. This is what runs on the embedded display today and is the focus of every change made here.
+- **2.x.x** will replace the Widgets frontend with a QML implementation derived from `frontend_prototype/`. Until then, `frontend_prototype/` is exploratory and not production-bound. Any work targeting 2.x.x should land in the prototype tree, not in `frontend/`.
+- The two frontends share the binary protocol (see "Binary Protocol Reference"); changes to the protocol must keep both buildable, but feature work is restricted to the version-appropriate tree.
+
 ## Project Structure
 
 ```
@@ -276,15 +281,29 @@ No automated test suite exists yet. Validate changes manually:
 
 ## Known Bugs and Hotspots
 
-### Bugs
-1. **HVAC state parsing in QML prototype** (`frontend_prototype/src/backendbridge.cpp` line 296). The code checks for `"on"/"true"/"1"` but the backend sends `"HvacPowerStateOn"/"HvacPowerStateOff"/"HvacPowerStatePending"` — HVAC will never show as enabled in the prototype.
-
 ### Fragile Patterns
 - **Protocol constants live in `backend/src/utils/protocol.py`** — the single source of truth for message-type bytes, weather sub-IDs, the `MAX_MSG_SIZE` cap, and the `frame(msg_type, payload)` helper. Services import from it; the `Server` itself does not (server is opaque to codes by design). When adding a new message type, add the constant there (not on a class) so both sides stay consistent, and use `protocol.frame(...)` to build packets.
 - **InfluxDB Flux queries** in `influxdb_handler.py` use f-string interpolation for `data_property_id` (gated by the `_SAFE_ID` regex `^[A-Za-z0-9_\-]+$`). Currently safe, but would be injection-vulnerable if any non-config input reached these paths — keep the regex guard in place.
 - **Spotify `_current_device_id` vs `_target_device_id`** comparison drives the claim/release logic. If the target device ID in `config.json` is wrong, Spotify controls will silently not work.
 - **HVAC rate limiting** (`vehicle.py` `__requests_used`): the counter is in-memory and resets on process restart. The threshold check (`> 4`) blocks at request 5, while the scheduler is set at request 4 — the 5th request is blocked but never scheduled for reset.
 - **Midnight snapshot job** in `Vehicle.init_async_dependent()` writes the current value of every logged data property to InfluxDB at 00:00 local time. This guarantees `read_first_value_day` / `read_first_value_month` always return a baseline so that `CalculatedVehicleDataProperty` (DrivenToday, DrivenThisMonth, etc.) never starts the period at `None`. If you change the set of logged fields, this job automatically picks up the change on the next tick.
+- **Frontend signal routing is table-driven** (`frontend/src/tesla/datahandler/tesladatahandler.cpp`, `kRoutes`). Each row maps `data_id` to its value type and the matching Qt signal. Adding a new Tesla property requires one new row here, one new signal in the `.hh`, plus the matching entries in `Vehicle::Vehicle()` and backend `config.json`. The table is the only place that needs `data_id` <-> signal coverage; both `processStreamData` and the two `connectToDataUpdateSignal` overloads walk it. Mismatches (signal in `.hh` but no row, or vice versa) silently break the binding for that field.
+- **Cover-art pipeline runs on the global thread pool** (`MediaPlayerDataHandler::processCovertArtData` + `MediaPlayerCard::updateCoverArt`). Repeated identical packets are deduped by `qHash(packet)` in the handler; the worker decodes the JPEG/PNG and the card runs the k-means dominant-colour computation in a second worker. The k-means algorithm, hue gating and RNG seed (`69420`) must remain functionally identical — the dashboard's visual identity depends on the exact colour it picks. Move execution context freely; do not tweak inputs or scoring.
+- **Cached gradient background** (`MediaPlayerCard::m_background_cache`). Rebuilt only on resize or when `dominant_color` changes. If you add a new dynamic visual on the card, mark `m_background_dirty = true` after the state change so the next `paintEvent` regenerates the cache.
+- **Graphics effects on `QQuickWidget`/`QQuickView` are toxic.** Applying `QGraphicsDropShadowEffect` (or any `QGraphicsEffect`) to a widget that hosts a QML scene forces the whole subtree to render through the software rasterizer, killing the d3d11/qrhi backend. The map widget intentionally has no effect on the container; use a QSS border or border-image instead if a visual frame is needed.
+- **Outbound TCP writes are non-blocking** (`ServerClient::onSendMessageRequest`). Do not reintroduce `flush()` + `waitForBytesWritten(...)` — control packets are <= 6 bytes, the kernel send buffer never fills, and blocking the GUI thread for up to 1 s was responsible for visible click latency.
+- **`AppConfig` is the one place** to read frontend runtime environment. `main.cpp` calls `AppConfig::load()` exactly once, before constructing `MainWindow`. Reading env vars elsewhere in the frontend is a smell — extend `AppConfig` instead.
+
+### Frontend hardening notes (1.x.x)
+These are deliberate decisions baked into the 1.x.x Widgets frontend that are easy to undo by accident:
+- The reboot button sits in grid cell `(0, 15)` with `Qt::AlignTop | Qt::AlignRight`, not at `move(1230, 0)`. Keeps it on-screen at any configured resolution.
+- The "spotifyplayer" object name on `MediaPlayerCard` is kept for QSS-selector compatibility with the existing `mediaplayercard.qss`. Renaming the object name requires updating every `#spotifyplayer`, `#spotifybutton`, `#spotifyslider` selector in that file.
+- Per-state SVG pixmaps in `TeslaSeatWidget` and `TeslaSteeringwidget` are rendered once at construction (off / heating / cooling for seats; off / heating for the wheel). The per-update path is `m_seat->setPixmap(...)` only.
+- Cover-art decoding and k-means use `QFutureWatcher` rolled per request; an in-flight watcher is cancelled when a newer cover-art packet arrives. Lambdas capture by value; capturing `this` is safe because both classes live for the app lifetime.
+
+### Known Bug — QML prototype
+The QML prototype tree (`frontend_prototype/`) targets 2.x.x, not 1.0. It still has at least one known parse bug:
+- **HVAC state parsing** in `frontend_prototype/src/backendbridge.cpp` line 296: the code checks for `"on" / "true" / "1"` but the backend sends `"HvacPowerStateOn" / "HvacPowerStateOff" / "HvacPowerStatePending"`. HVAC will never show as enabled in the prototype. Fix when the prototype becomes the production target.
 
 ## Architecture Notes
 
