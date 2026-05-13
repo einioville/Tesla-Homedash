@@ -1,5 +1,4 @@
 #include "mainwindow.hh"
-#include "mainwindow.hh"
 #include <QString>
 #include <QGridLayout>
 #include <QFrame>
@@ -15,7 +14,7 @@
 #include <QGraphicsDropShadowEffect>
 #include <QProcess>
 
-MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
+MainWindow::MainWindow(QWidget *parent, const AppConfig &config) : QMainWindow(parent) {
     vehicle = new Vehicle(this);
 
     central = new QWidget(this);
@@ -65,19 +64,21 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     mw = new MainWeather(this);
     grid->addWidget(mw, 6, 4, 4, 8);
 
-    //frame_6 = new QFrame(this);
-    //frame_6->setStyleSheet("background-color: pink");
     cccard = new ClimateControllerCard(this, vehicle->getProperty("InsideTemp"), vehicle->getProperty("OutsideTemp"),
                                        vehicle->getProperty("HvacLeftTemperatureRequest"),
                                        vehicle->getProperty("HvacPower"));
     grid->addWidget(cccard, 6, 12, 4, 4);
 
-    //setFixedSize(500, 500);
     setStyleSheet("background-color: #121212");
 
-    //setFixedSize(1280, 800);
-    resize(1280, 800);
-    setFixedSize(1280, 800);
+    // Fullscreen mode skips the fixed-size lock so the QMainWindow can grow
+    // to whatever physical screen the dashboard is running on. Windowed
+    // mode keeps the original 1280x800 layout assumptions and locks the
+    // window size.
+    resize(config.window_width, config.window_height);
+    if (!config.fullscreen) {
+        setFixedSize(config.window_width, config.window_height);
+    }
 
     tth = new TeslaDataHandler(this, vehicle);
 
@@ -96,13 +97,17 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
 
     wdh->connectMainWeather(mw);
 
-    server_client = new ServerClient(this, tth, sdh, wdh, "127.0.0.1", 6969);
+    server_client = new ServerClient(this, tth, sdh, wdh, config.backend_host, config.backend_port);
     server_client->startClient();
 
-    reboot = new QPushButton(this);
+    // Reboot button — placed in a corner of the central widget. Using the
+    // grid (rather than absolute move()) keeps it visible regardless of the
+    // configured window size.
+    reboot = new QPushButton(central);
     reboot->setFixedSize(50, 50);
-    reboot->move(1230, 0);
     reboot->setStyleSheet("background: transparent; border: none");
+    grid->addWidget(reboot, 0, 15, 1, 1, Qt::AlignTop | Qt::AlignRight);
+    reboot->raise();
     connect(reboot, &QPushButton::clicked, this, &MainWindow::rebootSys);
 }
 

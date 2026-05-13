@@ -1,5 +1,6 @@
 #include <QApplication>
 #include "mainwindow.hh"
+#include "config/appconfig.hh"
 #include <QFontDatabase>
 
 int main(int argc, char *argv[]) {
@@ -15,7 +16,13 @@ int main(int argc, char *argv[]) {
         qDebug() << font_id;
     }
 
-    MainWindow w = MainWindow(nullptr);
-    w.show();
+    const AppConfig config = AppConfig::load();
+
+    MainWindow w(nullptr, config);
+    if (config.fullscreen) {
+        w.showFullScreen();
+    } else {
+        w.show();
+    }
     return a.exec();
 }

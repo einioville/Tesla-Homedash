@@ -13,13 +13,14 @@
 #include "weather/widgets/mainweather.hh"
 #include "weather/datahandler/weatherdatahandler.hh"
 #include "tesla/widgets/climate/climatecontrollercard.hh"
+#include "config/appconfig.hh"
 #include <QPushButton>
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
 
 public:
-    explicit MainWindow(QWidget *parent);
+    explicit MainWindow(QWidget *parent, const AppConfig &config);
 
     ~MainWindow() override;
 

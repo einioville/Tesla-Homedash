@@ -42,8 +42,10 @@ frontend/                       # Qt6 Widgets-based GUI (primary production fron
     styles/                     # Per-widget QSS files (climatecontroller, spotifyplayer, weathercard, etc.)
     models/                     # Blender model files (tesla_3.blend)
   src/
-    main.cpp                    # App entry — loads font, creates MainWindow
+    main.cpp                    # App entry — loads font, reads AppConfig, creates MainWindow
     mainwindow.{hh,cpp}        # MainWindow — 10x16 grid layout, wires all widgets and data handlers
+    config/
+      appconfig.{hh,cpp}        # AppConfig::load() reads runtime env vars (backend host/port, window size, fullscreen)
     server_client/
       serverclient.{hh,cpp}    # QTcpSocket client — connects to backend:6969, demuxes binary packets to signals
     tesla/
@@ -100,7 +102,7 @@ teknologiat.txt                  # Finnish-language technology summary for portf
 ## Build, Run, and Validation Commands
 - **Configure frontend**: `cmake -S frontend -B frontend/build -DCMAKE_PREFIX_PATH="<Qt6 path>"`
 - **Build frontend**: `cmake --build frontend/build --config Release`
-- **Run frontend**: `.\frontend\build\Release\gui.exe`
+- **Run frontend**: `.\frontend\build\Release\gui.exe` (or with env overrides, e.g. PowerShell `$env:TESLA_HOMEDASH_FULLSCREEN=1; .\frontend\build\Release\gui.exe`)
 - **Configure prototype**: `cmake -S frontend_prototype -B frontend_prototype/build -DCMAKE_PREFIX_PATH="<Qt6 path>"`
 - **Build prototype**: `cmake --build frontend_prototype/build --config Release`
 - **Run backend**: `uv run python run.py` (from `backend/`) or activate `.venv` and use `python -m backend` from project root
@@ -124,6 +126,17 @@ Runtime config in `config.json`:
 - `spotifyRedirectUri` — OAuth callback (default `http://127.0.0.1:8080/callback`)
 - `defaultRadioStation` — key from `radioMediaIds` map
 - `timeZone` — IANA timezone (e.g. `Europe/Helsinki`)
+
+Frontend runtime config — environment variables read by `AppConfig::load()`
+in `frontend/src/config/appconfig.{hh,cpp}`. All are optional; defaults match
+the embedded-display target.
+- `TESLA_HOMEDASH_BACKEND_HOST` — backend TCP host (default `127.0.0.1`)
+- `TESLA_HOMEDASH_BACKEND_PORT` — backend TCP port (default `6969`)
+- `TESLA_HOMEDASH_WINDOW_WIDTH` — window width in pixels (default `1280`)
+- `TESLA_HOMEDASH_WINDOW_HEIGHT` — window height in pixels (default `800`)
+- `TESLA_HOMEDASH_FULLSCREEN` — `1`/`true`/`yes` to open fullscreen (default `false`).
+  Fullscreen mode skips the fixed-size lock; windowed mode keeps the 1280x800
+  layout assumptions and locks the size to match.
 
 External services:
 - InfluxDB on `http://localhost:8086`, org `Tesla-Homedash`, bucket `data`

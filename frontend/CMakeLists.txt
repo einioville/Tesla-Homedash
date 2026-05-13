@@ -18,6 +18,7 @@ find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Network QuickWidgets Locat
 set(SOURCES
         src/main.cpp
         src/mainwindow.cpp
+        src/config/appconfig.cpp
         src/tesla/widgets/tesladatawidget.cpp
         src/tesla/vehicle.cpp
         resources.qrc
@@ -42,6 +43,7 @@ set(SOURCES
 
 set(HEADERS
         src/mainwindow.hh
+        src/config/appconfig.hh
         src/tesla/widgets/tesladatawidget.hh
         src/tesla/vehicle.hh
         src/tesla/widgets/dataentrylist/tesladataentrylist.hh
