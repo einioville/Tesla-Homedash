@@ -3,20 +3,28 @@
 //
 
 #include "mediaplayerdatahandler.hh"
+#include "../../utils/logger.hh"
 #include <QDataStream>
 #include <QtConcurrent>
 #include <QHash>
+
+namespace {
+    const Logger logger = Logger::get("media.data");
+}
 
 MediaPlayerDataHandler::MediaPlayerDataHandler(QObject *parent) : QObject{parent} {
     return;
 }
 
 void MediaPlayerDataHandler::processCovertArtData(const QByteArray &packet) {
+    logger.debug(QStringLiteral("Cover art packet received | size=%1 bytes").arg(packet.size()));
+
     // Dedup: identical cover-art packets arrive frequently during normal
     // playback. Hashing is cheap (~tens of microseconds for a ~50 KB JPEG)
     // and avoids the decode + k-means pipeline entirely on repeats.
     const quint64 h = qHash(packet);
     if (h == m_last_cover_hash) {
+        logger.debug(QStringLiteral("Cover art dedup hit - skipping decode"));
         return;
     }
     m_last_cover_hash = h;
@@ -36,7 +44,11 @@ void MediaPlayerDataHandler::processCovertArtData(const QByteArray &packet) {
         m_cover_watcher->deleteLater();
         m_cover_watcher = nullptr;
         if (!result.isNull()) {
+            logger.debug(QStringLiteral("Cover art decoded | %1x%2")
+                             .arg(result.width()).arg(result.height()));
             emit onCovertArtUpdate(result);
+        } else {
+            logger.warning(QStringLiteral("Cover art decode produced a null pixmap"));
         }
     });
     m_cover_watcher->setFuture(QtConcurrent::run([packet]() {
@@ -51,6 +63,7 @@ void MediaPlayerDataHandler::processSongProgress(const QByteArray &packet) {
     stream.setByteOrder(QDataStream::BigEndian);
     quint32 progress;
     stream >> progress;
+    logger.debug(QStringLiteral("Song progress: %1ms").arg(progress));
     emit onSongProgressUpdate(progress);
 }
 
@@ -59,6 +72,7 @@ void MediaPlayerDataHandler::processSongDuration(const QByteArray &packet) {
     stream.setByteOrder(QDataStream::BigEndian);
     quint32 duration;
     stream >> duration;
+    logger.debug(QStringLiteral("Song duration: %1ms").arg(duration));
     emit onSongDurationUpdate(duration);
 }
 
@@ -73,6 +87,7 @@ void MediaPlayerDataHandler::processSongTitle(const QByteArray &packet) {
     stream.readRawData(raw.data(), length);
     QString title = QString::fromUtf8(raw);
 
+    logger.info(QStringLiteral("Song title: %1").arg(title));
     emit onSongTitleUpdate(title);
 }
 
@@ -87,6 +102,7 @@ void MediaPlayerDataHandler::processArtists(const QByteArray &packet) {
     stream.readRawData(raw.data(), length);
     QString artists = QString::fromUtf8(raw);
 
+    logger.info(QStringLiteral("Artists: %1").arg(artists));
     emit onArtistsUpdate(artists);
 }
 
@@ -104,6 +120,8 @@ void MediaPlayerDataHandler::processPlayState(const QByteArray &packet) {
         state = false;
     }
 
+    logger.debug(QStringLiteral("Play state: %1").arg(state ? QStringLiteral("playing")
+                                                            : QStringLiteral("paused")));
     emit onPlayStateUpdate(state);
 }
 
@@ -114,6 +132,7 @@ void MediaPlayerDataHandler::skipBackwards() {
     QDataStream stream(&packet, QIODevice::WriteOnly);
     stream << packet_length;
     stream << msg_type;
+    logger.info(QStringLiteral("Skip backward command issued"));
     emit onSpotifyRequest(packet);
 }
 
@@ -124,6 +143,7 @@ void MediaPlayerDataHandler::skipForwards() {
     QDataStream stream(&packet, QIODevice::WriteOnly);
     stream << packet_length;
     stream << msg_type;
+    logger.info(QStringLiteral("Skip forward command issued"));
     emit onSpotifyRequest(packet);
 }
 
@@ -134,6 +154,7 @@ void MediaPlayerDataHandler::pausePlay() {
     QDataStream stream(&packet, QIODevice::WriteOnly);
     stream << packet_length;
     stream << msg_type;
+    logger.info(QStringLiteral("Pause/play command issued"));
     emit onSpotifyRequest(packet);
 }
 
@@ -146,6 +167,7 @@ void MediaPlayerDataHandler::setProgress() {
     stream << packet_length;
     stream << msg_type;
     stream << value;
+    logger.info(QStringLiteral("Seek command issued | position=%1ms").arg(value));
     emit onSpotifyRequest(packet);
 }
 
@@ -155,6 +177,11 @@ void MediaPlayerDataHandler::processMediaType(const QByteArray &packet) {
     uint8_t media_type;
     stream >> media_type;
 
+    const QString name = (media_type == 0x01) ? QStringLiteral("radio")
+                       : (media_type == 0x02) ? QStringLiteral("spotify")
+                       : QStringLiteral("unknown");
+    logger.info(QStringLiteral("Media type: %1 (0x%2)")
+                    .arg(name).arg(media_type, 2, 16, QLatin1Char('0')));
     emit onMediaTypeUpdate(media_type);
 }
 

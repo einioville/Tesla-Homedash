@@ -3,8 +3,12 @@
 //
 
 #include "serverclient.hh"
-#include <QDebug>
+#include "../utils/logger.hh"
 #include <QtEndian>
+
+namespace {
+    const Logger logger = Logger::get("server_client");
+}
 
 ServerClient::ServerClient(QObject *parent, TeslaDataHandler *tesla_data_handler,
                            MediaPlayerDataHandler *spotify_data_handler, WeatherDataHandler *weather_data_handler,
@@ -56,25 +60,26 @@ void ServerClient::startClient() {
 
 void ServerClient::connectToServer() const {
     if (socket->state() == QAbstractSocket::UnconnectedState) {
-        qInfo() << "Connecting to host | address: " << server_address << " | port :" << server_port;
+        logger.info(QStringLiteral("Connecting to %1:%2").arg(server_address).arg(server_port));
         socket->connectToHost(server_address, server_port);
     }
 }
 
 void ServerClient::onConnect() const {
-    qInfo() << "Connected to server | address : " << server_address << " | port :" << server_port;
+    logger.info(QStringLiteral("Connected to %1:%2").arg(server_address).arg(server_port));
     reconnect_timer->stop();
 }
 
 void ServerClient::onDisconnect() {
-    qWarning() << "Disconnected from server | address: " << server_address << " | port :" << server_port;
+    logger.warning(QStringLiteral("Disconnected from %1:%2 - reconnect armed (10s)")
+                       .arg(server_address).arg(server_port));
     buffer.clear();
     socket->readAll();
     reconnect_timer->start();
 }
 
 void ServerClient::onError(QAbstractSocket::SocketError error) const {
-    qWarning() << "Socket error | error :" << error;
+    logger.warning(QStringLiteral("Socket error: %1").arg(static_cast<int>(error)));
     reconnect_timer->start();
 }
 
@@ -109,6 +114,10 @@ void ServerClient::onReadyRead() {
         // Load message into new byte array
         QByteArray packet = buffer.mid(5, packet_length - 1);
         buffer.remove(0, 4 + packet_length);
+
+        logger.debug(QStringLiteral("Received packet | type=0x%1 | size=%2")
+                         .arg(packet_type, 2, 16, QLatin1Char('0'))
+                         .arg(packet.size()));
 
         // Determine what signal is sent based on packet type
         switch (packet_type) {
@@ -149,7 +158,8 @@ void ServerClient::onReadyRead() {
                 break;
 
             default:
-                qInfo() << "Received unknown type of packet | packet type :" << packet_type;
+                logger.warning(QStringLiteral("Unknown packet type 0x%1")
+                                   .arg(packet_type, 2, 16, QLatin1Char('0')));
                 break;
         }
     }
@@ -161,4 +171,5 @@ void ServerClient::onSendMessageRequest(const QByteArray &packet) const {
     // Previously this called flush() + waitForBytesWritten(1000), which stalled
     // the GUI thread for up to a second on slow networks.
     socket->write(packet);
+    logger.debug(QStringLiteral("Sent outbound packet | size=%1").arg(packet.size()));
 }

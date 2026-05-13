@@ -3,9 +3,14 @@
 //
 
 #include "weatherdatahandler.hh"
+#include "../../utils/logger.hh"
 #include <QDataStream>
 #include <QVector>
 #include <QIODevice>
+
+namespace {
+    const Logger logger = Logger::get("weather.data");
+}
 
 WeatherDataHandler::WeatherDataHandler(QObject *parent) : QObject{parent} {
     return;
@@ -37,7 +42,8 @@ void WeatherDataHandler::onMainForecastUpdate(const QByteArray &packet) {
         // Each sub-id payload is exactly one byte; if the frame is truncated
         // mid-record, stop rather than reading past the buffer.
         if (device->bytesAvailable() < 1) {
-            qWarning() << "WeatherDataHandler: truncated payload after sub-id" << data_id;
+            logger.warning(QStringLiteral("Truncated forecast payload after sub-id 0x%1")
+                               .arg(data_id, 2, 16, QLatin1Char('0')));
             break;
         }
 
@@ -81,6 +87,13 @@ void WeatherDataHandler::onMainForecastUpdate(const QByteArray &packet) {
                 break;
         }
     }
+
+    logger.debug(QStringLiteral("Forecast updated | times=%1 temps=%2 winds=%3 precip=%4 clouds=%5")
+                     .arg(times.size())
+                     .arg(temperatures.size())
+                     .arg(windspeeds.size())
+                     .arg(precipitations.size())
+                     .arg(cloudcovers.size()));
 
     emit onMainWeatherUpdate(times, temperatures, windspeeds, precipitations, cloudcovers);
 }

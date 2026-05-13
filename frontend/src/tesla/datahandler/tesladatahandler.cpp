@@ -3,10 +3,14 @@
 //
 
 #include "tesladatahandler.hh"
+#include "../../utils/logger.hh"
 #include <QDataStream>
 #include <QVariantList>
-#include <QDebug>
 #include <QIODevice>
+
+namespace {
+    const Logger logger = Logger::get("tesla.data");
+}
 
 namespace {
     using TDH = TeslaDataHandler;
@@ -112,12 +116,15 @@ void TeslaDataHandler::processStreamData(const QByteArray &packet) {
     quint8 value_type;
     stream >> value_type;
 
-    QString info_msg = "Received teslaStreamPacket | packet length : " + QString::number(packet.size()) +
-                       " | data id : " + QString::number(data_id) + " | value type id : " + QString::number(value_type);
-
     const StreamRoute *route = findRoute(data_id);
-    if (!route || route->value_type != value_type) {
-        qWarning().noquote() << info_msg << "| no matching route or value_type mismatch";
+    if (!route) {
+        logger.warning(QStringLiteral("No matching route for data_id=%1 (value_type=%2)")
+                           .arg(data_id).arg(value_type));
+        return;
+    }
+    if (route->value_type != value_type) {
+        logger.warning(QStringLiteral("value_type mismatch for data_id=%1: expected=%2 got=%3")
+                           .arg(data_id).arg(route->value_type).arg(value_type));
         return;
     }
 
@@ -128,8 +135,8 @@ void TeslaDataHandler::processStreamData(const QByteArray &packet) {
             quint64 timestamp;
             stream >> timestamp;
 
-            info_msg += " | value : " + QString::number(value) + " | timestamp : " + QString::number(timestamp);
-            qInfo().noquote() << info_msg;
+            logger.debug(QStringLiteral("Stream packet | data_id=%1 | value_type=0 | value=%2 | ts=%3")
+                             .arg(data_id).arg(value).arg(timestamp));
 
             if (route->sig_double) {
                 emit (this->*(route->sig_double))(value, timestamp);
@@ -144,8 +151,8 @@ void TeslaDataHandler::processStreamData(const QByteArray &packet) {
             // Bounds-check the length prefix against what is actually in the
             // packet to avoid reading past the buffer on malformed frames.
             if (device && device->bytesAvailable() < value_length) {
-                qWarning().noquote() << info_msg << "| truncated string payload (need"
-                                     << value_length << "have" << device->bytesAvailable() << ")";
+                logger.warning(QStringLiteral("Truncated string payload | data_id=%1 | need=%2 have=%3")
+                                   .arg(data_id).arg(value_length).arg(device->bytesAvailable()));
                 return;
             }
 
@@ -156,8 +163,8 @@ void TeslaDataHandler::processStreamData(const QByteArray &packet) {
             quint64 timestamp;
             stream >> timestamp;
 
-            info_msg += " | value : " + value + " | timestamp : " + QString::number(timestamp);
-            qInfo().noquote() << info_msg;
+            logger.debug(QStringLiteral("Stream packet | data_id=%1 | value_type=1 | value=%2 | ts=%3")
+                             .arg(data_id).arg(value).arg(timestamp));
 
             if (route->sig_string) {
                 emit (this->*(route->sig_string))(value, timestamp);
@@ -174,9 +181,9 @@ void TeslaDataHandler::processStreamData(const QByteArray &packet) {
             quint64 timestamp;
             stream >> timestamp;
 
-            info_msg += " | value : " + QString::number(value_int_bool) + " | timestamp : " +
-                    QString::number(timestamp);
-            qInfo().noquote() << info_msg;
+            logger.debug(QStringLiteral("Stream packet | data_id=%1 | value_type=2 | value=%2 | ts=%3")
+                             .arg(data_id).arg(value ? QStringLiteral("true") : QStringLiteral("false"))
+                             .arg(timestamp));
 
             if (route->sig_bool) {
                 emit (this->*(route->sig_bool))(value, timestamp);
@@ -187,17 +194,15 @@ void TeslaDataHandler::processStreamData(const QByteArray &packet) {
         case 3: {
             double value_latitude;
             stream >> value_latitude;
-            info_msg += " | value : (latitude : " + QString::number(value_latitude);
 
             double value_longitude;
             stream >> value_longitude;
-            info_msg += ", longitude : " + QString::number(value_longitude);
 
             quint64 timestamp;
             stream >> timestamp;
 
-            info_msg += " | timestamp : " + QString::number(timestamp);
-            qInfo().noquote() << info_msg;
+            logger.debug(QStringLiteral("Stream packet | data_id=%1 | value_type=3 | lat=%2 lon=%3 | ts=%4")
+                             .arg(data_id).arg(value_latitude).arg(value_longitude).arg(timestamp));
 
             if (route->sig_location) {
                 emit (this->*(route->sig_location))(value_latitude, value_longitude, timestamp);
@@ -205,6 +210,7 @@ void TeslaDataHandler::processStreamData(const QByteArray &packet) {
             break;
         }
         default: {
+            logger.warning(QStringLiteral("Unknown value_type=%1 for data_id=%2").arg(value_type).arg(data_id));
             break;
         }
     }
@@ -285,6 +291,7 @@ void TeslaDataHandler::switchClimateState() {
     QDataStream stream(&packet, QIODevice::WriteOnly);
     stream << packet_length;
     stream << msg_type;
+    logger.info(QStringLiteral("Climate switch command issued"));
     emit onTeslaRequest(packet);
 }
 
@@ -295,6 +302,7 @@ void TeslaDataHandler::plusTargetTemperature() {
     QDataStream stream(&packet, QIODevice::WriteOnly);
     stream << packet_length;
     stream << msg_type;
+    logger.info(QStringLiteral("Target temperature +1 command issued"));
     emit onTeslaRequest(packet);
 }
 
@@ -305,5 +313,6 @@ void TeslaDataHandler::minusTargetTemperature() {
     QDataStream stream(&packet, QIODevice::WriteOnly);
     stream << packet_length;
     stream << msg_type;
+    logger.info(QStringLiteral("Target temperature -1 command issued"));
     emit onTeslaRequest(packet);
 }

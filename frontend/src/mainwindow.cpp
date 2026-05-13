@@ -1,4 +1,5 @@
 #include "mainwindow.hh"
+#include "utils/logger.hh"
 #include <QString>
 #include <QGridLayout>
 #include <QFrame>
@@ -13,6 +14,10 @@
 #include <QTimer>
 #include <QGraphicsDropShadowEffect>
 #include <QProcess>
+
+namespace {
+    const Logger logger = Logger::get("app");
+}
 
 MainWindow::MainWindow(QWidget *parent, const AppConfig &config) : QMainWindow(parent) {
     vehicle = new Vehicle(this);
@@ -104,9 +109,15 @@ MainWindow::MainWindow(QWidget *parent, const AppConfig &config) : QMainWindow(p
     grid->addWidget(reboot, 0, 15, 1, 1, Qt::AlignTop | Qt::AlignRight);
     reboot->raise();
     connect(reboot, &QPushButton::clicked, this, &MainWindow::rebootSys);
+
+    logger.info(QStringLiteral("MainWindow constructed | resolution=%1x%2 | fullscreen=%3")
+                    .arg(config.window_width)
+                    .arg(config.window_height)
+                    .arg(config.fullscreen ? QStringLiteral("true") : QStringLiteral("false")));
 }
 
 void MainWindow::rebootSys() {
+    logger.info(QStringLiteral("Reboot button pressed - invoking sudo reboot"));
     QProcess::startDetached("sudo reboot");
 }
 

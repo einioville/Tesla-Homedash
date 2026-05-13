@@ -3,6 +3,7 @@
 //
 
 #include "mediaplayercard.hh"
+#include "../../utils/logger.hh"
 #include <QIcon>
 #include <QSizePolicy>
 #include <QStyleFactory>
@@ -21,6 +22,10 @@
 #include <QTime>
 #include <QFont>
 #include <QtConcurrent>
+
+namespace {
+    const Logger logger = Logger::get("media.card");
+}
 
 MediaPlayerCard::MediaPlayerCard(QWidget *parent) : QFrame(parent) {
     setObjectName("spotifyplayer");
@@ -141,8 +146,10 @@ void MediaPlayerCard::updateCoverArt(QPixmap cover_art_image) {
     // QPixmap arrived again (the data handler already dedups by packet
     // hash, but this is a cheap second line of defence).
     if (cover_art_image.cacheKey() == m_last_processed_key) {
+        logger.debug(QStringLiteral("Cover art update skipped (same cacheKey)"));
         return;
     }
+    logger.debug(QStringLiteral("Cover art update | cacheKey=%1").arg(cover_art_image.cacheKey()));
     m_last_processed_key = cover_art_image.cacheKey();
 
     QPixmap scaled = cover_art_image.scaled(cover_art->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation);
@@ -176,6 +183,10 @@ void MediaPlayerCard::updateCoverArt(QPixmap cover_art_image) {
     m_color_watcher = new QFutureWatcher<QColor>(this);
     connect(m_color_watcher, &QFutureWatcher<QColor>::finished, this, [this]() {
         dominant_color = m_color_watcher->result();
+        logger.debug(QStringLiteral("Dominant colour computed | rgb=(%1,%2,%3)")
+                         .arg(dominant_color.red())
+                         .arg(dominant_color.green())
+                         .arg(dominant_color.blue()));
         m_background_dirty = true;
         update();
         m_color_watcher->deleteLater();
@@ -401,6 +412,7 @@ QColor MediaPlayerCard::computeDominantColor(QPixmap cover_art_image) {
 }
 
 void MediaPlayerCard::rebuildBackgroundCache() {
+    logger.debug(QStringLiteral("Background cache rebuilt | size=%1x%2").arg(width()).arg(height()));
     m_background_cache = QPixmap(size());
     m_background_cache.fill(Qt::transparent);
 
@@ -457,8 +469,12 @@ QSlider *MediaPlayerCard::getSlider() {
 }
 
 void MediaPlayerCard::updateMediaType(uint8_t media_type) {
-    qDebug() << media_type << "media_type";
-    bool show_extras = media_type == 0x01;
+    const bool show_extras = media_type == 0x01;
+    const QString name = (media_type == 0x01) ? QStringLiteral("radio")
+                       : (media_type == 0x02) ? QStringLiteral("spotify")
+                       : QStringLiteral("unknown");
+    logger.debug(QStringLiteral("Media type changed | %1 (showing extras=%2)")
+                     .arg(name).arg(show_extras ? QStringLiteral("false") : QStringLiteral("true")));
     artist->setVisible(!show_extras);
     slider->setVisible(!show_extras);
     progress_label->setVisible(!show_extras);
