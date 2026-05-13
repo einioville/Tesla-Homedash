@@ -10,6 +10,15 @@
 #include <QPixmap>
 #include <QFutureWatcher>
 
+/**
+ * MediaplayerDataHandler — parses incoming media-player packets (cover
+ * art, song title/artists, progress/duration, play state, media type) and
+ * re-emits each as a Qt signal. Also formats outbound transport commands
+ * (skip / pause-play / seek) and emits them via onSpotifyRequest.
+ *
+ * Cover-art packets are deduplicated by content hash and decoded on the
+ * global thread pool so the GUI thread is never blocked by JPEG/PNG decode.
+ */
 class MediaplayerDataHandler : public QObject {
     Q_OBJECT
 

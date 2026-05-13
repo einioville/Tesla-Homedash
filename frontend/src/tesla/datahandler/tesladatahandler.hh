@@ -9,6 +9,22 @@
 #include "../widgets/tesladatawidget.hh"
 #include <QVector>
 
+/**
+ * TeslaDataHandler — deserialises Tesla telemetry stream packets sent over
+ * the binary protocol and re-emits each property as a named Qt signal.
+ *
+ * Routing between data_id and signal is table-driven (see kRoutes in the
+ * .cpp). Adding a new Tesla property requires:
+ *   1. A new signal in this header,
+ *   2. A new row in kRoutes mapping {data_id, value_type, signal},
+ *   3. A matching entry in Vehicle's property registry (vehicle.cpp),
+ *   4. A matching `"tesla data"` entry in backend config.json.
+ *
+ * See CLAUDE.md "Adding a new telemetry field" for the full protocol.
+ *
+ * This class also formats outbound HVAC commands (TESLA_SWITCH_CLIMATE,
+ * TESLA_PLUS_TEMP, TESLA_MINUS_TEMP) and emits them via onTeslaRequest.
+ */
 class TeslaDataHandler : public QObject {
     Q_OBJECT
 

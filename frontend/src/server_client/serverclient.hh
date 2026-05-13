@@ -14,6 +14,17 @@
 #include "../mediaplayer/datahandler/mediaplayerdatahandler.hh"
 #include "../weather/datahandler/weatherdatahandler.hh"
 
+/**
+ * ServerClient — QTcpSocket-based client for the backend's binary protocol
+ * (CLAUDE.md "Binary Protocol Reference").
+ *
+ * Reassembles framed packets out of the TCP byte stream (4-byte big-endian
+ * length prefix + 1-byte type byte + payload), demultiplexes them into
+ * per-type Qt signals, and forwards outbound control packets emitted by
+ * the data handlers back over the socket.
+ *
+ * Reconnects every 10 s on disconnect or socket error.
+ */
 class ServerClient : public QObject {
     Q_OBJECT
 

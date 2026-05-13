@@ -16,6 +16,18 @@
 #include "config/appconfig.hh"
 #include <QPushButton>
 
+/**
+ * MainWindow — the dashboard's top-level QMainWindow.
+ *
+ * Owns and lays out every widget (10x16 QGridLayout): map, two telemetry
+ * lists, media player card, weather panel, climate controller, plus a
+ * corner reboot button. Also constructs the data handlers
+ * (TeslaDataHandler, MediaplayerDataHandler, WeatherDataHandler) and the
+ * ServerClient that ties them to the backend's TCP server.
+ *
+ * Construction is parameterised by AppConfig (env-driven backend address,
+ * window size, fullscreen flag).
+ */
 class MainWindow : public QMainWindow {
     Q_OBJECT
 

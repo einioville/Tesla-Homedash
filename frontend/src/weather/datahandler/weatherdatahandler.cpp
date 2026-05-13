@@ -34,36 +34,48 @@ void WeatherDataHandler::onMainForecastUpdate(const QByteArray &packet) {
         quint8 data_id;
         stream >> data_id;
 
+        // Each sub-id payload is exactly one byte; if the frame is truncated
+        // mid-record, stop rather than reading past the buffer.
+        if (device->bytesAvailable() < 1) {
+            qWarning() << "WeatherDataHandler: truncated payload after sub-id" << data_id;
+            break;
+        }
+
         switch (data_id) {
-            case 0x35:
+            case 0x35: {
                 quint8 time;
                 stream >> time;
                 times.push_back(time);
                 break;
+            }
 
-            case 0x31:
+            case 0x31: {
                 qint8 temperature;
                 stream >> temperature;
                 temperatures.push_back(temperature);
                 break;
+            }
 
-            case 0x32:
+            case 0x32: {
                 quint8 windspeed;
                 stream >> windspeed;
                 windspeeds.push_back(windspeed);
                 break;
+            }
 
-            case 0x33:
+            case 0x33: {
                 quint8 precipitation;
                 stream >> precipitation;
                 precipitations.push_back(precipitation);
                 break;
+            }
 
-            case 0x34:
+            case 0x34: {
                 quint8 cloudcover;
                 stream >> cloudcover;
                 cloudcovers.push_back(cloudcover);
                 break;
+            }
 
             default:
                 break;
@@ -72,4 +84,3 @@ void WeatherDataHandler::onMainForecastUpdate(const QByteArray &packet) {
 
     emit onMainWeatherUpdate(times, temperatures, windspeeds, precipitations, cloudcovers);
 }
-
