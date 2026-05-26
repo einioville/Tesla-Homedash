@@ -7,6 +7,10 @@
 #include <QTextStream>
 #include <QString>
 #include <QFont>
+#include <QFontMetrics>
+#include <QPainter>
+#include <QPixmap>
+#include <QSvgRenderer>
 
 CurrentWeatherCard::CurrentWeatherCard(QWidget *parent) : QFrame(parent) {
     setObjectName("currentweathercard");
@@ -19,7 +23,14 @@ CurrentWeatherCard::CurrentWeatherCard(QWidget *parent) : QFrame(parent) {
     secondary_font = QFont("Gotham Rounded Medium", 18);
     secondary_unit_font = QFont("Gotham Rounded Medium", 14);
 
+    const int temperature_icon_h = QFontMetrics(temperature_font).ascent();
+    const int secondary_icon_h = QFontMetrics(secondary_font).ascent();
+
     temperature_layout = new QHBoxLayout();
+    temperature_icon = new QLabel(this);
+    temperature_icon->setPixmap(renderWeatherIcon(":/resources/icons/weather/thermometer.svg", temperature_icon_h));
+    temperature_icon->setAlignment(Qt::AlignVCenter);
+    temperature_layout->addWidget(temperature_icon);
     temperature_value = new QLabel(this);
     temperature_value->setFont(temperature_font);
     temperature_value->setText("-");
@@ -32,15 +43,19 @@ CurrentWeatherCard::CurrentWeatherCard(QWidget *parent) : QFrame(parent) {
 
     layout->addStretch();
 
-    windspeed_layout = new QVBoxLayout();
+    windspeed_layout = new QHBoxLayout();
+    windspeed_layout->setSpacing(4);
+    windspeed_icon = new QLabel(this);
+    windspeed_icon->setPixmap(renderWeatherIcon(":/resources/icons/weather/wind.svg", secondary_icon_h));
+    windspeed_icon->setAlignment(Qt::AlignVCenter);
+    windspeed_layout->addWidget(windspeed_icon);
     windspeed_value = new QLabel(this);
-    windspeed_value->setAlignment(Qt::AlignHCenter | Qt::AlignBottom);
-    windspeed_value->setFixedWidth(90);
+    windspeed_value->setAlignment(Qt::AlignVCenter);
     windspeed_value->setFont(secondary_font);
     windspeed_value->setText("-");
     windspeed_layout->addWidget(windspeed_value);
     windspeed_unit = new QLabel(this);
-    windspeed_unit->setAlignment(Qt::AlignHCenter | Qt::AlignTop);
+    windspeed_unit->setAlignment(Qt::AlignVCenter);
     windspeed_unit->setFont(secondary_unit_font);
     windspeed_unit->setText("m/s");
     windspeed_layout->addWidget(windspeed_unit);
@@ -52,15 +67,19 @@ CurrentWeatherCard::CurrentWeatherCard(QWidget *parent) : QFrame(parent) {
     splitter_1->setStyleSheet("background-color: white; color: white; border: none; border-radius: 2px");
     layout->addWidget(splitter_1);
 
-    precipitation_layout = new QVBoxLayout();
+    precipitation_layout = new QHBoxLayout();
+    precipitation_layout->setSpacing(4);
+    precipitation_icon = new QLabel(this);
+    precipitation_icon->setPixmap(renderWeatherIcon(":/resources/icons/weather/rain.svg", secondary_icon_h));
+    precipitation_icon->setAlignment(Qt::AlignVCenter);
+    precipitation_layout->addWidget(precipitation_icon);
     precipitation_value = new QLabel(this);
-    precipitation_value->setAlignment(Qt::AlignHCenter | Qt::AlignBottom);
-    precipitation_value->setFixedWidth(90);
+    precipitation_value->setAlignment(Qt::AlignVCenter);
     precipitation_value->setFont(secondary_font);
     precipitation_value->setText("-");
     precipitation_layout->addWidget(precipitation_value);
     precipitation_unit = new QLabel(this);
-    precipitation_unit->setAlignment(Qt::AlignHCenter | Qt::AlignTop);
+    precipitation_unit->setAlignment(Qt::AlignVCenter);
     precipitation_unit->setFont(secondary_unit_font);
     precipitation_unit->setText("mm");
     precipitation_layout->addWidget(precipitation_unit);
@@ -72,15 +91,19 @@ CurrentWeatherCard::CurrentWeatherCard(QWidget *parent) : QFrame(parent) {
     splitter_2->setStyleSheet("background-color: white; color: white; border: none; border-radius: 2px");
     layout->addWidget(splitter_2);
 
-    cloudcover_layout = new QVBoxLayout();
+    cloudcover_layout = new QHBoxLayout();
+    cloudcover_layout->setSpacing(4);
+    cloudcover_icon = new QLabel(this);
+    cloudcover_icon->setPixmap(renderWeatherIcon(":/resources/icons/weather/clouds.svg", secondary_icon_h));
+    cloudcover_icon->setAlignment(Qt::AlignVCenter);
+    cloudcover_layout->addWidget(cloudcover_icon);
     cloudcover_value = new QLabel(this);
-    cloudcover_value->setAlignment(Qt::AlignHCenter | Qt::AlignBottom);
-    cloudcover_value->setFixedWidth(90);
+    cloudcover_value->setAlignment(Qt::AlignVCenter);
     cloudcover_value->setFont(secondary_font);
     cloudcover_value->setText("-");
     cloudcover_layout->addWidget(cloudcover_value);
     cloudcover_unit = new QLabel(this);
-    cloudcover_unit->setAlignment(Qt::AlignHCenter | Qt::AlignTop);
+    cloudcover_unit->setAlignment(Qt::AlignVCenter);
     cloudcover_unit->setFont(secondary_unit_font);
     cloudcover_unit->setText("%");
     cloudcover_layout->addWidget(cloudcover_unit);
@@ -112,4 +135,24 @@ void CurrentWeatherCard::updateTotalCloudCover(quint8 value, int id) {
 
 void CurrentWeatherCard::updateWindSpeed(quint8 value, int id) {
     windspeed_value->setText(QString::number(value));
+}
+
+QPixmap CurrentWeatherCard::renderWeatherIcon(const QString &resource, int target_height) const {
+    QSvgRenderer renderer(resource);
+    QPixmap icon_map(target_height, target_height);
+    icon_map.fill(Qt::transparent);
+    {
+        QPainter painter(&icon_map);
+        painter.setRenderHint(QPainter::Antialiasing);
+        painter.setRenderHint(QPainter::SmoothPixmapTransform);
+        renderer.render(&painter);
+    }
+    {
+        // Re-tint the rendered SVG to match the white label text.
+        QPainter painter(&icon_map);
+        painter.setCompositionMode(QPainter::CompositionMode_SourceIn);
+        painter.setRenderHint(QPainter::Antialiasing);
+        painter.fillRect(icon_map.rect(), Qt::white);
+    }
+    return icon_map;
 }

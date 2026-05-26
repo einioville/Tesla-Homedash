@@ -28,5 +28,9 @@
         <file>resources/icons/cooling.png</file>
         <file>resources/icons/heating.png</file>
         <file>resources/icons/power_pending.svg</file>
+        <file>resources/icons/weather/thermometer.svg</file>
+        <file>resources/icons/weather/wind.svg</file>
+        <file>resources/icons/weather/rain.svg</file>
+        <file>resources/icons/weather/clouds.svg</file>
     </qresource>
 </RCC>

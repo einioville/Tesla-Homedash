@@ -28,25 +28,31 @@ public slots:
     void updateTotalCloudCover(quint8 value, int id);
 
 private:
+    QPixmap renderWeatherIcon(const QString &resource, int target_height) const;
+
     QHBoxLayout *layout;
 
     QHBoxLayout *temperature_layout;
+    QLabel *temperature_icon;
     QLabel *temperature_value;
     QLabel *temperature_unit;
 
-    QVBoxLayout *windspeed_layout;
+    QHBoxLayout *windspeed_layout;
+    QLabel *windspeed_icon;
     QLabel *windspeed_value;
     QLabel *windspeed_unit;
 
     QFrame *splitter_1;
 
-    QVBoxLayout *precipitation_layout;
+    QHBoxLayout *precipitation_layout;
+    QLabel *precipitation_icon;
     QLabel *precipitation_value;
     QLabel *precipitation_unit;
 
     QFrame *splitter_2;
 
-    QVBoxLayout *cloudcover_layout;
+    QHBoxLayout *cloudcover_layout;
+    QLabel *cloudcover_icon;
     QLabel *cloudcover_value;
     QLabel *cloudcover_unit;
 
