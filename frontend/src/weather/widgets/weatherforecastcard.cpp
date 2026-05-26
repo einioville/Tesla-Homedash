@@ -22,14 +22,14 @@ WeatherForecastCard::WeatherForecastCard(QWidget *parent, int id) : QFrame(paren
     time = new QLabel(this);
     time->setFont(value_font);
     time->setAlignment(Qt::AlignCenter);
-    time->setText("12");
+    time->setText("-");
     layout->addWidget(time);
 
     temperature_layout = new QHBoxLayout();
     temperature_value = new QLabel(this);
     temperature_value->setFont(value_font);
     temperature_value->setAlignment(Qt::AlignCenter);
-    temperature_value->setText("27,5");
+    temperature_value->setText("-");
     temperature_layout->addWidget(temperature_value);
     temperature_unit = new QLabel(this);
     temperature_unit->setFont(unit_font);
@@ -48,7 +48,7 @@ WeatherForecastCard::WeatherForecastCard(QWidget *parent, int id) : QFrame(paren
     windspeed_value = new QLabel(this);
     windspeed_value->setFont(value_font);
     windspeed_value->setAlignment(Qt::AlignCenter);
-    windspeed_value->setText("37,5");
+    windspeed_value->setText("-");
     windspeed_layout->addWidget(windspeed_value);
     windspeed_unit = new QLabel(this);
     windspeed_unit->setFont(unit_font);
@@ -67,7 +67,7 @@ WeatherForecastCard::WeatherForecastCard(QWidget *parent, int id) : QFrame(paren
     precipitation_value = new QLabel(this);
     precipitation_value->setFont(value_font);
     precipitation_value->setAlignment(Qt::AlignCenter);
-    precipitation_value->setText("2,5");
+    precipitation_value->setText("-");
     precipitation_layout->addWidget(precipitation_value);
     precipitation_unit = new QLabel(this);
     precipitation_unit->setFont(unit_font);
@@ -86,7 +86,7 @@ WeatherForecastCard::WeatherForecastCard(QWidget *parent, int id) : QFrame(paren
     cloudcover_value = new QLabel(this);
     cloudcover_value->setFont(value_font);
     cloudcover_value->setAlignment(Qt::AlignCenter);
-    cloudcover_value->setText("88");
+    cloudcover_value->setText("-");
     cloudcover_layout->addWidget(cloudcover_value);
     cloudcover_unit = new QLabel(this);
     cloudcover_unit->setFont(unit_font);

@@ -30,7 +30,7 @@ SingleTeslaDataEntry::SingleTeslaDataEntry(
     value_label->setObjectName("valueLabel");
     value_label->setAlignment(Qt::AlignLeft | Qt::AlignBottom);
     value_label->setContentsMargins(0, 0, 0, 0);
-    value_label->setText("No Data");
+    value_label->setText("-");
     value_label_font = QFont("Gotham Rounded Medium", height() / 2);
     value_label->setFont(value_label_font);
     layout->addWidget(value_label, 1, 0, 1, 4, Qt::AlignLeft | Qt::AlignCenter);

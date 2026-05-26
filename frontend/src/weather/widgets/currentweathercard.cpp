@@ -22,7 +22,7 @@ CurrentWeatherCard::CurrentWeatherCard(QWidget *parent) : QFrame(parent) {
     temperature_layout = new QHBoxLayout();
     temperature_value = new QLabel(this);
     temperature_value->setFont(temperature_font);
-    temperature_value->setText("27,5");
+    temperature_value->setText("-");
     temperature_layout->addWidget(temperature_value);
     temperature_unit = new QLabel(this);
     temperature_unit->setText("°C");
@@ -37,7 +37,7 @@ CurrentWeatherCard::CurrentWeatherCard(QWidget *parent) : QFrame(parent) {
     windspeed_value->setAlignment(Qt::AlignHCenter | Qt::AlignBottom);
     windspeed_value->setFixedWidth(90);
     windspeed_value->setFont(secondary_font);
-    windspeed_value->setText("37,5");
+    windspeed_value->setText("-");
     windspeed_layout->addWidget(windspeed_value);
     windspeed_unit = new QLabel(this);
     windspeed_unit->setAlignment(Qt::AlignHCenter | Qt::AlignTop);
@@ -57,7 +57,7 @@ CurrentWeatherCard::CurrentWeatherCard(QWidget *parent) : QFrame(parent) {
     precipitation_value->setAlignment(Qt::AlignHCenter | Qt::AlignBottom);
     precipitation_value->setFixedWidth(90);
     precipitation_value->setFont(secondary_font);
-    precipitation_value->setText("2,5");
+    precipitation_value->setText("-");
     precipitation_layout->addWidget(precipitation_value);
     precipitation_unit = new QLabel(this);
     precipitation_unit->setAlignment(Qt::AlignHCenter | Qt::AlignTop);
@@ -77,7 +77,7 @@ CurrentWeatherCard::CurrentWeatherCard(QWidget *parent) : QFrame(parent) {
     cloudcover_value->setAlignment(Qt::AlignHCenter | Qt::AlignBottom);
     cloudcover_value->setFixedWidth(90);
     cloudcover_value->setFont(secondary_font);
-    cloudcover_value->setText("88");
+    cloudcover_value->setText("-");
     cloudcover_layout->addWidget(cloudcover_value);
     cloudcover_unit = new QLabel(this);
     cloudcover_unit->setAlignment(Qt::AlignHCenter | Qt::AlignTop);

@@ -198,6 +198,7 @@ void MediaPlayerDataHandler::connectPlayer(MediaPlayerCard *player) {
     connect(buttons[0], &QPushButton::clicked, this, &MediaPlayerDataHandler::skipBackwards);
     connect(buttons[1], &QPushButton::clicked, this, &MediaPlayerDataHandler::pausePlay);
     connect(buttons[2], &QPushButton::clicked, this, &MediaPlayerDataHandler::skipForwards);
+    connect(player, &MediaPlayerCard::coverArtClicked, this, &MediaPlayerDataHandler::pausePlay);
 
     slider = player->getSlider();
     connect(slider, &QSlider::sliderReleased, this, &MediaPlayerDataHandler::setProgress);

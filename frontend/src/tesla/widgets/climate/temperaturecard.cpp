@@ -18,13 +18,14 @@ TemperatureCard::TemperatureCard(QWidget *parent, TeslaDataProperty *td_property
     this->title->setAlignment(Qt::AlignBottom | Qt::AlignHCenter);
     layout->addWidget(this->title, Qt::AlignBottom | Qt::AlignHCenter);
 
+    unit = QString::fromStdString(td_property->unit);
+
     value = new QLabel(this);
-    value->setText("21 °C");
+    value->setText("- " + unit);
     value->setFont(font);
     value->setAlignment(Qt::AlignBottom | Qt::AlignHCenter);
     layout->addWidget(value, Qt::AlignBottom | Qt::AlignHCenter);
 
-    unit = QString::fromStdString(td_property->unit);
     setStyleSheet("background: transparent");
 }
 

@@ -22,6 +22,8 @@
 #include <QTime>
 #include <QFont>
 #include <QtConcurrent>
+#include <QMouseEvent>
+#include <QEvent>
 
 namespace {
     const Logger logger = Logger::get("media.card");
@@ -29,6 +31,10 @@ namespace {
 
 MediaPlayerCard::MediaPlayerCard(QWidget *parent) : QFrame(parent) {
     setObjectName("spotifyplayer");
+
+    // Default the gradient base to a deep Tesla blue so the card never paints
+    // a flat black background before the first cover-art k-means run lands.
+    dominant_color = QColor(0x1E, 0x3A, 0x8A);
 
     time_font = QFont("Gotham Rounded Medium", 8);
     title_font = QFont("Gotham Rounded Medium", 15);
@@ -42,6 +48,7 @@ MediaPlayerCard::MediaPlayerCard(QWidget *parent) : QFrame(parent) {
     cover_art->setFixedHeight(160);
     cover_art->setFixedWidth(160);
     cover_art->setAlignment(Qt::AlignCenter);
+    cover_art->installEventFilter(this);
     layout->addWidget(cover_art, 0, 0, 6, 5, Qt::AlignCenter);
 
     title = new QLabel(this);
@@ -50,6 +57,7 @@ MediaPlayerCard::MediaPlayerCard(QWidget *parent) : QFrame(parent) {
     title->setObjectName("title");
     title->setAlignment(Qt::AlignCenter);
     title->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    title->setText("-");
     layout->addWidget(title, 6, 0, 1, 5, Qt::AlignCenter);
 
     artist = new QLabel(this);
@@ -59,8 +67,8 @@ MediaPlayerCard::MediaPlayerCard(QWidget *parent) : QFrame(parent) {
     artist->setObjectName("title");
     artist->setAlignment(Qt::AlignCenter);
     artist->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    artist->setText("-");
     layout->addWidget(artist, 7, 0, 1, 5, Qt::AlignCenter);
-    artist->hide();
 
     skip_backward_button = new QPushButton(this);
     skip_backward_button->setAttribute(Qt::WA_TranslucentBackground);
@@ -101,8 +109,8 @@ MediaPlayerCard::MediaPlayerCard(QWidget *parent) : QFrame(parent) {
     progress_label->setAttribute(Qt::WA_TranslucentBackground);
     progress_label->setAlignment(Qt::AlignVCenter | Qt::AlignLeft);
     progress_label->setObjectName("timelabel");
+    progress_label->setText("--:--");
     layout->addWidget(progress_label, 10, 0, Qt::AlignVCenter | Qt::AlignLeft);
-    progress_label->hide();
 
     duration_label = new QLabel(this);
     duration_label->setFixedHeight(8);
@@ -110,8 +118,8 @@ MediaPlayerCard::MediaPlayerCard(QWidget *parent) : QFrame(parent) {
     duration_label->setAttribute(Qt::WA_TranslucentBackground);
     duration_label->setAlignment(Qt::AlignVCenter | Qt::AlignRight);
     duration_label->setObjectName("timelabel");
+    duration_label->setText("--:--");
     layout->addWidget(duration_label, 10, 4, Qt::AlignVCenter | Qt::AlignRight);
-    duration_label->hide();
 
     QFile style(":/resources/styles/mediaplayercard.qss");
     if (style.open(QFile::ReadOnly | QFile::Text)) {
@@ -466,6 +474,20 @@ QVector<QPushButton *> MediaPlayerCard::getButtonPointers() {
 
 QSlider *MediaPlayerCard::getSlider() {
     return slider;
+}
+
+bool MediaPlayerCard::eventFilter(QObject *watched, QEvent *event) {
+    // Tap-to-toggle on the album cover. Release-inside-rect mirrors normal
+    // button semantics so a touch that slides off the cover before lifting
+    // does not fire.
+    if (watched == cover_art && event->type() == QEvent::MouseButtonRelease) {
+        auto *mouse_event = static_cast<QMouseEvent *>(event);
+        if (mouse_event->button() == Qt::LeftButton &&
+            cover_art->rect().contains(mouse_event->position().toPoint())) {
+            emit coverArtClicked();
+        }
+    }
+    return QFrame::eventFilter(watched, event);
 }
 
 void MediaPlayerCard::updateMediaType(uint8_t media_type) {

@@ -68,6 +68,12 @@ public slots:
 
     void updateMediaType(uint8_t media_type);
 
+signals:
+    void coverArtClicked();
+
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override;
+
 private:
     // Pure function: k-means + hue gating over the album art. Safe to invoke
     // on a worker thread; returns the dominant QColor.
