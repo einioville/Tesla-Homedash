@@ -279,6 +279,9 @@ No automated test suite exists yet. Validate changes manually:
 - **Protocol changes**: test both directions — check backend logs and frontend `qInfo()` output
 - New tests should go under `backend/tests/test_*.py` and `frontend/tests/` (CTest)
 
+### Agent validation policy
+The agent does **not** build or run the Qt frontend itself (no `cmake --build`, no launching `gui.exe`) — the user verifies builds and runtime behaviour locally. Validate frontend changes by reading and reasoning about the code instead, and report what the user should look for when they run it. Ignore clangd-style "file not found" / "unknown type" diagnostics on Qt headers in the editor: the real build uses CMake's include paths and the transitively-included `.hh` already brings in `QFrame`, `QLabel`, `QHBoxLayout`, etc. The same principle applies to the backend — don't start long-running services; use `python -m compileall backend/src` for syntax checks and let the user run the live stack.
+
 ## PR and Commit Guidelines
 - Use short imperative prefixes: `Add:`, `Fix:`, `Update:`, `Remove:`, `Create:`
 - Keep commits focused to one purpose
