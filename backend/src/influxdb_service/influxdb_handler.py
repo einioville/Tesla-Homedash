@@ -47,7 +47,16 @@ class InfluxDBHandler:
         query += f'\n  |> filter(fn: (r) => r["id"] == "{data_property_id}")'
         query += '\n  |> keep(columns: ["_time", "_value"])'
 
-        result = await self.__client.query_api().query(query=query)
+        try:
+            result = await self.__client.query_api().query(query=query)
+        except Exception as e:
+            # InfluxDB unreachable or query failure must not propagate to the
+            # caller — degrade to "no data" so a history read just comes back empty.
+            logger.warning(
+                "InfluxDB history read failed for %s: %s: %s",
+                data_property_id, type(e).__name__, e,
+            )
+            return None
         logger.debug("Query returned results for property: %s", data_property_id)
 
         if len(result) > 1:
@@ -89,7 +98,17 @@ class InfluxDBHandler:
         query += '\n  |> keep(columns: ["_time", "_value"])'
         query += '\n  |> first()'
 
-        result = await self.__client.query_api().query(query=query)
+        try:
+            result = await self.__client.query_api().query(query=query)
+        except Exception as e:
+            # InfluxDB unreachable (at startup or a midnight reset): return None
+            # so CalculatedVehicleDataProperty falls back to the live value
+            # instead of crashing the app.
+            logger.warning(
+                "InfluxDB first-of-day read failed for %s: %s: %s",
+                data_property_id, type(e).__name__, e,
+            )
+            return None
 
         if len(result) > 1:
             raise Exception("There was more than one table")
@@ -118,7 +137,17 @@ class InfluxDBHandler:
         query += '\n  |> keep(columns: ["_time", "_value"])'
         query += '\n  |> first()'
 
-        result = await self.__client.query_api().query(query=query)
+        try:
+            result = await self.__client.query_api().query(query=query)
+        except Exception as e:
+            # InfluxDB unreachable (at startup or a month reset): return None so
+            # CalculatedVehicleDataProperty falls back to the live value instead
+            # of crashing the app.
+            logger.warning(
+                "InfluxDB first-of-month read failed for %s: %s: %s",
+                data_property_id, type(e).__name__, e,
+            )
+            return None
 
         if len(result) > 1:
             raise Exception("There was more than one table")
