@@ -54,15 +54,18 @@ void MainWeather::updateForecastData(const QVector<quint8> &times, const QVector
                                      const QVector<quint8> &windspeeds, const QVector<quint8> &precipitations,
                                      const QVector<quint8> &cloudcovers) {
     if (times.size() < 6 || temperatures.size() < 6 || windspeeds.size() < 6 || precipitations.size() < 6 || cloudcovers
-        .size() < 5) {
+        .size() < 6) {
         return;
     }
 
-    emit updateTime(times[0], 69);
-    emit updateTemperature(temperatures[0], 69);
-    emit updateWindSpeed(windspeeds[0], 69);
-    emit updatePrecipitation(precipitations[0], 69);
-    emit updateTotalCloudCover(cloudcovers[0], 69);
+    // Row 0 is the live current-hour observation; tag it with the banner's
+    // sentinel id so only CurrentWeatherCard consumes it (forecast cards skip
+    // any id that isn't their own).
+    emit updateTime(times[0], CurrentWeatherCard::kCurrentWeatherId);
+    emit updateTemperature(temperatures[0], CurrentWeatherCard::kCurrentWeatherId);
+    emit updateWindSpeed(windspeeds[0], CurrentWeatherCard::kCurrentWeatherId);
+    emit updatePrecipitation(precipitations[0], CurrentWeatherCard::kCurrentWeatherId);
+    emit updateTotalCloudCover(cloudcovers[0], CurrentWeatherCard::kCurrentWeatherId);
 
     // entries 1..5 are the 5 forecast hours; entry 0 is the current-hour observation
     // already emitted above for CurrentWeatherCard

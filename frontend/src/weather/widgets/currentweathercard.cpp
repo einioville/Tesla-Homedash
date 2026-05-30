@@ -122,18 +122,32 @@ void CurrentWeatherCard::updateTime(quint8 time, int id) {
 }
 
 void CurrentWeatherCard::updateTemperature(qint8 value, int id) {
+    // Only react to the current-hour observation; ignore the forecast-hour
+    // emits that share this signal (see kCurrentWeatherId).
+    if (id != kCurrentWeatherId) {
+        return;
+    }
     temperature_value->setText(QString::number(value));
 }
 
 void CurrentWeatherCard::updatePrecipitation(quint8 value, int id) {
+    if (id != kCurrentWeatherId) {
+        return;
+    }
     precipitation_value->setText(QString::number(value));
 }
 
 void CurrentWeatherCard::updateTotalCloudCover(quint8 value, int id) {
+    if (id != kCurrentWeatherId) {
+        return;
+    }
     cloudcover_value->setText(QString::number(value));
 }
 
 void CurrentWeatherCard::updateWindSpeed(quint8 value, int id) {
+    if (id != kCurrentWeatherId) {
+        return;
+    }
     windspeed_value->setText(QString::number(value));
 }
 

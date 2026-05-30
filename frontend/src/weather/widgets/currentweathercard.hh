@@ -14,6 +14,12 @@ class CurrentWeatherCard : public QFrame {
     Q_OBJECT
 
 public:
+    // Sentinel id MainWeather tags the current-hour observation (row 0) with.
+    // The banner shares the forecast cards' update signals, so it must ignore
+    // every emit except the one carrying this id — otherwise the later
+    // forecast-hour emits overwrite it and it ends up mirroring the last card.
+    static constexpr int kCurrentWeatherId = 69;
+
     explicit CurrentWeatherCard(QWidget *parent);
 
 public slots:
