@@ -155,6 +155,31 @@ cd Tesla-Homedash
 
 The remaining subsections assume you're running commands from inside this directory unless noted otherwise.
 
+### Spotify Developer App
+
+The Spotify player authenticates as your own registered Spotify app — that's what provides the
+`SPOTIFY_CLIENT_ID` and `SPOTIFY_CLIENT_SECRET` used during the Backend step. Creating one is free
+but requires a Spotify account (playback control additionally requires **Premium**).
+
+1. Sign in at the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard) and click
+   **Create app**.
+2. Give it any name and description. For **Redirect URI**, enter exactly:
+
+   ```
+   http://127.0.0.1:8080/callback
+   ```
+
+   This must match `spotifyRedirectUri` in `config.json` (the default shown above). The OAuth helper
+   in the Backend step sends you to this URL after you approve access.
+3. Under **Which API/SDKs are you planning to use?**, tick **Web API**. The dashboard controls
+   playback through the Web API; you do *not* need the Web Playback SDK, because Spotifyd is the actual
+   playback device.
+4. Save, then open the app's **Settings**. Copy the **Client ID** and reveal/copy the **Client
+   secret** — these go into `.env` as `SPOTIFY_CLIENT_ID` and `SPOTIFY_CLIENT_SECRET` in the next step.
+
+You can add more than one redirect URI later if you change `spotifyRedirectUri`; the value in
+`config.json` and the value registered here must always match, or the OAuth handshake fails.
+
 ### Backend
 
 The backend is a Python asyncio application managed with [uv](https://docs.astral.sh/uv/).
@@ -235,7 +260,7 @@ The frontend is a Qt 6 Widgets application built with CMake.
 **1. Configure the build**, pointing CMake at the Qt 6 install path you noted from the Qt 6 subsection above:
 
 ```bash
-cmake -S frontend -B frontend/build \
+cmake -S frontend -B frontend/builddir \
     -DCMAKE_PREFIX_PATH=~/Qt/6.8.0/gcc_arm64 \
     -DCMAKE_BUILD_TYPE=Release
 ```
@@ -245,10 +270,10 @@ Adjust `CMAKE_PREFIX_PATH` to wherever your Qt installer placed the toolchain fo
 **2. Build:**
 
 ```bash
-cmake --build frontend/build -j
+cmake --build frontend/builddir -j
 ```
 
-This produces the `gui` binary at `frontend/build/gui`.
+This produces the `gui` binary at `frontend/builddir/gui`.
 
 **3. Run:**
 
@@ -256,13 +281,15 @@ The frontend reads a few optional environment variables — the defaults already
 
 - `TESLA_HOMEDASH_BACKEND_HOST` — backend TCP host (default `127.0.0.1`). Set this if the backend runs on a different machine.
 - `TESLA_HOMEDASH_BACKEND_PORT` — backend TCP port (default `6969`).
+- `TESLA_HOMEDASH_WINDOW_WIDTH` — window width in pixels (default `1280`).
+- `TESLA_HOMEDASH_WINDOW_HEIGHT` — window height in pixels (default `800`).
 - `TESLA_HOMEDASH_FULLSCREEN` — set to `1` to open fullscreen on the touchscreen.
 - `TESLA_HOMEDASH_LOG_LEVEL` — `debug` / `info` / `warning` / `error` / `critical` (default `info`).
 
 Make sure the backend is already running (`cd backend && uv run python run.py`), then launch the frontend:
 
 ```bash
-TESLA_HOMEDASH_FULLSCREEN=1 ./frontend/build/gui
+TESLA_HOMEDASH_FULLSCREEN=1 ./frontend/builddir/gui
 ```
 
 If everything is wired up correctly, the dashboard appears and starts streaming telemetry, weather, and media data from the backend.
@@ -359,7 +386,7 @@ PartOf=graphical-session.target
 
 [Service]
 Environment=TESLA_HOMEDASH_FULLSCREEN=1
-ExecStart=%h/Tesla-Homedash/frontend/build/gui
+ExecStart=%h/Tesla-Homedash/frontend/builddir/gui
 Restart=on-failure
 RestartSec=5
 
@@ -387,13 +414,14 @@ reachable underneath it.
 > **If the dashboard doesn't start with the desktop:** some Wayland compositors don't
 > activate `graphical-session.target` for the systemd user instance, so the frontend
 > service never triggers. In that case, skip the frontend service and use a plain XDG
-> autostart entry instead — create `~/.config/autostart/tesla-homedash.desktop`:
+> autostart entry instead — a `.desktop` file the desktop session runs automatically when
+> the graphical session loads. Create `~/.config/autostart/tesla-homedash.desktop`:
 >
 > ```ini
 > [Desktop Entry]
 > Type=Application
 > Name=Tesla-Homedash
-> Exec=env TESLA_HOMEDASH_FULLSCREEN=1 /home/youruser/Tesla-Homedash/frontend/build/gui
+> Exec=env TESLA_HOMEDASH_FULLSCREEN=1 /home/youruser/Tesla-Homedash/frontend/builddir/gui
 > ```
 >
 > (Replace `youruser` with your username.) The desktop session runs it on login, which

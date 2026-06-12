@@ -50,6 +50,11 @@ class SpotifyPlayer(BaseMediaPlayer):
         self._claimed: bool = False
         self._poll_interval: int = self._POLL_IDLE
 
+        # Serialises state updates. _update_state runs both on the poll timer
+        # and inline after every control command, so without this two runs
+        # could interleave and double-fire claim/release.
+        self._state_lock = asyncio.Lock()
+
         self._scheduler = AsyncIOScheduler(timezone=config.zone_info)
 
     async def run(self) -> None:
@@ -175,6 +180,19 @@ class SpotifyPlayer(BaseMediaPlayer):
     # ── Polling / state ───────────────────────────────────────────
 
     async def _update_state(self) -> None:
+        '''
+        Guarded entry point for a state refresh.  Skips if a refresh is already
+        running: this method is invoked both by the poll timer and inline after
+        control commands, and claim_media_control re-enters it via play() — so a
+        plain lock would deadlock and an unguarded body would race.  The
+        in-progress run (or the next tick) reflects the latest state.
+        '''
+        if self._state_lock.locked():
+            return
+        async with self._state_lock:
+            await self._update_state_impl()
+
+    async def _update_state_impl(self) -> None:
         playback = await self._call_spotify(
             self._spotify.current_playback, market=self._market, additional_types="episode"
         )

@@ -35,7 +35,7 @@ MainWeather::MainWeather(QWidget *parent) {
         connect(this, &MainWeather::updateTotalCloudCover, weather_card, &WeatherForecastCard::updateTotalCloudCover);
     }
 
-    QFile style(":resources/styles/mainweather.qss");
+    QFile style(":/resources/styles/mainweather.qss");
     if (style.open(QFile::ReadOnly | QFile::Text)) {
         QTextStream stream(&style);
         const QString base_style = stream.readAll();

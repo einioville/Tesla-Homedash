@@ -109,7 +109,7 @@ CurrentWeatherCard::CurrentWeatherCard(QWidget *parent) : QFrame(parent) {
     cloudcover_layout->addWidget(cloudcover_unit);
     layout->addLayout(cloudcover_layout);
 
-    QFile style(":resources/styles/currentweathercard.qss");
+    QFile style(":/resources/styles/currentweathercard.qss");
     if (style.open(QFile::ReadOnly | QFile::Text)) {
         QTextStream stream(&style);
         QString base_style = stream.readAll();

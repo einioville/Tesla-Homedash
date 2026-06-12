@@ -17,6 +17,7 @@
 #include <QTimer>
 #include <QSlider>
 #include <QPixmap>
+#include <QImage>
 #include <QFutureWatcher>
 
 /**
@@ -44,7 +45,7 @@ public:
     QSlider *getSlider();
 
 public slots:
-    void updateCoverArt(QPixmap cover_art_image);
+    void updateCoverArt(QImage cover_art_image);
 
     void updateSongProgress(quint32 progress);
 
@@ -75,9 +76,10 @@ protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
-    // Pure function: k-means + hue gating over the album art. Safe to invoke
-    // on a worker thread; returns the dominant QColor.
-    static QColor computeDominantColor(QPixmap cover_art_image);
+    // Pure function: k-means + hue gating over the album art. Operates on a
+    // QImage (not QPixmap) so it is safe to invoke on a worker thread; returns
+    // the dominant QColor.
+    static QColor computeDominantColor(QImage cover_art_image);
 
     void rebuildBackgroundCache();
 

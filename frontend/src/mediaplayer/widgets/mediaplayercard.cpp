@@ -149,9 +149,9 @@ MediaPlayerCard::MediaPlayerCard(QWidget *parent) : QFrame(parent) {
     connect(slider, &QSlider::valueChanged, this, &MediaPlayerCard::sliderMoved);
 }
 
-void MediaPlayerCard::updateCoverArt(QPixmap cover_art_image) {
+void MediaPlayerCard::updateCoverArt(QImage cover_art_image) {
     // Skip the entire scale / clip / k-means pipeline if the exact same
-    // QPixmap arrived again (the data handler already dedups by packet
+    // image arrived again (the data handler already dedups by packet
     // hash, but this is a cheap second line of defence).
     if (cover_art_image.cacheKey() == m_last_processed_key) {
         logger.debug(QStringLiteral("Cover art update skipped (same cacheKey)"));
@@ -160,7 +160,11 @@ void MediaPlayerCard::updateCoverArt(QPixmap cover_art_image) {
     logger.debug(QStringLiteral("Cover art update | cacheKey=%1").arg(cover_art_image.cacheKey()));
     m_last_processed_key = cover_art_image.cacheKey();
 
-    QPixmap scaled = cover_art_image.scaled(cover_art->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation);
+    // The image was decoded off the GUI thread as a QImage. QPixmap is a paint
+    // device and may only be created/used on the GUI thread, so the conversion
+    // happens here, never in the worker.
+    const QPixmap source_pixmap = QPixmap::fromImage(cover_art_image);
+    QPixmap scaled = source_pixmap.scaled(cover_art->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation);
 
     QPixmap dest(scaled.size());
     dest.fill(Qt::transparent);
@@ -275,12 +279,13 @@ void MediaPlayerCard::updatePauseButton() {
     is_playing = !is_playing;
 }
 
-QColor MediaPlayerCard::computeDominantColor(QPixmap cover_art_image) {
+QColor MediaPlayerCard::computeDominantColor(QImage cover_art_image) {
     // k-means on the album art with a hue/value gate that biases against
     // yellow and brown. This is intentionally heavy and kept functionally
     // identical to the original GUI-thread implementation — the only change
-    // is the execution context.
-    const QImage image = cover_art_image.toImage().convertToFormat(QImage::Format_RGB888);
+    // is the execution context (and the input is now a thread-safe QImage
+    // rather than a GUI-thread-only QPixmap).
+    const QImage image = cover_art_image.convertToFormat(QImage::Format_RGB888);
 
     const int img_width = image.width();
     const int img_height = image.height();
@@ -312,6 +317,13 @@ QColor MediaPlayerCard::computeDominantColor(QPixmap cover_art_image) {
     scan(true);
     if (samples.size() < k) {
         scan(false);
+    }
+
+    // Degenerate art (e.g. a 0-pixel decode) leaves no samples. Bail out with
+    // the default gradient blue rather than building a distribution over an
+    // empty range (size()-1 underflows → out-of-bounds indexing / UB).
+    if (samples.isEmpty()) {
+        return QColor(0x1E, 0x3A, 0x8A);
     }
 
     QVector<QVector3D> centers;

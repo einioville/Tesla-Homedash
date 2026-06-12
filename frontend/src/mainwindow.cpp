@@ -118,7 +118,7 @@ MainWindow::MainWindow(QWidget *parent, const AppConfig &config) : QMainWindow(p
 
 void MainWindow::rebootSys() {
     logger.info(QStringLiteral("Reboot button pressed - invoking sudo reboot"));
-    QProcess::startDetached("sudo reboot");
+    QProcess::startDetached(QStringLiteral("sudo"), {QStringLiteral("reboot")});
 }
 
 MainWindow::~MainWindow() {

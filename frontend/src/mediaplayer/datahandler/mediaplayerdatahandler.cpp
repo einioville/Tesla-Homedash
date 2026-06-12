@@ -7,6 +7,8 @@
 #include <QDataStream>
 #include <QtConcurrent>
 #include <QHash>
+#include <QImage>
+#include <QIODevice>
 
 namespace {
     const Logger logger = Logger::get("media.data");
@@ -38,9 +40,9 @@ void MediaPlayerDataHandler::processCovertArtData(const QByteArray &packet) {
         m_cover_watcher->deleteLater();
         m_cover_watcher = nullptr;
     }
-    m_cover_watcher = new QFutureWatcher<QPixmap>(this);
-    connect(m_cover_watcher, &QFutureWatcher<QPixmap>::finished, this, [this]() {
-        const QPixmap result = m_cover_watcher->result();
+    m_cover_watcher = new QFutureWatcher<QImage>(this);
+    connect(m_cover_watcher, &QFutureWatcher<QImage>::finished, this, [this]() {
+        const QImage result = m_cover_watcher->result();
         m_cover_watcher->deleteLater();
         m_cover_watcher = nullptr;
         if (!result.isNull()) {
@@ -48,13 +50,15 @@ void MediaPlayerDataHandler::processCovertArtData(const QByteArray &packet) {
                              .arg(result.width()).arg(result.height()));
             emit onCovertArtUpdate(result);
         } else {
-            logger.warning(QStringLiteral("Cover art decode produced a null pixmap"));
+            logger.warning(QStringLiteral("Cover art decode produced a null image"));
         }
     });
+    // Decode to QImage (thread-safe), NOT QPixmap: a QPixmap may only be created
+    // and used on the GUI thread. MediaPlayerCard converts to QPixmap there.
     m_cover_watcher->setFuture(QtConcurrent::run([packet]() {
-        QPixmap p;
-        p.loadFromData(packet);
-        return p;
+        QImage image;
+        image.loadFromData(packet);
+        return image;
     }));
 }
 
@@ -79,9 +83,18 @@ void MediaPlayerDataHandler::processSongDuration(const QByteArray &packet) {
 void MediaPlayerDataHandler::processSongTitle(const QByteArray &packet) {
     QDataStream stream(packet);
     stream.setByteOrder(QDataStream::BigEndian);
+    QIODevice *device = stream.device();
 
     quint16 length;
     stream >> length;
+
+    // Bounds-check the length prefix against what is actually present so a
+    // truncated frame can't read uninitialized bytes into the string.
+    if (device && device->bytesAvailable() < length) {
+        logger.warning(QStringLiteral("Truncated song title | need=%1 have=%2")
+                           .arg(length).arg(device->bytesAvailable()));
+        return;
+    }
 
     QByteArray raw(length, Qt::Uninitialized);
     stream.readRawData(raw.data(), length);
@@ -94,9 +107,18 @@ void MediaPlayerDataHandler::processSongTitle(const QByteArray &packet) {
 void MediaPlayerDataHandler::processArtists(const QByteArray &packet) {
     QDataStream stream(packet);
     stream.setByteOrder(QDataStream::BigEndian);
+    QIODevice *device = stream.device();
 
     quint16 length;
     stream >> length;
+
+    // Bounds-check the length prefix against what is actually present so a
+    // truncated frame can't read uninitialized bytes into the string.
+    if (device && device->bytesAvailable() < length) {
+        logger.warning(QStringLiteral("Truncated artists payload | need=%1 have=%2")
+                           .arg(length).arg(device->bytesAvailable()));
+        return;
+    }
 
     QByteArray raw(length, Qt::Uninitialized);
     stream.readRawData(raw.data(), length);

@@ -89,7 +89,7 @@ Item {
 
         PluginParameter {
             name: "osm.useragent"
-            value: "FuckVitut"
+            value: "Tesla-Homedash/1.0"
         }
         PluginParameter {
             name: "osm.mapping.host"

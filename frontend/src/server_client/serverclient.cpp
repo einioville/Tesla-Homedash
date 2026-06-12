@@ -99,8 +99,23 @@ void ServerClient::onReadyRead() {
             packet_length = qFromBigEndian<quint32>(slice.constData());
         }
 
-        // Check if the whole message has been received
-        if (buffer.size() < 4 + packet_length) {
+        // Defensive bound (mirrors the backend's MAX_MSG_SIZE): a corrupt or
+        // hostile length prefix must not wrap the size arithmetic or grow the
+        // buffer without limit. The largest legitimate frame is album art,
+        // comfortably under this cap. Reset the connection on violation so the
+        // reconnect timer re-establishes a clean, frame-aligned stream.
+        constexpr qint64 kMaxPacketLength = 16 * 1024 * 1024;  // 16 MB
+        if (packet_length == 0 || packet_length > kMaxPacketLength) {
+            logger.warning(QStringLiteral("Invalid packet length %1, resetting connection")
+                               .arg(packet_length));
+            buffer.clear();
+            socket->abort();
+            return;
+        }
+
+        // Check if the whole message has been received (64-bit comparison so
+        // the addition can never overflow).
+        if (buffer.size() < static_cast<qint64>(packet_length) + 4) {
             return;
         }
 

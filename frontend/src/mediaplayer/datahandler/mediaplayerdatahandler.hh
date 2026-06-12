@@ -7,7 +7,7 @@
 #include <QObject>
 #include <QByteArray>
 #include "../widgets/mediaplayercard.hh"
-#include <QPixmap>
+#include <QImage>
 #include <QFutureWatcher>
 
 /**
@@ -53,7 +53,7 @@ public slots:
 signals:
     void onSpotifyRequest(const QByteArray &packet);
 
-    void onCovertArtUpdate(QPixmap cover_art_image);
+    void onCovertArtUpdate(QImage cover_art_image);
 
     void onSongProgressUpdate(quint32 progress);
 
@@ -76,6 +76,9 @@ private:
     // are decoded on the global thread pool so the GUI thread is never
     // blocked by JPEG/PNG decode.
     quint64 m_last_cover_hash = 0;
-    QFutureWatcher<QPixmap> *m_cover_watcher = nullptr;
+    // Decoded off the GUI thread as a QImage (NOT QPixmap): QPixmap is a paint
+    // device and must only be constructed/used on the GUI thread. The QImage is
+    // converted to a QPixmap on the GUI thread by MediaPlayerCard.
+    QFutureWatcher<QImage> *m_cover_watcher = nullptr;
 };
 #endif //GUI_MEDIAPLAYERDATAHANDLER_HH
