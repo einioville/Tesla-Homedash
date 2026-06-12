@@ -503,5 +503,5 @@ a new/renamed service or widget, a protocol change, a build-command change, or a
 invariant. Treat the doc as part of the change, not an afterthought, and bump §7.7.
 
 ### 7.7 Documentation currency
-This guide and `README.md` are current as of commit **`a60eba1`** (the 1.0 release-prep baseline).
+This guide and `README.md` are current as of commit **`21c0922`** ("Version 1.0 pre-release fixes").
 When you land changes that touch behaviour documented here, update this line to the new HEAD commit.
