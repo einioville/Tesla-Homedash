@@ -296,10 +296,15 @@ protocol constants or calls concrete service methods.
   (`protocol.frame(MSG_STREAM, …)`), and writes logged fields to InfluxDB (a failed write never
   blocks the broadcast). Non-data **state** events carry `online`/`offline`/`asleep` (the car
   reports a sleeping vehicle as `offline`, never `asleep`); `__update` writes the synthesized
-  `VehicleOnline` and, on any non-`online` state, calls `__apply_sleep_defaults` — the stream
-  goes silent on sleep, so each field with a configured `sleep_default` is forced to it,
-  broadcasting only the ones that changed (never written to InfluxDB). It is idempotent and
-  re-runs on every offline event, self-healing a reset that raced a replayed frame on reconnect.
+  `VehicleOnline` and nothing more. **Value-callbacks** (`add_callback`/`remove_callback`) drive
+  the rest: `add_callback(criteria, cb)` fires `cb(matches)` when every property in `criteria`
+  (`{id: target_value}`) simultaneously holds its target (edge-triggered, built on the per-property
+  callbacks; `matches` is a list of `(id, value, when)`). The **sleep reset** is registered this
+  way in `__init__` — `add_callback({"VehicleOnline": False}, __on_sleep)`; when the car goes
+  offline `__on_sleep` runs `__apply_sleep_defaults`, forcing every field with a configured
+  `sleep_default` to it and broadcasting only the ones that changed (never written to InfluxDB).
+  Edge-triggered, so it fires once per online→offline transition (lock ordering still lands it
+  after the reconnect burst).
   HVAC: `switch_climate_state` toggles via the Teslemetry REST API behind
   an in-memory **rate limiter** (reserve/refund/reset) and a **value lock** that pins the UI to
   `HvacPowerStatePending` until the confirming telemetry arrives; `plus_temp`/`minus_temp` adjust
@@ -309,9 +314,13 @@ protocol constants or calls concrete service methods.
   (write/read), `Server` (broadcast/send_to), Teslemetry REST (aiohttp).
 - **`vehicle_data_property.py`**: `VehicleDataProperty` stores one field's value/timestamp,
   evaluates its sympy `formula`, serializes to the wire format (`get_stream_data`), builds Influx
-  points, supports `lock_value_until` (the pending-state lock), and `apply_sleep_default`
+  points, supports `lock_value_until` (the pending-state lock), `apply_sleep_default`
   (force-reset to the field's configured asleep value, bypassing the formula and clearing any
-  active value-lock — a pending HVAC toggle can never confirm while asleep).
+  active value-lock — a pending HVAC toggle can never confirm while asleep), and
+  `add_callback(target_value, cb)`/`remove_callback(handle)` — edge-triggered value-callbacks run
+  as independent tasks as `cb(data_id, value, when)` when the value transitions into `target_value`
+  (`when` is a tz-aware datetime), or on every value change if `target_value` is the
+  `VehicleDataProperty.ANY` sentinel; `Vehicle.add_callback` builds its combination callbacks on these.
   `CalculatedVehicleDataProperty`
   derives `calculation_formula(x=baseline, y=latest)`; the baseline is read from InfluxDB at period
   start (falls back to the live value), reset by an APScheduler cron job. **Talks to:** `Vehicle`
@@ -441,9 +450,9 @@ Widget click → handler builds packet (QDataStream) → ServerClient.onSendMess
 
 **Vehicle sleeps (default reset)**
 ```
-Teslemetry state event (state != "online") → Vehicle.__update → set VehicleOnline=False
-  → Vehicle.__apply_sleep_defaults → each property with a sleep_default:
-       VehicleDataProperty.apply_sleep_default (force value+timestamp, clear any value-lock)
+Teslemetry state event (state != "online") → Vehicle.__update → VehicleOnline.update(False)
+  → (edge) VehicleOnline value-callback → Vehicle.__on_sleep → Vehicle.__apply_sleep_defaults
+  → each property with a sleep_default: apply_sleep_default (force value+timestamp, clear lock)
   → broadcast changed-only via MSG_STREAM   (no InfluxDB write — display-only)
 ```
 

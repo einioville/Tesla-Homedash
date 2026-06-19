@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 import logging
 from sympy import symbols, sympify
 from influxdb_client import Point, WritePrecision
@@ -14,6 +15,11 @@ logger = logging.getLogger("tesla_service.vehicle_data_property")
 
 
 class VehicleDataProperty:
+    # Sentinel target for add_callback: a callback registered with ANY fires on
+    # every value CHANGE, regardless of the new value (rather than only when the
+    # value reaches one specific target).
+    ANY = object()
+
     def __init__(
         self,
         data_id: str,
@@ -47,6 +53,10 @@ class VehicleDataProperty:
         self.__locked_target = None
         self.__lock_timeout_task: asyncio.Task | None = None
         self.__lock_generation: int = 0
+        # Value-callbacks: handle -> (target_value, callback). Fired when the
+        # property's value transitions INTO target_value. See add_callback.
+        self.__callbacks: dict[int, tuple] = {}
+        self.__callback_next_handle: int = 0
 
     @staticmethod
     def __infer_value_type(value) -> str | None:
@@ -96,10 +106,22 @@ class VehicleDataProperty:
                 self.__locked_target = None
                 self.__lock_generation += 1
 
+            previous_value = self._value
             self._value = new_value
             if timestamp is not None:
                 self.__timestamp = timestamp
             logger.debug("Property updated: %s = %s", self.__id, self._value)
+
+            # Edge-triggered callbacks: a value transitioning INTO a registered
+            # target schedules its callbacks. They run as independent tasks
+            # (never inline) so a callback can neither block the telemetry path
+            # nor deadlock by re-entering a lock held further up the call stack.
+            if self.__callbacks and new_value != previous_value:
+                for target_value, callback in list(self.__callbacks.values()):
+                    if target_value is VehicleDataProperty.ANY or new_value == target_value:
+                        asyncio.create_task(
+                            self.__fire_callback(callback, new_value, self.__timestamp)
+                        )
 
     async def lock_value_until(
         self,
@@ -225,6 +247,55 @@ class VehicleDataProperty:
         if changed:
             logger.debug("Sleep default applied: id=%s value=%s", self.__id, self.__sleep_default)
         return changed
+
+    def add_callback(self, target_value, callback) -> int:
+        '''
+        Registers a callback fired when this property's value transitions INTO
+        `target_value` (edge-triggered — it does not re-fire on later updates
+        that keep the value at the target). Pass `VehicleDataProperty.ANY` as
+        `target_value` to fire on every value CHANGE instead of one specific
+        value. Multiple callbacks are allowed.
+        Synchronous so it can be wired during construction. The callback runs as
+        an independent task and is invoked as `callback(data_id, value, when)`,
+        where `when` is a timezone-aware datetime of the value's timestamp (or
+        None if unknown); it may be a coroutine function (it is awaited).
+        Arguments:
+            target_value: The value that triggers the callback when reached.
+            callback: Callable(data_id, value, when) -> None | awaitable.
+        Returns:
+            int: A handle to pass to remove_callback.
+        '''
+        handle = self.__callback_next_handle
+        self.__callback_next_handle += 1
+        self.__callbacks[handle] = (target_value, callback)
+        return handle
+
+    def remove_callback(self, handle: int) -> None:
+        '''
+        Unregisters a callback previously added with add_callback. No-op if the
+        handle is unknown.
+        Arguments:
+            handle (int): The value returned by add_callback.
+        '''
+        self.__callbacks.pop(handle, None)
+
+    async def __fire_callback(self, callback, value, timestamp) -> None:
+        # Runs in its own task; a failing callback must never break telemetry.
+        try:
+            when = (
+                datetime.datetime.fromtimestamp(
+                    timestamp / 1000, tz=self._vehicle.zone_info
+                )
+                if timestamp is not None
+                else None
+            )
+            result = callback(self.__id, value, when)
+            if inspect.isawaitable(result):
+                await result
+        except Exception as e:
+            logger.error(
+                "Callback for %s raised: %s: %s", self.__id, type(e).__name__, e
+            )
 
     async def get_value(self):
         async with self._async_lock:

@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 import logging
 from ..utils import protocol
 from ..utils.config_parser import Config
@@ -32,6 +33,10 @@ class Vehicle:
         self.__influx_handler = influx_db_handler
         self.__server = server
         self.__scheduler = None
+        # Combined value-callbacks: handle -> {criteria, callback, property_handles}.
+        # See add_callback.
+        self.__condition_callbacks: dict[int, dict] = {}
+        self.__condition_next_handle: int = 0
         self.__load_data_properties()
         self.__temperature_updated = False
         # HVAC rate-limit state. Reset is armed once per cooldown window: when
@@ -44,6 +49,13 @@ class Vehicle:
         self.__reset_scheduled = False
         self.__rate_limit_lock = asyncio.Lock()
         self.__access_token = access_token
+
+        # Reset volatile fields to their sleep defaults whenever the vehicle goes
+        # offline. Wired through the general value-callback mechanism rather than
+        # an inline hook in __update: VehicleOnline transitioning to False trips
+        # __on_sleep. Guarded so a config without VehicleOnline still starts.
+        if "VehicleOnline" in self.__data:
+            self.add_callback({"VehicleOnline": False}, self.__on_sleep)
 
     def __load_data_properties(self) -> None:
         for data_property_id, prop_cfg in self.__config.tesla_data.items():
@@ -156,19 +168,15 @@ class Vehicle:
             if "state" in data:
                 # Raw state is one of online / offline / asleep (teslemetry
                 # State enum). In practice the car reports a sleeping vehicle as
-                # "offline" and never emits "asleep", so any non-online state is
-                # treated as the sleep trigger.
+                # "offline" and never emits "asleep". Updating VehicleOnline to
+                # False trips the sleep-default reset via the value-callback
+                # registered in __init__ (see __on_sleep).
                 state = data["state"]
                 logger.info("Vehicle state event: state=%s", state)
                 online = state == "online"
                 await self.__data["VehicleOnline"].update(
                     value=online, timestamp=timestamp
                 )
-                if not online:
-                    # The stream goes silent on sleep, freezing volatile fields
-                    # (speed, gear, HVAC, charging power) at their last live
-                    # reading. Force them to their configured asleep defaults.
-                    await self.__apply_sleep_defaults(timestamp)
             return
 
         async with self.__async_lock:
@@ -275,6 +283,108 @@ class Vehicle:
             await self.__server.broadcast(framed)
         logger.info("Applied sleep defaults to %d field(s) on sleep", len(changed))
 
+    def add_callback(self, criteria: dict, callback) -> int:
+        '''
+        Registers a callback fired when EVERY property in `criteria` simultaneously
+        holds its target value. `criteria` maps data-property id -> target value;
+        use `VehicleDataProperty.ANY` as a target to mean "this property has any
+        value" (i.e. re-evaluate whenever it changes).
+        Built on the per-property edge-triggered callbacks: the combined callback
+        fires whenever a member property reaches its target and, at that instant,
+        all members are at their targets. Synchronous so it can be wired during
+        construction. The callback runs as an independent task and is invoked as
+        `callback(matches)`, where `matches` is a list of `(data_id, value, when)`
+        tuples (one per criterion); it may be a coroutine function (it is awaited).
+        Arguments:
+            criteria (dict): {data_property_id: target_value, ...}.
+            callback: Callable(list) -> None | awaitable.
+        Returns:
+            int: A handle to pass to remove_callback.
+        '''
+        for property_id in criteria:
+            if property_id not in self.__data:
+                raise ValueError(f"Unknown data property in criteria: {property_id}")
+        handle = self.__condition_next_handle
+        self.__condition_next_handle += 1
+        property_handles = {}
+        for property_id, target_value in criteria.items():
+            property_handles[property_id] = self.__data[property_id].add_callback(
+                target_value,
+                lambda data_id, value, when, h=handle: self.__on_condition_member(h),
+            )
+        self.__condition_callbacks[handle] = {
+            "criteria": criteria,
+            "callback": callback,
+            "property_handles": property_handles,
+        }
+        return handle
+
+    def remove_callback(self, handle: int) -> None:
+        '''
+        Unregisters a combined callback added with add_callback, including the
+        per-property callbacks it created. No-op if the handle is unknown.
+        Arguments:
+            handle (int): The value returned by add_callback.
+        '''
+        condition = self.__condition_callbacks.pop(handle, None)
+        if condition is None:
+            return
+        for property_id, property_handle in condition["property_handles"].items():
+            self.__data[property_id].remove_callback(property_handle)
+
+    async def __on_condition_member(self, handle: int) -> None:
+        '''
+        Re-evaluates a combined-callback condition after one of its member
+        properties reached its target, firing the user callback only when ALL
+        members currently hold their target values.
+        Arguments:
+            handle (int): The condition whose member property just changed.
+        '''
+        condition = self.__condition_callbacks.get(handle)
+        if condition is None:
+            return
+        matches = []
+        for property_id, target_value in condition["criteria"].items():
+            info = await self.__data[property_id].get_as_dict()
+            if (
+                target_value is not VehicleDataProperty.ANY
+                and info["value"] != target_value
+            ):
+                return  # Not all members satisfied — do not fire.
+            ts = info["timestamp"]
+            when = (
+                datetime.fromtimestamp(ts / 1000, tz=self.__timezone)
+                if ts is not None
+                else None
+            )
+            matches.append((property_id, info["value"], when))
+        # A failing callback must never break the telemetry update path.
+        try:
+            result = condition["callback"](matches)
+            if inspect.isawaitable(result):
+                await result
+        except Exception as e:
+            logger.error(
+                "Vehicle callback (handle=%s) raised: %s: %s",
+                handle, type(e).__name__, e,
+            )
+
+    async def __on_sleep(self, matches) -> None:
+        '''
+        Sleep-default callback: fired when VehicleOnline becomes False. Derives
+        the sleep timestamp from the match and resets every field that defines a
+        sleep_default.
+        Arguments:
+            matches (list): [(data_id, value, when)] for the criteria — here just
+                the VehicleOnline entry.
+        '''
+        when = matches[0][2] if matches else None
+        if when is not None:
+            timestamp = int(when.timestamp() * 1000)
+        else:
+            timestamp = int(datetime.now(timezone.utc).timestamp() * 1000)
+        await self.__apply_sleep_defaults(timestamp)
+
     async def stream_everything(self, client) -> None:
         """
         Sends the full current state of every telemetry property to a
@@ -301,6 +411,11 @@ class Vehicle:
     @property
     def vin(self) -> str:
         return self.__vin
+
+    @property
+    def zone_info(self):
+        '''Configured timezone as a ZoneInfo, used to build local datetimes.'''
+        return self.__timezone
 
     async def get_data_property(self, id: str) -> VehicleDataProperty:
         async with self.__async_lock:
