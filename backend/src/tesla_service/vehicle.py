@@ -356,12 +356,14 @@ class Vehicle:
         else:
             return
 
+        previous_state = value
+
         if not await self.__rate_limit_reserve():
             return
 
-        # Engage the lock BEFORE issuing the REST command so a stale
-        # Teslemetry frame (common on vehicle wake-up) cannot snap the UI
-        # back to the previous state while we wait for confirmation.
+        # Show a "Pending" placeholder while the command is in flight. The lock
+        # also drops stale Teslemetry frames (common on vehicle wake-up) that
+        # would otherwise snap the UI back to the previous state.
         await data_property.lock_value_until(
             "HvacPowerStatePending", target_state, timeout_seconds=300
         )
@@ -369,17 +371,52 @@ class Vehicle:
 
         logger.info("Climate switch requested: %s", operation)
         success = False
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                url=f"https://api.teslemetry.com/api/1/vehicles/{self.__vin}/command/{operation}",
-                headers={"Authorization": f"Bearer {self.__access_token}"},
-            ) as response:
-                if response.status == 200:
-                    success = True
-                else:
-                    logger.error("Climate API call failed: status %d", response.status)
+        # A network error or timeout must NOT escape: it would skip both branches
+        # below and strand the property on "Pending" (+ leak a rate-limit slot).
+        # The explicit timeout also resolves a hung request well before the 300s
+        # lock timeout. Any failure leaves success False → the failure branch runs.
+        try:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30)) as session:
+                async with session.post(
+                    url=f"https://api.teslemetry.com/api/1/vehicles/{self.__vin}/command/{operation}",
+                    headers={"Authorization": f"Bearer {self.__access_token}"},
+                ) as response:
+                    # Teslemetry proxies the Tesla Fleet API: a 200 carries
+                    # {"response": {"result": <bool>, "reason": <str>}} and `result`
+                    # is the real success signal — a 200 with result=false is a
+                    # rejection. Parse defensively for both wrapped/unwrapped shapes.
+                    if response.status == 200:
+                        try:
+                            body = await response.json()
+                            inner = body.get("response", body) if isinstance(body, dict) else {}
+                            if isinstance(inner, dict):
+                                success = bool(inner.get("result", False))
+                                if not success:
+                                    logger.error(
+                                        "Climate command rejected by vehicle: %s",
+                                        inner.get("reason", "unknown"),
+                                    )
+                        except (aiohttp.ContentTypeError, ValueError) as e:
+                            logger.error("Climate command response parse failed: %s", e)
+                    else:
+                        logger.error("Climate API call failed: status %d", response.status)
+        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+            logger.error("Climate API call errored: %s: %s", type(e).__name__, e)
 
-        if not success:
+        if success:
+            # Command accepted — optimistically show the target state now instead
+            # of waiting for telemetry to confirm (which may lag). Keep the lock so
+            # stale frames are still dropped until a confirming frame (== target)
+            # arrives or the timeout lifts it.
+            await data_property.lock_value_until(
+                target_state, target_state, timeout_seconds=300
+            )
+            await self.stream_data_property(data_property)
+            logger.info("Climate switch accepted: now %s", target_state)
+        else:
+            # Abort the placeholder, restore the previous state and refund the slot.
+            await data_property.clear_value_lock(previous_state)
+            await self.stream_data_property(data_property)
             await self.__rate_limit_refund()
 
         if self.__temperature_updated:
@@ -394,18 +431,23 @@ class Vehicle:
         logger.info("Temperature update requested: driver=%.1f°C", float(value))
 
         success = False
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                url=f"https://api.teslemetry.com/api/1/vehicles/{self.__vin}/command/set_temps",
-                headers={"Authorization": f"Bearer {self.__access_token}"},
-                json={"driver_temp": float(value), "passenger_temp": float(value)},
-            ) as response:
-                if response.status == 200:
-                    success = True
-                else:
-                    logger.error(
-                        "Temperature API call failed: status %d", response.status
-                    )
+        # As with switch_climate_state, a network error/timeout must not escape —
+        # it would skip the refund below and strand __temperature_updated set.
+        try:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=30)) as session:
+                async with session.post(
+                    url=f"https://api.teslemetry.com/api/1/vehicles/{self.__vin}/command/set_temps",
+                    headers={"Authorization": f"Bearer {self.__access_token}"},
+                    json={"driver_temp": float(value), "passenger_temp": float(value)},
+                ) as response:
+                    if response.status == 200:
+                        success = True
+                    else:
+                        logger.error(
+                            "Temperature API call failed: status %d", response.status
+                        )
+        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+            logger.error("Temperature API call errored: %s: %s", type(e).__name__, e)
 
         if not success:
             await self.__rate_limit_refund()

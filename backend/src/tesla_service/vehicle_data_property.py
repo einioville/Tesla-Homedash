@@ -140,6 +140,7 @@ class VehicleDataProperty:
             await asyncio.sleep(seconds)
         except asyncio.CancelledError:
             return
+        expired = False
         async with self._async_lock:
             # Generation guard: a newer lock may own the state already.
             if (
@@ -152,6 +153,34 @@ class VehicleDataProperty:
                 )
                 self.__locked_target = None
                 self.__lock_timeout_task = None
+                expired = True
+        if expired:
+            # Re-stream the committed value once the lock lifts. Without this a
+            # client pinned to the placeholder (e.g. an HVAC button showing
+            # "Pending") would stay there until the next telemetry frame for this
+            # field — which may not arrive soon — so it must be pushed explicitly.
+            await self._vehicle.stream_data_property(self)
+
+    async def clear_value_lock(self, value=None) -> None:
+        '''
+        Cancels any active value lock so telemetry updates flow normally again,
+        optionally committing `value` first. Used to abort a placeholder when the
+        command it was waiting on fails. The caller is responsible for streaming.
+        Arguments:
+            value: Value to commit before clearing the lock, or None to leave the
+                current value untouched.
+        '''
+        async with self._async_lock:
+            if (
+                self.__lock_timeout_task is not None
+                and not self.__lock_timeout_task.done()
+            ):
+                self.__lock_timeout_task.cancel()
+            self.__lock_timeout_task = None
+            self.__locked_target = None
+            self.__lock_generation += 1
+            if value is not None:
+                self._value = value
 
     async def get_value(self):
         async with self._async_lock:
