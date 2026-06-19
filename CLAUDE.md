@@ -531,5 +531,5 @@ a new/renamed service or widget, a protocol change, a build-command change, or a
 invariant. Treat the doc as part of the change, not an afterthought, and bump §7.7.
 
 ### 7.7 Documentation currency
-This guide and `README.md` are current as of commit **`dd5f994`** ("Add: reset volatile Tesla fields to defaults when the vehicle sleeps").
+This guide and `README.md` are current as of commit **`81683bd`** ("Add: general value-callback API and refactor sleep onto it").
 When you land changes that touch behaviour documented here, update this line to the new HEAD commit.
