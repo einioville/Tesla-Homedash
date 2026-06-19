@@ -5,7 +5,8 @@
             "unit": "W",
             "log": true,
             "formula": null,
-            "stream_id": 0
+            "stream_id": 0,
+            "sleep_default": 0
         },
         "BatteryLevel": {
             "category": "Charging",
@@ -26,7 +27,8 @@
             "unit": "A",
             "log": true,
             "formula": null,
-            "stream_id": 3
+            "stream_id": 3,
+            "sleep_default": 0
         },
         "BMSState": {
             "category": "Charging",
@@ -47,7 +49,8 @@
             "unit": "km/h",
             "log": true,
             "formula": "x * 1.609344",
-            "stream_id": 6
+            "stream_id": 6,
+            "sleep_default": 0
         },
         "ChargerPhases": {
             "category": "Charging",
@@ -75,7 +78,8 @@
             "unit": null,
             "log": true,
             "formula": null,
-            "stream_id": 10
+            "stream_id": 10,
+            "sleep_default": false
         },
         "EnergyRemaining": {
             "category": "Charging",
@@ -89,21 +93,24 @@
             "unit": "h",
             "log": false,
             "formula": null,
-            "stream_id": 12
+            "stream_id": 12,
+            "sleep_default": 0
         },
         "Gear": {
             "category": "Driving",
             "unit": null,
             "log": true,
             "formula": null,
-            "stream_id": 13
+            "stream_id": 13,
+            "sleep_default": "ShiftStateP"
         },
         "HvacACEnabled": {
             "category": "Climate",
             "unit": null,
             "log": false,
             "formula": null,
-            "stream_id": 14
+            "stream_id": 14,
+            "sleep_default": false
         },
         "HvacLeftTemperatureRequest": {
             "category": "Climate",
@@ -173,14 +180,16 @@
             "unit": "h",
             "log": false,
             "formula": null,
-            "stream_id": 24
+            "stream_id": 24,
+            "sleep_default": 0
         },
         "VehicleSpeed": {
             "category": "Driving",
             "unit": "km/h",
             "log": true,
             "formula": "x * 1.609344",
-            "stream_id": 25
+            "stream_id": 25,
+            "sleep_default": 0
         },
         "VehicleOnline": {
             "category": "Vehicle state",
@@ -201,42 +210,48 @@
             "unit": null,
             "log": false,
             "formula": null,
-            "stream_id": 30
+            "stream_id": 30,
+            "sleep_default": false
         },
         "AutoSeatClimateRight": {
             "category": "Climate",
             "unit": null,
             "log": false,
             "formula": null,
-            "stream_id": 31
+            "stream_id": 31,
+            "sleep_default": false
         },
         "ClimateSeatCoolingFrontLeft": {
             "category": "Climate",
             "unit": null,
             "log": false,
             "formula": null,
-            "stream_id": 32
+            "stream_id": 32,
+            "sleep_default": 0
         },
         "ClimateSeatCoolingFrontRight": {
             "category": "Climate",
             "unit": null,
             "log": false,
             "formula": null,
-            "stream_id": 33
+            "stream_id": 33,
+            "sleep_default": 0
         },
         "DefrostForPreconditioning": {
             "category": "Climate",
             "unit": null,
             "log": false,
             "formula": null,
-            "stream_id": 34
+            "stream_id": 34,
+            "sleep_default": false
         },
         "DefrostMode": {
             "category": "Climate",
             "unit": null,
             "log": false,
             "formula": null,
-            "stream_id": 35
+            "stream_id": 35,
+            "sleep_default": "DefrostModeStateOff"
         },
         "HvacAutoMode": {
             "category": "Climate",
@@ -250,56 +265,64 @@
             "unit": null,
             "log": false,
             "formula": null,
-            "stream_id": 37
+            "stream_id": 37,
+            "sleep_default": 0
         },
         "HvacFanStatus": {
             "category": "Climate",
             "unit": null,
             "log": false,
             "formula": null,
-            "stream_id": 38
+            "stream_id": 38,
+            "sleep_default": 0
         },
         "HvacPower": {
             "category": "Climate",
             "unit": null,
             "log": false,
             "formula": null,
-            "stream_id": 39
+            "stream_id": 39,
+            "sleep_default": "HvacPowerStateOff"
         },
         "HvacSteeringWheelHeatLevel": {
             "category": "Climate",
             "unit": null,
             "log": false,
             "formula": null,
-            "stream_id": 40
+            "stream_id": 40,
+            "sleep_default": 0
         },
         "PreconditioningEnabled": {
             "category": "Climate",
             "unit": null,
             "log": false,
             "formula": null,
-            "stream_id": 41
+            "stream_id": 41,
+            "sleep_default": false
         },
         "RearDefrostEnabled": {
             "category": "Climate",
             "unit": null,
             "log": false,
             "formula": null,
-            "stream_id": 42
+            "stream_id": 42,
+            "sleep_default": false
         },
         "SeatHeaterLeft": {
             "category": "Climate",
             "unit": null,
             "log": false,
             "formula": null,
-            "stream_id": 43
+            "stream_id": 43,
+            "sleep_default": 0
         },
         "SeatHeaterRight": {
             "category": "Climate",
             "unit": null,
             "log": false,
             "formula": null,
-            "stream_id": 44
+            "stream_id": 44,
+            "sleep_default": 0
         },
         "EstBatteryRange": {
             "category": "Charging",

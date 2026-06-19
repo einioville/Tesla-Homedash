@@ -169,7 +169,9 @@ Required secrets/paths, loaded by `utils/config_parser.get_env`:
 ### `config.json` (copy from `config_template.json`)
 Parsed once by `Config` and injected into every service. Keys:
 - `tesla data` — per-field metadata map: `stream_id`, `category`, `unit`, `formula` (sympy
-  string or null), `log` (bool).
+  string or null), `log` (bool), and optional `sleep_default` — the value the field reverts to
+  when the vehicle goes to sleep (omit or `null` to leave it at its last reading; the default is
+  a final value, the `formula` is **not** re-applied to it).
 - `calculated tesla data` — derived fields (`DrivenToday`, `DrivenThisMonth`): adds
   `source_data_property_id`, `period` (`day`/`month`), `calculation_formula` (e.g. `y - x`).
 - `radioMediaIds` — station name → Nelonen Media id; `defaultRadioStation` — a key from it.
@@ -292,7 +294,13 @@ protocol constants or calls concrete service methods.
   property at 00:00 so first-of-day/month baseline queries always find a record).
   `on_telemetry_event → __update` applies formulas, broadcasts changed fields
   (`protocol.frame(MSG_STREAM, …)`), and writes logged fields to InfluxDB (a failed write never
-  blocks the broadcast). HVAC: `switch_climate_state` toggles via the Teslemetry REST API behind
+  blocks the broadcast). Non-data **state** events carry `online`/`offline`/`asleep` (the car
+  reports a sleeping vehicle as `offline`, never `asleep`); `__update` writes the synthesized
+  `VehicleOnline` and, on any non-`online` state, calls `__apply_sleep_defaults` — the stream
+  goes silent on sleep, so each field with a configured `sleep_default` is forced to it,
+  broadcasting only the ones that changed (never written to InfluxDB). It is idempotent and
+  re-runs on every offline event, self-healing a reset that raced a replayed frame on reconnect.
+  HVAC: `switch_climate_state` toggles via the Teslemetry REST API behind
   an in-memory **rate limiter** (reserve/refund/reset) and a **value lock** that pins the UI to
   `HvacPowerStatePending` until the confirming telemetry arrives; `plus_temp`/`minus_temp` adjust
   the local target and stream it (the **target temperature is a pre-conditioning setpoint** — it
@@ -301,7 +309,10 @@ protocol constants or calls concrete service methods.
   (write/read), `Server` (broadcast/send_to), Teslemetry REST (aiohttp).
 - **`vehicle_data_property.py`**: `VehicleDataProperty` stores one field's value/timestamp,
   evaluates its sympy `formula`, serializes to the wire format (`get_stream_data`), builds Influx
-  points, and supports `lock_value_until` (the pending-state lock). `CalculatedVehicleDataProperty`
+  points, supports `lock_value_until` (the pending-state lock), and `apply_sleep_default`
+  (force-reset to the field's configured asleep value, bypassing the formula and clearing any
+  active value-lock — a pending HVAC toggle can never confirm while asleep).
+  `CalculatedVehicleDataProperty`
   derives `calculation_formula(x=baseline, y=latest)`; the baseline is read from InfluxDB at period
   start (falls back to the live value), reset by an APScheduler cron job. **Talks to:** `Vehicle`
   (which owns Influx access).
@@ -426,6 +437,14 @@ Teslemetry stream → TelemetryHandler → Vehicle.on_telemetry_event → Vehicl
 Widget click → handler builds packet (QDataStream) → ServerClient.onSendMessageRequest → TCP
   → Server.__read_loop → registered handler → Vehicle / MediaManager method
   → (effect streams back over MSG_STREAM / MEDIA_* and updates the UI)
+```
+
+**Vehicle sleeps (default reset)**
+```
+Teslemetry state event (state != "online") → Vehicle.__update → set VehicleOnline=False
+  → Vehicle.__apply_sleep_defaults → each property with a sleep_default:
+       VehicleDataProperty.apply_sleep_default (force value+timestamp, clear any value-lock)
+  → broadcast changed-only via MSG_STREAM   (no InfluxDB write — display-only)
 ```
 
 **New client connects (snapshot)**

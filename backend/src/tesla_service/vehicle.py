@@ -55,6 +55,7 @@ class Vehicle:
                 unit=prop_cfg["unit"],
                 formula=prop_cfg["formula"],
                 log=prop_cfg["log"],
+                sleep_default=prop_cfg.get("sleep_default"),
             )
         logger.debug("Loaded %d vehicle data properties", len(self.__data))
 
@@ -137,7 +138,14 @@ class Vehicle:
         asyncio.create_task(coro=self.__update(data=data))
 
     async def __update(self, data) -> None:
-        if data["vin"] != self.__vin:
+        # Some stream frames (connectivity/keepalive) arrive without a "vin"
+        # key; .get avoids a KeyError that would crash this task — the
+        # exception is otherwise swallowed as an un-retrieved task result.
+        if data.get("vin") != self.__vin:
+            if "vin" not in data:
+                logger.debug(
+                    "Stream frame without vin ignored: keys=%s", list(data.keys())
+                )
             return
 
         if "timestamp" not in data:
@@ -146,10 +154,21 @@ class Vehicle:
 
         if "data" not in data:
             if "state" in data:
-                online = data["state"] == "online"
+                # Raw state is one of online / offline / asleep (teslemetry
+                # State enum). In practice the car reports a sleeping vehicle as
+                # "offline" and never emits "asleep", so any non-online state is
+                # treated as the sleep trigger.
+                state = data["state"]
+                logger.info("Vehicle state event: state=%s", state)
+                online = state == "online"
                 await self.__data["VehicleOnline"].update(
                     value=online, timestamp=timestamp
                 )
+                if not online:
+                    # The stream goes silent on sleep, freezing volatile fields
+                    # (speed, gear, HVAC, charging power) at their last live
+                    # reading. Force them to their configured asleep defaults.
+                    await self.__apply_sleep_defaults(timestamp)
             return
 
         async with self.__async_lock:
@@ -224,6 +243,37 @@ class Vehicle:
             await self.__server.broadcast(
                 protocol.frame(protocol.MSG_STREAM, stream_data)
             )
+
+    async def __apply_sleep_defaults(self, timestamp) -> None:
+        '''
+        Forces every property that defines a sleep_default to its asleep value
+        (clearing any pending value-lock) and broadcasts the ones that actually
+        changed.  Invoked when a state event reports the vehicle is no longer
+        online: the Teslemetry stream stops sending on sleep, so without this
+        volatile fields (speed, gear, HVAC, charging power) stay frozen at their
+        last live reading.  Safe to call on every offline event — properties
+        already at their default report no change and are not re-broadcast, and
+        the periodic offline events also self-heal a reset that lost a race with
+        a replayed telemetry frame on (re)connect.  Logged fields are NOT
+        written to InfluxDB here by design — the reset is display-only and must
+        not fabricate history points.
+        Arguments:
+            timestamp: Epoch milliseconds of the state (sleep) event.
+        '''
+        async with self.__async_lock:
+            properties = list(self.__data.values())
+        changed = [p for p in properties if await p.apply_sleep_default(timestamp)]
+        if not changed:
+            return
+        stream_data = await asyncio.gather(*(p.get_stream_data() for p in changed))
+        framed = b"".join(
+            protocol.frame(protocol.MSG_STREAM, entry)
+            for entry in stream_data
+            if entry is not None
+        )
+        if framed:
+            await self.__server.broadcast(framed)
+        logger.info("Applied sleep defaults to %d field(s) on sleep", len(changed))
 
     async def stream_everything(self, client) -> None:
         """

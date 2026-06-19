@@ -23,6 +23,7 @@ class VehicleDataProperty:
         unit: str = None,
         formula: str = None,
         log: bool = False,
+        sleep_default=None,
     ):
         self.__id = data_id
         self.__stream_id = stream_id
@@ -35,6 +36,11 @@ class VehicleDataProperty:
             self.__sympy_x = symbols("x")
             self.__sympy_expr = sympify(self.__formula)
         self.__log = log
+        # Value this field reverts to when the vehicle goes to sleep (the stream
+        # then goes silent, freezing the live value). None = field is left at its
+        # last reading. The default is a FINAL value — the input formula is not
+        # re-applied to it. See apply_sleep_default.
+        self.__sleep_default = sleep_default
         self._async_lock = asyncio.Lock()
         self._vehicle = vehicle
         self.__value_type = None
@@ -181,6 +187,44 @@ class VehicleDataProperty:
             self.__lock_generation += 1
             if value is not None:
                 self._value = value
+
+    async def apply_sleep_default(self, timestamp) -> bool:
+        '''
+        Forces the property to its configured sleep_default, stamped with the
+        given timestamp, bypassing the input formula (the default is already a
+        final value) and clearing any active value-lock — no confirming
+        telemetry can arrive while the vehicle is asleep, so a pending
+        placeholder (e.g. HvacPower "Pending") must not be allowed to survive.
+        Returns True only when the stored value actually changed, so the caller
+        can skip re-broadcasting fields that are already at their default.
+        Arguments:
+            timestamp: Epoch milliseconds to stamp the reset with (the time the
+                vehicle went to sleep — i.e. the state event timestamp).
+        '''
+        if self.__sleep_default is None:
+            return False
+        async with self._async_lock:
+            # Drop any in-flight value-lock (e.g. an HvacPower toggle still
+            # showing "Pending"): it can never be confirmed while asleep.
+            if (
+                self.__lock_timeout_task is not None
+                and not self.__lock_timeout_task.done()
+            ):
+                self.__lock_timeout_task.cancel()
+            self.__lock_timeout_task = None
+            self.__locked_target = None
+            self.__lock_generation += 1
+
+            if self.__value_type is None:
+                self.__value_type = self.__infer_value_type(self.__sleep_default)
+
+            changed = self._value != self.__sleep_default
+            self._value = self.__sleep_default
+            if changed:
+                self.__timestamp = timestamp
+        if changed:
+            logger.debug("Sleep default applied: id=%s value=%s", self.__id, self.__sleep_default)
+        return changed
 
     async def get_value(self):
         async with self._async_lock:
