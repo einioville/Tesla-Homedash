@@ -84,6 +84,22 @@ class ForecastHour:
     def get_time(self) -> int:
         return self.__hours
 
+    def get_measurement(self, key: str):
+        '''Returns the ForecastMeasurement for the given field, or None if absent.'''
+        return self.__data.get(key)
+
+    def set_measurement(self, key: str, measurement) -> None:
+        '''
+        Adds or replaces a measurement for the given field. Used to backfill the
+        current-hour observation banner with precipitation + cloud cover from the
+        model forecast, since the observation station does not report them.
+        Arguments:
+            key (str): Field name.
+            measurement (ForecastMeasurement | None): Stored as-is; ignored if None.
+        '''
+        if measurement is not None:
+            self.__data[key] = measurement
+
 
 class WeatherService:
     # Maps FMI observation field names to the forecast-compatible names used
@@ -153,10 +169,30 @@ class WeatherService:
         if forecast_hours:
             logger.info("Forecast fetched: %d hours", len(forecast_hours))
 
+        # The forecast now starts at the current hour. Split off its current-hour
+        # row: it backfills the banner's precipitation + cloud cover (the
+        # observation station reports neither), while temperature + wind stay from
+        # the real observation. The remaining rows are the future forecast cards.
+        current_hour = now_local.hour
+        current_forecast: ForecastHour | None = None
+        future_hours: list[ForecastHour] = []
+        for forecast in forecast_hours:
+            if current_forecast is None and forecast.get_time() == current_hour:
+                current_forecast = forecast
+            else:
+                future_hours.append(forecast)
+
+        if observation is not None and current_forecast is not None:
+            for key in ("Precipitation amount", "Total cloud cover"):
+                observation.set_measurement(key, current_forecast.get_measurement(key))
+
         forecasts: list[ForecastHour] = []
         if observation is not None:
             forecasts.append(observation)
-        forecasts.extend(forecast_hours)
+        elif current_forecast is not None:
+            # No live observation — fall back to the model's current-hour row.
+            forecasts.append(current_forecast)
+        forecasts.extend(future_hours)
 
         if forecasts:
             logger.info("Broadcasting weather forecast to clients")
@@ -218,16 +254,44 @@ class WeatherService:
         if not data or not data.data:
             return None
 
-        # Use the latest timestamp available in the response
-        latest_time = max(data.data.keys())
-        raw_location_data = next(iter(data.data[latest_time].values()))
+        def _has_value(entry) -> bool:
+            '''
+            Returns True when an FMI field entry holds a finite numeric value.
+            fmiopendata leaves the entry dict in place but stores NaN (or None)
+            for slots it has not measured, so presence of the entry alone is not
+            enough — the value itself must be checked.
+            Arguments:
+                entry: A {"value": ..., "units": ...} mapping, or None when the
+                    field is absent for this slot.
+            '''
+            if entry is None:
+                return False
+            value = entry.get("value")
+            if value is None:
+                return False
+            try:
+                return not math.isnan(float(value))
+            except (TypeError, ValueError):
+                return False
 
-        # Normalize field names and drop entries that are entirely absent
+        # fmiopendata's multipointcoverage pads the most recent 10-minute slot(s)
+        # with NaN — the coverage grid reaches the query end even before an
+        # observation exists. Blindly taking max(keys) then handed the current-
+        # hour banner an all-NaN slot, which get_value() turns into zeros. Walk
+        # the timestamps newest→oldest and use the most recent slot that actually
+        # carries a valid air-temperature reading.
         normalized: dict = {}
-        for obs_key, forecast_key in WeatherService._OBS_FIELD_MAP.items():
-            entry = raw_location_data.get(obs_key)
-            if entry is not None:
-                normalized[forecast_key] = entry
+        for timestamp in sorted(data.data.keys(), reverse=True):
+            raw_location_data = next(iter(data.data[timestamp].values()))
+            candidate: dict = {}
+            for obs_key, forecast_key in WeatherService._OBS_FIELD_MAP.items():
+                entry = raw_location_data.get(obs_key)
+                if _has_value(entry):
+                    candidate[forecast_key] = entry
+            # A valid temperature signals a slot with real measurements.
+            if "Air temperature" in candidate:
+                normalized = candidate
+                break
 
         if not normalized:
             logger.debug(
@@ -241,18 +305,23 @@ class WeatherService:
 
     async def __fetch_forecast(self, now_local: datetime) -> list[ForecastHour]:
         '''
-        Fetches harmonie hourly forecasts for the 6 hours starting at the next
-        full hour, excluding the current hour (covered by observation).
-        Returns an empty list on failure.
+        Fetches harmonie hourly forecasts starting at the CURRENT hour. The model
+        retains the current hour (and several past hours), so its current-hour row
+        is used to backfill the banner's precipitation + cloud cover — fields the
+        observation station does not report — while the following rows are the
+        future forecast cards. The dashboard shows the current hour plus the next
+        five forecast hours; we request a couple of extra hours as margin. The
+        frontend displays the nearest five and ignores the surplus. Returns an
+        empty list on failure.
         Arguments:
             now_local (datetime): Timezone-aware current local time.
         '''
-        next_hour = (now_local + timedelta(hours=1)).replace(
-            minute=0, second=0, microsecond=0
-        )
-        end_time = next_hour + timedelta(hours=5)
+        current_hour = now_local.replace(minute=0, second=0, microsecond=0)
+        # Inclusive range with margin: current_hour .. current_hour+7 == up to 8
+        # points (1 current-hour backfill row + future card hours with spare).
+        end_time = current_hour + timedelta(hours=7)
 
-        next_hour_str = next_hour.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+        start_str = current_hour.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
         end_str = end_time.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
         try:
@@ -261,7 +330,7 @@ class WeatherService:
                 lambda: download_stored_query(
                     query_id="fmi::forecast::harmonie::surface::point::multipointcoverage",
                     args=[
-                        f"starttime={next_hour_str}",
+                        f"starttime={start_str}",
                         f"endtime={end_str}",
                         f"place={self.__place}",
                     ],
@@ -277,9 +346,13 @@ class WeatherService:
         if not data or not data.data:
             return []
 
+        # Sort by timestamp so the list is strictly chronological: the frontend
+        # shows the first five forecast rows as "the nearest five", which only
+        # holds if the rows are time-ordered (fmiopendata is normally ordered,
+        # but sorting makes the guarantee independent of its iteration order).
         return [
             ForecastHour(time, next(iter(value.values())), self.__zone_info)
-            for time, value in data.data.items()
+            for time, value in sorted(data.data.items())
         ]
 
     async def __get_stream_data(self, forecasts: list) -> list[bytes]:

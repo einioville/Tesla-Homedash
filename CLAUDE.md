@@ -352,6 +352,11 @@ protocol constants or calls concrete service methods.
 `WeatherService` fetches the current-hour FMI observation + the next hours' harmonie forecast
 (`fmiopendata`, run in an executor), serialises them into a `WEATHER_FORECAST` frame, broadcasts,
 and caches the last frame to replay to new clients. Refreshes every 15 min via APScheduler.
+The current-hour **banner** takes temperature + wind from the real observation, but the observation
+station typically reports neither precipitation nor cloud cover — so those two are **backfilled from
+the harmonie forecast's current-hour row** (the model retains the current hour, so no caching is
+needed). `__fetch_observation` walks observation slots newest→oldest and uses the most recent one
+with a valid air-temperature reading (avoiding the all-NaN padding slots fmiopendata returns).
 **Talks to:** FMI open data, `Server`.
 
 #### 5.2.5 `influxdb_service/influxdb_handler.py`
