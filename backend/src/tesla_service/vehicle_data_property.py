@@ -357,6 +357,14 @@ class VehicleDataProperty:
             if self.__value_type == "value_dict":
                 for key, value in self._value.items():
                     point = point.field(key, value)
+            elif self.__value_type == "value_float":
+                # InfluxDB pins a field's type on first write. A Python int (e.g.
+                # an integer sleep_default like 0, applied verbatim by
+                # apply_sleep_default) serializes as line-protocol `value_float=0i`
+                # (an integer field) and is rejected against the existing float
+                # field — failing the whole batch. Coerce so value_float is always
+                # emitted as a float, whatever Python type currently backs it.
+                point = point.field(self.__value_type, float(self._value))
             else:
                 point = point.field(self.__value_type, self._value)
             return point
