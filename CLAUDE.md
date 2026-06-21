@@ -119,13 +119,13 @@ The backend is an asyncio app managed with [uv](https://docs.astral.sh/uv/). Run
 
 ### 3.2 Frontend (CMake / Qt Widgets)
 
-Dev environment: **Ninja + Qt 6.10.0 MSVC2022**. CMake ships with Qt at
+Dev environment: **Ninja + Qt 6.11.1 MSVC2022**. CMake ships with Qt at
 `D:\Qt\Tools\CMake_64\bin\cmake.exe`. The build directory is **`frontend/builddir`**.
 
 - **Configure** (required once before the first build, and after CMakeLists changes):
 
   ```
-  D:\Qt\Tools\CMake_64\bin\cmake.exe -S frontend -B frontend/builddir -G Ninja -DCMAKE_PREFIX_PATH=D:/Qt/6.10.0/msvc2022_64
+  D:\Qt\Tools\CMake_64\bin\cmake.exe -S frontend -B frontend/builddir -G Ninja -DCMAKE_PREFIX_PATH=D:/Qt/6.11.1/msvc2022_64
   ```
 
 - **Build**:
@@ -231,6 +231,17 @@ payload[1..N-1] = type-specific data
 | `0x60` | TESLA_SWITCH_CLIMATE | F→B | (empty) |
 | `0x61` | TESLA_MINUS_TEMP | F→B | (empty) |
 | `0x62` | TESLA_PLUS_TEMP | F→B | (empty) |
+| `0x70` | TESLA_GET_GRAPH_PROPERTIES | F→B | (empty) |
+| `0x71` | TESLA_GRAPH_PROPERTIES | B→F | `count(2B)` + per property `id_len(2B)+id + unit_len(2B)+unit + cat_len(2B)+category` (UTF-8) |
+| `0x72` | TESLA_GET_HISTORY | F→B | `range_code(1B)` (0=1h,1=1d,2=1M,3=custom,4=1week) + `id_len(2B)+id` + `start_ms(8B)` + `end_ms(8B)` |
+| `0x73` | TESLA_HISTORY | B→F | `id_len(2B)+id` + `status(1B)` + `count(4B)` + count×(`ts_ms(8B)` + `value(8B double)`) |
+
+The `0x70`–`0x73` pair is **request/response** (the History view): the backend replies to the
+requesting client only (`send_to`), never a broadcast, and `TESLA_HISTORY` echoes the requested id so
+a stale reply can be discarded. History values are returned **raw** (no downsampling); the frontend
+renders them as a **step line** (`StepLeft`) so a value held between records still displays as held.
+(`read_tesla_data_property` keeps an optional `aggregate_window` for capping very large ranges,
+currently unused.)
 
 **Tesla stream value types**: `0` float `double(8B)`; `1` string `length(2B)+UTF-8`;
 `2` bool `uint8(1B)`; `3` dict — sequence of `double(8B)` (Location = lat, lon).
@@ -248,7 +259,9 @@ payload[1..N-1] = type-specific data
 **Adding a command (F→B)**:
 1. Add the type constant in `utils/protocol.py`.
 2. In `start_tesla_services._register_handlers`, `server.register_handler(protocol.<NAME>, <async callable>)`.
-   The callable gets the raw payload (no length prefix / type byte). The server routes by integer only.
+   The callable gets `(payload, writer)` — the raw payload (no length prefix / type byte) and the
+   requesting client's `StreamWriter`. Fire-and-forget commands ignore the writer; request/response
+   handlers reply to just that client via `server.send_to(writer, …)`. The server routes by integer only.
 3. In the frontend, build + send the packet via `QDataStream` (see `TeslaDataHandler::switchClimateState`).
 
 ### 5.2 Backend services
@@ -266,12 +279,14 @@ server, `MediaManager.get_run_task()`, and `WeatherService.get_run_task()`.
 > `Restart=on-failure`** in deployment (see README). Don't add a restart loop without a reason.
 
 #### 5.2.1 `server/server.py` — the TCP server
-`Server` owns the active-connection map and a `msg_type → handler` registry. `broadcast`
-sends a pre-framed packet to all clients in parallel (one task per client, gathered with
-`return_exceptions=True`); `send_to` targets one client. `__handle_connection` runs the
-on-connect **snapshot** (each registered service's `stream_everything(writer)`), then the read
-loop. **Communicates with:** every service, but only as a dumb byte pipe — it never imports
-protocol constants or calls concrete service methods.
+`Server` owns the active-connection map and a `msg_type → handler` registry. Handlers are invoked
+as `handler(payload, writer)` — the writer lets request/response handlers reply to just the
+requesting client via `send_to`; passing it keeps the server protocol-agnostic (it still only moves
+bytes + the connection). `broadcast` sends a pre-framed packet to all clients in parallel (one task
+per client, gathered with `return_exceptions=True`); `send_to` targets one client.
+`__handle_connection` runs the on-connect **snapshot** (each registered service's
+`stream_everything(writer)`), then the read loop. **Communicates with:** every service, but only as
+a dumb byte pipe — it never imports protocol constants or calls concrete service methods.
 
 > **Load-bearing invariants — do not break:**
 > - **No recv/inactivity timeout.** The frontend only sends on user interaction; idle is
@@ -310,7 +325,10 @@ protocol constants or calls concrete service methods.
   `HvacPowerStatePending` until the confirming telemetry arrives; `plus_temp`/`minus_temp` adjust
   the local target and stream it (the **target temperature is a pre-conditioning setpoint** — it
   is pushed to the car via `update_temperature` only when climate is next toggled, by design).
-  `stream_everything` snapshots all properties to a new client. **Talks to:** `InfluxDBHandler`
+  `stream_everything` snapshots all properties to a new client. History: `get_graphable_properties`
+  lists the logged numeric (value_float) properties for the History view's dropdown; `get_data_history`
+  reads one property's downsampled history — both are served by request/response handlers that reply
+  to the requesting client only. **Talks to:** `InfluxDBHandler`
   (write/read), `Server` (broadcast/send_to), Teslemetry REST (aiohttp).
 - **`vehicle_data_property.py`**: `VehicleDataProperty` stores one field's value/timestamp,
   evaluates its sympy `formula`, serializes to the wire format (`get_stream_data`), builds Influx
@@ -362,10 +380,13 @@ with a valid air-temperature reading (avoiding the all-NaN padding slots fmiopen
 #### 5.2.5 `influxdb_service/influxdb_handler.py`
 `InfluxDBHandler` wraps the async InfluxDB client: `write_tesla_data` (logged fields + midnight
 snapshot), `read_first_value_day`/`_month` (calculated-field baselines), `read_tesla_data_property`
-(history). Read failures degrade to `None` rather than crashing the app. **Talks to:** InfluxDB,
+(history — the History path serves it **raw**; an optional `aggregate_window` arg can add
+`aggregateWindow(fn: mean) + fill(usePrevious)` to downsample + forward-fill onto a regular grid,
+dropping the leading null windows, but is currently unused). Read failures degrade to `None` rather
+than crashing the app. **Talks to:** InfluxDB,
 `Vehicle`. *Flux queries interpolate `data_property_id` via f-strings gated by the `_SAFE_ID` regex
-`^[A-Za-z0-9_\-]+$` — keep that guard; it's the only thing preventing injection if non-config input
-ever reaches these paths.*
+`^[A-Za-z0-9_\-]+$`, and `aggregate_window` by `_SAFE_WINDOW` (`^[1-9][0-9]*[smhd]$`) — keep both
+guards; they're the only thing preventing injection if non-config input ever reaches these paths.*
 
 #### 5.2.6 `utils/`
 - **`config_parser.py`**: `Config` validates + exposes `config.json`; `get_env` loads `.env` once.
@@ -536,5 +557,9 @@ a new/renamed service or widget, a protocol change, a build-command change, or a
 invariant. Treat the doc as part of the change, not an afterthought, and bump §7.7.
 
 ### 7.7 Documentation currency
-This guide and `README.md` are current as of commit **`571e680`** ("Add: current-weather banner from FMI observation, with forecast backfill").
+This guide and `README.md` are current as of commit **`827824d`** ("Add: History-graph backend —
+graph-properties + history request/response API"), which lands the interactive **History-graph view**:
+the `0x70`–`0x73` request/response protocol, the `(payload, writer)` handler signature, history
+**range code 4 = 1 week**, and the Qt 6.11 build. A frontend-only live-graph mode also rides on these
+codes — out of scope here; see the `frontend_v2` memory.
 When you land changes that touch behaviour documented here, update this line to the new HEAD commit.
