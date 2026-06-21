@@ -556,6 +556,10 @@ checks and let the user run the live stack.
   prompt to commit it then, in focused commits per the above, rather than letting verified work pile
   up. The agent still only commits/pushes when the user agrees; this is about offering at the right
   moment, not committing unprompted.
+- **After a feature/fix commit, ask about closing its issue.** Work is tracked as GitHub issues on
+  `einioville/Tesla-Homedash`. When a commit resolves an open issue, automatically ask the user
+  whether to also close that issue (and reference the issue number in the commit/PR). Don't close
+  issues unprompted.
 
 ### 7.6 Keeping this document current
 Update this `CLAUDE.md` whenever you change something it describes — a new telemetry field or command,
