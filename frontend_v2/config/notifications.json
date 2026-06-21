@@ -1,0 +1,23 @@
+{
+    "graceMs": 5000,
+    "notifications": [
+        {
+            "id": "lock_state",
+            "sources": ["Locked"],
+            "format": {
+                "general": "Lock: {Locked}",
+                "true": "Car is locked",
+                "false": "Car is unlocked"
+            }
+        },
+        {
+            "id": "server_connection",
+            "source": "server.connection.state",
+            "format": {
+                "general": "Server: {state}",
+                "connected": "Connected to the server",
+                "disconnected": "Lost connection to the server"
+            }
+        }
+    ]
+}
