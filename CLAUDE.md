@@ -550,6 +550,12 @@ checks and let the user run the live stack.
 - Commit subjects use short imperative prefixes: `Add:`, `Fix:`, `Update:`, `Remove:`, `Create:`.
 - Keep each commit focused on one purpose.
 - PRs include: change summary, reason, manual verification steps, and screenshots for UI changes.
+- **Prompt to commit once work is verified.** This repo tends to accumulate uncommitted,
+  manually-verified changes (the frontend isn't agent-built, so verification happens on the user's
+  side). When the user confirms a feature works — i.e. they say a manual test passed — proactively
+  prompt to commit it then, in focused commits per the above, rather than letting verified work pile
+  up. The agent still only commits/pushes when the user agrees; this is about offering at the right
+  moment, not committing unprompted.
 
 ### 7.6 Keeping this document current
 Update this `CLAUDE.md` whenever you change something it describes — a new telemetry field or command,
