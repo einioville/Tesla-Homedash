@@ -566,6 +566,14 @@ class Vehicle:
         )
         await self.stream_data_property(data_property)
 
+        # Push the pending pre-conditioning target to the car FIRST and await it, so
+        # the car already has the right setpoint before climate toggles — sending it
+        # after auto_conditioning_start leaves the car conditioning to the old
+        # target. Only when the user changed it since the last push; the climate
+        # command still runs regardless of the temperature result (best-effort).
+        if self.__temperature_updated:
+            await self.update_temperature()
+
         logger.info("Climate switch requested: %s", operation)
         success = False
         # A network error or timeout must NOT escape: it would skip both branches
@@ -615,9 +623,6 @@ class Vehicle:
             await data_property.clear_value_lock(previous_state)
             await self.stream_data_property(data_property)
             await self.__rate_limit_refund()
-
-        if self.__temperature_updated:
-            await self.update_temperature()
 
     async def update_temperature(self) -> None:
         if not await self.__rate_limit_reserve():
