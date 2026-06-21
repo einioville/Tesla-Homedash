@@ -124,12 +124,41 @@ class RadioPlayer(BaseMediaPlayer):
                     .get("media", {})
             )
             self.__stream_url = media.get("streamUrls", {}).get("audioHls", {}).get("url")
-            self.__image_url = media.get("images", {}).get("square", {}).get("576x576")
+            self.__image_url = self.__pick_cover(
+                media.get("images", {}).get("square", {})
+            )
             if not self.__stream_url:
                 logger.warning("Nelonen API response missing streamUrls.audioHls.url for %s", self.__channel)
         except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as e:
             # ValueError covers JSON decode errors from response.json()
             logger.warning("Failed to fetch radio station data for %s: %s: %s", self.__channel, type(e).__name__, e)
+
+    @staticmethod
+    def __pick_cover(square: dict, target: int = 720) -> str | None:
+        '''
+        Picks the square cover closest to the target width from the Nelonen image
+        map (keys like "576x576" -> url). The API offers several square sizes; the
+        720x720 one is the sweet spot — large enough for the fullscreen view but
+        not needlessly heavy like the bigger variants. Returns the exact target
+        when present, else the nearest available size.
+        Arguments:
+            square (dict): The images.square map (size-string -> URL) from the API.
+            target (int): Preferred square width in pixels.
+        '''
+        best_url = None
+        best_diff = None
+        for size, url in square.items():
+            if not url:
+                continue
+            try:
+                width = int(str(size).split("x", 1)[0])
+            except (ValueError, IndexError):
+                continue
+            diff = abs(width - target)
+            if best_diff is None or diff < best_diff:
+                best_diff = diff
+                best_url = url
+        return best_url
 
     async def load_player(self) -> None:
         '''

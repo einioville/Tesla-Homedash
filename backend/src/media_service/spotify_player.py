@@ -311,7 +311,14 @@ class SpotifyPlayer(BaseMediaPlayer):
         if not images:
             return None
 
-        url = images[0].get("url")
+        # Use the highest-resolution image. Spotify orders them widest-first, so
+        # images[0] is normally the largest; picking by pixel area is robust to any
+        # ordering/size quirks and falls back to the first when sizes are null.
+        best = max(
+            images,
+            key=lambda image: (image.get("width") or 0) * (image.get("height") or 0),
+        )
+        url = best.get("url") or images[0].get("url")
         if not url:
             return None
 
