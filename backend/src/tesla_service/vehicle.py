@@ -444,14 +444,46 @@ class Vehicle:
     async def get_first_data_today(self, data_property_id: str) -> None:
         return await self.__influx_handler.read_first_value_day(data_property_id)
 
+    async def get_graphable_properties(self) -> list:
+        '''
+        Returns the metadata for every property that can be drawn on the History
+        graph: those that are logged to InfluxDB and whose value is numeric
+        (value_type "value_float").  Enums, bools, strings and the Location dict
+        are excluded, as are the calculated properties (they are not logged, so
+        they have no stored history).  Sorted by category then id for a stable
+        dropdown order.
+        Note: value_type is inferred lazily on a property's first telemetry
+        update, so a logged numeric field that has not streamed since startup is
+        omitted until it next updates — the frontend re-requests this list each
+        time the view is opened, so it fills in as the session runs.
+        Returns:
+            list[dict]: [{"id", "unit", "category"}, ...].
+        '''
+        async with self.__async_lock:
+            properties = list(self.__data.values())
+        result = []
+        for data_property in properties:
+            if not await data_property.get_logging():
+                continue
+            if await data_property.get_value_type() != "value_float":
+                continue
+            result.append({
+                "id": await data_property.get_id(),
+                "unit": await data_property.get_unit(),
+                "category": await data_property.get_category(),
+            })
+        result.sort(key=lambda entry: (entry["category"] or "", entry["id"]))
+        return result
+
     async def get_data_history(
         self,
         data_property_id: str,
         time_start: str,
         time_end: str,
+        aggregate_window: str | None = None,
     ):
         return await self.__influx_handler.read_tesla_data_property(
-            data_property_id, time_start, time_end
+            data_property_id, time_start, time_end, aggregate_window
         )
 
     async def __rate_limit_reserve(self) -> bool:

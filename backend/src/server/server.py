@@ -23,7 +23,7 @@ from ..utils import protocol
 
 logger = logging.getLogger("server.server")
 
-Handler = Callable[[bytes], Awaitable[None]]
+Handler = Callable[[bytes, asyncio.StreamWriter], Awaitable[None]]
 
 
 class Server:
@@ -51,10 +51,15 @@ class Server:
         '''
         Registers a coroutine to invoke when a message with the given type
         byte arrives from a client.  Handlers receive the raw payload bytes
-        (without the length prefix or type byte) and should return None.
+        (without the length prefix or type byte) and the requesting client's
+        writer, and should return None.  The writer lets request/response
+        handlers reply to just that client via send_to(); fire-and-forget
+        handlers simply ignore it.  Passing the writer keeps the server
+        protocol-agnostic — it still only moves bytes and the connection,
+        never interpreting them.
         Arguments:
             msg_type (int): Single-byte message-type code from protocol.py.
-            handler (Handler): async callable taking the payload bytes.
+            handler (Handler): async callable taking (payload, writer).
         '''
         if msg_type in self.__handlers:
             logger.warning("Replacing existing handler for msg_type %#x", msg_type)
@@ -170,7 +175,12 @@ class Server:
                 logger.warning("No handler registered for msg_type %#x", msg_type)
                 continue
 
-            task = asyncio.create_task(self.__safe_invoke(handler, payload))
+            # Visibility for inbound commands: a user-initiated control packet is
+            # infrequent, so logging each arrival at INFO is cheap and makes it
+            # obvious whether a frontend's command actually reached the backend.
+            logger.info("Command received: msg_type %#x (payload %d bytes)", msg_type, len(payload))
+
+            task = asyncio.create_task(self.__safe_invoke(handler, payload, writer))
             pending = self.__active_connections.get(writer)
             if pending is not None:
                 pending.add(task)
@@ -200,11 +210,13 @@ class Server:
             logger.warning("Send failed, dropping client: %s: %s", type(e).__name__, e)
             self.__active_connections.pop(writer, None)
 
-    async def __safe_invoke(self, handler: Handler, payload: bytes) -> None:
+    async def __safe_invoke(
+        self, handler: Handler, payload: bytes, writer: asyncio.StreamWriter
+    ) -> None:
         # Per-handler isolation: one bad command must never kill the
         # connection's read loop.
         try:
-            await handler(payload)
+            await handler(payload, writer)
         except Exception as e:
             logger.error(
                 "Handler %r raised: %s: %s",

@@ -7,6 +7,10 @@ from zoneinfo import ZoneInfo
 from ..utils.config_parser import get_env
 
 _SAFE_ID = re.compile(r'^[A-Za-z0-9_\-]+$')
+# aggregate_window is interpolated into Flux, so it gets the same injection guard
+# as the id: only a positive integer followed by a Flux duration unit (e.g. 15s,
+# 5m, 1h, 30d).
+_SAFE_WINDOW = re.compile(r'^[1-9][0-9]*[smhd]$')
 
 logger = logging.getLogger("influxdb_service.influxdb_handler")
 
@@ -37,14 +41,43 @@ class InfluxDBHandler:
         data_property_id: str,
         time_start: str,
         time_end: str,
+        aggregate_window: str | None = None,
     ) -> tuple:
+        '''
+        Reads a logged numeric property's history from InfluxDB over a time range.
+        When aggregate_window is given, the series is downsampled onto a regular
+        grid (mean per window) and gaps are forward-filled — so e.g. a value held
+        constant for ten minutes with a single stored record is replayed at every
+        window step (the History graph relies on this).  Leading windows before
+        the first real sample stay null and are dropped.
+        Arguments:
+            data_property_id (str): The property id (InfluxDB "id" tag). Validated
+                against _SAFE_ID before interpolation.
+            time_start (str): Flux range start (relative like "-1h" or RFC3339).
+            time_end (str): Flux range stop ("now()" or RFC3339).
+            aggregate_window (str | None): Flux duration (e.g. "15s", "5m", "1h")
+                to downsample + forward-fill onto, or None for the raw series.
+                Validated against _SAFE_WINDOW before interpolation.
+        Returns:
+            tuple | None: (count, timestamps_ms (int64), values (float64)), or None
+                if InfluxDB is unreachable / the query fails / there is no data.
+        '''
         if not _SAFE_ID.match(data_property_id):
             raise ValueError(f"Invalid data_property_id: {data_property_id!r}")
+        if aggregate_window is not None and not _SAFE_WINDOW.match(aggregate_window):
+            raise ValueError(f"Invalid aggregate_window: {aggregate_window!r}")
 
         query = f'from(bucket:"{self.__bucket}")'
         query += f"\n  |> range(start: {time_start}, stop: {time_end})"
         query += '\n  |> filter(fn: (r) => r["_measurement"] == "tesla_data")'
         query += f'\n  |> filter(fn: (r) => r["id"] == "{data_property_id}")'
+        # Graphable properties store their value under the "value_float" field;
+        # restricting to it keeps a single result table and excludes any
+        # non-numeric fields that might share the id tag.
+        query += '\n  |> filter(fn: (r) => r["_field"] == "value_float")'
+        if aggregate_window is not None:
+            query += f'\n  |> aggregateWindow(every: {aggregate_window}, fn: mean, createEmpty: true)'
+            query += '\n  |> fill(usePrevious: true)'
         query += '\n  |> keep(columns: ["_time", "_value"])'
 
         try:
@@ -67,10 +100,17 @@ class InfluxDBHandler:
 
         table = result[0]
 
+        # Drop null values: aggregateWindow(createEmpty=true) + fill(usePrevious)
+        # leaves the windows before the first real sample null (nothing to carry
+        # forward yet), and a raw series can carry None for an absent reading.
+        records = [r for r in table if r.get_value() is not None]
+        if not records:
+            return None
+
         timestamps = np.array(
-            [record.get_time().timestamp() * 1000 for record in table], dtype=np.int64
+            [record.get_time().timestamp() * 1000 for record in records], dtype=np.int64
         )
-        values = np.array([record.get_value() for record in table], dtype=np.float64)
+        values = np.array([record.get_value() for record in records], dtype=np.float64)
 
         return len(values), timestamps, values
 
