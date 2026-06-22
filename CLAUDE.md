@@ -574,9 +574,12 @@ a new/renamed service or widget, a protocol change, a build-command change, or a
 invariant. Treat the doc as part of the change, not an afterthought, and bump §7.7.
 
 ### 7.7 Documentation currency
-This guide and `README.md` are current as of commit **`827824d`** ("Add: History-graph backend —
-graph-properties + history request/response API"), which lands the interactive **History-graph view**:
-the `0x70`–`0x73` request/response protocol, the `(payload, writer)` handler signature, history
-**range code 4 = 1 week**, and the Qt 6.11 build. A frontend-only live-graph mode also rides on these
-codes — out of scope here; see the `frontend_v2` memory.
+This guide and `README.md` are current as of commit **`1184b60`** ("Add: throttle the live History
+tick on long windows"), which — together with the preceding **`cc11bb8`** ("Fix: boundary-fill empty
+History windows with a flat held line") — adds the History-graph **empty-window boundary-fill**
+(`read_last_value_before` / `get_value_before`; a constant-value window now draws a flat line instead
+of "Ei dataa"). The earlier interactive **History-graph view** (commit `827824d`) lands the
+`0x70`–`0x73` request/response protocol, the `(payload, writer)` handler signature, history **range
+code 4 = 1 week**, and the Qt 6.11 build. The frontend-only live-graph mode (and its per-window tick
+throttle) rides on these codes — out of scope here; see the `frontend_v2` memory.
 When you land changes that touch behaviour documented here, update this line to the new HEAD commit.
