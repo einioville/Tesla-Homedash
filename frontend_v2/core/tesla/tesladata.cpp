@@ -1,15 +1,15 @@
 #include "tesladata.hh"
 
+#include "../logger.hh"
 #include "../protocol.hh"
 #include "../serverclient.hh"
 
 #include <QDataStream>
 #include <QIODevice>
-#include <QLoggingCategory>
 #include <QVariantMap>
 
 namespace {
-Q_LOGGING_CATEGORY(lcTesla, "frontend_v2.tesla")
+const Logger logger = Logger::get("tesla");
 }
 
 TeslaData::TeslaData(ServerClient *server, QObject *parent)
@@ -19,17 +19,17 @@ TeslaData::TeslaData(ServerClient *server, QObject *parent)
 
 void TeslaData::switchClimate() {
     m_server->sendPacket(protocol::frame(protocol::TESLA_SWITCH_CLIMATE_STATE));
-    qCInfo(lcTesla) << "Climate switch command issued";
+    logger.info(QStringLiteral("Climate switch command issued"));
 }
 
 void TeslaData::plusTemp() {
     m_server->sendPacket(protocol::frame(protocol::TESLA_PLUS_TARGET_TEMP));
-    qCInfo(lcTesla) << "Target temperature +1 command issued";
+    logger.info(QStringLiteral("Target temperature +1 command issued"));
 }
 
 void TeslaData::minusTemp() {
     m_server->sendPacket(protocol::frame(protocol::TESLA_MINUS_TARGET_TEMP));
-    qCInfo(lcTesla) << "Target temperature -1 command issued";
+    logger.info(QStringLiteral("Target temperature -1 command issued"));
 }
 
 void TeslaData::onPacket(quint8 type, const QByteArray &payload) {
@@ -48,12 +48,14 @@ void TeslaData::onPacket(quint8 type, const QByteArray &payload) {
 
     const int expected = TeslaDataGen::valueTypeForStream(streamId);
     if (expected < 0) {
-        qCWarning(lcTesla) << "No route for stream id" << streamId;
+        logger.warning(QStringLiteral("No route for stream id %1").arg(streamId));
         return;
     }
     if (expected != valueType) {
-        qCWarning(lcTesla) << "value_type mismatch for stream" << streamId
-                           << "expected" << expected << "got" << valueType;
+        logger.warning(QStringLiteral("value_type mismatch for stream %1 expected %2 got %3")
+                           .arg(streamId)
+                           .arg(expected)
+                           .arg(valueType));
         return;
     }
 
@@ -72,7 +74,7 @@ void TeslaData::onPacket(quint8 type, const QByteArray &payload) {
             // Bounds-check the length prefix against the bytes actually present
             // so a malformed frame can't read past the buffer.
             if (device && device->bytesAvailable() < length) {
-                qCWarning(lcTesla) << "Truncated string payload for stream" << streamId;
+                logger.warning(QStringLiteral("Truncated string payload for stream %1").arg(streamId));
                 return;
             }
             QByteArray raw(length, Qt::Uninitialized);

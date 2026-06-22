@@ -4,17 +4,22 @@
 #include <QString>
 #include <QtGlobal>
 
+#include "logger.hh"
+
 /**
  * AppConfig — minimal runtime configuration read from environment variables at
- * startup. Stage 1 only needs the backend endpoint; the env-var names mirror the
- * production frontend so existing deployments carry over.
+ * startup. The env-var names mirror the production frontend so existing
+ * deployments carry over.
  *
  *   TESLA_HOMEDASH_BACKEND_HOST  (string)  default "127.0.0.1"
  *   TESLA_HOMEDASH_BACKEND_PORT  (uint16)  default 6969
+ *   TESLA_HOMEDASH_LOG_LEVEL     (string)  default "info"
+ *                                (debug|info|warning|error|critical)
  */
 struct AppConfig {
     QString backendHost;
     quint16 backendPort;
+    Logger::Level logLevel;
 
     static AppConfig load();
 };

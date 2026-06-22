@@ -1,5 +1,6 @@
 #include "teslahistory.hh"
 
+#include "../logger.hh"
 #include "../protocol.hh"
 #include "../serverclient.hh"
 #include "tesladata.hh"
@@ -7,14 +8,13 @@
 #include <QDataStream>
 #include <QDateTime>
 #include <QIODevice>
-#include <QLoggingCategory>
 #include <QPointF>
 #include <QTimer>
 #include <QVariantMap>
 #include <limits>
 
 namespace {
-Q_LOGGING_CATEGORY(lcHistory, "frontend_v2.history")
+const Logger logger = Logger::get("tesla.history");
 }
 
 TeslaHistory::TeslaHistory(ServerClient *server, TeslaData *tesla, QObject *parent)
@@ -160,7 +160,7 @@ void TeslaHistory::recomputeBounds(qint64 nowMs) {
 
 void TeslaHistory::requestProperties() {
     m_server->sendPacket(protocol::frame(protocol::TESLA_GET_GRAPH_PROPERTIES));
-    qCInfo(lcHistory) << "Graphable-property list requested";
+    logger.info(QStringLiteral("Graphable-property list requested"));
 }
 
 void TeslaHistory::requestHistory(const QString &id, int rangeCode,
@@ -182,7 +182,7 @@ void TeslaHistory::requestHistory(const QString &id, int rangeCode,
     stream << static_cast<qint64>(endMs);
 
     m_server->sendPacket(protocol::frame(protocol::TESLA_GET_HISTORY, payload));
-    qCInfo(lcHistory) << "History requested | id=" << id << "range=" << rangeCode;
+    logger.info(QStringLiteral("History requested | id=%1 range=%2").arg(id).arg(rangeCode));
 }
 
 void TeslaHistory::onPacket(quint8 type, const QByteArray &payload) {
@@ -219,7 +219,7 @@ void TeslaHistory::parseProperties(const QByteArray &payload) {
     QIODevice *device = stream.device();
 
     if (device->bytesAvailable() < 2) {
-        qCWarning(lcHistory) << "Graph-properties frame too short";
+        logger.warning(QStringLiteral("Graph-properties frame too short"));
         return;
     }
     quint16 count;
@@ -232,7 +232,7 @@ void TeslaHistory::parseProperties(const QByteArray &payload) {
         QString category;
         if (!readString(stream, device, id) || !readString(stream, device, unit) ||
             !readString(stream, device, category)) {
-            qCWarning(lcHistory) << "Truncated graph-properties frame at entry" << i;
+            logger.warning(QStringLiteral("Truncated graph-properties frame at entry %1").arg(i));
             return;
         }
         QVariantMap entry;
@@ -244,7 +244,7 @@ void TeslaHistory::parseProperties(const QByteArray &payload) {
 
     m_properties = properties;
     emit propertiesChanged();
-    qCDebug(lcHistory) << "Graphable properties:" << properties.size();
+    logger.debug(QStringLiteral("Graphable properties: %1").arg(properties.size()));
 }
 
 void TeslaHistory::parseHistory(const QByteArray &payload) {
@@ -254,16 +254,16 @@ void TeslaHistory::parseHistory(const QByteArray &payload) {
 
     QString id;
     if (!readString(stream, device, id)) {
-        qCWarning(lcHistory) << "Truncated history frame (id)";
+        logger.warning(QStringLiteral("Truncated history frame (id)"));
         return;
     }
     // Discard replies for a property the user has already switched away from.
     if (id != m_currentId) {
-        qCDebug(lcHistory) << "Dropping stale history reply for" << id;
+        logger.debug(QStringLiteral("Dropping stale history reply for %1").arg(id));
         return;
     }
     if (device->bytesAvailable() < 5) {
-        qCWarning(lcHistory) << "Truncated history frame (header)";
+        logger.warning(QStringLiteral("Truncated history frame (header)"));
         return;
     }
     quint8 status;
@@ -281,7 +281,7 @@ void TeslaHistory::parseHistory(const QByteArray &payload) {
         points.reserve(static_cast<int>(count));
         for (quint32 i = 0; i < count; ++i) {
             if (device->bytesAvailable() < 16) {
-                qCWarning(lcHistory) << "Truncated history points at" << i;
+                logger.warning(QStringLiteral("Truncated history points at %1").arg(i));
                 break;
             }
             qint64 timestamp;
@@ -331,8 +331,10 @@ void TeslaHistory::parseHistory(const QByteArray &payload) {
     setLoading(false);
     emit historyChanged();
     emit historyReady();
-    qCDebug(lcHistory) << "History applied | id=" << id << "points=" << points.size()
-                       << "status=" << status;
+    logger.debug(QStringLiteral("History applied | id=%1 points=%2 status=%3")
+                     .arg(id)
+                     .arg(points.size())
+                     .arg(status));
 }
 
 void TeslaHistory::setLoading(bool loading) {

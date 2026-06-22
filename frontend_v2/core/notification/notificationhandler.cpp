@@ -1,5 +1,6 @@
 #include "notificationhandler.hh"
 
+#include "../logger.hh"
 #include "../serverclient.hh"
 #include "../tesla/tesladata.hh"
 
@@ -8,14 +9,13 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonParseError>
-#include <QLoggingCategory>
 #include <QMetaMethod>
 #include <QMetaProperty>
 #include <QRegularExpression>
 #include <QRegularExpressionMatchIterator>
 
 namespace {
-Q_LOGGING_CATEGORY(lcNotify, "frontend_v2.notifications")
+const Logger logger = Logger::get("notifications");
 }
 
 NotificationHandler::NotificationHandler(TeslaData *tesla, ServerClient *server, QObject *parent)
@@ -54,7 +54,7 @@ void NotificationHandler::loadConfig() {
         if (f.open(QIODevice::ReadOnly)) {
             data = f.readAll();
         } else {
-            qCWarning(lcNotify) << "Could not open notification config" << override;
+            logger.warning(QStringLiteral("Could not open notification config %1").arg(override));
         }
     }
     if (data.isEmpty()) {
@@ -64,14 +64,14 @@ void NotificationHandler::loadConfig() {
         }
     }
     if (data.isEmpty()) {
-        qCWarning(lcNotify) << "No notification config found; notifications disabled";
+        logger.warning(QStringLiteral("No notification config found; notifications disabled"));
         return;
     }
 
     QJsonParseError err;
     const QJsonDocument doc = QJsonDocument::fromJson(data, &err);
     if (err.error != QJsonParseError::NoError || !doc.isObject()) {
-        qCWarning(lcNotify) << "Invalid notification config:" << err.errorString();
+        logger.warning(QStringLiteral("Invalid notification config: %1").arg(err.errorString()));
         return;
     }
 
@@ -98,13 +98,14 @@ void NotificationHandler::loadConfig() {
             if (src == QStringLiteral("server.connection.state")) {
                 m_connectionRules.append(rule);
             } else {
-                qCWarning(lcNotify) << "Unknown core notification source:" << src;
+                logger.warning(QStringLiteral("Unknown core notification source: %1").arg(src));
             }
         }
     }
-    qCInfo(lcNotify) << "Loaded notification config: graceMs=" << m_graceMs
-                     << "tesla sources=" << m_teslaRules.size()
-                     << "connection rules=" << m_connectionRules.size();
+    logger.info(QStringLiteral("Loaded notification config | graceMs=%1 tesla sources=%2 connection rules=%3")
+                    .arg(m_graceMs)
+                    .arg(m_teslaRules.size())
+                    .arg(m_connectionRules.size()));
 }
 
 void NotificationHandler::wireTeslaSource(const QString &sourceName) {
@@ -115,12 +116,12 @@ void NotificationHandler::wireTeslaSource(const QString &sourceName) {
     const QMetaObject *mo = m_tesla->metaObject();
     const int propIdx = mo->indexOfProperty(prop.constData());
     if (propIdx < 0) {
-        qCWarning(lcNotify) << "Notification source is not a Tesla property:" << sourceName;
+        logger.warning(QStringLiteral("Notification source is not a Tesla property: %1").arg(sourceName));
         return;
     }
     const QMetaProperty mp = mo->property(propIdx);
     if (!mp.hasNotifySignal()) {
-        qCWarning(lcNotify) << "Tesla property has no NOTIFY:" << sourceName;
+        logger.warning(QStringLiteral("Tesla property has no NOTIFY: %1").arg(sourceName));
         return;
     }
     const QMetaMethod sig = mp.notifySignal();

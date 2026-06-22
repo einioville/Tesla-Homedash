@@ -1,5 +1,6 @@
 #include "mediadata.hh"
 
+#include "../logger.hh"
 #include "../protocol.hh"
 #include "../serverclient.hh"
 
@@ -7,7 +8,6 @@
 #include <QDataStream>
 #include <QHash>
 #include <QIODevice>
-#include <QLoggingCategory>
 #include <QVector3D>
 #include <QtConcurrent>
 
@@ -17,7 +17,7 @@
 #include <random>
 
 namespace {
-Q_LOGGING_CATEGORY(lcMedia, "frontend_v2.media")
+const Logger logger = Logger::get("media");
 
 // Reads a [length(2B)][UTF-8] string, bounds-checking the prefix against the
 // bytes actually present. Returns false (and leaves out untouched) on a
@@ -119,7 +119,7 @@ void MediaData::decodeCoverArt(const QByteArray &packet) {
         m_coverWatcher->deleteLater();
         m_coverWatcher = nullptr;
         if (result.image.isNull()) {
-            qCWarning(lcMedia) << "Cover art decode produced a null image";
+            logger.warning(QStringLiteral("Cover art decode produced a null image"));
             return;
         }
         m_cache->put(id, result.image);
@@ -198,17 +198,17 @@ void MediaData::setMediaType(int value) {
 
 void MediaData::skipForward() {
     m_server->sendPacket(protocol::frame(protocol::MEDIA_SKIP));
-    qCInfo(lcMedia) << "Skip forward command issued";
+    logger.info(QStringLiteral("Skip forward command issued"));
 }
 
 void MediaData::skipBackward() {
     m_server->sendPacket(protocol::frame(protocol::MEDIA_SKIP_BACKWARD));
-    qCInfo(lcMedia) << "Skip backward command issued";
+    logger.info(QStringLiteral("Skip backward command issued"));
 }
 
 void MediaData::pausePlay() {
     m_server->sendPacket(protocol::frame(protocol::MEDIA_PAUSE_PLAY));
-    qCInfo(lcMedia) << "Pause/play command issued";
+    logger.info(QStringLiteral("Pause/play command issued"));
 }
 
 void MediaData::setProgress(int ms) {
@@ -217,7 +217,7 @@ void MediaData::setProgress(int ms) {
     stream.setByteOrder(QDataStream::BigEndian);
     stream << static_cast<quint32>(ms);
     m_server->sendPacket(protocol::frame(protocol::MEDIA_SET_PROGRESS, payload));
-    qCInfo(lcMedia) << "Seek command issued | position=" << ms << "ms";
+    logger.info(QStringLiteral("Seek command issued | position=%1ms").arg(ms));
 }
 
 void MediaData::setDominantColor(const QColor &value) {

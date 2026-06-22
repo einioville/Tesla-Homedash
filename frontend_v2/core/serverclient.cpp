@@ -1,13 +1,13 @@
 #include "serverclient.hh"
 
+#include "logger.hh"
 #include "protocol.hh"
 
-#include <QLoggingCategory>
 #include <QtEndian>
 #include <utility>
 
 namespace {
-Q_LOGGING_CATEGORY(lcServer, "frontend_v2.serverclient")
+const Logger logger = Logger::get("server_client");
 }
 
 ServerClient::ServerClient(QString host, quint16 port, QObject *parent)
@@ -41,20 +41,20 @@ void ServerClient::start() {
 
 void ServerClient::connectToServer() {
     if (m_socket->state() == QAbstractSocket::UnconnectedState) {
-        qCInfo(lcServer) << "Connecting to" << m_host << m_port;
+        logger.info(QStringLiteral("Connecting to %1:%2").arg(m_host).arg(m_port));
         setState(State::Connecting);
         m_socket->connectToHost(m_host, m_port);
     }
 }
 
 void ServerClient::onConnect() {
-    qCInfo(lcServer) << "Connected to" << m_host << m_port;
+    logger.info(QStringLiteral("Connected to %1:%2").arg(m_host).arg(m_port));
     m_reconnectTimer->stop();
     setState(State::Connected);
 }
 
 void ServerClient::onDisconnect() {
-    qCWarning(lcServer) << "Disconnected - reconnect armed (10s)";
+    logger.warning(QStringLiteral("Disconnected - reconnect armed (10s)"));
     m_buffer.clear();
     m_socket->readAll();
     setState(State::Reconnecting);
@@ -62,7 +62,7 @@ void ServerClient::onDisconnect() {
 }
 
 void ServerClient::onError(QAbstractSocket::SocketError error) {
-    qCWarning(lcServer) << "Socket error:" << static_cast<int>(error);
+    logger.warning(QStringLiteral("Socket error: %1").arg(static_cast<int>(error)));
     setState(State::Reconnecting);
     m_reconnectTimer->start();
 }
@@ -85,7 +85,7 @@ void ServerClient::sendPacket(const QByteArray &framed) {
     // NOT reintroduce flush()/waitForBytesWritten — it caused up to 1s of GUI
     // stall (and visible click latency) on slow networks.
     m_socket->write(framed);
-    qCDebug(lcServer) << "Sent outbound packet | size=" << framed.size();
+    logger.debug(QStringLiteral("Sent outbound packet | size=%1").arg(framed.size()));
 }
 
 void ServerClient::onReadyRead() {
@@ -108,7 +108,7 @@ void ServerClient::onReadyRead() {
         // without limit. Reset the connection on violation so the reconnect
         // timer re-establishes a clean, frame-aligned stream.
         if (packetLength == 0 || static_cast<qint64>(packetLength) > protocol::MAX_PACKET_LENGTH) {
-            qCWarning(lcServer) << "Invalid packet length" << packetLength << "- resetting connection";
+            logger.warning(QStringLiteral("Invalid packet length %1 - resetting connection").arg(packetLength));
             m_buffer.clear();
             m_socket->abort();
             return;
@@ -129,8 +129,9 @@ void ServerClient::onReadyRead() {
         const QByteArray payload = m_buffer.mid(5, packetLength - 1);
         m_buffer.remove(0, 4 + packetLength);
 
-        qCDebug(lcServer) << "Received packet | type=0x" << QString::number(packetType, 16)
-                          << "| size=" << payload.size();
+        logger.debug(QStringLiteral("Received packet | type=0x%1 | size=%2")
+                         .arg(QString::number(packetType, 16))
+                         .arg(payload.size()));
 
         emit packetReceived(packetType, payload);
     }

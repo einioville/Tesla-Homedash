@@ -24,6 +24,8 @@ add_compile_options($<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
 qt_add_executable(appfrontend_v2
     main.cpp
     core/protocol.hh
+    core/logger.hh
+    core/logger.cpp
     core/serverclient.hh
     core/serverclient.cpp
     core/appconfig.hh

@@ -6,6 +6,7 @@
 #include <memory>
 
 #include "core/appconfig.hh"
+#include "core/logger.hh"
 #include "core/media/mediadata.hh"
 #include "core/media/mediaimageprovider.hh"
 #include "core/notification/notificationhandler.hh"
@@ -16,6 +17,12 @@
 
 int main(int argc, char* argv[]) {
     QGuiApplication app(argc, argv);
+
+    // Install the logger at INFO first so AppConfig::load()'s own warnings land,
+    // then re-install at the configured level once it is known. This also routes
+    // Qt-internal (QML/Quick) messages through the shared formatter under "qt".
+    Logger::install(Logger::Level::Info);
+    static const Logger logger = Logger::get("app");
 
     // Load Gotham Rounded Medium and make it the app-wide default so Qt Quick
     // Text picks it up (mirrors the Widgets frontend's main.cpp).
@@ -29,6 +36,10 @@ int main(int argc, char* argv[]) {
     }
 
     const AppConfig config = AppConfig::load();
+    Logger::install(config.logLevel);
+    logger.info(QStringLiteral("Starting frontend_v2 | backend=%1:%2")
+                    .arg(config.backendHost)
+                    .arg(config.backendPort));
 
     // Data layer, constructed eagerly and registered before the engine loads so
     // each QML singleton is this exact instance, already subscribed to the

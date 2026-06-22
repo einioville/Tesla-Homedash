@@ -1,16 +1,16 @@
 #include "weatherdata.hh"
 
+#include "../logger.hh"
 #include "../protocol.hh"
 #include "../serverclient.hh"
 
 #include <QDataStream>
 #include <QIODevice>
-#include <QLoggingCategory>
 #include <QVector>
 #include <algorithm>
 
 namespace {
-Q_LOGGING_CATEGORY(lcWeather, "frontend_v2.weather")
+const Logger logger = Logger::get("weather");
 }
 
 WeatherData::WeatherData(ServerClient *server, QObject *parent)
@@ -84,7 +84,7 @@ void WeatherData::onPacket(quint8 type, const QByteArray &payload) {
     const int n = static_cast<int>(std::min({times.size(), temperatures.size(), windSpeeds.size(),
                                              precipitations.size(), cloudCovers.size()}));
     if (n < 1) {
-        qCWarning(lcWeather) << "Forecast frame had no complete rows";
+        logger.warning(QStringLiteral("Forecast frame had no complete rows"));
         return;
     }
 
@@ -118,5 +118,5 @@ void WeatherData::onPacket(quint8 type, const QByteArray &payload) {
     m_current = current;
     emit currentChanged();
 
-    qCDebug(lcWeather) << "Forecast updated | hours=" << n;
+    logger.debug(QStringLiteral("Forecast updated | hours=%1").arg(n));
 }
