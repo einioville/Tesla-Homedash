@@ -241,7 +241,11 @@ requesting client only (`send_to`), never a broadcast, and `TESLA_HISTORY` echoe
 a stale reply can be discarded. History values are returned **raw** (no downsampling); the frontend
 renders them as a **step line** (`StepLeft`) so a value held between records still displays as held.
 (`read_tesla_data_property` keeps an optional `aggregate_window` for capping very large ranges,
-currently unused.)
+currently unused.) When a window logged **nothing** (the value stayed constant, so no record falls
+inside it), the backend **boundary-fills**: it queries the last value before the window start and
+returns two synthetic points (window-start + window-end at that held value) so the graph draws a
+flat held line across the whole range instead of "no data". Only a genuinely absent prior value
+(or an InfluxDB outage, where the boundary query also yields nothing) replies `status=0`.
 
 **Tesla stream value types**: `0` float `double(8B)`; `1` string `length(2B)+UTF-8`;
 `2` bool `uint8(1B)`; `3` dict — sequence of `double(8B)` (Location = lat, lon).
@@ -327,7 +331,8 @@ a dumb byte pipe — it never imports protocol constants or calls concrete servi
   is pushed to the car via `update_temperature` only when climate is next toggled, by design).
   `stream_everything` snapshots all properties to a new client. History: `get_graphable_properties`
   lists the logged numeric (value_float) properties for the History view's dropdown; `get_data_history`
-  reads one property's downsampled history — both are served by request/response handlers that reply
+  reads one property's history and `get_value_before` reads the held value just before a window (the
+  empty-window boundary-fill) — all served by request/response handlers that reply
   to the requesting client only. **Talks to:** `InfluxDBHandler`
   (write/read), `Server` (broadcast/send_to), Teslemetry REST (aiohttp).
 - **`vehicle_data_property.py`**: `VehicleDataProperty` stores one field's value/timestamp,
@@ -382,7 +387,9 @@ with a valid air-temperature reading (avoiding the all-NaN padding slots fmiopen
 snapshot), `read_first_value_day`/`_month` (calculated-field baselines), `read_tesla_data_property`
 (history — the History path serves it **raw**; an optional `aggregate_window` arg can add
 `aggregateWindow(fn: mean) + fill(usePrevious)` to downsample + forward-fill onto a regular grid,
-dropping the leading null windows, but is currently unused). Read failures degrade to `None` rather
+dropping the leading null windows, but is currently unused), and `read_last_value_before` (a
+`last()` query bounded by `stop` — the held value before an empty window, used to boundary-fill the
+History graph with a flat line). Read failures degrade to `None` rather
 than crashing the app. **Talks to:** InfluxDB,
 `Vehicle`. *Flux queries interpolate `data_property_id` via f-strings gated by the `_SAFE_ID` regex
 `^[A-Za-z0-9_\-]+$`, and `aggregate_window` by `_SAFE_WINDOW` (`^[1-9][0-9]*[smhd]$`) — keep both
@@ -567,9 +574,12 @@ a new/renamed service or widget, a protocol change, a build-command change, or a
 invariant. Treat the doc as part of the change, not an afterthought, and bump §7.7.
 
 ### 7.7 Documentation currency
-This guide and `README.md` are current as of commit **`827824d`** ("Add: History-graph backend —
-graph-properties + history request/response API"), which lands the interactive **History-graph view**:
-the `0x70`–`0x73` request/response protocol, the `(payload, writer)` handler signature, history
-**range code 4 = 1 week**, and the Qt 6.11 build. A frontend-only live-graph mode also rides on these
-codes — out of scope here; see the `frontend_v2` memory.
+This guide and `README.md` are current as of commit **`1184b60`** ("Add: throttle the live History
+tick on long windows"), which — together with the preceding **`cc11bb8`** ("Fix: boundary-fill empty
+History windows with a flat held line") — adds the History-graph **empty-window boundary-fill**
+(`read_last_value_before` / `get_value_before`; a constant-value window now draws a flat line instead
+of "Ei dataa"). The earlier interactive **History-graph view** (commit `827824d`) lands the
+`0x70`–`0x73` request/response protocol, the `(payload, writer)` handler signature, history **range
+code 4 = 1 week**, and the Qt 6.11 build. The frontend-only live-graph mode (and its per-window tick
+throttle) rides on these codes — out of scope here; see the `frontend_v2` memory.
 When you land changes that touch behaviour documented here, update this line to the new HEAD commit.

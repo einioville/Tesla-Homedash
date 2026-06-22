@@ -45,6 +45,22 @@ qint64 TeslaHistory::windowMsForRange(int rangeCode) {
     }
 }
 
+int TeslaHistory::liveTickIntervalForRange(int rangeCode) {
+    // Throttle the live tick by window size. The tick both samples the live value
+    // and advances the right edge, so its period is also the redraw rate AND the
+    // value-sampling resolution. On the long windows a 1 s advance is sub-pixel, so
+    // we slow the tick down to keep the per-tick full series rebuild from stuttering
+    // on the Pi — subsampling value changes to a resolution that is imperceptible at
+    // that zoom (a 30 s step on a 30-day axis).
+    switch (rangeCode) {
+        case protocol::HISTORY_RANGE_1H: return 1000;   // 1 s — responsive on a 1 h axis
+        case protocol::HISTORY_RANGE_1D: return 5000;   // 5 s
+        case protocol::HISTORY_RANGE_1W: return 10000;  // 10 s
+        case protocol::HISTORY_RANGE_1M: return 30000;  // 30 s
+        default: return 1000;  // custom/unknown -> 1 s
+    }
+}
+
 void TeslaHistory::startLive(const QString &id, int rangeCode) {
     if (id.isEmpty()) {
         return;
@@ -57,6 +73,10 @@ void TeslaHistory::startLive(const QString &id, int rangeCode) {
     m_liveId = id;
     m_liveRangeCode = rangeCode;
     m_liveWindowMs = windowMsForRange(rangeCode);
+    // Throttle the per-second rebuild on long windows (see liveTickIntervalForRange).
+    // The timer is (re)started in parseHistory once the seed lands; setting the
+    // interval here applies on that start.
+    m_liveTimer->setInterval(liveTickIntervalForRange(rangeCode));
     // Seed from history; the per-second timer starts once the matching reply lands
     // (see parseHistory), so the rolling window begins from real stored data.
     requestHistory(id, rangeCode, 0.0, 0.0);

@@ -114,6 +114,64 @@ class InfluxDBHandler:
 
         return len(values), timestamps, values
 
+    async def read_last_value_before(
+        self, data_property_id: str, stop_time: str
+    ) -> float | None:
+        '''
+        Reads the most recent stored value of a property strictly before a given
+        time — used by the History path to draw a flat held line for a window in
+        which nothing was logged (a value that stayed constant). Scans from the
+        start of history up to stop_time and takes the last record, so a value held
+        constant for days is still found.
+        Arguments:
+            data_property_id (str): The property id (InfluxDB "id" tag). Validated
+                against _SAFE_ID before interpolation.
+            stop_time (str): Flux range stop (RFC3339 or relative). Interpolated
+                into the query, so it must be code-generated (never client input),
+                exactly like time_start/time_end in read_tesla_data_property.
+        Returns:
+            float | None: The held value before stop_time, or None if InfluxDB is
+                unreachable / the query fails / the property was never logged before.
+        '''
+        if not _SAFE_ID.match(data_property_id):
+            raise ValueError(f"Invalid data_property_id: {data_property_id!r}")
+
+        query = f'from(bucket:"{self.__bucket}")'
+        query += f"\n  |> range(start: 0, stop: {stop_time})"
+        query += '\n  |> filter(fn: (r) => r["_measurement"] == "tesla_data")'
+        query += f'\n  |> filter(fn: (r) => r["id"] == "{data_property_id}")'
+        query += '\n  |> filter(fn: (r) => r["_field"] == "value_float")'
+        query += '\n  |> keep(columns: ["_time", "_value"])'
+        query += '\n  |> last()'
+
+        try:
+            result = await self.__client.query_api().query(query=query)
+        except Exception as e:
+            # InfluxDB unreachable or query failure must degrade to "no prior value"
+            # so an empty-window history read simply stays empty ("Ei dataa") rather
+            # than fabricating a line — and never propagates to the caller.
+            logger.warning(
+                "InfluxDB last-value-before read failed for %s: %s: %s",
+                data_property_id, type(e).__name__, e,
+            )
+            return None
+
+        if len(result) > 1:
+            raise Exception("There was more than one table")
+
+        if len(result) == 0:
+            return None
+
+        table = result[0]
+        if not table.records:
+            return None
+
+        value = table.records[0].get_value()
+        if value is None:
+            return None
+        logger.debug("Last value before %s for %s: %s", stop_time, data_property_id, value)
+        return float(value)
+
     async def write_tesla_data(self, points: list) -> None:
         valid_points = [p for p in points if p is not None]
         if len(valid_points) == 0:

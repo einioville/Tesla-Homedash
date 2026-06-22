@@ -486,6 +486,20 @@ class Vehicle:
             data_property_id, time_start, time_end, aggregate_window
         )
 
+    async def get_value_before(self, data_property_id: str, stop_time: str):
+        '''
+        Returns the last stored value of a property strictly before stop_time, or
+        None. Used by the History path to draw a flat held line for a window that
+        logged nothing (a constant value). Vehicle owns Influx access, so the
+        handler reaches it through here rather than the InfluxDBHandler directly.
+        Arguments:
+            data_property_id (str): The property id to look up.
+            stop_time (str): Flux range stop (code-generated RFC3339).
+        '''
+        return await self.__influx_handler.read_last_value_before(
+            data_property_id, stop_time
+        )
+
     async def __rate_limit_reserve(self) -> bool:
         '''
         Atomically checks the rate-limit window and, if a slot is available,
