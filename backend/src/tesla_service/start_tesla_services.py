@@ -72,6 +72,38 @@ def _history_range(range_code: int, start_ms: int, end_ms: int) -> tuple:
     return time_start, time_end
 
 
+# Preset window widths in milliseconds, kept beside the _history_range strings so
+# the empty-window boundary-fill spans exactly the same range the query asked for.
+_PRESET_WINDOW_MS = {
+    _RANGE_1H: 60 * 60 * 1000,
+    _RANGE_1D: 24 * 60 * 60 * 1000,
+    _RANGE_1W: 7 * 24 * 60 * 60 * 1000,
+    _RANGE_1M: 30 * 24 * 60 * 60 * 1000,
+}
+
+
+def _history_bounds_ms(range_code: int, start_ms: int, end_ms: int) -> tuple:
+    '''
+    Returns the requested window's [start, end] as epoch-ms — the absolute
+    counterpart to _history_range's Flux strings. Used only to position the two
+    synthetic boundary points when a window logged nothing, so the flat held line
+    spans the whole selected range. Presets end at "now"; a custom range echoes its
+    bounds; anything malformed falls back to the last hour (matching _history_range).
+    Arguments:
+        range_code (int): One of the _RANGE_* codes.
+        start_ms (int): Custom-range start (epoch ms); ignored for presets.
+        end_ms (int): Custom-range end (epoch ms); ignored for presets.
+    Returns:
+        tuple[int, int]: (start_ms, end_ms) in epoch milliseconds.
+    '''
+    now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+    if range_code in _PRESET_WINDOW_MS:
+        return now_ms - _PRESET_WINDOW_MS[range_code], now_ms
+    if range_code == _RANGE_CUSTOM and start_ms > 0 and end_ms > start_ms:
+        return start_ms, end_ms
+    return now_ms - _PRESET_WINDOW_MS[_RANGE_1H], now_ms
+
+
 def _build_history_frame(data_property_id: str, result) -> bytes:
     '''
     Builds a TESLA_HISTORY response frame. The echoed id lets the frontend drop
@@ -144,6 +176,24 @@ def _register_handlers(
             result = await vehicle.get_data_history(
                 data_property_id, time_start, time_end
             )
+            if result is None:
+                # Genuinely-empty window (the value stayed constant, so nothing was
+                # logged in range): draw a flat held line spanning the whole selected
+                # range from the last value before the window. If there is no prior
+                # value — or InfluxDB is down, where this query also returns None —
+                # we fall through to a status=0 "no data" frame and never fabricate.
+                window_start_ms, window_end_ms = _history_bounds_ms(
+                    range_code, start_ms, end_ms
+                )
+                window_start_rfc = (
+                    datetime.fromtimestamp(window_start_ms / 1000, tz=timezone.utc)
+                    .isoformat().replace("+00:00", "Z")
+                )
+                held = await vehicle.get_value_before(
+                    data_property_id, window_start_rfc
+                )
+                if held is not None:
+                    result = (2, [window_start_ms, window_end_ms], [held, held])
         except ValueError as e:
             # Malformed id / window — reply empty rather than dropping the request.
             logger.warning("TESLA_GET_HISTORY rejected: %s", e)
