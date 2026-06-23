@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Shapes
 import QtLocation
 import QtPositioning
 import frontend_v2
@@ -23,6 +24,11 @@ Item {
     property bool userControlled: false
     property int idleReturnMs: 10000
     property real defaultZoom: 15
+
+    // Round the map's corners to match the dashboard cards. Disable for a
+    // dedicated full-screen map view, where the map fills the surface and the
+    // background-coloured corner overlay would have nothing to blend into.
+    property bool roundedCorners: true
 
     // Frozen while the owning view is hidden. The dashboard keeps this map alive in
     // memory (so returning is instant — no tile reload), but a hidden map must not
@@ -254,9 +260,29 @@ Item {
         restoreMode: Binding.RestoreNone
     }
 
-    // NOTE: the Widgets map applied a 5px rounded-corner mask. Routing the live,
-    // interactive Map through a layer/MultiEffect mask to round it risks the
-    // gesture handling and adds a per-frame texture copy, and 5px corners on the
-    // dark OSM tiles against the #121212 background are imperceptible — so the
-    // corners are left square here. Revisit if the rounding is wanted.
+    // Rounded corners without masking the live map. The Widgets frontend clipped
+    // the map with a rounded-rect mask, but routing this constantly-repainting,
+    // interactive Map through a layer/MultiEffect mask would force a full-surface
+    // FBO texture copy every frame. Instead we paint the surrounding background
+    // back over the four corners: an odd-even Shape fills everything EXCEPT a
+    // rounded interior, leaving only the corner slivers covered. This works
+    // because the map sits on a solid Theme.dashboardBackground, costs nothing
+    // per frame, and — having no input handlers — lets pan/pinch/wheel gestures
+    // fall straight through to the Map underneath. Gated on roundedCorners so a
+    // full-screen map view can drop the overlay entirely.
+    Shape {
+        anchors.fill: parent
+        visible: root.roundedCorners
+        preferredRendererType: Shape.CurveRenderer
+        z: 10
+
+        ShapePath {
+            fillRule: ShapePath.OddEvenFill
+            strokeWidth: 0
+            strokeColor: "transparent"
+            fillColor: Theme.dashboardBackground
+            PathRectangle { width: root.width; height: root.height; radius: 0 }
+            PathRectangle { width: root.width; height: root.height; radius: Theme.cardRadius }
+        }
+    }
 }
