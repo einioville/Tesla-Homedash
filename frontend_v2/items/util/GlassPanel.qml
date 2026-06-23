@@ -76,7 +76,9 @@ Item {
         }
     }
 
-    // Specular highlight — a thin bright line just inside the top edge.
+    // Specular highlight — a thin bright line just inside the top edge. Faded to
+    // transparent at both ends so the inset line tapers out instead of showing a
+    // hard end-cap (it stops short of the rounded corners by `radius`).
     Rectangle {
         anchors.left: glass.left
         anchors.right: glass.right
@@ -85,7 +87,13 @@ Item {
         anchors.rightMargin: panel.radius
         anchors.topMargin: 2
         height: 1
-        color: Theme.notificationHighlight
+        gradient: Gradient {
+            orientation: Gradient.Horizontal
+            GradientStop { position: 0.0; color: "transparent" }
+            GradientStop { position: 0.15; color: Theme.notificationHighlight }
+            GradientStop { position: 0.85; color: Theme.notificationHighlight }
+            GradientStop { position: 1.0; color: "transparent" }
+        }
     }
 
     // Consumer content (declared after this item's chrome) is painted on top.
