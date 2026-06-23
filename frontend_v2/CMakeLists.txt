@@ -108,6 +108,14 @@ set_target_properties(appfrontend_v2 PROPERTIES
 # Includes resolve as "core/..." from main.cpp and as siblings within core/.
 target_include_directories(appfrontend_v2 PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
+# Bake the source directory so AppConfig can locate the repo-root .env even when
+# Qt Creator builds the exe outside the source tree (shadow build) — the cwd/exe
+# walk-up alone never reaches it. Used only to find .env; real environment
+# variables still take precedence, so this absolute dev path is harmless when the
+# directory no longer exists on a deployment target.
+target_compile_definitions(appfrontend_v2 PRIVATE
+    FRONTEND_V2_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+
 target_link_libraries(appfrontend_v2
     PRIVATE Qt6::Quick Qt6::Network Qt6::Concurrent Qt6::Svg Qt6::Location Qt6::Positioning
             Qt6::QuickControls2 Qt6::Core5Compat Qt6::Graphs

@@ -18,9 +18,10 @@
 int main(int argc, char* argv[]) {
     QGuiApplication app(argc, argv);
 
-    // Install the logger at INFO first so AppConfig::load()'s own warnings land,
-    // then re-install at the configured level once it is known. This also routes
-    // Qt-internal (QML/Quick) messages through the shared formatter under "qt".
+    // Install the logger at INFO first so the AppConfig constructor's own startup
+    // warnings land, then re-install at the configured level once it is known.
+    // This also routes Qt-internal (QML/Quick) messages through the shared
+    // formatter under "qt".
     Logger::install(Logger::Level::Info);
     static const Logger logger = Logger::get("app");
 
@@ -35,17 +36,17 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    const AppConfig config = AppConfig::load();
-    Logger::install(config.logLevel);
+    AppConfig config;
+    Logger::install(config.logLevel());
     logger.info(QStringLiteral("Starting frontend_v2 | backend=%1:%2")
-                    .arg(config.backendHost)
-                    .arg(config.backendPort));
+                    .arg(config.backendHost())
+                    .arg(config.backendPort()));
 
     // Data layer, constructed eagerly and registered before the engine loads so
     // each QML singleton is this exact instance, already subscribed to the
     // socket before the backend's on-connect snapshot burst. Declared before the
     // engine so they outlive it at shutdown.
-    ServerClient serverClient(config.backendHost, config.backendPort);
+    ServerClient serverClient(config.backendHost(), config.backendPort());
     TeslaData teslaData(&serverClient);
     // History reads live values off the Tesla singleton (by property id) for the
     // live-graph mode, so it takes a TeslaData pointer.
@@ -63,6 +64,7 @@ int main(int argc, char* argv[]) {
     // MediaData via shared_ptr, so neither dangles regardless of teardown order.
     engine.addImageProvider(QStringLiteral("media"), new MediaImageProvider(mediaCache));
 
+    qmlRegisterSingletonInstance("frontend_v2", 1, 0, "App", &config);
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "Server", &serverClient);
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "Tesla", &teslaData);
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "History", &teslaHistory);
