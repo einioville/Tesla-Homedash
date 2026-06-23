@@ -62,6 +62,7 @@ qt_add_qml_module(appfrontend_v2
         views/DashboardView.qml
         views/HistoryView.qml
         views/MediaView.qml
+        views/MapView.qml
         items/history/PropertySelector.qml
         items/history/RangeSelector.qml
         items/history/DateTimePicker.qml
@@ -137,6 +138,7 @@ qt_add_resources(appfrontend_v2 "app_resources"
         resources/icons/greenshadow.png
         resources/icons/heating.png
         resources/icons/home.svg
+        resources/icons/location.svg
         resources/icons/music.svg
         resources/icons/minus.svg
         resources/icons/pause.svg

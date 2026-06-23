@@ -23,12 +23,14 @@ Window {
     // were dropped). New views slot in here as the design evolves.
     readonly property var viewModel: [
         { name: qsTr("Dashboard"), icon: "qrc:/resources/icons/home.svg", component: dashboardComponent },
+        { name: qsTr("Kartta"), icon: "qrc:/resources/icons/location.svg", component: mapComponent },
         { name: qsTr("Musiikki"), icon: "qrc:/resources/icons/music.svg", component: mediaComponent },
         { name: qsTr("Historia"), icon: "qrc:/resources/icons/chart_line.svg", component: historyComponent }
     ]
     property int currentView: 0
 
     Component { id: dashboardComponent; DashboardView {} }
+    Component { id: mapComponent; MapView {} }
     Component { id: mediaComponent; MediaView {} }
     Component { id: historyComponent; HistoryView {} }
 
