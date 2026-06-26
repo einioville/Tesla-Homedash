@@ -172,6 +172,172 @@ class InfluxDBHandler:
         logger.debug("Last value before %s for %s: %s", stop_time, data_property_id, value)
         return float(value)
 
+    async def read_value_string_history(
+        self, data_property_id: str, time_start: str, time_end: str
+    ) -> list | None:
+        '''
+        Reads a logged string (enum) property's history over a time range, ascending
+        by time — e.g. the Gear / ShiftState transition timeline that trip detection
+        segments on. Records are returned raw, with no de-duplication: logged fields
+        are written on every telemetry event (not only on change), so the caller must
+        collapse consecutive identical readings to recover the real transitions.
+        Arguments:
+            data_property_id (str): The property id (InfluxDB "id" tag). Validated
+                against _SAFE_ID before interpolation.
+            time_start (str): Flux range start (relative like "-1d" or RFC3339).
+            time_end (str): Flux range stop ("now()" or RFC3339).
+        Returns:
+            list | None: [(timestamp_ms (int), value (str)), ...] in ascending time
+                order, or None if InfluxDB is unreachable / the query fails / there
+                is no data in the range.
+        '''
+        if not _SAFE_ID.match(data_property_id):
+            raise ValueError(f"Invalid data_property_id: {data_property_id!r}")
+
+        query = f'from(bucket:"{self.__bucket}")'
+        query += f"\n  |> range(start: {time_start}, stop: {time_end})"
+        query += '\n  |> filter(fn: (r) => r["_measurement"] == "tesla_data")'
+        query += f'\n  |> filter(fn: (r) => r["id"] == "{data_property_id}")'
+        # String enums (Gear, BMSState, DetailedChargeState, ...) store their value
+        # under the "value_string" field — the only difference from the numeric read.
+        query += '\n  |> filter(fn: (r) => r["_field"] == "value_string")'
+        query += '\n  |> keep(columns: ["_time", "_value"])'
+        query += '\n  |> sort(columns: ["_time"])'
+
+        try:
+            result = await self.__client.query_api().query(query=query)
+        except Exception as e:
+            # InfluxDB unreachable or query failure degrades to "no data" so a trip
+            # scan simply finds nothing rather than propagating to the caller.
+            logger.warning(
+                "InfluxDB string-history read failed for %s: %s: %s",
+                data_property_id, type(e).__name__, e,
+            )
+            return None
+
+        if len(result) > 1:
+            raise Exception("There was more than one table")
+
+        if len(result) == 0:
+            return None
+
+        table = result[0]
+        records = [r for r in table if r.get_value() is not None]
+        if not records:
+            return None
+
+        return [
+            (int(record.get_time().timestamp() * 1000), str(record.get_value()))
+            for record in records
+        ]
+
+    async def read_last_string_before(
+        self, data_property_id: str, stop_time: str
+    ) -> str | None:
+        '''
+        Reads the most recent stored string value of a property strictly before a
+        given time — used by trip detection to learn the held Gear / ShiftState at
+        the start of a query window, so a trip already in progress at the window
+        boundary is still recognised. The string analogue of read_last_value_before.
+        Arguments:
+            data_property_id (str): The property id (InfluxDB "id" tag). Validated
+                against _SAFE_ID before interpolation.
+            stop_time (str): Flux range stop (RFC3339 or relative). Interpolated into
+                the query, so it must be code-generated (never client input).
+        Returns:
+            str | None: The held string before stop_time, or None if InfluxDB is
+                unreachable / the query fails / the property was never logged before.
+        '''
+        if not _SAFE_ID.match(data_property_id):
+            raise ValueError(f"Invalid data_property_id: {data_property_id!r}")
+
+        query = f'from(bucket:"{self.__bucket}")'
+        query += f"\n  |> range(start: 0, stop: {stop_time})"
+        query += '\n  |> filter(fn: (r) => r["_measurement"] == "tesla_data")'
+        query += f'\n  |> filter(fn: (r) => r["id"] == "{data_property_id}")'
+        query += '\n  |> filter(fn: (r) => r["_field"] == "value_string")'
+        query += '\n  |> keep(columns: ["_time", "_value"])'
+        query += '\n  |> last()'
+
+        try:
+            result = await self.__client.query_api().query(query=query)
+        except Exception as e:
+            logger.warning(
+                "InfluxDB last-string-before read failed for %s: %s: %s",
+                data_property_id, type(e).__name__, e,
+            )
+            return None
+
+        if len(result) > 1:
+            raise Exception("There was more than one table")
+
+        if len(result) == 0:
+            return None
+
+        table = result[0]
+        if not table.records:
+            return None
+
+        value = table.records[0].get_value()
+        if value is None:
+            return None
+        return str(value)
+
+    async def read_location_endpoint(
+        self, time_start: str, time_end: str, last: bool
+    ) -> tuple | None:
+        '''
+        Reads the first or last GPS fix inside a time window — a trip's start or end
+        point. Location is a value_dict, stored as two separate fields "latitude" and
+        "longitude" under the same id="Location" tag (the Fleet Telemetry Location
+        signal's own keys), so the two fields are pivoted back into one row and the
+        earliest (last=False) or latest (last=True) row in the window is returned.
+        Arguments:
+            time_start (str): Flux range start (RFC3339 or relative). Code-generated.
+            time_end (str): Flux range stop (RFC3339 or relative). Code-generated.
+            last (bool): True for the latest fix in the window (trip end point), False
+                for the earliest (trip start point).
+        Returns:
+            tuple | None: (latitude (float), longitude (float)), or None if InfluxDB
+                is unreachable / the query fails / no fix was logged in the window.
+        '''
+        # "Location" is a fixed literal id (not caller input), so no _SAFE_ID needed.
+        query = f'from(bucket:"{self.__bucket}")'
+        query += f"\n  |> range(start: {time_start}, stop: {time_end})"
+        query += '\n  |> filter(fn: (r) => r["_measurement"] == "tesla_data")'
+        query += '\n  |> filter(fn: (r) => r["id"] == "Location")'
+        query += '\n  |> filter(fn: (r) => r["_field"] == "latitude" or r["_field"] == "longitude")'
+        query += '\n  |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")'
+        query += '\n  |> keep(columns: ["_time", "latitude", "longitude"])'
+        query += f'\n  |> sort(columns: ["_time"], desc: {"true" if last else "false"})'
+        query += '\n  |> limit(n: 1)'
+
+        try:
+            result = await self.__client.query_api().query(query=query)
+        except Exception as e:
+            logger.warning(
+                "InfluxDB location-endpoint read failed (last=%s): %s: %s",
+                last, type(e).__name__, e,
+            )
+            return None
+
+        if len(result) > 1:
+            raise Exception("There was more than one table")
+
+        if len(result) == 0:
+            return None
+
+        table = result[0]
+        if not table.records:
+            return None
+
+        record = table.records[0]
+        latitude = record.values.get("latitude")
+        longitude = record.values.get("longitude")
+        if latitude is None or longitude is None:
+            return None
+        return float(latitude), float(longitude)
+
     async def write_tesla_data(self, points: list) -> None:
         valid_points = [p for p in points if p is not None]
         if len(valid_points) == 0:

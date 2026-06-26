@@ -70,6 +70,15 @@ class Config:
         "spotifyMarket",
     )
 
+    # Trip-detection tunables. Not a REQUIRED_KEY: the real config.json is
+    # gitignored, so absence must degrade to these defaults rather than block
+    # startup. A partial "trip" block is merged over them per-key (see
+    # trip_config).
+    _TRIP_DEFAULTS = {
+        "min_stop_minutes": 10,
+        "min_trip_distance_km": 0.5,
+    }
+
     def __init__(self, config_path: str):
         if not config_path:
             raise RuntimeError("Config path is empty or None")
@@ -162,3 +171,13 @@ class Config:
         '''ISO 3166-1 alpha-2 country code passed to Spotify playback queries
         (e.g. "FI"). Determines track/episode availability filtering.'''
         return self.__data["spotifyMarket"]
+
+    @property
+    def trip_config(self) -> dict:
+        '''Trip-detection tunables (issue #5), with defaults filled in for any
+        missing key so a fully or partially absent "trip" block is safe:
+        - min_stop_minutes: a stop in Park shorter than this is merged into the
+          surrounding trip rather than ending it.
+        - min_trip_distance_km: drive segments shorter than this are discarded
+          (e.g. shuffling the car in the driveway).'''
+        return {**self._TRIP_DEFAULTS, **self.__data.get("trip", {})}
