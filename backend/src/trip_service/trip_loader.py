@@ -11,6 +11,8 @@ returned. All InfluxDB access is delegated to the injected InfluxDBHandler.
 import logging
 import math
 
+import numpy as np
+
 from .trip import Trip, to_flux_time
 
 logger = logging.getLogger("trip_service.trip_loader")
@@ -104,6 +106,33 @@ def segment_trips(
     return windows
 
 
+def _window_distance(odometer, window_start_ms: int, window_end_ms: int) -> float:
+    '''
+    Computes a trip window's distance (km) from an already-read Odometer series,
+    without another query: the delta between the last Odometer sample at/before the
+    window end and the first sample at/after the window start. Odometer is stored
+    already converted to km, so the delta is kilometres directly. NaN when the series
+    is missing or holds no sample inside the window (a data gap) — matching the
+    per-trip read's NaN so sub-threshold filtering behaves identically.
+    Arguments:
+        odometer (tuple | None): (count, timestamps_ms, values) from
+            read_tesla_data_property("Odometer", ...), ascending by time, or None.
+        window_start_ms (int): Trip window start, epoch-ms UTC.
+        window_end_ms (int): Trip window end, epoch-ms UTC.
+    '''
+    if odometer is None:
+        return float("nan")
+    count, timestamps, values = odometer
+    if count == 0 or len(values) == 0:
+        return float("nan")
+    # First sample at/after the window start, last sample at/before the window end.
+    low = int(np.searchsorted(timestamps, window_start_ms, side="left"))
+    high = int(np.searchsorted(timestamps, window_end_ms, side="right")) - 1
+    if low > high or low >= count or high < 0:
+        return float("nan")
+    return float(values[high] - values[low])
+
+
 class TripLoader:
     '''
     Detects trips from stored Gear history.
@@ -166,12 +195,21 @@ class TripLoader:
         held_before = await self.__influx.read_last_string_before(self.GEAR_ID, start_iso)
 
         windows = segment_trips(transitions, held_before, start_ms, end_ms, threshold_ms)
+        if not windows:
+            return []
+
+        # Read the whole window's Odometer ONCE and compute each trip's distance from
+        # the in-memory series — a single query regardless of trip count, so a wide
+        # scan (e.g. the week-counts span across many weeks) stays cheap instead of one
+        # Odometer read per candidate trip. Each Trip is seeded with its distance, so a
+        # later distance_km()/summary() reuses it without another read.
+        odometer = await self.__influx.read_tesla_data_property(
+            "Odometer", start_iso, end_iso
+        )
 
         trips = []
         for window_start, window_end, in_progress in windows:
-            trip = Trip(self.__influx, window_start, window_end, in_progress)
-            summary = await trip.summary()
-            distance = summary["distance_km"]
+            distance = _window_distance(odometer, window_start, window_end)
             # Drop sub-threshold shuffles (e.g. moving the car in the driveway). Keep a
             # trip whose distance can't be computed (NaN) rather than silently losing a
             # real trip on a data gap.
@@ -181,9 +219,30 @@ class TripLoader:
                     distance, self.__min_distance_km, window_start,
                 )
                 continue
+            trip = Trip(self.__influx, window_start, window_end, in_progress)
+            trip.seed_distance_km(distance)
             trips.append(trip)
 
         logger.info(
             "Detected %d trip(s) in [%s, %s]", len(trips), start_ms, end_ms
         )
         return trips
+
+    async def load_route(self, start_ms: int, end_ms: int) -> list:
+        '''
+        Loads one trip's GPS path with per-fix speed, for the Trips-view map overlay.
+        The frontend already knows the trip's [start_ms, end_ms] from a prior
+        list_trips reply, so the detail request echoes that window verbatim rather than
+        re-detecting: a Trip is constructed directly over it and asked for its route.
+        Keeps all InfluxDB access behind the injected handler (Trip owns the reads).
+        Arguments:
+            start_ms (int): The trip's start (its natural key), epoch-ms UTC.
+            end_ms (int): The trip's end, epoch-ms UTC.
+        Returns:
+            list: [(timestamp_ms, latitude, longitude, speed_kmh), ...] ascending, or
+                an empty list for an inverted window / a window with no logged fixes.
+        '''
+        if end_ms <= start_ms:
+            return []
+        trip = Trip(self.__influx, start_ms, end_ms)
+        return await trip.route()

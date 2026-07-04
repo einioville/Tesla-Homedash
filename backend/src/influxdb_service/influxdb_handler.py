@@ -338,6 +338,65 @@ class InfluxDBHandler:
             return None
         return float(latitude), float(longitude)
 
+    async def read_location_history(
+        self, time_start: str, time_end: str
+    ) -> list | None:
+        '''
+        Reads every GPS fix logged inside a time window, ascending by time — the full
+        path of a trip, drawn as the coloured route on the Trips-view map. Location is
+        a value_dict stored as two separate fields "latitude" and "longitude" under the
+        same id="Location" tag, so the two fields are pivoted back into one row per
+        fix. Unlike read_location_endpoint (which limits to a single endpoint), this
+        returns the whole series. Rows missing either coordinate are skipped.
+        Arguments:
+            time_start (str): Flux range start (RFC3339 or relative). Code-generated.
+            time_end (str): Flux range stop (RFC3339 or relative). Code-generated.
+        Returns:
+            list | None: [(timestamp_ms (int), latitude (float), longitude (float)),
+                ...] ascending, or None if InfluxDB is unreachable / the query fails /
+                no fix was logged in the window.
+        '''
+        # "Location" is a fixed literal id (not caller input), so no _SAFE_ID needed.
+        query = f'from(bucket:"{self.__bucket}")'
+        query += f"\n  |> range(start: {time_start}, stop: {time_end})"
+        query += '\n  |> filter(fn: (r) => r["_measurement"] == "tesla_data")'
+        query += '\n  |> filter(fn: (r) => r["id"] == "Location")'
+        query += '\n  |> filter(fn: (r) => r["_field"] == "latitude" or r["_field"] == "longitude")'
+        query += '\n  |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")'
+        query += '\n  |> keep(columns: ["_time", "latitude", "longitude"])'
+        query += '\n  |> sort(columns: ["_time"])'
+
+        try:
+            result = await self.__client.query_api().query(query=query)
+        except Exception as e:
+            # InfluxDB unreachable or query failure degrades to "no data" so a trip
+            # route simply comes back empty rather than propagating to the caller.
+            logger.warning(
+                "InfluxDB location-history read failed: %s: %s",
+                type(e).__name__, e,
+            )
+            return None
+
+        if len(result) > 1:
+            raise Exception("There was more than one table")
+
+        if len(result) == 0:
+            return None
+
+        table = result[0]
+        path = []
+        for record in table.records:
+            latitude = record.values.get("latitude")
+            longitude = record.values.get("longitude")
+            if latitude is None or longitude is None:
+                continue
+            path.append(
+                (int(record.get_time().timestamp() * 1000), float(latitude), float(longitude))
+            )
+        if not path:
+            return None
+        return path
+
     async def write_tesla_data(self, points: list) -> None:
         valid_points = [p for p in points if p is not None]
         if len(valid_points) == 0:

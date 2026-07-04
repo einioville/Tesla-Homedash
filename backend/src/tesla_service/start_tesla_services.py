@@ -9,6 +9,7 @@ from .vehicle import Vehicle
 from ..influxdb_service.influxdb_handler import InfluxDBHandler
 from ..media_service.media_manager import MediaManager
 from ..server.server import Server
+from ..trip_service.trip_loader import TripLoader
 from ..utils import protocol
 from ..utils.config_parser import Config, get_env
 from ..utils.logger_configurator import configure_logging
@@ -124,8 +125,68 @@ def _build_history_frame(data_property_id: str, result) -> bytes:
     return protocol.frame(protocol.TESLA_HISTORY, body)
 
 
+def _build_trip_list_frame(req_start_ms: int, req_end_ms: int, trips: list) -> bytes:
+    '''
+    Builds a TRIP_LIST response frame from detected trips. The requested
+    [req_start_ms, req_end_ms] window is echoed first so the client can discard an
+    out-of-order reply from a superseded week request (the list path's analogue of
+    TRIP_DETAIL's trip_id echo). Each record is the trip's [start_ms, end_ms] window
+    plus its distance (km) for the dropdown label; distance may be NaN (a trip whose
+    distance could not be computed is still listed), which packs as an IEEE-754 NaN
+    the frontend renders without a distance.
+    Arguments:
+        req_start_ms (int): The requested window start, echoed back.
+        req_end_ms (int): The requested window end, echoed back.
+        trips (list): [(start_ms, end_ms, distance_km), ...].
+    '''
+    body = struct.pack("!q", int(req_start_ms)) + struct.pack("!q", int(req_end_ms))
+    body += struct.pack("!H", len(trips))
+    for start_ms, end_ms, distance_km in trips:
+        body += struct.pack("!q", int(start_ms))
+        body += struct.pack("!q", int(end_ms))
+        body += struct.pack("!d", float(distance_km))
+    return protocol.frame(protocol.TRIP_LIST, body)
+
+
+def _build_trip_detail_frame(trip_id: int, route: list) -> bytes:
+    '''
+    Builds a TRIP_DETAIL response frame. The echoed trip_id (== start_ms) lets the
+    frontend drop a reply for a trip it has already switched away from; status is 0
+    (no data) for an empty route, else 1. Points are raw (lat, lon, speed) — the
+    frontend decimates by zoom and colours each segment by average speed.
+    Arguments:
+        trip_id (int): The requested trip's start_ms, echoed back.
+        route (list): [(ts_ms, latitude, longitude, speed_kmh), ...], or empty.
+    '''
+    body = struct.pack("!q", int(trip_id))
+    if not route:
+        body += struct.pack("!B", 0) + struct.pack("!I", 0)
+        return protocol.frame(protocol.TRIP_DETAIL, body)
+    body += struct.pack("!B", 1) + struct.pack("!I", len(route))
+    for ts_ms, latitude, longitude, speed in route:
+        body += struct.pack("!q", int(ts_ms))
+        body += struct.pack("!d", float(latitude))
+        body += struct.pack("!d", float(longitude))
+        body += struct.pack("!d", float(speed))
+    return protocol.frame(protocol.TRIP_DETAIL, body)
+
+
+def _build_week_counts_frame(weeks: list) -> bytes:
+    '''
+    Builds a TRIP_WEEK_COUNTS frame: per requested week, its start (echoed so the
+    client matches counts back to its weeks) and the number of trips detected in it.
+    Arguments:
+        weeks (list): [(week_start_ms, count), ...] in the requested order.
+    '''
+    body = struct.pack("!H", len(weeks))
+    for week_start_ms, count in weeks:
+        body += struct.pack("!q", int(week_start_ms))
+        body += struct.pack("!H", int(count))
+    return protocol.frame(protocol.TRIP_WEEK_COUNTS, body)
+
+
 def _register_handlers(
-    server: Server, mm: MediaManager, vehicle: Vehicle
+    server: Server, mm: MediaManager, vehicle: Vehicle, trip_loader: TripLoader
 ) -> None:
     '''
     Maps every frontend->backend message type to the service method that
@@ -199,6 +260,89 @@ def _register_handlers(
             logger.warning("TESLA_GET_HISTORY rejected: %s", e)
         await server.send_to(writer, _build_history_frame(data_property_id, result))
 
+    async def _get_trip_list(payload: bytes, writer) -> None:
+        '''
+        Detects the trips in the requested window (a week) and replies to the
+        requesting client only. A malformed request or an unreachable InfluxDB yields
+        an empty list rather than no reply, so the Trips dropdown never hangs.
+        '''
+        if len(payload) < 16:
+            logger.warning("TRIP_GET_LIST: payload too short (%d bytes)", len(payload))
+            return
+        start_ms, end_ms = struct.unpack("!qq", payload[:16])
+        records = []
+        try:
+            trips = await trip_loader.list_trips(start_ms, end_ms)
+            for trip in trips:
+                # distance_km() is cached from list_trips' own distance filter, so
+                # this reuses the value rather than re-reading Odometer.
+                records.append((trip.start_ms, trip.end_ms, await trip.distance_km()))
+        except Exception as e:
+            logger.warning("TRIP_GET_LIST failed: %s: %s", type(e).__name__, e)
+        # Echo the requested window so the client can drop an out-of-order reply.
+        await server.send_to(writer, _build_trip_list_frame(start_ms, end_ms, records))
+
+    async def _get_trip_detail(payload: bytes, writer) -> None:
+        '''
+        Loads the selected trip's GPS + speed route and replies to the requesting
+        client only. The trip's [start_ms, end_ms] window is echoed by the client
+        (known from the prior TRIP_LIST), so no re-detection is needed. A window that
+        logged no fixes replies status=0 (no data) rather than no reply.
+        '''
+        if len(payload) < 16:
+            logger.warning("TRIP_GET_DETAIL: payload too short (%d bytes)", len(payload))
+            return
+        start_ms, end_ms = struct.unpack("!qq", payload[:16])
+        route = []
+        try:
+            route = await trip_loader.load_route(start_ms, end_ms)
+        except Exception as e:
+            logger.warning("TRIP_GET_DETAIL failed: %s: %s", type(e).__name__, e)
+        await server.send_to(writer, _build_trip_detail_frame(start_ms, route))
+
+    async def _get_week_counts(payload: bytes, writer) -> None:
+        '''
+        Counts the trips per requested week for the week-selector dropdown. Detects
+        trips over the whole span [min start, max end] in a single scan (one Gear read
+        + one Odometer read, thanks to list_trips' in-memory distance), then buckets
+        each trip by which week window contains its start. Replies to the requesting
+        client only; a malformed request or an unreachable InfluxDB yields all-zero
+        counts rather than no reply.
+        '''
+        if len(payload) < 2:
+            logger.warning("TRIP_GET_WEEK_COUNTS: payload too short (%d bytes)", len(payload))
+            return
+        num_weeks = struct.unpack("!H", payload[:2])[0]
+        if len(payload) < 2 + num_weeks * 16:
+            logger.warning(
+                "TRIP_GET_WEEK_COUNTS: payload too short for %d weeks (%d bytes)",
+                num_weeks, len(payload),
+            )
+            return
+        weeks = []
+        offset = 2
+        for _ in range(num_weeks):
+            week_start, week_end = struct.unpack("!qq", payload[offset:offset + 16])
+            weeks.append((week_start, week_end))
+            offset += 16
+
+        counts = [0] * num_weeks
+        if num_weeks > 0:
+            span_start = min(w[0] for w in weeks)
+            span_end = max(w[1] for w in weeks)
+            try:
+                trips = await trip_loader.list_trips(span_start, span_end)
+                for trip in trips:
+                    for index, (week_start, week_end) in enumerate(weeks):
+                        if week_start <= trip.start_ms < week_end:
+                            counts[index] += 1
+                            break
+            except Exception as e:
+                logger.warning("TRIP_GET_WEEK_COUNTS failed: %s: %s", type(e).__name__, e)
+
+        records = [(weeks[index][0], counts[index]) for index in range(num_weeks)]
+        await server.send_to(writer, _build_week_counts_frame(records))
+
     # Handlers receive (payload, writer); fire-and-forget commands ignore the
     # writer, request/response handlers (below) reply to it via server.send_to.
     server.register_handler(protocol.MEDIA_SKIP,                 lambda _p, _w: mm.skip_forward())
@@ -210,6 +354,9 @@ def _register_handlers(
     server.register_handler(protocol.TESLA_PLUS_TARGET_TEMP,     lambda _p, _w: vehicle.plus_temp())
     server.register_handler(protocol.TESLA_GET_GRAPH_PROPERTIES, _get_graph_properties)
     server.register_handler(protocol.TESLA_GET_HISTORY,          _get_history)
+    server.register_handler(protocol.TRIP_GET_LIST,              _get_trip_list)
+    server.register_handler(protocol.TRIP_GET_DETAIL,            _get_trip_detail)
+    server.register_handler(protocol.TRIP_GET_WEEK_COUNTS,       _get_week_counts)
 
 
 async def main():
@@ -253,8 +400,14 @@ async def main():
     )
     logger.debug("Vehicle initialized")
 
+    # Trip detection (issue #5/#6): reads Gear/Location/VehicleSpeed history out of
+    # InfluxDB on demand to serve the Trips view. Stateless — no run task, purely
+    # request/response via the handlers below.
+    trip_loader = TripLoader(influx_handler, config)
+    logger.debug("Trip loader initialized")
+
     # Wire incoming-message dispatch and on-connect snapshot before start().
-    _register_handlers(server, mm, vehicle)
+    _register_handlers(server, mm, vehicle, trip_loader)
     for service in (vehicle, mm, weather):
         server.register_service(service)
 

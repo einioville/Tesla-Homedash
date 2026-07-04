@@ -53,6 +53,21 @@ TESLA_GRAPH_PROPERTIES = 0x71      # B->F: count(2B) + per property id/unit/cate
 TESLA_GET_HISTORY = 0x72           # F->B: range_code(1B) + id(len(2B)+UTF-8) + start_ms(8B) + end_ms(8B)
 TESLA_HISTORY = 0x73               # B->F: id(len(2B)+UTF-8) + status(1B) + count(4B) + count*(ts_ms(8B)+value(8B double))
 
+# Trip request/response (the Trips view, issue #6). Contiguous with the History
+# codes above and, like them, a request/response pair: the backend replies to the
+# requesting client only (server.send_to), never a broadcast. A trip's natural key
+# is its start_ms, echoed in TRIP_DETAIL so a stale reply can be discarded.
+TRIP_GET_LIST = 0x74    # F->B: start_ms(8B) + end_ms(8B)  — the query window (a week)
+TRIP_LIST = 0x75        # B->F: req_start_ms(8B) + req_end_ms(8B) + count(2B) + count*(start_ms(8B) + end_ms(8B) + distance_km(8B double))
+                        #       (the echoed request window lets the client drop an out-of-order reply)
+TRIP_GET_DETAIL = 0x76  # F->B: start_ms(8B) + end_ms(8B)  — the selected trip's window
+TRIP_DETAIL = 0x77      # B->F: trip_id/start_ms(8B) + status(1B) + count(4B)
+                        #       + count*(ts_ms(8B) + lat(8B double) + lon(8B double) + speed_kmh(8B double))
+TRIP_GET_WEEK_COUNTS = 0x78  # F->B: num_weeks(2B) + num_weeks*(week_start_ms(8B) + week_end_ms(8B))
+TRIP_WEEK_COUNTS = 0x79      # B->F: num_weeks(2B) + num_weeks*(week_start_ms(8B) + trip_count(2B))
+                             #       (populates the week-selector dropdown's per-week counts;
+                             #       week_start_ms is echoed so the client matches counts to weeks)
+
 # Maximum accepted size of a single incoming message (defensive cap)
 MAX_MSG_SIZE = 1024 * 1024  # 1 MB
 

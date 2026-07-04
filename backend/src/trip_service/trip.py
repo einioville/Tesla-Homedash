@@ -105,6 +105,7 @@ class Trip:
         self.__end_ms = int(end_ms)
         self.__in_progress = in_progress
         self.__summary: dict | None = None
+        self.__distance_km: float | None = None
 
     @property
     def trip_id(self) -> int:
@@ -123,6 +124,34 @@ class Trip:
     def in_progress(self) -> bool:
         return self.__in_progress
 
+    def seed_distance_km(self, value: float) -> None:
+        '''
+        Seeds the cached distance from a value computed elsewhere (TripLoader reads the
+        whole span's Odometer once and computes each window's delta in-memory), so
+        distance_km()/summary() don't re-read Odometer per trip. Idempotent-safe: a
+        later distance_km() returns this without a query.
+        Arguments:
+            value (float): The trip's distance in km (may be NaN on a data gap).
+        '''
+        self.__distance_km = value
+
+    async def distance_km(self) -> float:
+        '''
+        Computes (and caches) just the trip's distance in km: the Odometer delta over
+        the window (Odometer is stored already converted to km). Split out from
+        summary() so the trip-list path — which only needs the distance for its
+        sub-threshold filter and the TRIP_LIST record — can avoid the six other
+        InfluxDB reads summary() performs (7 sequential reads per candidate window is
+        slow for a busy week). summary() reuses this value. NaN on a data gap.
+        '''
+        if self.__distance_km is not None:
+            return self.__distance_km
+        start_iso = to_flux_time(self.__start_ms)
+        end_iso = to_flux_time(self.__end_ms)
+        odometer = await self.__influx.read_tesla_data_property("Odometer", start_iso, end_iso)
+        self.__distance_km = _delta(odometer)
+        return self.__distance_km
+
     async def summary(self) -> dict:
         '''
         Computes (and caches) the trip's summary metrics. Every field degrades to
@@ -137,9 +166,12 @@ class Trip:
         start_iso = to_flux_time(self.__start_ms)
         end_iso = to_flux_time(self.__end_ms)
 
+        # Distance comes from the shared distance_km() (Odometer delta), so the list
+        # path and summary don't each re-read Odometer.
+        distance_km = await self.distance_km()
+
         # During a trip the car is active, so these logged fields have records inside
         # the window; first/last/mean/max come straight off the raw series.
-        odometer = await self.__influx.read_tesla_data_property("Odometer", start_iso, end_iso)
         speed = await self.__influx.read_tesla_data_property("VehicleSpeed", start_iso, end_iso)
         energy_used = await self.__influx.read_tesla_data_property(
             "LifetimeEnergyUsed", start_iso, end_iso
@@ -154,9 +186,6 @@ class Trip:
         start_point = await self.__influx.read_location_endpoint(start_iso, end_iso, last=False)
         end_point = await self.__influx.read_location_endpoint(start_iso, end_iso, last=True)
 
-        # Odometer is stored already converted to km (the x*1.609344 formula is applied
-        # before the InfluxDB write), so the delta is kilometres directly.
-        distance_km = _delta(odometer)
         duration_s = (self.__end_ms - self.__start_ms) / 1000.0
         energy_wh = _delta_scaled(energy_used, 1000.0)
         regen_wh = _delta_scaled(regen, 1000.0)
@@ -191,3 +220,55 @@ class Trip:
             "n/a" if math.isnan(distance_km) else f"{distance_km:.2f}",
         )
         return self.__summary
+
+    async def route(self) -> list:
+        '''
+        Returns the trip's GPS path with a per-fix speed, for the coloured route the
+        Trips-view map draws. Reads the full Location history for the window and joins
+        the logged VehicleSpeed (km/h) onto each fix by nearest timestamp — Location
+        and VehicleSpeed are separate telemetry signals logged at their own cadences,
+        so their records rarely share a timestamp. Both series are ascending, so the
+        join is a single forward pass (the nearest speed index is non-decreasing as the
+        fix time advances). Missing speed degrades to 0.0; a fix is never dropped for
+        lack of a speed sample. Not cached (called once per detail request).
+        Returns:
+            list: [(timestamp_ms (int), latitude (float), longitude (float),
+                speed_kmh (float)), ...] ascending by time. Empty when the window
+                logged no GPS fixes (or InfluxDB is unreachable).
+        '''
+        start_iso = to_flux_time(self.__start_ms)
+        end_iso = to_flux_time(self.__end_ms)
+
+        locations = await self.__influx.read_location_history(start_iso, end_iso)
+        if not locations:
+            return []
+
+        speed_result = await self.__influx.read_tesla_data_property(
+            "VehicleSpeed", start_iso, end_iso
+        )
+        speed_ts = speed_result[1] if speed_result is not None else []
+        speed_val = speed_result[2] if speed_result is not None else []
+        speed_count = len(speed_ts)
+
+        route = []
+        cursor = 0
+        for timestamp_ms, latitude, longitude in locations:
+            speed = 0.0
+            if speed_count > 0:
+                # Advance to the speed sample nearest this fix. Monotone: fixes ascend,
+                # so the nearest speed index never moves backwards across the loop.
+                while (
+                    cursor + 1 < speed_count
+                    and abs(int(speed_ts[cursor + 1]) - timestamp_ms)
+                    <= abs(int(speed_ts[cursor]) - timestamp_ms)
+                ):
+                    cursor += 1
+                speed = float(speed_val[cursor])
+                if speed < 0.0:
+                    speed = 0.0
+            route.append((int(timestamp_ms), float(latitude), float(longitude), speed))
+
+        logger.debug(
+            "Computed trip route: start=%s points=%d", self.__start_ms, len(route)
+        )
+        return route

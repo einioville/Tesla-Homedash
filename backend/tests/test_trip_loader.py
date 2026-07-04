@@ -8,14 +8,18 @@ counting as driving, and the all-parked and trailing-short-stop edge cases.
 
 Runs under pytest, or standalone: `python backend/tests/test_trip_loader.py`.
 '''
+import math
 import os
 import sys
+
+import numpy as np
 
 # Make `src` importable whether run via pytest or directly (backend/ is the root, the
 # same root run.py uses with `from src.tesla_service... import`).
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from src.trip_service.trip_loader import (  # noqa: E402
+    _window_distance,
     collapse_transitions,
     segment_trips,
 )
@@ -98,6 +102,40 @@ def test_trailing_short_stop_closes_at_last_movement():
 
 def test_empty_history_yields_no_trips():
     assert segment_trips([], PARK, T0, WINDOW_END, THRESHOLD_MS) == []
+
+
+# --- _window_distance (in-memory Odometer delta over a trip window) --------------
+
+def _odo(times_min: list, values_km: list) -> tuple:
+    '''Builds a (count, timestamps_ms, values) Odometer read result from minute
+    offsets + km values, matching read_tesla_data_property's numpy return.'''
+    timestamps = np.array([m(t) for t in times_min], dtype=np.int64)
+    values = np.array(values_km, dtype=np.float64)
+    return len(values), timestamps, values
+
+
+def test_window_distance_basic_delta():
+    # Samples every 10 min; window m(10)..m(40) -> last-at/before minus first-at/after.
+    odo = _odo([0, 10, 20, 30, 40, 50], [100, 101, 103, 106, 110, 111])
+    assert _window_distance(odo, m(10), m(40)) == 110.0 - 101.0
+
+
+def test_window_distance_none_or_empty_is_nan():
+    assert math.isnan(_window_distance(None, m(0), m(10)))
+    empty = (0, np.array([], dtype=np.int64), np.array([], dtype=np.float64))
+    assert math.isnan(_window_distance(empty, m(0), m(10)))
+
+
+def test_window_distance_no_sample_in_window_is_nan():
+    # Samples only at the window's outside; nothing inside [m(10), m(40)] -> NaN.
+    odo = _odo([0, 50], [100, 200])
+    assert math.isnan(_window_distance(odo, m(10), m(40)))
+
+
+def test_window_distance_single_sample_is_zero():
+    # A window holding exactly one sample has a zero delta (matches the per-trip read).
+    odo = _odo([0, 20, 50], [100, 150, 200])
+    assert _window_distance(odo, m(15), m(25)) == 0.0
 
 
 if __name__ == "__main__":
