@@ -18,6 +18,7 @@ QtObject {
     readonly property color mapBackground: "#2a1f2b"
     readonly property color climateBackground: "#241f15"
     readonly property color weatherBackground: "#15232b"
+    readonly property color tripBackground: "#121212"
 
     // Metrics
     readonly property int dockRadius: 28
@@ -83,4 +84,28 @@ QtObject {
     // Tone applied to the blurred backdrop so it reads as dark glass.
     readonly property real notificationFrostBrightness: -0.2
     readonly property real notificationFrostSaturation: -0.1
+
+    // --- Trips view -------------------------------------------------------
+    // Speed at which the route line reaches the top of the colour ramp (red).
+    // The gradient runs dark green (0 km/h) → red / dark red (this value); speeds
+    // above it clamp to the top colour. TripMap.colorForSpeed reads this.
+    readonly property real tripMaxSpeedKmh: 150
+    // Coloured route line width (px) and its dark casing underneath (for legibility
+    // over satellite imagery / bright tiles).
+    readonly property real tripRouteWidth: 4
+    readonly property color tripRouteCasing: "#cc000000"
+    // Floating control bar (week + trip dropdowns) over the map: dark translucent
+    // pill with a faint white rim, matching the dashboard card family.
+    readonly property color tripControlBar: "#cc1b2230"
+    readonly property color tripControlBarBorder: "#33ffffff"
+    // Dark-themed ComboBox (week/trip selectors) so the dropdown never flashes the
+    // Basic style's light popup/hover square over the map. Field + popup are dark;
+    // the hover highlight is a muted blue-grey (NOT white).
+    readonly property color tripComboBg: "#66222a3a"
+    readonly property color tripComboPressed: "#99222a3a"
+    readonly property color tripComboPopupBg: "#f21b2230"
+    readonly property color tripComboHover: "#55617a"
+    // Start/end route markers: a map-red so they read as pins, distinct from the
+    // green→red speed gradient of the route line (the pin shape disambiguates).
+    readonly property color tripMarkerColor: "#ff3b30"
 }

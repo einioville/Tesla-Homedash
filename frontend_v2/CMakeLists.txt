@@ -36,6 +36,8 @@ qt_add_executable(appfrontend_v2
     core/tesla/tesladata.cpp
     core/tesla/teslahistory.hh
     core/tesla/teslahistory.cpp
+    core/trip/tripsdata.hh
+    core/trip/tripsdata.cpp
     core/media/mediaimagecache.hh
     core/media/mediaimageprovider.hh
     core/media/mediadata.hh
@@ -63,6 +65,12 @@ qt_add_qml_module(appfrontend_v2
         views/HistoryView.qml
         views/MediaView.qml
         views/MapView.qml
+        views/TripsView.qml
+        items/trip/TripMap.qml
+        items/trip/TripComboBox.qml
+        items/trip/WeekSelector.qml
+        items/trip/TripSelector.qml
+        items/trip/TripMarker.qml
         items/history/PropertySelector.qml
         items/history/RangeSelector.qml
         items/history/DateTimePicker.qml
@@ -152,6 +160,7 @@ qt_add_resources(appfrontend_v2 "app_resources"
         resources/icons/skip_backward.svg
         resources/icons/skip_forward.svg
         resources/icons/steering.svg
+        resources/icons/trip.svg
         resources/icons/yellowshadow.png
         resources/icons/weather/clouds.svg
         resources/icons/weather/rain.svg

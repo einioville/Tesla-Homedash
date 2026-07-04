@@ -60,6 +60,17 @@ inline constexpr quint8 TESLA_GRAPH_PROPERTIES = 0x71;      // B->F: count(2B) +
 inline constexpr quint8 TESLA_GET_HISTORY = 0x72;           // F->B: range_code(1B) + id(len(2B)+UTF-8) + start_ms(8B) + end_ms(8B)
 inline constexpr quint8 TESLA_HISTORY = 0x73;               // B->F: id(len(2B)+UTF-8) + status(1B) + count(4B) + count*(ts_ms(8B)+value(8B double))
 
+// Trip request/response (the Trips view). Contiguous with the History codes and,
+// like them, a request/response pair — the backend replies to this client only.
+// A trip's natural key is its start_ms, echoed in TRIP_DETAIL so a stale reply
+// (after switching trip) can be discarded. Keep in lockstep with protocol.py.
+inline constexpr quint8 TRIP_GET_LIST = 0x74;    // F->B: start_ms(8B) + end_ms(8B)
+inline constexpr quint8 TRIP_LIST = 0x75;        // B->F: req_start_ms(8B) + req_end_ms(8B) + count(2B) + count*(start_ms(8B) + end_ms(8B) + distance_km(8B double))
+inline constexpr quint8 TRIP_GET_DETAIL = 0x76;  // F->B: start_ms(8B) + end_ms(8B)
+inline constexpr quint8 TRIP_DETAIL = 0x77;      // B->F: trip_id(8B) + status(1B) + count(4B) + count*(ts_ms(8B) + lat(8B double) + lon(8B double) + speed_kmh(8B double))
+inline constexpr quint8 TRIP_GET_WEEK_COUNTS = 0x78;  // F->B: num_weeks(2B) + num_weeks*(week_start_ms(8B) + week_end_ms(8B))
+inline constexpr quint8 TRIP_WEEK_COUNTS = 0x79;      // B->F: num_weeks(2B) + num_weeks*(week_start_ms(8B) + trip_count(2B))
+
 // History request range codes (mirror the backend _RANGE_* and the QML RangeSelector)
 inline constexpr quint8 HISTORY_RANGE_1H = 0;
 inline constexpr quint8 HISTORY_RANGE_1D = 1;

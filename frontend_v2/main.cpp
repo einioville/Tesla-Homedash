@@ -13,6 +13,7 @@
 #include "core/serverclient.hh"
 #include "core/tesla/tesladata.hh"
 #include "core/tesla/teslahistory.hh"
+#include "core/trip/tripsdata.hh"
 #include "core/weather/weatherdata.hh"
 
 int main(int argc, char* argv[]) {
@@ -51,6 +52,9 @@ int main(int argc, char* argv[]) {
     // History reads live values off the Tesla singleton (by property id) for the
     // live-graph mode, so it takes a TeslaData pointer.
     TeslaHistory teslaHistory(&serverClient, &teslaData);
+    // Trip viewer: request/response over the same socket (TRIP_* codes). No live
+    // data, so it only needs the ServerClient.
+    TripsData tripsData(&serverClient);
     auto mediaCache = std::make_shared<MediaImageCache>();
     MediaData mediaData(&serverClient, mediaCache);
     WeatherData weatherData(&serverClient);
@@ -68,6 +72,7 @@ int main(int argc, char* argv[]) {
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "Server", &serverClient);
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "Tesla", &teslaData);
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "History", &teslaHistory);
+    qmlRegisterSingletonInstance("frontend_v2", 1, 0, "Trips", &tripsData);
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "Media", &mediaData);
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "Weather", &weatherData);
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "Notifications", &notificationHandler);
