@@ -187,6 +187,66 @@ def _build_week_counts_frame(weeks: list) -> bytes:
     return protocol.frame(protocol.TRIP_WEEK_COUNTS, body)
 
 
+# The summary fields packed (in order) after the echoed trip_id/status/window. Every
+# value is an IEEE-754 double; a missing metric packs as NaN, which the frontend
+# renders as "—". SoC used is derived on the frontend from start_soc − end_soc.
+_TRIP_SUMMARY_FIELDS = (
+    "distance_km", "avg_speed", "max_speed", "energy_wh", "wh_per_km",
+    "start_soc", "end_soc",
+)
+
+
+def _build_trip_summary_frame(
+    trip_id: int, start_ms: int, end_ms: int, summary: dict | None
+) -> bytes:
+    '''
+    Builds a TRIP_SUMMARY response frame from Trip.summary(). The echoed trip_id
+    (== start_ms) lets the frontend drop a reply for a trip it has switched away from;
+    status is 0 (no summary) when summary is None (an inverted window or a failed
+    computation), else 1. The window is echoed and the fixed field block is always
+    written (NaN-filled on status 0), so the payload is a constant size the client can
+    parse without branching.
+    Arguments:
+        trip_id (int): The requested trip's start_ms, echoed back.
+        start_ms (int): The trip window start, echoed for the frontend's time stats.
+        end_ms (int): The trip window end, echoed for the frontend's time stats.
+        summary (dict | None): Trip.summary()'s dict, or None.
+    '''
+    status = 0 if summary is None else 1
+    body = struct.pack("!q", int(trip_id))
+    body += struct.pack("!B", status)
+    body += struct.pack("!q", int(start_ms))
+    body += struct.pack("!q", int(end_ms))
+    for field in _TRIP_SUMMARY_FIELDS:
+        value = summary.get(field, float("nan")) if summary else float("nan")
+        body += struct.pack("!d", float(value))
+    return protocol.frame(protocol.TRIP_SUMMARY, body)
+
+
+def _build_trip_series_frame(trip_id: int, data_property_id: str, result) -> bytes:
+    '''
+    Builds a TRIP_SERIES response frame: one numeric property's raw time series over
+    the trip window (from get_data_history, the same read the History graph uses). The
+    trip_id and the property id are both echoed so the frontend can drop a reply after
+    the user switches trip or property. status is 0 (no data) when result is None, else 1.
+    Arguments:
+        trip_id (int): The requested trip's start_ms, echoed back.
+        data_property_id (str): The requested property id, echoed back.
+        result: (count, timestamps_ms, values) from get_data_history, or None.
+    '''
+    id_bytes = data_property_id.encode("utf-8")
+    body = struct.pack("!q", int(trip_id))
+    body += struct.pack("!H", len(id_bytes)) + id_bytes
+    if result is None:
+        body += struct.pack("!B", 0) + struct.pack("!I", 0)
+        return protocol.frame(protocol.TRIP_SERIES, body)
+    count, timestamps, values = result
+    body += struct.pack("!B", 1) + struct.pack("!I", int(count))
+    for timestamp, value in zip(timestamps, values):
+        body += struct.pack("!q", int(timestamp)) + struct.pack("!d", float(value))
+    return protocol.frame(protocol.TRIP_SERIES, body)
+
+
 # The charging-loss summary fields packed (in order) after the echoed
 # session_id/status/window. Every value is an IEEE-754 double; a missing metric packs
 # as NaN, which the frontend renders as "—". Mirrors _TRIP_SUMMARY_FIELDS.
@@ -408,6 +468,59 @@ def _register_handlers(
         records = [(weeks[index][0], counts[index]) for index in range(num_weeks)]
         await server.send_to(writer, _build_week_counts_frame(records))
 
+    async def _get_trip_summary(payload: bytes, writer) -> None:
+        '''
+        Computes the selected trip's summary stats and replies to the requesting client
+        only. The trip's [start_ms, end_ms] window is echoed by the client (known from
+        the prior TRIP_LIST), so no re-detection is needed. A malformed request or a
+        failed computation replies status=0 rather than no reply, so the stats panel
+        never hangs.
+        '''
+        if len(payload) < 16:
+            logger.warning("TRIP_GET_SUMMARY: payload too short (%d bytes)", len(payload))
+            return
+        start_ms, end_ms = struct.unpack("!qq", payload[:16])
+        summary = None
+        try:
+            summary = await trip_loader.load_summary(start_ms, end_ms)
+        except Exception as e:
+            logger.warning("TRIP_GET_SUMMARY failed: %s: %s", type(e).__name__, e)
+        await server.send_to(
+            writer, _build_trip_summary_frame(start_ms, start_ms, end_ms, summary)
+        )
+
+    async def _get_trip_series(payload: bytes, writer) -> None:
+        '''
+        Reads one numeric property's raw history over the trip window for the detail
+        graph, and replies to the requesting client only. Reuses the History read path
+        (_history_range's custom-window conversion + get_data_history), so a trip graph
+        needs no new read logic. A bad id or unreachable InfluxDB replies status=0.
+        '''
+        if len(payload) < 18:  # start_ms(8) + end_ms(8) + id_len(2)
+            logger.warning("TRIP_GET_SERIES: payload too short (%d bytes)", len(payload))
+            return
+        start_ms, end_ms = struct.unpack("!qq", payload[:16])
+        id_len = struct.unpack("!H", payload[16:18])[0]
+        if len(payload) < 18 + id_len:
+            logger.warning(
+                "TRIP_GET_SERIES: payload too short for id_len=%d (%d bytes)",
+                id_len, len(payload),
+            )
+            return
+        data_property_id = payload[18:18 + id_len].decode("utf-8")
+        result = None
+        try:
+            time_start, time_end = _history_range(_RANGE_CUSTOM, start_ms, end_ms)
+            result = await vehicle.get_data_history(data_property_id, time_start, time_end)
+        except Exception as e:
+            # Any read/parse failure replies status=0 rather than no reply, so the graph
+            # never hangs on "Ladataan…" (matches the other trip handlers). ValueError is
+            # a bad id/window; other exceptions are an InfluxDB hiccup.
+            logger.warning("TRIP_GET_SERIES failed: %s: %s", type(e).__name__, e)
+        await server.send_to(
+            writer, _build_trip_series_frame(start_ms, data_property_id, result)
+        )
+
     async def _get_charging_list(payload: bytes, writer) -> None:
         '''
         Detects the charging sessions in the requested window and replies to the
@@ -466,6 +579,8 @@ def _register_handlers(
     server.register_handler(protocol.TRIP_GET_LIST,              _get_trip_list)
     server.register_handler(protocol.TRIP_GET_DETAIL,            _get_trip_detail)
     server.register_handler(protocol.TRIP_GET_WEEK_COUNTS,       _get_week_counts)
+    server.register_handler(protocol.TRIP_GET_SUMMARY,           _get_trip_summary)
+    server.register_handler(protocol.TRIP_GET_SERIES,            _get_trip_series)
     server.register_handler(protocol.CHARGING_GET_LIST,          _get_charging_list)
     server.register_handler(protocol.CHARGING_GET_SUMMARY,       _get_charging_summary)
 

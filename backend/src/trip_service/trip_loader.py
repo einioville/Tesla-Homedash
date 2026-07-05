@@ -246,3 +246,22 @@ class TripLoader:
             return []
         trip = Trip(self.__influx, start_ms, end_ms)
         return await trip.route()
+
+    async def load_summary(self, start_ms: int, end_ms: int) -> dict | None:
+        '''
+        Computes one trip's summary metrics (distance, energy, avg/max speed,
+        consumption, SoC at the endpoints) for the Trips-view stats panel. Like
+        load_route, the frontend already knows the trip's [start_ms, end_ms] from a
+        prior list_trips reply, so a Trip is constructed directly over that window and
+        asked for its summary — no re-detection. Every metric degrades to NaN when its
+        source series is missing, so a partial-data trip still yields a record.
+        Arguments:
+            start_ms (int): The trip's start (its natural key), epoch-ms UTC.
+            end_ms (int): The trip's end, epoch-ms UTC.
+        Returns:
+            dict | None: Trip.summary() for the window, or None for an inverted window.
+        '''
+        if end_ms <= start_ms:
+            return None
+        trip = Trip(self.__influx, start_ms, end_ms)
+        return await trip.summary()

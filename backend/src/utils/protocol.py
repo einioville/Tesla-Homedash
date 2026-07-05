@@ -68,6 +68,20 @@ TRIP_WEEK_COUNTS = 0x79      # B->F: num_weeks(2B) + num_weeks*(week_start_ms(8B
                              #       (populates the week-selector dropdown's per-week counts;
                              #       week_start_ms is echoed so the client matches counts to weeks)
 
+# Per-trip stats + graph (the Trips-view detail panel). Same request/response
+# convention as the trip codes above — replied to the requesting client only, with
+# the trip's start_ms echoed as trip_id so a stale reply (after switching trip) is
+# dropped. The summary carries the values Trip.summary() already computes; the
+# series reuses the History read path (get_data_history over the trip window) to
+# return one numeric property's raw time series for the graph.
+TRIP_GET_SUMMARY = 0x7A  # F->B: start_ms(8B) + end_ms(8B)  — the selected trip's window
+TRIP_SUMMARY = 0x7B      # B->F: trip_id(8B) + status(1B) + start_ms(8B) + end_ms(8B)
+                         #       + 7*double(8B): distance_km, avg_speed, max_speed,
+                         #       energy_wh, wh_per_km, start_soc, end_soc (any may be NaN)
+TRIP_GET_SERIES = 0x7C   # F->B: start_ms(8B) + end_ms(8B) + id(len(2B)+UTF-8)  — one property over the trip
+TRIP_SERIES = 0x7D       # B->F: trip_id(8B) + id(len(2B)+UTF-8) + status(1B) + count(4B)
+                         #       + count*(ts_ms(8B) + value(8B double))
+
 # MyEnergi (Zappi) charger live stream (backend -> frontend). Like the weather
 # frame, a CHARGER_STREAM packet is a sequence of (sub_id(1B) + value) pairs; each
 # sub_id implies its value width, so fields can be added without a format bump, and
