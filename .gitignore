@@ -174,3 +174,7 @@ response_exmpl.txt
 
 # Local runtime config (contains device IDs and absolute paths)
 config.json
+
+# Local 3D model assets + design blueprints (large binaries, not for the repo)
+docs/images/model_3_bluaprint.png
+frontend/resources/models/
