@@ -79,6 +79,19 @@ class Config:
         "min_trip_distance_km": 0.5,
     }
 
+    # MyEnergi (Zappi) tunables. Like the trip block, not a REQUIRED_KEY: the
+    # gitignored real config.json may omit it, and a deployment without a charger
+    # must still start. A partial "myenergi" block is merged over these per-key
+    # (see myenergi_config). Credentials (hub serial + API key) live in .env, not
+    # here — only non-secret tunables belong in config.json.
+    _MYENERGI_DEFAULTS = {
+        "zappiSerial": "",
+        "pollIntervalIdleSeconds": 30,
+        "pollIntervalActiveSeconds": 10,
+        "minSessionEnergyKwh": 0.5,
+        "sessionMergeMinutes": 5,
+    }
+
     def __init__(self, config_path: str):
         if not config_path:
             raise RuntimeError("Config path is empty or None")
@@ -181,3 +194,18 @@ class Config:
         - min_trip_distance_km: drive segments shorter than this are discarded
           (e.g. shuffling the car in the driveway).'''
         return {**self._TRIP_DEFAULTS, **self.__data.get("trip", {})}
+
+    @property
+    def myenergi_config(self) -> dict:
+        '''MyEnergi (Zappi) tunables, with defaults filled in for any missing key so
+        a fully or partially absent "myenergi" block is safe:
+        - zappiSerial: which Zappi to read when the account has more than one; ""
+          lets MyEnergiService auto-select the first discovered Zappi.
+        - pollIntervalIdleSeconds / pollIntervalActiveSeconds: cloud poll cadence
+          when no car is connected vs. while a session is active.
+        - minSessionEnergyKwh: charging sessions that delivered less than this are
+          dropped from the list (noise / a car charged away from this Zappi).
+        - sessionMergeMinutes: a non-charging gap shorter than this is absorbed into
+          the surrounding session rather than splitting it (the charging analogue of
+          the trip block's min_stop_minutes).'''
+        return {**self._MYENERGI_DEFAULTS, **self.__data.get("myenergi", {})}

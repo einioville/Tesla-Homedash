@@ -68,6 +68,58 @@ TRIP_WEEK_COUNTS = 0x79      # B->F: num_weeks(2B) + num_weeks*(week_start_ms(8B
                              #       (populates the week-selector dropdown's per-week counts;
                              #       week_start_ms is echoed so the client matches counts to weeks)
 
+# MyEnergi (Zappi) charger live stream (backend -> frontend). Like the weather
+# frame, a CHARGER_STREAM packet is a sequence of (sub_id(1B) + value) pairs; each
+# sub_id implies its value width, so fields can be added without a format bump, and
+# a field absent from a given frame just keeps its last value on the frontend. The
+# service polls the myenergi cloud (pymyenergi) and broadcasts this; a new client
+# gets the last frame replayed via stream_everything.
+CHARGER_STREAM = 0x50
+CHARGER_STATUS = 0x51           # uint8: see CHARGER_STATUS_* below
+CHARGER_PLUG_STATUS = 0x52      # uint8: see CHARGER_PLUG_* below
+CHARGER_MODE = 0x53             # uint8: see CHARGER_MODE_* below
+CHARGER_CHARGE_POWER = 0x54     # float64: power currently delivered to the car (W)
+CHARGER_SESSION_ENERGY = 0x55   # float64: energy added this charging session (kWh)
+CHARGER_SUPPLY_VOLTAGE = 0x56   # uint16: supply voltage (V)
+
+# CHARGER_STATUS enum (maps pymyenergi Zappi.status: Paused/Charging/Completed)
+CHARGER_STATUS_UNKNOWN = 0
+CHARGER_STATUS_PAUSED = 1
+CHARGER_STATUS_CHARGING = 2
+CHARGER_STATUS_COMPLETED = 3
+
+# CHARGER_PLUG_STATUS enum (maps pymyenergi Zappi.plug_status)
+CHARGER_PLUG_UNKNOWN = 0
+CHARGER_PLUG_DISCONNECTED = 1
+CHARGER_PLUG_CONNECTED = 2
+CHARGER_PLUG_WAITING = 3
+CHARGER_PLUG_READY = 4
+CHARGER_PLUG_CHARGING = 5
+CHARGER_PLUG_FAULT = 6
+
+# CHARGER_MODE enum (maps pymyenergi Zappi.charge_mode: Fast/Eco/Eco+/Stopped)
+CHARGER_MODE_UNKNOWN = 0
+CHARGER_MODE_FAST = 1
+CHARGER_MODE_ECO = 2
+CHARGER_MODE_ECO_PLUS = 3
+CHARGER_MODE_STOPPED = 4
+
+# Charging-session request/response (the Charging / charging-losses view). Same
+# request/response convention as the Trips codes above: replied to the requesting
+# client only (server.send_to), never broadcast. A session's natural key is its
+# start_ms, echoed in the summary reply so a stale reply can be discarded. Sessions
+# are derived on demand from stored telemetry (DetailedChargeState segmentation)
+# joined to the logged myenergi charger energy — see charging_service.
+CHARGING_GET_LIST = 0x80   # F->B: start_ms(8B) + end_ms(8B)  — the query window
+CHARGING_LIST = 0x81       # B->F: req_start_ms(8B) + req_end_ms(8B) + count(2B)
+                           #       + count*(start_ms(8B) + end_ms(8B) + charger_kwh(8B double))
+                           #       (the echoed request window lets the client drop an out-of-order reply)
+CHARGING_GET_SUMMARY = 0x82  # F->B: start_ms(8B) + end_ms(8B)  — the selected session's window
+CHARGING_SUMMARY = 0x83      # B->F: session_id(8B) + status(1B) + start_ms(8B) + end_ms(8B)
+                             #       + 9*double(8B): charger_kwh, ac_in_kwh, battery_kwh,
+                             #       loss_cable_kwh, loss_conversion_kwh, loss_total_kwh,
+                             #       loss_total_pct, start_soc, end_soc (any may be NaN)
+
 # Maximum accepted size of a single incoming message (defensive cap)
 MAX_MSG_SIZE = 1024 * 1024  # 1 MB
 

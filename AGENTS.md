@@ -8,8 +8,8 @@ Tesla-Homedash is a 1280x800 desktop dashboard (designed for an embedded display
 ```
 backend/
   src/
+    start_services.py         # Entrypoint — wires ALL services (tesla, media, weather, trips, charging) and starts the event loop
     tesla_service/
-      start_tesla_services.py   # Entrypoint — wires all services and starts event loop
       telemetry.py              # WebSocket stream from eu.teslemetry.com via teslemetry_stream
       tcp_server.py             # asyncio TCP server on 0.0.0.0:6969 — routes packets between frontend and services
       vehicle.py                # Vehicle state, telemetry event handler, Tesla REST commands (HVAC)

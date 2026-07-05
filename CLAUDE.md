@@ -39,10 +39,10 @@ backend/
   uv.lock                         # Authoritative dependency lockfile (uv)
   requirements.txt                # Reference only; uv.lock is authoritative
   src/
+    start_services.py             # Entrypoint / composition root — builds EVERY service (tesla, media, weather, trips, charging + myenergi), registers handlers, gathers the event loop. NOT tesla-specific despite the neighbours.
     server/
       server.py                   # asyncio TCP server on 0.0.0.0:6969 — protocol-agnostic fan-out + handler routing
     tesla_service/
-      start_tesla_services.py     # Entrypoint — builds every service, registers handlers, gathers the event loop
       telemetry.py                # Teslemetry stream client (teslemetry_stream) → Vehicle.on_telemetry_event
       vehicle.py                  # Vehicle state, telemetry handler, HVAC REST commands, rate limiting, snapshots
       vehicle_data_property.py    # VehicleDataProperty / CalculatedVehicleDataProperty — value store, formula eval, serialize
@@ -167,7 +167,7 @@ Required secrets/paths, loaded by `utils/config_parser.get_env`:
 - `INFLUX_TOKEN` — InfluxDB auth token
 - `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET` — from your Spotify Developer App
 
-`start_tesla_services.main()` fails fast if any of these are missing.
+`start_services.main()` fails fast if any of these are missing.
 
 ### `config.json` (copy from `config_template.json`)
 Parsed once by `Config` and injected into every service. Keys:
@@ -265,7 +265,7 @@ flat held line across the whole range instead of "no data". Only a genuinely abs
 
 **Adding a command (F→B)**:
 1. Add the type constant in `utils/protocol.py`.
-2. In `start_tesla_services._register_handlers`, `server.register_handler(protocol.<NAME>, <async callable>)`.
+2. In `start_services._register_handlers`, `server.register_handler(protocol.<NAME>, <async callable>)`.
    The callable gets `(payload, writer)` — the raw payload (no length prefix / type byte) and the
    requesting client's `StreamWriter`. Fire-and-forget commands ignore the writer; request/response
    handlers reply to just that client via `server.send_to(writer, …)`. The server routes by integer only.
@@ -273,7 +273,7 @@ flat held line across the whole range instead of "no data". Only a genuinely abs
 
 ### 5.2 Backend services
 
-The backend is entirely asyncio. `start_tesla_services.main()` constructs every service,
+The backend is entirely asyncio. `start_services.main()` constructs every service,
 calls `_register_handlers` and `register_service` on the `Server`, runs
 `vehicle.init_async_dependent()`, then **`asyncio.gather`s four tasks**: telemetry, the TCP
 server, `MediaManager.get_run_task()`, and `WeatherService.get_run_task()`.

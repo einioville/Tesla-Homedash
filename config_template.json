@@ -330,6 +330,20 @@
             "log": true,
             "formula": "x * 1.609344",
             "stream_id": 45
+        },
+        "ACChargingEnergyIn": {
+            "category": "Charging",
+            "unit": "kWh",
+            "log": true,
+            "formula": null,
+            "stream_id": 46
+        },
+        "DCChargingEnergyIn": {
+            "category": "Charging",
+            "unit": "kWh",
+            "log": true,
+            "formula": null,
+            "stream_id": 47
         }
     },
     "calculated tesla data": {
@@ -370,5 +384,12 @@
     "spotifyCachePath": "/home/youruser/spotify_cache",
     "spotifyRedirectUri": "http://127.0.0.1:8080/callback",
     "timeZone": "Europe/Helsinki",
-    "spotifyMarket": "FI"
+    "spotifyMarket": "FI",
+    "myenergi": {
+        "zappiSerial": "",
+        "pollIntervalIdleSeconds": 30,
+        "pollIntervalActiveSeconds": 10,
+        "minSessionEnergyKwh": 0.5,
+        "sessionMergeMinutes": 5
+    }
 }

@@ -4,18 +4,20 @@ import os
 import struct
 from datetime import datetime, timezone
 
-from .telemetry import TelemetryHandler
-from .vehicle import Vehicle
-from ..influxdb_service.influxdb_handler import InfluxDBHandler
-from ..media_service.media_manager import MediaManager
-from ..server.server import Server
-from ..trip_service.trip_loader import TripLoader
-from ..utils import protocol
-from ..utils.config_parser import Config, get_env
-from ..utils.logger_configurator import configure_logging
-from ..weather_service.weather_service import WeatherService
+from .charging_service.charging_loader import ChargingLoader
+from .influxdb_service.influxdb_handler import InfluxDBHandler
+from .media_service.media_manager import MediaManager
+from .myenergi_service.myenergi_service import MyEnergiService
+from .server.server import Server
+from .tesla_service.telemetry import TelemetryHandler
+from .tesla_service.vehicle import Vehicle
+from .trip_service.trip_loader import TripLoader
+from .utils import protocol
+from .utils.config_parser import Config, get_env
+from .utils.logger_configurator import configure_logging
+from .weather_service.weather_service import WeatherService
 
-logger = logging.getLogger("tesla_service.start_tesla_services")
+logger = logging.getLogger("start_services")
 
 # Env vars required before any service is constructed.  Missing any of these
 # produces surprising mid-startup failures (spotipy NoneType errors, Influx
@@ -185,8 +187,71 @@ def _build_week_counts_frame(weeks: list) -> bytes:
     return protocol.frame(protocol.TRIP_WEEK_COUNTS, body)
 
 
+# The charging-loss summary fields packed (in order) after the echoed
+# session_id/status/window. Every value is an IEEE-754 double; a missing metric packs
+# as NaN, which the frontend renders as "—". Mirrors _TRIP_SUMMARY_FIELDS.
+_CHARGING_SUMMARY_FIELDS = (
+    "charger_kwh", "ac_in_kwh", "battery_kwh",
+    "loss_cable_kwh", "loss_conversion_kwh", "loss_total_kwh", "loss_total_pct",
+    "start_soc", "end_soc",
+)
+
+
+def _build_charging_list_frame(req_start_ms: int, req_end_ms: int, sessions: list) -> bytes:
+    '''
+    Builds a CHARGING_LIST response frame from detected charging sessions. The requested
+    [req_start_ms, req_end_ms] window is echoed first so the client can discard an
+    out-of-order reply (the list path's analogue of CHARGING_SUMMARY's session_id echo).
+    Each record is the session's [start_ms, end_ms] window plus the charger energy it
+    delivered (kWh) for the dropdown label; the loader has already dropped sessions with
+    no comparable charger energy, so charger_kwh is always a real number here.
+    Arguments:
+        req_start_ms (int): The requested window start, echoed back.
+        req_end_ms (int): The requested window end, echoed back.
+        sessions (list): [(start_ms, end_ms, charger_kwh), ...].
+    '''
+    body = struct.pack("!q", int(req_start_ms)) + struct.pack("!q", int(req_end_ms))
+    body += struct.pack("!H", len(sessions))
+    for start_ms, end_ms, charger_kwh in sessions:
+        body += struct.pack("!q", int(start_ms))
+        body += struct.pack("!q", int(end_ms))
+        body += struct.pack("!d", float(charger_kwh))
+    return protocol.frame(protocol.CHARGING_LIST, body)
+
+
+def _build_charging_summary_frame(
+    session_id: int, start_ms: int, end_ms: int, summary: dict | None
+) -> bytes:
+    '''
+    Builds a CHARGING_SUMMARY response frame from ChargingSession.summary(). The echoed
+    session_id (== start_ms) lets the frontend drop a reply for a session it has switched
+    away from; status is 0 (no summary) when summary is None (an inverted window), else 1.
+    The window is echoed and the fixed field block is always written (NaN-filled on status
+    0), so the payload is a constant size the client parses without branching. Mirrors
+    _build_trip_summary_frame.
+    Arguments:
+        session_id (int): The requested session's start_ms, echoed back.
+        start_ms (int): The session window start, echoed for the frontend's time stats.
+        end_ms (int): The session window end, echoed for the frontend's time stats.
+        summary (dict | None): ChargingSession.summary()'s dict, or None.
+    '''
+    status = 0 if summary is None else 1
+    body = struct.pack("!q", int(session_id))
+    body += struct.pack("!B", status)
+    body += struct.pack("!q", int(start_ms))
+    body += struct.pack("!q", int(end_ms))
+    for field in _CHARGING_SUMMARY_FIELDS:
+        value = summary.get(field, float("nan")) if summary else float("nan")
+        body += struct.pack("!d", float(value))
+    return protocol.frame(protocol.CHARGING_SUMMARY, body)
+
+
 def _register_handlers(
-    server: Server, mm: MediaManager, vehicle: Vehicle, trip_loader: TripLoader
+    server: Server,
+    mm: MediaManager,
+    vehicle: Vehicle,
+    trip_loader: TripLoader,
+    charging_loader: ChargingLoader,
 ) -> None:
     '''
     Maps every frontend->backend message type to the service method that
@@ -343,6 +408,50 @@ def _register_handlers(
         records = [(weeks[index][0], counts[index]) for index in range(num_weeks)]
         await server.send_to(writer, _build_week_counts_frame(records))
 
+    async def _get_charging_list(payload: bytes, writer) -> None:
+        '''
+        Detects the charging sessions in the requested window and replies to the
+        requesting client only. A malformed request or an unreachable InfluxDB yields an
+        empty list rather than no reply, so the sessions dropdown never hangs. Mirrors
+        _get_trip_list.
+        '''
+        if len(payload) < 16:
+            logger.warning("CHARGING_GET_LIST: payload too short (%d bytes)", len(payload))
+            return
+        start_ms, end_ms = struct.unpack("!qq", payload[:16])
+        records = []
+        try:
+            sessions = await charging_loader.list_sessions(start_ms, end_ms)
+            for session in sessions:
+                # charger_kwh() is cached from list_sessions' own energy filter, so this
+                # reuses the value rather than re-reading the charger series.
+                records.append((session.start_ms, session.end_ms, await session.charger_kwh()))
+        except Exception as e:
+            logger.warning("CHARGING_GET_LIST failed: %s: %s", type(e).__name__, e)
+        # Echo the requested window so the client can drop an out-of-order reply.
+        await server.send_to(writer, _build_charging_list_frame(start_ms, end_ms, records))
+
+    async def _get_charging_summary(payload: bytes, writer) -> None:
+        '''
+        Computes the selected session's loss breakdown and replies to the requesting
+        client only. The session's [start_ms, end_ms] window is echoed by the client
+        (known from the prior CHARGING_LIST), so no re-detection is needed. A malformed
+        request or a failed computation replies status=0 rather than no reply, so the
+        panel never hangs. Mirrors _get_trip_summary.
+        '''
+        if len(payload) < 16:
+            logger.warning("CHARGING_GET_SUMMARY: payload too short (%d bytes)", len(payload))
+            return
+        start_ms, end_ms = struct.unpack("!qq", payload[:16])
+        summary = None
+        try:
+            summary = await charging_loader.load_summary(start_ms, end_ms)
+        except Exception as e:
+            logger.warning("CHARGING_GET_SUMMARY failed: %s: %s", type(e).__name__, e)
+        await server.send_to(
+            writer, _build_charging_summary_frame(start_ms, start_ms, end_ms, summary)
+        )
+
     # Handlers receive (payload, writer); fire-and-forget commands ignore the
     # writer, request/response handlers (below) reply to it via server.send_to.
     server.register_handler(protocol.MEDIA_SKIP,                 lambda _p, _w: mm.skip_forward())
@@ -357,6 +466,8 @@ def _register_handlers(
     server.register_handler(protocol.TRIP_GET_LIST,              _get_trip_list)
     server.register_handler(protocol.TRIP_GET_DETAIL,            _get_trip_detail)
     server.register_handler(protocol.TRIP_GET_WEEK_COUNTS,       _get_week_counts)
+    server.register_handler(protocol.CHARGING_GET_LIST,          _get_charging_list)
+    server.register_handler(protocol.CHARGING_GET_SUMMARY,       _get_charging_summary)
 
 
 async def main():
@@ -406,9 +517,40 @@ async def main():
     trip_loader = TripLoader(influx_handler, config)
     logger.debug("Trip loader initialized")
 
+    # Charging-loss analysis (myenergi): stateless, reads DetailedChargeState +
+    # myenergi_data history from InfluxDB on demand. Constructed unconditionally so the
+    # charging handlers always answer (an empty list when no charger data exists).
+    charging_loader = ChargingLoader(influx_handler, config)
+    logger.debug("Charging loader initialized")
+
+    # MyEnergi (Zappi) charger streaming + logging: optional. Absent credentials -> the
+    # service is not started (a deployment without a charger still runs), while the
+    # charging handlers above stay registered so the frontend view degrades to an empty
+    # list instead of an unhandled message.
+    myenergi = None
+    myenergi_hub_serial = get_env("MYENERGI_HUB_SERIAL")
+    myenergi_api_key = get_env("MYENERGI_API_KEY")
+    if myenergi_hub_serial and myenergi_api_key:
+        myenergi = MyEnergiService(
+            server=server,
+            config=config,
+            influx_handler=influx_handler,
+            hub_serial=myenergi_hub_serial,
+            api_key=myenergi_api_key,
+        )
+        logger.debug("MyEnergi service initialized")
+    else:
+        logger.warning(
+            "MyEnergi credentials not set (MYENERGI_HUB_SERIAL / MYENERGI_API_KEY); "
+            "charger streaming + logging disabled"
+        )
+
     # Wire incoming-message dispatch and on-connect snapshot before start().
-    _register_handlers(server, mm, vehicle, trip_loader)
-    for service in (vehicle, mm, weather):
+    _register_handlers(server, mm, vehicle, trip_loader, charging_loader)
+    services = [vehicle, mm, weather]
+    if myenergi is not None:
+        services.append(myenergi)
+    for service in services:
         server.register_service(service)
 
     await vehicle.init_async_dependent()
@@ -422,8 +564,12 @@ async def main():
     t3 = mm.get_run_task()
     t4 = weather.get_run_task()
 
+    tasks = [t1, t2, t3, t4]
+    if myenergi is not None:
+        tasks.append(myenergi.get_run_task())
+
     logger.info("All services started, gathering tasks")
-    await asyncio.gather(t1, t2, t3, t4)
+    await asyncio.gather(*tasks)
 
 
 def main_sync():

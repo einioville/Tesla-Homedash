@@ -114,6 +114,67 @@ class InfluxDBHandler:
 
         return len(values), timestamps, values
 
+    async def read_charger_data_property(
+        self, data_property_id: str, time_start: str, time_end: str
+    ) -> tuple | None:
+        '''
+        Reads a logged charger (myenergi) numeric property's raw history over a time
+        range — the charger analogue of read_tesla_data_property. The only difference
+        is the measurement: myenergi charger points live under "myenergi_data" (written
+        by MyEnergiService), kept separate from "tesla_data" but queryable over the same
+        time window so a charging session's charger energy can be joined to the vehicle's
+        telemetry. Values come back raw and ascending; the caller (ChargingSession) takes
+        the in-window delta/max it needs.
+        Arguments:
+            data_property_id (str): The property id (InfluxDB "id" tag). Validated
+                against _SAFE_ID before interpolation.
+            time_start (str): Flux range start (relative like "-1d" or RFC3339).
+            time_end (str): Flux range stop ("now()" or RFC3339).
+        Returns:
+            tuple | None: (count, timestamps_ms (int64), values (float64)), or None if
+                InfluxDB is unreachable / the query fails / there is no data in range.
+        '''
+        if not _SAFE_ID.match(data_property_id):
+            raise ValueError(f"Invalid data_property_id: {data_property_id!r}")
+
+        query = f'from(bucket:"{self.__bucket}")'
+        query += f"\n  |> range(start: {time_start}, stop: {time_end})"
+        query += '\n  |> filter(fn: (r) => r["_measurement"] == "myenergi_data")'
+        query += f'\n  |> filter(fn: (r) => r["id"] == "{data_property_id}")'
+        query += '\n  |> filter(fn: (r) => r["_field"] == "value_float")'
+        query += '\n  |> keep(columns: ["_time", "_value"])'
+        query += '\n  |> sort(columns: ["_time"])'
+
+        try:
+            result = await self.__client.query_api().query(query=query)
+        except Exception as e:
+            # Same degrade-to-None contract as the tesla reads: an unreachable InfluxDB
+            # or a failed query yields "no data" so a charging-loss computation simply
+            # comes back with NaN charger energy rather than propagating to the caller.
+            logger.warning(
+                "InfluxDB charger history read failed for %s: %s: %s",
+                data_property_id, type(e).__name__, e,
+            )
+            return None
+
+        if len(result) > 1:
+            raise Exception("There was more than one table")
+
+        if len(result) == 0:
+            return None
+
+        table = result[0]
+        records = [r for r in table if r.get_value() is not None]
+        if not records:
+            return None
+
+        timestamps = np.array(
+            [record.get_time().timestamp() * 1000 for record in records], dtype=np.int64
+        )
+        values = np.array([record.get_value() for record in records], dtype=np.float64)
+
+        return len(values), timestamps, values
+
     async def read_last_value_before(
         self, data_property_id: str, stop_time: str
     ) -> float | None:
@@ -407,6 +468,28 @@ class InfluxDBHandler:
         except Exception as e:
             logger.error("Failed to write points to InfluxDB: %s", e)
             raise
+
+    async def write_charger_data(self, points: list) -> None:
+        '''
+        Writes myenergi charger points to InfluxDB. Identical mechanics to
+        write_tesla_data (the measurement is baked into each Point by the caller —
+        MyEnergiService builds Point("myenergi_data") records), kept as a separate
+        method so the charger's write path reads clearly at the call site and can
+        diverge later (e.g. its own retry policy) without touching the tesla path.
+        A failed write is logged and swallowed here — unlike write_tesla_data (whose
+        raise lets Vehicle decide), a charger write must never break the poll loop /
+        live broadcast, so it degrades quietly.
+        Arguments:
+            points (list): InfluxDB Point objects (or None entries, which are dropped).
+        '''
+        valid_points = [p for p in points if p is not None]
+        if len(valid_points) == 0:
+            return
+        try:
+            await self.__client.write_api().write(bucket=self.__bucket, record=valid_points)
+            logger.info("Wrote %d charger points to InfluxDB", len(valid_points))
+        except Exception as e:
+            logger.error("Failed to write charger points to InfluxDB: %s", e)
 
     async def read_first_value_day(self, data_property_id: str):
         if not _SAFE_ID.match(data_property_id):

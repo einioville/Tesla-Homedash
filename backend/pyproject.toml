@@ -15,6 +15,7 @@ dependencies = [
     "numpy>=1.26,<3",
     "python-dotenv>=1.0,<2",
     "python-vlc>=3.0,<4",
+    "pymyenergi>=0.2.3,<1",
     "spotipy>=2.25.2,<3",
     "sympy>=1.12,<2",
     "teslemetry_stream",
@@ -28,7 +29,7 @@ ui-plot = [
 ]
 
 [project.scripts]
-tesla-homedash = "src.tesla_service.start_tesla_services:main_sync"
+backend = "src.start_services:main_sync"
 
 [tool.setuptools.packages.find]
 where = ["."]
