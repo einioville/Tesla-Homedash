@@ -82,9 +82,17 @@ Rectangle {
         }
 
         HistoryGraph {
+            id: historyGraph
             Layout.fillWidth: true
             Layout.fillHeight: true
             unit: propertySelector.selectedUnit
+            // Data props default to the History singleton; the graph no longer
+            // self-subscribes, so drive its reload/live-advance from here.
+            Connections {
+                target: History
+                function onHistoryReady() { historyGraph.reloadFull() }
+                function onLiveTick() { historyGraph.advanceLive() }
+            }
         }
     }
 }

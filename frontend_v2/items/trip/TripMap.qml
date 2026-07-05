@@ -37,6 +37,14 @@ Item {
     // change; the paint step then projects only the on-screen survivors.
     property var decimated: []
 
+    // Graph-inspect mirror: while the user hovers the speed graph, show a heading arrow
+    // at the route position for the inspected time. Bound by TripsView.
+    property bool inspecting: false
+    property real inspectTime: 0
+    // The inspected { lat, lon, bearing } (or null), recomputed as the cursor moves.
+    property var inspectPoint: (inspecting && rawRoute.length > 0)
+                               ? positionAtTime(inspectTime) : null
+
     Plugin {
         id: osmPlugin
         name: "osm"
@@ -137,6 +145,7 @@ Item {
                         ? QtPositioning.coordinate(Trips.routeEnd.latitude, Trips.routeEnd.longitude)
                         : QtPositioning.coordinate(0, 0)
         }
+
     }
 
     // Route overlay. Sibling on top of the map (no input handlers -> gestures fall
@@ -149,6 +158,39 @@ Item {
         onPaint: root.paintRoute()
         onWidthChanged: requestPaint()
         onHeightChanged: requestPaint()
+    }
+
+    // Graph-inspect marker: a heading arrow (same asset as the dashboard car marker) at
+    // the route position for the time the user is inspecting on the speed graph, rotated
+    // to the direction of travel. Rendered as an overlay ABOVE the route Canvas (z 6 >
+    // the Canvas's z 5) so it sits ON TOP of the drawn path — a MapQuickItem would draw
+    // as part of the map, under the Canvas overlay. Projected via map.fromCoordinate
+    // (which references map.center + zoomLevel so it re-projects on every pan/zoom).
+    // Shown only while inspecting.
+    Image {
+        id: inspectMarker
+        source: "qrc:/resources/icons/arrow.svg"
+        width: 28
+        height: 28
+        smooth: true
+        antialiasing: true
+        z: 6
+        visible: root.inspecting && root.inspectPoint !== null && map.mapReady
+        rotation: root.inspectPoint ? root.inspectPoint.bearing : 0
+
+        // Screen position of the inspected fix. Referencing map.center + map.zoomLevel
+        // makes this re-evaluate as the map moves (fromCoordinate alone is not a tracked
+        // dependency), matching how the route Canvas repaints on view changes.
+        property point projected: {
+            var c = map.center
+            var z = map.zoomLevel
+            if (!visible)
+                return Qt.point(-1000, -1000)
+            return map.fromCoordinate(
+                QtPositioning.coordinate(root.inspectPoint.lat, root.inspectPoint.lon), false)
+        }
+        x: projected.x - width / 2
+        y: projected.y - height / 2
     }
 
     // A new route (or a cleared one) arrives from the backend.
@@ -169,7 +211,8 @@ Item {
         var out = []
         if (r) {
             for (var i = 0; i < r.length; ++i)
-                out.push({ lat: r[i].latitude, lon: r[i].longitude, speed: r[i].speed })
+                out.push({ lat: r[i].latitude, lon: r[i].longitude,
+                           speed: r[i].speed, ts: r[i].ts })
         }
         root.rawRoute = out
     }
@@ -244,6 +287,57 @@ Item {
         map.visibleRegion = QtPositioning.rectangle(
             QtPositioning.coordinate(maxLat + latPad, minLon - lonPad),   // top-left
             QtPositioning.coordinate(minLat - latPad, maxLon + lonPad))   // bottom-right
+    }
+
+    // Nearest route fix to an inspected time, with a travel-direction bearing. rawRoute
+    // is ascending by ts, so a binary search finds the surrounding pair and picks the
+    // closer one. Returns { lat, lon, bearing } or null when there's no route.
+    function positionAtTime(t) {
+        var r = root.rawRoute
+        var n = r.length
+        if (n === 0)
+            return null
+        if (t <= r[0].ts)
+            return pointWithBearing(0)
+        if (t >= r[n - 1].ts)
+            return pointWithBearing(n - 1)
+        var lo = 0
+        var hi = n - 1
+        while (lo < hi) {
+            var mid = (lo + hi) >> 1
+            if (r[mid].ts < t)
+                lo = mid + 1
+            else
+                hi = mid
+        }
+        // lo is the first fix at/after t; pick whichever of (lo-1, lo) is nearer in time.
+        var idx = (Math.abs(r[lo - 1].ts - t) <= Math.abs(r[lo].ts - t)) ? (lo - 1) : lo
+        return pointWithBearing(idx)
+    }
+
+    // Build the { lat, lon, bearing } for a fix. Bearing is taken toward the next fix
+    // (or from the previous one at the very end), so the arrow points along the route.
+    function pointWithBearing(idx) {
+        var r = root.rawRoute
+        var n = r.length
+        var a = r[idx]
+        var bearing = 0
+        if (idx + 1 < n)
+            bearing = bearingDeg(a.lat, a.lon, r[idx + 1].lat, r[idx + 1].lon)
+        else if (idx - 1 >= 0)
+            bearing = bearingDeg(r[idx - 1].lat, r[idx - 1].lon, a.lat, a.lon)
+        return { lat: a.lat, lon: a.lon, bearing: bearing }
+    }
+
+    // Initial compass bearing (degrees clockwise from north) from point 1 to point 2 —
+    // matches the arrow.svg convention the dashboard car marker uses (rotation = heading,
+    // 0 = up = north).
+    function bearingDeg(lat1, lon1, lat2, lon2) {
+        var rad = Math.PI / 180
+        var y = Math.sin((lon2 - lon1) * rad) * Math.cos(lat2 * rad)
+        var x = Math.cos(lat1 * rad) * Math.sin(lat2 * rad)
+                - Math.sin(lat1 * rad) * Math.cos(lat2 * rad) * Math.cos((lon2 - lon1) * rad)
+        return (Math.atan2(y, x) / rad + 360) % 360
     }
 
     function paintRoute() {

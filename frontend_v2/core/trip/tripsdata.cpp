@@ -40,6 +40,31 @@ void TripsData::sendTripDetailRequest(qint64 startMs, qint64 endMs) {
     logger.info(QStringLiteral("Trip route requested | id=%1").arg(startMs));
 }
 
+void TripsData::sendTripSummaryRequest(qint64 startMs, qint64 endMs) {
+    QByteArray payload;
+    QDataStream stream(&payload, QIODevice::WriteOnly);
+    stream.setByteOrder(QDataStream::BigEndian);
+    stream << startMs << endMs;
+    m_server->sendPacket(protocol::frame(protocol::TRIP_GET_SUMMARY, payload));
+    logger.info(QStringLiteral("Trip summary requested | id=%1").arg(startMs));
+}
+
+void TripsData::sendTripSeriesRequest(qint64 startMs, qint64 endMs, const QString &propertyId) {
+    QByteArray payload;
+    QDataStream stream(&payload, QIODevice::WriteOnly);
+    stream.setByteOrder(QDataStream::BigEndian);
+    stream << startMs << endMs;
+    // 2-byte length + raw UTF-8 (NOT `stream << idBytes`, which would prefix a 4-byte
+    // QByteArray length and break the id_len(2B)+UTF-8 wire format the backend parses).
+    const QByteArray idBytes = propertyId.toUtf8();
+    stream << static_cast<quint16>(idBytes.size());
+    stream.writeRawData(idBytes.constData(), static_cast<int>(idBytes.size()));
+    m_server->sendPacket(protocol::frame(protocol::TRIP_GET_SERIES, payload));
+    logger.info(QStringLiteral("Trip series requested | id=%1 property=%2")
+                    .arg(startMs)
+                    .arg(propertyId));
+}
+
 void TripsData::requestTrips(double startMs, double endMs) {
     // A new week means no trip is selected yet — drop any route on screen so the
     // map doesn't keep showing the previous week's trip.
@@ -55,6 +80,21 @@ void TripsData::requestRoute(double startMs, double endMs) {
     m_routeEndMs = static_cast<qint64>(endMs);
     setRouteLoading(true);
     sendTripDetailRequest(m_currentTripId, m_routeEndMs);
+}
+
+void TripsData::requestSummary(double startMs, double endMs) {
+    m_summaryTripId = static_cast<qint64>(startMs);
+    m_summaryEndMs = static_cast<qint64>(endMs);
+    setSummaryLoading(true);
+    sendTripSummaryRequest(m_summaryTripId, m_summaryEndMs);
+}
+
+void TripsData::requestSeries(double startMs, double endMs, const QString &propertyId) {
+    m_seriesTripId = static_cast<qint64>(startMs);
+    m_seriesEndMs = static_cast<qint64>(endMs);
+    m_seriesReqPropertyId = propertyId;
+    setSeriesLoading(true);
+    sendTripSeriesRequest(m_seriesTripId, m_seriesEndMs, propertyId);
 }
 
 void TripsData::requestWeekCounts(const QVariantList &weeks) {
@@ -94,6 +134,14 @@ void TripsData::onConnectedChanged() {
         m_server->sendPacket(
             protocol::frame(protocol::TRIP_GET_WEEK_COUNTS, m_lastWeekCountsPayload));
     }
+    if (m_summaryLoading && m_summaryTripId != 0) {
+        logger.info(QStringLiteral("Reconnected — re-requesting trip summary"));
+        sendTripSummaryRequest(m_summaryTripId, m_summaryEndMs);
+    }
+    if (m_seriesLoading && m_seriesTripId != 0 && !m_seriesReqPropertyId.isEmpty()) {
+        logger.info(QStringLiteral("Reconnected — re-requesting trip series"));
+        sendTripSeriesRequest(m_seriesTripId, m_seriesEndMs, m_seriesReqPropertyId);
+    }
 }
 
 void TripsData::clearRoute() {
@@ -104,6 +152,33 @@ void TripsData::clearRoute() {
     m_minLat = m_maxLat = m_minLon = m_maxLon = 0.0;
     setRouteLoading(false);
     emit routeChanged();
+    // A new week has no trip selected, so the stats panel + graph clear too.
+    clearSummaryAndSeries();
+}
+
+void TripsData::clearSummaryAndSeries() {
+    m_summaryTripId = 0;
+    m_summaryEndMs = 0;
+    m_summary.clear();
+    setSummaryLoading(false);
+    emit summaryChanged();
+
+    m_seriesTripId = 0;
+    m_seriesEndMs = 0;
+    m_seriesReqPropertyId.clear();
+    m_seriesPropertyId.clear();
+    m_seriesPoints.clear();
+    // Neutral (non-degenerate) axis bounds — see parseTripSeries: a zero-width range
+    // crashes QtGraphs when the (empty) graph resets its view on clear.
+    m_seriesMinX = 0.0;
+    m_seriesMaxX = 1.0;
+    m_seriesMinY = 0.0;
+    m_seriesMaxY = 1.0;
+    setSeriesLoading(false);
+    emit seriesChanged();
+    // seriesReady drives the graph card's reloadFull(); fire it on clear too so the
+    // graph empties its line (not just the placeholder) when the week/trip is dropped.
+    emit seriesReady();
 }
 
 void TripsData::onPacket(quint8 type, const QByteArray &payload) {
@@ -116,6 +191,12 @@ void TripsData::onPacket(quint8 type, const QByteArray &payload) {
             break;
         case protocol::TRIP_WEEK_COUNTS:
             parseWeekCounts(payload);
+            break;
+        case protocol::TRIP_SUMMARY:
+            parseTripSummary(payload);
+            break;
+        case protocol::TRIP_SERIES:
+            parseTripSeries(payload);
             break;
         default:
             break;  // not ours
@@ -224,14 +305,15 @@ void TripsData::parseTripDetail(const QByteArray &payload) {
             double lat;
             double lon;
             double speed;
-            // ts is read to consume the field but the map colours by speed and
-            // positions by lat/lon, so the timestamp itself is not retained.
             stream >> ts >> lat >> lon >> speed;
 
             QVariantMap point;
             point.insert(QStringLiteral("latitude"), lat);
             point.insert(QStringLiteral("longitude"), lon);
             point.insert(QStringLiteral("speed"), speed);
+            // Timestamp retained (epoch ms as a double) so the graph's inspect cursor
+            // can map an inspected time back to the fix's position on the map.
+            point.insert(QStringLiteral("ts"), static_cast<double>(ts));
             route.append(point);
 
             minLat = qMin(minLat, lat);
@@ -315,4 +397,179 @@ void TripsData::setRouteLoading(bool loading) {
     }
     m_routeLoading = loading;
     emit routeLoadingChanged();
+}
+
+void TripsData::parseTripSummary(const QByteArray &payload) {
+    QDataStream stream(payload);
+    stream.setByteOrder(QDataStream::BigEndian);
+    QIODevice *device = stream.device();
+
+    // trip_id(8) + status(1) + start_ms(8) + end_ms(8) + 7*double(8) = 81 bytes.
+    if (device->bytesAvailable() < 81) {
+        logger.warning(QStringLiteral("Trip-summary frame too short"));
+        setSummaryLoading(false);
+        return;
+    }
+    qint64 tripId;
+    stream >> tripId;
+    // Discard a reply for a trip the user has already switched away from.
+    if (tripId != m_summaryTripId) {
+        logger.debug(QStringLiteral("Dropping stale trip-summary reply for %1").arg(tripId));
+        return;
+    }
+    quint8 status;
+    stream >> status;
+    qint64 startMs;
+    qint64 endMs;
+    stream >> startMs >> endMs;
+    double distanceKm;
+    double avgSpeed;
+    double maxSpeed;
+    double energyWh;
+    double whPerKm;
+    double startSoc;
+    double endSoc;
+    stream >> distanceKm >> avgSpeed >> maxSpeed >> energyWh >> whPerKm >> startSoc >> endSoc;
+
+    QVariantMap summary;
+    summary.insert(QStringLiteral("valid"), status == 1);
+    summary.insert(QStringLiteral("startMs"), static_cast<double>(startMs));
+    summary.insert(QStringLiteral("endMs"), static_cast<double>(endMs));
+    summary.insert(QStringLiteral("distanceKm"), distanceKm);
+    summary.insert(QStringLiteral("avgSpeed"), avgSpeed);
+    summary.insert(QStringLiteral("maxSpeed"), maxSpeed);
+    summary.insert(QStringLiteral("energyWh"), energyWh);
+    summary.insert(QStringLiteral("whPerKm"), whPerKm);
+    summary.insert(QStringLiteral("startSoc"), startSoc);
+    summary.insert(QStringLiteral("endSoc"), endSoc);
+    // SoC used (percentage points), derived from the endpoints; NaN if either is NaN.
+    summary.insert(QStringLiteral("socUsed"), startSoc - endSoc);
+
+    m_summary = summary;
+    setSummaryLoading(false);
+    emit summaryChanged();
+    emit summaryReady();
+    logger.debug(QStringLiteral("Trip summary applied | id=%1 status=%2").arg(tripId).arg(status));
+}
+
+void TripsData::parseTripSeries(const QByteArray &payload) {
+    QDataStream stream(payload);
+    stream.setByteOrder(QDataStream::BigEndian);
+    QIODevice *device = stream.device();
+
+    // trip_id(8) + id_len(2)
+    if (device->bytesAvailable() < 10) {
+        logger.warning(QStringLiteral("Trip-series frame too short (header)"));
+        setSeriesLoading(false);
+        return;
+    }
+    qint64 tripId;
+    stream >> tripId;
+    quint16 idLen;
+    stream >> idLen;
+    if (device->bytesAvailable() < idLen) {
+        logger.warning(QStringLiteral("Trip-series frame too short (id)"));
+        setSeriesLoading(false);
+        return;
+    }
+    QByteArray idBytes(idLen, '\0');
+    stream.readRawData(idBytes.data(), idLen);
+    const QString propertyId = QString::fromUtf8(idBytes);
+
+    // Drop a reply for a trip/property the user has already switched away from (either
+    // key mismatching means a superseded request).
+    if (tripId != m_seriesTripId || propertyId != m_seriesReqPropertyId) {
+        logger.debug(QStringLiteral("Dropping stale trip-series reply for %1/%2")
+                         .arg(tripId)
+                         .arg(propertyId));
+        return;
+    }
+    if (device->bytesAvailable() < 5) {
+        logger.warning(QStringLiteral("Trip-series frame too short (status)"));
+        setSeriesLoading(false);
+        return;
+    }
+    quint8 status;
+    stream >> status;
+    quint32 count;
+    stream >> count;
+
+    QVariantList points;
+    double minX = std::numeric_limits<double>::max();
+    double maxX = std::numeric_limits<double>::lowest();
+    double minY = std::numeric_limits<double>::max();
+    double maxY = std::numeric_limits<double>::lowest();
+
+    if (status == 1) {
+        points.reserve(static_cast<int>(count));
+        for (quint32 i = 0; i < count; ++i) {
+            // ts(8) + value(8) = 16 bytes per point.
+            if (device->bytesAvailable() < 16) {
+                logger.warning(QStringLiteral("Truncated trip-series points at %1").arg(i));
+                break;
+            }
+            qint64 ts;
+            double value;
+            stream >> ts >> value;
+            const double x = static_cast<double>(ts);
+            QVariantMap point;
+            point.insert(QStringLiteral("x"), x);
+            point.insert(QStringLiteral("y"), value);
+            points.append(point);
+
+            minX = qMin(minX, x);
+            maxX = qMax(maxX, x);
+            minY = qMin(minY, value);
+            maxY = qMax(maxY, value);
+        }
+    }
+
+    m_seriesPoints = points;
+    m_seriesPropertyId = propertyId;
+    if (points.isEmpty()) {
+        // Neutral, valid axis bounds so the empty graph still renders. A ValueAxis with
+        // min == max divides by zero mapping data to pixels and crashes QtGraphs, so an
+        // empty series (a property with no records in the trip window) must NOT leave a
+        // zero-width range (mirrors TeslaHistory's empty-bounds handling).
+        m_seriesMinX = 0.0;
+        m_seriesMaxX = 1.0;
+        m_seriesMinY = 0.0;
+        m_seriesMaxY = 1.0;
+    } else {
+        m_seriesMinX = minX;
+        m_seriesMaxX = maxX;
+        m_seriesMinY = minY;
+        m_seriesMaxY = maxY;
+        // A single point (or several sharing one timestamp) leaves minX == maxX — a
+        // zero-width x-range that also crashes QtGraphs. Pad to a non-zero span centred
+        // on the point (y is padded by HistoryGraph's yPad, so only x needs guarding).
+        if (m_seriesMaxX <= m_seriesMinX) {
+            m_seriesMinX -= 60000.0;  // +/- 1 min in ms
+            m_seriesMaxX += 60000.0;
+        }
+    }
+    setSeriesLoading(false);
+    emit seriesChanged();
+    emit seriesReady();
+    logger.debug(QStringLiteral("Trip series applied | id=%1 property=%2 points=%3 status=%4")
+                     .arg(tripId)
+                     .arg(propertyId)
+                     .arg(points.size())
+                     .arg(status));
+}
+
+void TripsData::setSummaryLoading(bool loading) {
+    if (m_summaryLoading == loading) {
+        return;
+    }
+    m_summaryLoading = loading;
+    emit summaryLoadingChanged();
+}
+
+void TripsData::setSeriesLoading(bool loading) {
+    if (m_seriesLoading == loading) {
+        return;
+    }
+    m_seriesLoading = loading;
+    emit seriesLoadingChanged();
 }

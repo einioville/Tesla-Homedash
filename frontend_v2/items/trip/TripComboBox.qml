@@ -24,7 +24,9 @@ ComboBox {
 
     font.family: Theme.fontFamily
     font.pixelSize: 16
-    implicitHeight: 40
+    // Tall enough for two lines: the trip/week labels are long and were being cut off,
+    // so both the field and the popup rows wrap onto a second line.
+    implicitHeight: 52
 
     background: Rectangle {
         radius: 8
@@ -40,13 +42,15 @@ ComboBox {
         font: control.font
         color: Theme.dataLabelValue
         verticalAlignment: Text.AlignVCenter
+        wrapMode: Text.WordWrap
+        maximumLineCount: 2
         elide: Text.ElideRight
     }
 
     delegate: ItemDelegate {
         id: entryDelegate
         width: ListView.view ? ListView.view.width : control.width
-        height: 38
+        height: 52
         required property int index
         required property var modelData
         // Hover / keyboard highlight (NOT the white default) — this is the fix.
@@ -62,6 +66,8 @@ ComboBox {
             font: control.font
             color: Theme.dataLabelValue
             verticalAlignment: Text.AlignVCenter
+            wrapMode: Text.WordWrap
+            maximumLineCount: 2
             elide: Text.ElideRight
         }
     }

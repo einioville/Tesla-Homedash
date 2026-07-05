@@ -71,6 +71,10 @@ qt_add_qml_module(appfrontend_v2
         items/trip/WeekSelector.qml
         items/trip/TripSelector.qml
         items/trip/TripMarker.qml
+        items/trip/TripStatCard.qml
+        items/trip/TripStatsGrid.qml
+        items/trip/TripPropertySelector.qml
+        items/trip/TripGraphCard.qml
         items/history/PropertySelector.qml
         items/history/RangeSelector.qml
         items/history/DateTimePicker.qml

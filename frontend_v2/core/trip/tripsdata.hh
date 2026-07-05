@@ -17,7 +17,8 @@ class ServerClient;
  *    each entry is { tripId, startMs, endMs, distanceKm } (epoch ms as doubles;
  *    distanceKm may be NaN for a trip whose distance could not be computed).
  *  - `route` is the selected trip's GPS path: each entry is { latitude, longitude,
- *    speed } (speed in km/h), consumed by the map's colour-graded polyline.
+ *    speed, ts } (speed in km/h, ts epoch-ms as a double), consumed by the map's
+ *    colour-graded polyline and its inspect marker (ts maps a graph time to a fix).
  *  - `routeMinLat/…MaxLon` bound the route so the map can fit its viewport to it.
  *
  * A TRIP_DETAIL reply echoes its trip id (== start_ms); a reply whose id no longer
@@ -43,6 +44,23 @@ class TripsData : public QObject {
     Q_PROPERTY(QVariantMap weekCounts READ weekCounts NOTIFY weekCountsChanged)
     Q_PROPERTY(bool tripsLoading READ tripsLoading NOTIFY tripsLoadingChanged)
     Q_PROPERTY(bool routeLoading READ routeLoading NOTIFY routeLoadingChanged)
+    // Selected trip's summary stats (the detail panel). A map with `valid` (bool) plus
+    // startMs, endMs, distanceKm, avgSpeed, maxSpeed, energyWh, whPerKm, startSoc,
+    // endSoc, socUsed — any numeric field may be NaN (rendered as "—"). Empty until a
+    // trip is picked; cleared when the week changes.
+    Q_PROPERTY(QVariantMap summary READ summary NOTIFY summaryChanged)
+    Q_PROPERTY(bool summaryLoading READ summaryLoading NOTIFY summaryLoadingChanged)
+    // Selected trip's graph series for the currently-chosen property: seriesPoints is
+    // [{ x: epochMs, y: value }] (same shape History.points uses, so the shared graph
+    // renders it directly); the bounds fit the axes.
+    Q_PROPERTY(QVariantList seriesPoints READ seriesPoints NOTIFY seriesChanged)
+    Q_PROPERTY(int seriesCount READ seriesCount NOTIFY seriesChanged)
+    Q_PROPERTY(double seriesMinX READ seriesMinX NOTIFY seriesChanged)
+    Q_PROPERTY(double seriesMaxX READ seriesMaxX NOTIFY seriesChanged)
+    Q_PROPERTY(double seriesMinY READ seriesMinY NOTIFY seriesChanged)
+    Q_PROPERTY(double seriesMaxY READ seriesMaxY NOTIFY seriesChanged)
+    Q_PROPERTY(QString seriesPropertyId READ seriesPropertyId NOTIFY seriesChanged)
+    Q_PROPERTY(bool seriesLoading READ seriesLoading NOTIFY seriesLoadingChanged)
 
 public:
     explicit TripsData(ServerClient *server, QObject *parent = nullptr);
@@ -59,6 +77,16 @@ public:
     QVariantMap weekCounts() const { return m_weekCounts; }
     bool tripsLoading() const { return m_tripsLoading; }
     bool routeLoading() const { return m_routeLoading; }
+    QVariantMap summary() const { return m_summary; }
+    bool summaryLoading() const { return m_summaryLoading; }
+    QVariantList seriesPoints() const { return m_seriesPoints; }
+    int seriesCount() const { return static_cast<int>(m_seriesPoints.size()); }
+    double seriesMinX() const { return m_seriesMinX; }
+    double seriesMaxX() const { return m_seriesMaxX; }
+    double seriesMinY() const { return m_seriesMinY; }
+    double seriesMaxY() const { return m_seriesMaxY; }
+    QString seriesPropertyId() const { return m_seriesPropertyId; }
+    bool seriesLoading() const { return m_seriesLoading; }
 
     // Ask the backend for the trips whose driving falls within [startMs, endMs]
     // (a week). Clears any drawn route first — a fresh week has no trip selected.
@@ -69,8 +97,15 @@ public:
     // Ask the backend for the trip count of each given week (for the dropdown). Each
     // entry is a { startMs, endMs } map; the reply is matched back by week start.
     Q_INVOKABLE void requestWeekCounts(const QVariantList &weeks);
-    // Drop the drawn route (e.g. when the week selection changes).
+    // Drop the drawn route (e.g. when the week selection changes). Also clears the
+    // summary + graph series, since a new week has no trip selected.
     Q_INVOKABLE void clearRoute();
+    // Ask the backend for the selected trip's summary stats. startMs (the trip id) and
+    // endMs are echoed from the chosen `trips` entry (as for requestRoute).
+    Q_INVOKABLE void requestSummary(double startMs, double endMs);
+    // Ask the backend for one property's history over the selected trip's window (the
+    // detail graph). Echoed startMs/endMs identify the trip; propertyId picks the field.
+    Q_INVOKABLE void requestSeries(double startMs, double endMs, const QString &propertyId);
 
 signals:
     void tripsChanged();
@@ -80,6 +115,12 @@ signals:
     void routeReady();   // fired after a matching TRIP_DETAIL reply is applied
     void tripsLoadingChanged();
     void routeLoadingChanged();
+    void summaryChanged();
+    void summaryReady();   // fired after a matching TRIP_SUMMARY reply is applied
+    void summaryLoadingChanged();
+    void seriesChanged();
+    void seriesReady();    // fired after a matching TRIP_SERIES reply is applied
+    void seriesLoadingChanged();
 
 private slots:
     void onPacket(quint8 type, const QByteArray &payload);
@@ -92,10 +133,17 @@ private:
     void parseTripList(const QByteArray &payload);
     void parseTripDetail(const QByteArray &payload);
     void parseWeekCounts(const QByteArray &payload);
+    void parseTripSummary(const QByteArray &payload);
+    void parseTripSeries(const QByteArray &payload);
     void sendTripListRequest(qint64 startMs, qint64 endMs);
     void sendTripDetailRequest(qint64 startMs, qint64 endMs);
+    void sendTripSummaryRequest(qint64 startMs, qint64 endMs);
+    void sendTripSeriesRequest(qint64 startMs, qint64 endMs, const QString &propertyId);
+    void clearSummaryAndSeries();
     void setTripsLoading(bool loading);
     void setRouteLoading(bool loading);
+    void setSummaryLoading(bool loading);
+    void setSeriesLoading(bool loading);
 
     ServerClient *m_server;
     QVariantList m_trips;
@@ -122,6 +170,28 @@ private:
     bool m_weekCountsPending = false;
     bool m_tripsLoading = false;
     bool m_routeLoading = false;
+
+    // Selected trip's summary stats + the trip id last requested (echoed in
+    // TRIP_SUMMARY; a reply for a different trip is stale and dropped — also the
+    // reconnect-retry key).
+    QVariantMap m_summary;
+    qint64 m_summaryTripId = 0;
+    qint64 m_summaryEndMs = 0;
+    bool m_summaryLoading = false;
+
+    // Selected trip's graph series (for one property) + the request keys. TRIP_SERIES
+    // echoes both the trip id and the property id; a reply mismatching either (the user
+    // switched trip or property) is dropped. Also the reconnect-retry keys.
+    QVariantList m_seriesPoints;
+    double m_seriesMinX = 0.0;
+    double m_seriesMaxX = 0.0;
+    double m_seriesMinY = 0.0;
+    double m_seriesMaxY = 0.0;
+    QString m_seriesPropertyId;   // property id of the applied series (for the graph unit)
+    qint64 m_seriesTripId = 0;
+    qint64 m_seriesEndMs = 0;
+    QString m_seriesReqPropertyId;   // property id last requested (stale-drop + retry)
+    bool m_seriesLoading = false;
 };
 
 #endif  // FRONTEND_V2_TRIPSDATA_HH

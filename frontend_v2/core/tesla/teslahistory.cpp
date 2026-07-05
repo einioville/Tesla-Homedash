@@ -119,8 +119,11 @@ void TeslaHistory::onLiveTick() {
         }
     }
     recomputeBounds(now);
-    emit liveTick();
+    // historyChanged first, then liveTick: the graph's advanceLive() (driven by
+    // liveTick) reads the binding-backed points/bounds, which update on historyChanged,
+    // so the data must be published before the tick fires or the live line lags a tick.
     emit historyChanged();
+    emit liveTick();
 }
 
 void TeslaHistory::recomputeBounds(qint64 nowMs) {

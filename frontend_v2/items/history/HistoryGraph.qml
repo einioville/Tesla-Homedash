@@ -4,7 +4,12 @@ import frontend_v2
 
 // Interactive line graph for one property's history.
 //
-//  - Data, axis bounds and points come from the History singleton.
+//  - Data, axis bounds and point count are DATA-SOURCE-AGNOSTIC: they come from the
+//    pointsData / dataMinX… / dataCount / dataLoading properties, which default to the
+//    History singleton but can be bound to any source (the Trips view feeds them from
+//    the Trips singleton's per-trip series). The owning view drives reloadFull() on a
+//    fresh load and advanceLive() on a live tick, so the graph itself subscribes to no
+//    singleton and two independent instances never share state.
 //  - The visible x-window [viewMinX, viewMaxX] can be panned/zoomed; the y-axis
 //    auto-fits the visible data (with a little padding) so nothing clips. X-axis
 //    labels are deferred; gridlines are off, so only the line shows.
@@ -19,6 +24,20 @@ Item {
     id: root
 
     property string unit: ""
+
+    // The built-in dark-gradient card background. The Trips view sets this false and
+    // supplies its own minimalistic card, so the History view keeps its dashboard card.
+    property bool showBackground: true
+
+    // Data source (defaults to the History singleton; the Trips view overrides these).
+    // pointsData is [{ x: epochMs, y: value }] ascending; the bounds fit the axes.
+    property var pointsData: History.points
+    property real dataMinX: History.minX
+    property real dataMaxX: History.maxX
+    property real dataMinY: History.minY
+    property real dataMaxY: History.maxY
+    property int dataCount: History.pointCount
+    property bool dataLoading: History.loading
 
     // Full extent of the loaded range, and the currently visible sub-window.
     property real fullMinX: 0
@@ -40,8 +59,15 @@ Item {
     readonly property bool viewIsFull:
         Math.abs(viewMinX - fullMinX) < 1 && Math.abs(viewMaxX - fullMaxX) < 1
 
+    // Inspection state, exposed so a host can mirror the cursor elsewhere (the Trips
+    // view drops a marker on the map at the inspected time). inspectTime is the epoch-ms
+    // time under the cursor; only meaningful while `inspecting`.
+    readonly property bool inspecting: overlay.inspecting
+    readonly property real inspectTime: overlay.dataX
+
     GradientCard {
         anchors.fill: parent
+        visible: root.showBackground
         gradientCx: 0.5
         gradientCy: 0.0
     }
@@ -79,28 +105,27 @@ Item {
         }
     }
 
-    // New data resets the view to the full extent and refills the series.
-    Connections {
-        target: History
-        function onHistoryReady() {
-            root.resetView()
-            series.replace(root.buildStepped(History.points))
-        }
-        // Live window advanced one tick: redraw and follow "now" unless the user is
-        // inspecting (then keep their window; the bounds still update so panning
-        // stays clamped to the rolled data). Never resetView here — that would
-        // clobber the user's zoom every second.
-        function onLiveTick() {
-            root.fullMinX = History.minX
-            root.fullMaxX = History.maxX
-            if (!root.userControlled) {
-                root.viewMinX = History.minX
-                root.viewMaxX = History.maxX
-            }
-            series.replace(root.buildStepped(History.points))
-        }
+    // A fresh load: reset the view to the full extent and refill the series. The
+    // owning view calls this when its data source signals new data (History.onHistoryReady
+    // / Trips.onSeriesReady).
+    function reloadFull() {
+        root.resetView()
+        series.replace(root.buildStepped(root.pointsData))
     }
-    Component.onCompleted: if (History.pointCount > 0) { resetView(); series.replace(root.buildStepped(History.points)) }
+    // A live window advanced one tick: redraw and follow "now" unless the user is
+    // inspecting (then keep their window; the bounds still update so panning stays
+    // clamped to the rolled data). Never resetView here — that would clobber the
+    // user's zoom every tick. Only the History view's live mode uses this.
+    function advanceLive() {
+        root.fullMinX = root.dataMinX
+        root.fullMaxX = root.dataMaxX
+        if (!root.userControlled) {
+            root.viewMinX = root.dataMinX
+            root.viewMaxX = root.dataMaxX
+        }
+        series.replace(root.buildStepped(root.pointsData))
+    }
+    Component.onCompleted: if (root.dataCount > 0) { resetView(); series.replace(root.buildStepped(root.pointsData)) }
 
     // Interactive overlay: pointer handlers for inspect + pan/zoom. Sized to the
     // GraphsView so handler positions share the plotArea coordinate space.
@@ -109,7 +134,7 @@ Item {
         anchors.fill: graph
 
         readonly property bool inspecting:
-            History.pointCount > 0 && !pinch.active && !mousePan.active
+            root.dataCount > 0 && !pinch.active && !mousePan.active
             && (hoverH.hovered || touchH.active)
         readonly property real cursorX:
             touchH.active ? touchH.point.position.x : hoverH.point.position.x
@@ -224,7 +249,7 @@ Item {
     // Restore the full extent of the loaded range. Declared after the overlay so
     // its tap is not intercepted by the overlay's handlers.
     TextButton {
-        visible: !root.viewIsFull && History.pointCount > 0
+        visible: !root.viewIsFull && root.dataCount > 0
         anchors.right: graph.right
         anchors.top: graph.top
         anchors.margins: 18
@@ -235,8 +260,8 @@ Item {
     // Placeholder while empty: distinguishes "loading" from "no stored history".
     Text {
         anchors.centerIn: graph
-        visible: History.pointCount === 0
-        text: History.loading ? "Ladataan…" : "Ei dataa"
+        visible: root.dataCount === 0
+        text: root.dataLoading ? "Ladataan…" : "Ei dataa"
         color: Theme.viewLabel
         font.family: Theme.fontFamily
         font.pixelSize: 20
@@ -245,10 +270,10 @@ Item {
     // --- View management ------------------------------------------------------
     function resetView() {
         root.userControlled = false
-        fullMinX = History.minX
-        fullMaxX = History.maxX
-        viewMinX = History.minX
-        viewMaxX = History.maxX
+        fullMinX = root.dataMinX
+        fullMaxX = root.dataMaxX
+        viewMinX = root.dataMinX
+        viewMaxX = root.dataMaxX
     }
     function viewFull() {
         // "Palauta" re-engages live auto-follow.
@@ -355,7 +380,7 @@ Item {
     // Step (hold-forward) lookup: the value at x is that of the most recent point
     // at or before x. Binary search over the ascending raw series.
     function valueAt(dx) {
-        const pts = History.points
+        const pts = root.pointsData
         const n = pts.length
         if (n === 0)
             return NaN
@@ -378,7 +403,7 @@ Item {
     // Min/max y over a time window, including the held edge values so the step
     // line stays inside the re-fitted y-axis. Binary-searches the visible slice.
     function fitY(tMin, tMax) {
-        const pts = History.points
+        const pts = root.pointsData
         const n = pts.length
         if (n === 0)
             return { min: 0, max: 1 }
@@ -401,7 +426,7 @@ Item {
         const yR = valueAt(tMax)
         if (!isNaN(yR)) { mn = Math.min(mn, yR); mx = Math.max(mx, yR) }
         if (mn === Infinity)
-            return { min: History.minY, max: History.maxY }
+            return { min: root.dataMinY, max: root.dataMaxY }
         return { min: mn, max: mx }
     }
 }

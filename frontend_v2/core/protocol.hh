@@ -71,6 +71,14 @@ inline constexpr quint8 TRIP_DETAIL = 0x77;      // B->F: trip_id(8B) + status(1
 inline constexpr quint8 TRIP_GET_WEEK_COUNTS = 0x78;  // F->B: num_weeks(2B) + num_weeks*(week_start_ms(8B) + week_end_ms(8B))
 inline constexpr quint8 TRIP_WEEK_COUNTS = 0x79;      // B->F: num_weeks(2B) + num_weeks*(week_start_ms(8B) + trip_count(2B))
 
+// Per-trip stats + graph (the Trips-view detail panel). Same request/response
+// convention: replied to this client only, trip_id (== start_ms) echoed so a stale
+// reply (after switching trip) is dropped. TRIP_SERIES also echoes the property id.
+inline constexpr quint8 TRIP_GET_SUMMARY = 0x7A;  // F->B: start_ms(8B) + end_ms(8B)
+inline constexpr quint8 TRIP_SUMMARY = 0x7B;      // B->F: trip_id(8B) + status(1B) + start_ms(8B) + end_ms(8B) + 7*double(8B): distance_km, avg_speed, max_speed, energy_wh, wh_per_km, start_soc, end_soc
+inline constexpr quint8 TRIP_GET_SERIES = 0x7C;   // F->B: start_ms(8B) + end_ms(8B) + id(len(2B)+UTF-8)
+inline constexpr quint8 TRIP_SERIES = 0x7D;       // B->F: trip_id(8B) + id(len(2B)+UTF-8) + status(1B) + count(4B) + count*(ts_ms(8B)+value(8B double))
+
 // History request range codes (mirror the backend _RANGE_* and the QML RangeSelector)
 inline constexpr quint8 HISTORY_RANGE_1H = 0;
 inline constexpr quint8 HISTORY_RANGE_1D = 1;

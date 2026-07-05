@@ -108,4 +108,11 @@ QtObject {
     // Start/end route markers: a map-red so they read as pins, distinct from the
     // green→red speed gradient of the route line (the pin shape disambiguates).
     readonly property color tripMarkerColor: "#ff3b30"
+
+    // Minimalistic detail cards (the stat tiles, the selector box and the map/graph
+    // frames): a translucent grey fill with a whiteish border and softer corners than
+    // the dashboard's dark-gradient cards.
+    readonly property color tripCardBg: "#325c5c5c"      // rgba(92, 92, 92, 50)
+    readonly property color tripCardBorder: "#78ffffff"  // rgba(255, 255, 255, 120)
+    readonly property int tripCardRadius: 12
 }
