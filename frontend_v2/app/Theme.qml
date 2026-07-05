@@ -99,12 +99,13 @@ QtObject {
     readonly property color tripControlBar: "#cc1b2230"
     readonly property color tripControlBarBorder: "#33ffffff"
     // Dark-themed ComboBox (week/trip selectors) so the dropdown never flashes the
-    // Basic style's light popup/hover square over the map. Field + popup are dark;
-    // the hover highlight is a muted blue-grey (NOT white).
-    readonly property color tripComboBg: "#66222a3a"
-    readonly property color tripComboPressed: "#99222a3a"
-    readonly property color tripComboPopupBg: "#f21b2230"
-    readonly property color tripComboHover: "#55617a"
+    // Basic style's light popup/hover square over the map. Neutral dark grey so the
+    // dropdowns match the translucent-grey card family (tripCardBg) rather than
+    // clashing as blue; the hover highlight is the card grey (NOT white).
+    readonly property color tripComboBg: "#662c2c2c"
+    readonly property color tripComboPressed: "#992c2c2c"
+    readonly property color tripComboPopupBg: "#f2242424"
+    readonly property color tripComboHover: "#5c5c5c"
     // Start/end route markers: a map-red so they read as pins, distinct from the
     // green→red speed gradient of the route line (the pin shape disambiguates).
     readonly property color tripMarkerColor: "#ff3b30"
