@@ -3,6 +3,9 @@
 > Guidance for working in this repository. These instructions override default behaviour;
 > follow them exactly. Keep this document up to date (see §7.6) and bump the currency
 > marker (§7.7) whenever you change behaviour the doc describes.
+>
+> **At the start of a work session, follow the worktree ritual in §8** — ask what we're doing
+> and a name for it, then spin up an isolated worktree before changing any files.
 
 ## 1. What this project is
 
@@ -583,3 +586,48 @@ of "Ei dataa"). The earlier interactive **History-graph view** (commit `827824d`
 code 4 = 1 week**, and the Qt 6.11 build. The frontend-only live-graph mode (and its per-window tick
 throttle) rides on these codes — out of scope here; see the `frontend_v2` memory.
 When you land changes that touch behaviour documented here, update this line to the new HEAD commit.
+
+## 8. Session workflow — one worktree per session
+
+Parallel Claude Code sessions (or a session running alongside your own manual work) must not
+share a working tree: simultaneous edits, competing git operations, and the single backend port
+**6969** will collide. So each **work session gets its own git worktree on its own branch** and
+lands via a pull request. Pure Q&A / exploration that changes no files skips all of this.
+
+**Start of a work session — ask first, then isolate.**
+1. Before touching files, ask the user two things: **(a) what are we doing this session** and
+   **(b) a short name for it.** Choose the branch **type** from the nature of the work
+   (`feature` / `fix` / `chore` / `docs` / `refactor` / `test` / `perf`); confirm if unsure.
+2. Create the worktree + branch:
+   `powershell -ExecutionPolicy Bypass -File scripts\new-session.ps1 -Type <type> -Name "<name>"`
+   It makes branch `<type>/<slug-of-name>` off the freshest `origin/main`, adds a worktree under
+   `..\Tesla-Homedash-worktrees\<type>-<slug>`, copies the gitignored `.env` + `config.json` into
+   it, and repoints that `.env`'s `CONFIG_PATH` at the worktree's own `config.json`. The final
+   stdout line is `WORKTREE_PATH=<path>`.
+3. Switch the session into it with the **`EnterWorktree`** tool (`path:` = that `WORKTREE_PATH`).
+   From here every edit / build / commit happens in the worktree, isolated from `main` and from
+   any other session.
+
+**During the session** — work as normal, entirely within the worktree. `frontend_v2` needs a
+fresh CMake configure in the worktree before its first build (build dirs are not copied). The
+backend runs standalone there (its `.env` / `config.json` were copied in), but only **one**
+session at a time can run the live backend — port 6969 is fixed, so never run two live stacks.
+
+**Finish — open a PR, then land via GitHub (never a local merge).**
+1. Commit per §7.5 (still only once the user confirms the work is verified), then push:
+   `git push -u origin <type>/<slug>`.
+2. Open the PR with a proper body (summary, reason, manual verification steps, UI screenshots)
+   per §7.5 — e.g. `gh pr create` with the body inline.
+3. After review, merge **on GitHub**: `gh pr merge --squash --delete-branch`. GitHub is the
+   single source of truth — **do not** merge the branch into `main` locally; that diverges local
+   `main` from `origin/main` and makes the PR redundant.
+4. Return + clean up: call **`ExitWorktree`** (action `keep`) to leave the worktree, then
+   `powershell -ExecutionPolicy Bypass -File scripts\finish-session.ps1 -Type <type> -Name "<name>"`.
+   It refuses until the PR reads MERGED (checked via `gh`), then removes the worktree,
+   `checkout main && pull` on the main checkout, deletes the merged local branch, and prunes.
+   (`-Force` skips the merged check for edge cases.)
+
+**Memory caveat.** This project's memories load at session start from the main checkout, *before*
+you switch, so their guidance stays in context for the whole session. But the memory *store*
+follows the working directory, so any durable memory you write during a worktree session must
+target the **main checkout's** project-memory dir, not the worktree's (which is deleted at cleanup).
