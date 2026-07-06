@@ -6,6 +6,11 @@ TESLA_SERVICE = "tesla_service"
 MEDIA_SERVICE = "media_service"
 WEATHER_SERVICE = "weather_service"
 INFLUXDB_SERVICE = "influxdb_service"
+CHARGING_SERVICE = "charging_service"
+MYENERGI_SERVICE = "myenergi_service"
+TRIP_SERVICE = "trip_service"
+SERVER = "server"
+START_SERVICES = "start_services"
 UTILS = "utils"
 
 # ── Format ────────────────────────────────────────────────────────────────────
@@ -18,6 +23,11 @@ _SERVICE_LOGGERS = (
     MEDIA_SERVICE,
     WEATHER_SERVICE,
     INFLUXDB_SERVICE,
+    CHARGING_SERVICE,
+    MYENERGI_SERVICE,
+    TRIP_SERVICE,
+    SERVER,
+    START_SERVICES,
     UTILS,
 )
 
