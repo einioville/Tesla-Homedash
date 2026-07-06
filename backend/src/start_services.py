@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import math
 import os
 import struct
 from datetime import datetime, timezone
@@ -306,12 +307,65 @@ def _build_charging_summary_frame(
     return protocol.frame(protocol.CHARGING_SUMMARY, body)
 
 
+# The month-to-date charging aggregate fields packed (in order) after the status byte.
+# Every value is an IEEE-754 double; a missing metric packs as NaN, rendered "—".
+# charging_cost_eur is filled by the handler from the configured tariff. Unlike the
+# per-session frames there is no echoed window — the month is derived server-side.
+_CHARGING_MONTH_FIELDS = (
+    "charger_kwh", "car_kwh", "wasted_kwh", "efficiency_pct",
+    "car_wh_per_km", "charger_wh_per_km", "driving_kwh", "km_month",
+    "session_count", "total_charge_s", "charging_cost_eur", "home_grid_kwh",
+)
+
+
+def _build_charging_month_frame(summary: dict | None) -> bytes:
+    '''
+    Builds a CHARGING_MONTH response frame from ChargingLoader.month_summary() plus the
+    handler-computed charging_cost_eur. status is 0 when summary is None (a failed
+    computation), else 1; the fixed field block is always written (NaN-filled on status 0)
+    so the payload is a constant size the client parses without branching. Mirrors
+    _build_charging_summary_frame.
+    Arguments:
+        summary (dict | None): The month aggregate dict, or None.
+    '''
+    status = 0 if summary is None else 1
+    body = struct.pack("!B", status)
+    for field in _CHARGING_MONTH_FIELDS:
+        value = summary.get(field, float("nan")) if summary else float("nan")
+        body += struct.pack("!d", float(value))
+    return protocol.frame(protocol.CHARGING_MONTH, body)
+
+
+def _build_charger_history_frame(data_property_id: str, result) -> bytes:
+    '''
+    Builds a CHARGER_HISTORY response frame — one charger power property's raw time series
+    over the requested window (from read_charger_data_property, "myenergi_data"). The
+    echoed id lets the frontend drop a stale reply; status is 0 (no data) when result is
+    None, else 1. Identical shape to _build_history_frame (TESLA_HISTORY), just a
+    different measurement + message type.
+    Arguments:
+        data_property_id (str): The requested charger property id, echoed back.
+        result: (count, timestamps_ms, values) from get_power_history, or None.
+    '''
+    id_bytes = data_property_id.encode("utf-8")
+    body = struct.pack("!H", len(id_bytes)) + id_bytes
+    if result is None:
+        body += struct.pack("!B", 0) + struct.pack("!I", 0)
+        return protocol.frame(protocol.CHARGER_HISTORY, body)
+    count, timestamps, values = result
+    body += struct.pack("!B", 1) + struct.pack("!I", int(count))
+    for timestamp, value in zip(timestamps, values):
+        body += struct.pack("!q", int(timestamp)) + struct.pack("!d", float(value))
+    return protocol.frame(protocol.CHARGER_HISTORY, body)
+
+
 def _register_handlers(
     server: Server,
     mm: MediaManager,
     vehicle: Vehicle,
     trip_loader: TripLoader,
     charging_loader: ChargingLoader,
+    config: Config,
 ) -> None:
     '''
     Maps every frontend->backend message type to the service method that
@@ -565,6 +619,66 @@ def _register_handlers(
             writer, _build_charging_summary_frame(start_ms, start_ms, end_ms, summary)
         )
 
+    async def _get_charging_month(_payload: bytes, writer) -> None:
+        '''
+        Computes the month-to-date charging aggregate (energy, waste, efficiency,
+        consumption/km, sessions, cost, home import) and replies to the requesting client
+        only. The month runs from the 1st (00:00 in the configured timezone) to now. A
+        failed computation replies status=0 rather than no reply, so the stats grid never
+        hangs. The flat tariff (€/kWh from config, or None) turns charger energy into a
+        cost estimate here, keeping pricing out of the loader.
+        '''
+        summary = None
+        try:
+            now = datetime.now(config.zone_info)
+            month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            now_ms = int(now.timestamp() * 1000)
+            month_start_ms = int(month_start.timestamp() * 1000)
+            summary = await charging_loader.month_summary(month_start_ms, now_ms)
+            tariff = config.electricity_price_eur_per_kwh
+            charger_kwh = summary.get("charger_kwh", float("nan"))
+            summary["charging_cost_eur"] = (
+                charger_kwh * tariff
+                if (tariff is not None and not math.isnan(charger_kwh))
+                else float("nan")
+            )
+        except Exception as e:
+            logger.warning("CHARGING_GET_MONTH failed: %s: %s", type(e).__name__, e)
+        await server.send_to(writer, _build_charging_month_frame(summary))
+
+    async def _get_charger_history(payload: bytes, writer) -> None:
+        '''
+        Reads a charger (myenergi) power property's raw history for the requested range
+        and replies to the requesting client only — the Charging view's past-hour graphs.
+        Mirrors _get_history but reads the "myenergi_data" measurement (GridPower /
+        ChargePower, logged every poll). A bad id or unreachable InfluxDB replies status=0
+        (no data) rather than no reply, so the graph never hangs.
+        '''
+        if len(payload) < 3:
+            logger.warning("CHARGER_GET_HISTORY: payload too short (%d bytes)", len(payload))
+            return
+        range_code = payload[0]
+        id_len = struct.unpack("!H", payload[1:3])[0]
+        if len(payload) < 3 + id_len + 16:
+            logger.warning(
+                "CHARGER_GET_HISTORY: payload too short for id_len=%d (%d bytes)",
+                id_len, len(payload),
+            )
+            return
+        data_property_id = payload[3:3 + id_len].decode("utf-8")
+        start_ms, end_ms = struct.unpack("!qq", payload[3 + id_len:3 + id_len + 16])
+
+        time_start, time_end = _history_range(range_code, start_ms, end_ms)
+        result = None
+        try:
+            result = await charging_loader.get_power_history(
+                data_property_id, time_start, time_end
+            )
+        except ValueError as e:
+            # Malformed id — reply empty rather than dropping the request.
+            logger.warning("CHARGER_GET_HISTORY rejected: %s", e)
+        await server.send_to(writer, _build_charger_history_frame(data_property_id, result))
+
     # Handlers receive (payload, writer); fire-and-forget commands ignore the
     # writer, request/response handlers (below) reply to it via server.send_to.
     server.register_handler(protocol.MEDIA_SKIP,                 lambda _p, _w: mm.skip_forward())
@@ -583,6 +697,8 @@ def _register_handlers(
     server.register_handler(protocol.TRIP_GET_SERIES,            _get_trip_series)
     server.register_handler(protocol.CHARGING_GET_LIST,          _get_charging_list)
     server.register_handler(protocol.CHARGING_GET_SUMMARY,       _get_charging_summary)
+    server.register_handler(protocol.CHARGING_GET_MONTH,         _get_charging_month)
+    server.register_handler(protocol.CHARGER_GET_HISTORY,        _get_charger_history)
 
 
 async def main():
@@ -661,7 +777,7 @@ async def main():
         )
 
     # Wire incoming-message dispatch and on-connect snapshot before start().
-    _register_handlers(server, mm, vehicle, trip_loader, charging_loader)
+    _register_handlers(server, mm, vehicle, trip_loader, charging_loader, config)
     services = [vehicle, mm, weather]
     if myenergi is not None:
         services.append(myenergi)

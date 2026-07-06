@@ -14,6 +14,7 @@ All myenergi cloud access is through pymyenergi; all InfluxDB access is through 
 injected InfluxDBHandler.
 '''
 import asyncio
+import json
 import logging
 import struct
 from datetime import datetime, timezone
@@ -56,9 +57,11 @@ _MODE_MAP = {
 
 # InfluxDB ids the charger logs under the "myenergi_data" measurement. ChargeAdded is
 # the one the loss calc requires (charging_service reads it back by this exact id);
-# ChargePower is logged for a charger history graph.
+# ChargePower is logged for a charger history graph; GridPower is the household grid
+# exchange logged alongside them.
 _CHARGE_ADDED_ID = "ChargeAdded"
 _CHARGE_POWER_ID = "ChargePower"
+_GRID_POWER_ID = "GridPower"
 
 
 class MyEnergiService:
@@ -186,12 +189,20 @@ class MyEnergiService:
         mode = self.__zappi.charge_mode
         charge_added = self.__zappi.charge_added
         voltage = self.__zappi.supply_voltage
+        grid_power = self.__zappi.power_grid
+        generated_power = self.__zappi.power_generated
+        frequency = self.__zappi.supply_frequency
+        l1_phase = self.__zappi.l1_phase
+        raw = self.__zappi.data
         power = self.__derive_power(charge_added)
 
-        self.__last_frame = self.__build_frame(status, plug, mode, power, charge_added, voltage)
+        self.__last_frame = self.__build_frame(
+            status, plug, mode, power, charge_added, voltage,
+            grid_power, generated_power, frequency, l1_phase, raw,
+        )
         await self.__server.broadcast(self.__last_frame)
 
-        await self.__maybe_log(status, charge_added, power)
+        await self.__log_poll(status, charge_added, power, grid_power)
         self.__adjust_interval(status)
 
     def __derive_power(self, charge_added) -> float:
@@ -215,29 +226,35 @@ class MyEnergiService:
             self.__last_energy = (float(charge_added), now)
         return power
 
-    async def __maybe_log(self, status, charge_added, power) -> None:
+    async def __log_poll(self, status, charge_added, power, grid_power) -> None:
         '''
-        Writes the charger's session energy + derived power to InfluxDB, but only while a
-        session is active (status Charging, or a non-zero accumulator to catch the tail).
-        Logging idle zeros forever would bloat the measurement, and the loss calc only
-        needs samples spanning a charge. A failed write degrades quietly (the handler
-        swallows it) so it never breaks the poll loop.
+        Writes charger telemetry to InfluxDB every poll. GridPower and ChargePower are
+        logged unconditionally so the Charging view's past-hour graphs and the month-to-
+        date home-consumption integral have gap-free data — ChargePower is derived from
+        ΔChargeAdded, so it reads 0 when idle, which is the correct value for the graph.
+        ChargeAdded (the session accumulator) stays gated to an active session (status
+        Charging, or a non-zero accumulator to catch the tail): logging its idle zeros
+        forever would bloat the measurement, and the loss calc only needs samples spanning
+        a charge. A failed write degrades quietly (the handler swallows it) so it never
+        breaks the poll loop.
         Arguments:
             status: The Zappi status string this poll.
             charge_added: Session energy accumulator (kWh) or None.
             power (float): Derived charge power (W).
+            grid_power (float): Net grid power (W); + import / - export.
         '''
-        if charge_added is None:
-            return
-        is_charging = _STATUS_MAP.get(status) == protocol.CHARGER_STATUS_CHARGING
-        if not is_charging and not (charge_added > 0):
-            return
         when = datetime.now(timezone.utc)
         serial = str(getattr(self.__zappi, "serial_number", "") or self.__zappi_serial or "")
+        # GridPower + ChargePower every poll (gap-free for the graphs / home integral).
         points = [
-            self.__point(serial, _CHARGE_ADDED_ID, float(charge_added), when),
-            self.__point(serial, _CHARGE_POWER_ID, float(power), when),
+            self.__point(serial, _GRID_POWER_ID, float(grid_power or 0.0), when),
+            self.__point(serial, _CHARGE_POWER_ID, float(power or 0.0), when),
         ]
+        # ChargeAdded (accumulator) only while a session is active.
+        if charge_added is not None:
+            is_charging = _STATUS_MAP.get(status) == protocol.CHARGER_STATUS_CHARGING
+            if is_charging or charge_added > 0:
+                points.append(self.__point(serial, _CHARGE_ADDED_ID, float(charge_added), when))
         await self.__influx.write_charger_data(points)
 
     def __point(self, serial: str, prop_id: str, value: float, when: datetime) -> Point:
@@ -274,16 +291,27 @@ class MyEnergiService:
             self.__current_interval = desired
             logger.debug("MyEnergi poll interval -> %ds", desired)
 
-    def __build_frame(self, status, plug, mode, power, charge_added, voltage) -> bytes:
+    def __build_frame(
+        self, status, plug, mode, power, charge_added, voltage,
+        grid_power, generated_power, frequency, l1_phase, raw,
+    ) -> bytes:
         '''
         Serialises the Zappi's live state into a CHARGER_STREAM frame: a sequence of
-        (sub_id + value) pairs (the same extensible shape as WEATHER_FORECAST). Missing
-        readings pack as their zero/UNKNOWN code so the frame is always a fixed layout.
+        (sub_id + value) pairs (the same extensible shape as WEATHER_FORECAST). The
+        fixed-width readings pack as their zero/UNKNOWN code when missing so the layout
+        is stable; the final CHARGER_RAW_JSON sub-id carries the complete raw myenergi
+        payload (length-prefixed) so every un-modelled field is still available frontend-
+        side without a protocol change.
         Arguments:
             status / plug / mode: pymyenergi enum strings (mapped to byte codes).
             power (float): Derived charge power (W).
             charge_added: Session energy accumulator (kWh) or None.
             voltage: Supply voltage (V) or None.
+            grid_power: Net grid power (W); + import / - export, or None.
+            generated_power: Local generation power (W), e.g. solar, or None.
+            frequency: Supply frequency (Hz) or None.
+            l1_phase: Which phase L1 is wired to, or None.
+            raw: The full Zappi.data dict for this poll (or None before first refresh).
         '''
         body = bytes()
         body += struct.pack("!B", protocol.CHARGER_STATUS)
@@ -298,4 +326,34 @@ class MyEnergiService:
         body += struct.pack("!d", float(charge_added or 0.0))
         body += struct.pack("!B", protocol.CHARGER_SUPPLY_VOLTAGE)
         body += struct.pack("!H", max(0, min(65535, int(round(voltage or 0)))))
+        body += struct.pack("!B", protocol.CHARGER_GRID_POWER)
+        body += struct.pack("!d", float(grid_power or 0.0))
+        body += struct.pack("!B", protocol.CHARGER_GENERATED_POWER)
+        body += struct.pack("!d", float(generated_power or 0.0))
+        body += struct.pack("!B", protocol.CHARGER_SUPPLY_FREQUENCY)
+        body += struct.pack("!d", float(frequency or 0.0))
+        body += struct.pack("!B", protocol.CHARGER_L1_PHASE)
+        body += struct.pack("!B", max(0, min(255, int(l1_phase or 0))))
+        body += self.__pack_raw(raw)
         return protocol.frame(protocol.CHARGER_STREAM, body)
+
+    def __pack_raw(self, raw) -> bytes:
+        '''
+        Serialises the complete raw pymyenergi Zappi payload (every field the myenergi
+        API returned this poll, most of which the UI never uses) as a length-prefixed
+        UTF-8 JSON blob under the CHARGER_RAW_JSON sub-id. The 4-byte length keeps it
+        self-delimiting, so a client that doesn't care can skip it and new myenergi
+        fields need no protocol change to reach the frontend. Non-serialisable content
+        degrades to an empty object rather than breaking the frame.
+        Arguments:
+            raw: The Zappi.data dict for this poll (or None before the first refresh).
+        '''
+        try:
+            raw_bytes = json.dumps(raw or {}, separators=(",", ":")).encode("utf-8")
+        except (TypeError, ValueError):
+            raw_bytes = b"{}"
+        return (
+            struct.pack("!B", protocol.CHARGER_RAW_JSON)
+            + struct.pack("!I", len(raw_bytes))
+            + raw_bytes
+        )
