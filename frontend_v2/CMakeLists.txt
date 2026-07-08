@@ -170,6 +170,7 @@ qt_add_resources(appfrontend_v2 "app_resources"
         resources/icons/arrow.svg
         resources/icons/arrow_left.svg
         resources/icons/arrow_right.svg
+        resources/icons/charger.svg
         resources/icons/chart_line.svg
         resources/icons/cooling.png
         resources/icons/greenshadow.png

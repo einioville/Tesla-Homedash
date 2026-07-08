@@ -27,7 +27,7 @@ Window {
         { name: qsTr("Musiikki"), icon: "qrc:/resources/icons/music.svg", component: mediaComponent },
         { name: qsTr("Historia"), icon: "qrc:/resources/icons/chart_line.svg", component: historyComponent },
         { name: qsTr("Matkat"), icon: "qrc:/resources/icons/trip.svg", component: tripsComponent },
-        { name: qsTr("Lataus"), icon: "qrc:/resources/icons/power_on.svg", component: chargingComponent }
+        { name: qsTr("Lataus"), icon: "qrc:/resources/icons/charger.svg", component: chargingComponent }
     ]
     property int currentView: 0
 
