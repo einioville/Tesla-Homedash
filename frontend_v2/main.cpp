@@ -6,6 +6,7 @@
 #include <memory>
 
 #include "core/appconfig.hh"
+#include "core/charging/chargingdata.hh"
 #include "core/logger.hh"
 #include "core/media/mediadata.hh"
 #include "core/media/mediaimageprovider.hh"
@@ -55,6 +56,9 @@ int main(int argc, char* argv[]) {
     // Trip viewer: request/response over the same socket (TRIP_* codes). No live
     // data, so it only needs the ServerClient.
     TripsData tripsData(&serverClient);
+    // Charging view: live CHARGER_STREAM (myenergi) + charger-history / month
+    // request-response over the same socket.
+    ChargingData chargingData(&serverClient);
     auto mediaCache = std::make_shared<MediaImageCache>();
     MediaData mediaData(&serverClient, mediaCache);
     WeatherData weatherData(&serverClient);
@@ -73,6 +77,7 @@ int main(int argc, char* argv[]) {
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "Tesla", &teslaData);
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "History", &teslaHistory);
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "Trips", &tripsData);
+    qmlRegisterSingletonInstance("frontend_v2", 1, 0, "Charging", &chargingData);
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "Media", &mediaData);
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "Weather", &weatherData);
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "Notifications", &notificationHandler);

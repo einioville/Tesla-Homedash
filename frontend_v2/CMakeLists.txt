@@ -21,6 +21,25 @@ set(CMAKE_AUTOMOC ON)
 # code); make MSVC read sources as UTF-8 rather than the system code page.
 add_compile_options($<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
 
+# --- Compiler cache (sccache / ccache) -------------------------------------
+# Reuse compiled objects across builds AND across git worktrees, so a fresh
+# worktree's "clean" rebuild is mostly cache hits. Auto-enabled when sccache or
+# ccache is on PATH; a plain no-op otherwise. On MSVC the cache can only reuse an
+# object when its debug info is embedded (/Z7) rather than written to a shared
+# .pdb (/Zi), so rewrite the default debug flags accordingly.
+find_program(COMPILER_CACHE NAMES sccache ccache)
+if(COMPILER_CACHE)
+    set(CMAKE_CXX_COMPILER_LAUNCHER "${COMPILER_CACHE}")
+    set(CMAKE_C_COMPILER_LAUNCHER "${COMPILER_CACHE}")
+    if(MSVC)
+        foreach(cfg DEBUG RELWITHDEBINFO)
+            string(REPLACE "/Zi" "/Z7" CMAKE_CXX_FLAGS_${cfg} "${CMAKE_CXX_FLAGS_${cfg}}")
+            string(REPLACE "/ZI" "/Z7" CMAKE_CXX_FLAGS_${cfg} "${CMAKE_CXX_FLAGS_${cfg}}")
+        endforeach()
+    endif()
+    message(STATUS "Compiler cache enabled: ${COMPILER_CACHE}")
+endif()
+
 qt_add_executable(appfrontend_v2
     main.cpp
     core/protocol.hh
@@ -38,6 +57,8 @@ qt_add_executable(appfrontend_v2
     core/tesla/teslahistory.cpp
     core/trip/tripsdata.hh
     core/trip/tripsdata.cpp
+    core/charging/chargingdata.hh
+    core/charging/chargingdata.cpp
     core/media/mediaimagecache.hh
     core/media/mediaimageprovider.hh
     core/media/mediadata.hh
@@ -66,6 +87,7 @@ qt_add_qml_module(appfrontend_v2
         views/MediaView.qml
         views/MapView.qml
         views/TripsView.qml
+        views/ChargingView.qml
         items/trip/TripMap.qml
         items/trip/TripComboBox.qml
         items/trip/WeekSelector.qml
@@ -75,6 +97,9 @@ qt_add_qml_module(appfrontend_v2
         items/trip/TripStatsGrid.qml
         items/trip/TripPropertySelector.qml
         items/trip/TripGraphCard.qml
+        items/charging/ChargingGraphCard.qml
+        items/charging/ChargingStatsGrid.qml
+        items/charging/ChargingLiveCard.qml
         items/history/PropertySelector.qml
         items/history/RangeSelector.qml
         items/history/DateTimePicker.qml

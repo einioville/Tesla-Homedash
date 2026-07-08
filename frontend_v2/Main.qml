@@ -26,7 +26,8 @@ Window {
         { name: qsTr("Kartta"), icon: "qrc:/resources/icons/location.svg", component: mapComponent },
         { name: qsTr("Musiikki"), icon: "qrc:/resources/icons/music.svg", component: mediaComponent },
         { name: qsTr("Historia"), icon: "qrc:/resources/icons/chart_line.svg", component: historyComponent },
-        { name: qsTr("Matkat"), icon: "qrc:/resources/icons/trip.svg", component: tripsComponent }
+        { name: qsTr("Matkat"), icon: "qrc:/resources/icons/trip.svg", component: tripsComponent },
+        { name: qsTr("Lataus"), icon: "qrc:/resources/icons/power_on.svg", component: chargingComponent }
     ]
     property int currentView: 0
 
@@ -35,6 +36,7 @@ Window {
     Component { id: mediaComponent; MediaView {} }
     Component { id: historyComponent; HistoryView {} }
     Component { id: tripsComponent; TripsView {} }
+    Component { id: chargingComponent; ChargingView {} }
 
     // --- Dock reveal state ------------------------------------------------
     // 0.0 = dock fully hidden (off-screen), 1.0 = dock fully shown.
