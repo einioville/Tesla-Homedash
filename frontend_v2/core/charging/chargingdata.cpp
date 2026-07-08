@@ -137,8 +137,8 @@ void ChargingData::parseMonth(const QByteArray &payload) {
     stream.setByteOrder(QDataStream::BigEndian);
     QIODevice *device = stream.device();
 
-    // status(1) + 12*double(8) = 97 bytes.
-    if (device->bytesAvailable() < 97) {
+    // status(1) + 13*double(8) = 105 bytes.
+    if (device->bytesAvailable() < 105) {
         logger.warning(QStringLiteral("Charging-month frame too short"));
         setMonthLoading(false);
         return;
@@ -157,9 +157,10 @@ void ChargingData::parseMonth(const QByteArray &payload) {
     double totalChargeS;
     double chargingCostEur;
     double homeGridKwh;
+    double homeCostEur;
     stream >> chargerKwh >> carKwh >> wastedKwh >> efficiencyPct >> carWhPerKm
            >> chargerWhPerKm >> drivingKwh >> kmMonth >> sessionCount >> totalChargeS
-           >> chargingCostEur >> homeGridKwh;
+           >> chargingCostEur >> homeGridKwh >> homeCostEur;
 
     QVariantMap month;
     month.insert(QStringLiteral("valid"), status == 1);
@@ -175,6 +176,7 @@ void ChargingData::parseMonth(const QByteArray &payload) {
     month.insert(QStringLiteral("totalChargeS"), totalChargeS);
     month.insert(QStringLiteral("chargingCostEur"), chargingCostEur);
     month.insert(QStringLiteral("homeGridKwh"), homeGridKwh);
+    month.insert(QStringLiteral("homeCostEur"), homeCostEur);
 
     m_month = month;
     m_monthRequested = false;

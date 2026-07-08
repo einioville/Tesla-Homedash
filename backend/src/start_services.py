@@ -315,6 +315,7 @@ _CHARGING_MONTH_FIELDS = (
     "charger_kwh", "car_kwh", "wasted_kwh", "efficiency_pct",
     "car_wh_per_km", "charger_wh_per_km", "driving_kwh", "km_month",
     "session_count", "total_charge_s", "charging_cost_eur", "home_grid_kwh",
+    "home_cost_eur",
 )
 
 
@@ -640,6 +641,13 @@ def _register_handlers(
             summary["charging_cost_eur"] = (
                 charger_kwh * tariff
                 if (tariff is not None and not math.isnan(charger_kwh))
+                else float("nan")
+            )
+            # Total home electricity cost this month (all grid import * flat tariff).
+            home_grid_kwh = summary.get("home_grid_kwh", float("nan"))
+            summary["home_cost_eur"] = (
+                home_grid_kwh * tariff
+                if (tariff is not None and not math.isnan(home_grid_kwh))
                 else float("nan")
             )
         except Exception as e:

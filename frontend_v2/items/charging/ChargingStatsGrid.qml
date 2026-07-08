@@ -59,11 +59,18 @@ Item {
         }
         TripStatCard {
             Layout.fillWidth: true; Layout.fillHeight: true
-            title: qsTr("Kustannus");       value: root.num(root.s.chargingCostEur, "€", 2)
+            title: qsTr("Latauskulut");     value: root.num(root.s.chargingCostEur, "€", 2)
         }
         TripStatCard {
             Layout.fillWidth: true; Layout.fillHeight: true
             title: qsTr("Kotitalous");      value: root.num(root.s.homeGridKwh, "kWh", 1)
+        }
+        // Total home electricity cost this month (all grid import * flat tariff),
+        // spanning both columns as a footer.
+        TripStatCard {
+            Layout.fillWidth: true; Layout.fillHeight: true
+            Layout.columnSpan: 2
+            title: qsTr("Sähkölasku");      value: root.num(root.s.homeCostEur, "€", 2)
         }
     }
 }

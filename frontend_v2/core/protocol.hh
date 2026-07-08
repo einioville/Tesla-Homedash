@@ -122,7 +122,7 @@ inline constexpr quint8 CHARGING_LIST = 0x81;        // B->F: req_start(8B)+req_
 inline constexpr quint8 CHARGING_GET_SUMMARY = 0x82; // F->B: start_ms(8B) + end_ms(8B)
 inline constexpr quint8 CHARGING_SUMMARY = 0x83;     // B->F: session_id(8B)+status(1B)+start(8B)+end(8B)+9*double
 inline constexpr quint8 CHARGING_GET_MONTH = 0x84;   // F->B: (empty)
-inline constexpr quint8 CHARGING_MONTH = 0x85;       // B->F: status(1B) + 12*double (charger_kwh, car_kwh, wasted_kwh, efficiency_pct, car_wh_per_km, charger_wh_per_km, driving_kwh, km_month, session_count, total_charge_s, charging_cost_eur, home_grid_kwh)
+inline constexpr quint8 CHARGING_MONTH = 0x85;       // B->F: status(1B) + 13*double (charger_kwh, car_kwh, wasted_kwh, efficiency_pct, car_wh_per_km, charger_wh_per_km, driving_kwh, km_month, session_count, total_charge_s, charging_cost_eur, home_grid_kwh, home_cost_eur)
 inline constexpr quint8 CHARGER_GET_HISTORY = 0x86;  // F->B: range_code(1B)+id(len(2B)+UTF-8)+start(8B)+end(8B)
 inline constexpr quint8 CHARGER_HISTORY = 0x87;      // B->F: id(len(2B)+UTF-8)+status(1B)+count(4B)+count*(ts(8B)+value(8B double))
 

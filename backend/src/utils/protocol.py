@@ -148,10 +148,10 @@ CHARGING_SUMMARY = 0x83      # B->F: session_id(8B) + status(1B) + start_ms(8B) 
 # 1st (00:00 in the configured timezone) to now, sums the myenergi-detected sessions and
 # reads the tesla month counters, so the request carries no window.
 CHARGING_GET_MONTH = 0x84  # F->B: (empty)
-CHARGING_MONTH = 0x85      # B->F: status(1B) + 12*double(8B): charger_kwh, car_kwh,
+CHARGING_MONTH = 0x85      # B->F: status(1B) + 13*double(8B): charger_kwh, car_kwh,
                            #       wasted_kwh, efficiency_pct, car_wh_per_km, charger_wh_per_km,
                            #       driving_kwh, km_month, session_count, total_charge_s,
-                           #       charging_cost_eur, home_grid_kwh (any may be NaN)
+                           #       charging_cost_eur, home_grid_kwh, home_cost_eur (any may be NaN)
 
 # Charger (myenergi) telemetry history — the Charging view's past-hour power graphs.
 # Request/response, replied to the requesting client only. Same shape as TESLA_HISTORY,
