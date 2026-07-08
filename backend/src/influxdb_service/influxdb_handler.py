@@ -592,10 +592,11 @@ class InfluxDBHandler:
         query += '\n  |> filter(fn: (r) => r["_measurement"] == "myenergi_data")'
         query += '\n  |> filter(fn: (r) => r["id"] == "GridPower")'
         query += '\n  |> filter(fn: (r) => r["_field"] == "value_float")'
-        query += '\n  |> keep(columns: ["_time", "_value"])'
         query += '\n  |> sort(columns: ["_time"])'
         # Clamp export (negative) to zero so only imported energy is counted, then
-        # integrate W over hours to get Wh.
+        # integrate W over hours to get Wh. NOTE: integral() requires the range's _start
+        # column to stay in the group key, so we must NOT keep()-drop the columns before
+        # integrating (doing so fails with "integral needs _start column").
         query += '\n  |> map(fn: (r) => ({ r with _value: if r._value < 0.0 then 0.0 else r._value }))'
         query += '\n  |> integral(unit: 1h)'
 

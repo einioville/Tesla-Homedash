@@ -131,14 +131,20 @@ def segment_sessions(
     return windows
 
 
-def _window_max(charger, window_start_ms: int, window_end_ms: int) -> float:
+def _window_energy(charger, window_start_ms: int, window_end_ms: int) -> float:
     '''
     Computes a session window's charger energy (kWh) from an already-read ChargeAdded
-    series, without another query: the maximum sample inside [window_start, window_end]
-    (ChargeAdded is an accumulator that ramps from 0 to the session total). NaN when the
-    series is missing or holds no sample inside the window (a session at another
-    charger) — matching the per-session read's NaN so min-energy filtering behaves
-    identically. The charging analogue of trip_service._window_distance.
+    series, without another query: the SUM OF POSITIVE INCREMENTS of the accumulator
+    inside [window_start, window_end]. ChargeAdded ramps up as energy is delivered and
+    only drops when the myenergi charger begins a new session, so summing its positive
+    steps is the energy actually delivered in the window — robust to the accumulator
+    CARRYING a non-zero value into the window (a physical charge whose start Tesla did not
+    yet report as "charging", so it falls outside the detected session) or RESETTING
+    inside it. The earlier in-window MAX over-counted both cases by the carried/earlier
+    peak (e.g. a 16.6 kWh session that had only delivered 5.6 kWh in its window). NaN when
+    the series is missing or holds fewer than two samples in the window (nothing to
+    difference — e.g. a session at another charger), matching the old NaN so the
+    min-energy filter still drops those. The charging analogue of _window_distance.
     Arguments:
         charger (tuple | None): (count, timestamps_ms, values) from
             read_charger_data_property(ChargeAdded, ...), ascending by time, or None.
@@ -151,10 +157,11 @@ def _window_max(charger, window_start_ms: int, window_end_ms: int) -> float:
     if count == 0 or len(values) == 0:
         return float("nan")
     low = int(np.searchsorted(timestamps, window_start_ms, side="left"))
-    high = int(np.searchsorted(timestamps, window_end_ms, side="right")) - 1
-    if low > high or low >= count or high < 0:
+    high = int(np.searchsorted(timestamps, window_end_ms, side="right"))
+    segment = values[low:high]
+    if len(segment) < 2:
         return float("nan")
-    return float(values[low:high + 1].max())
+    return float(np.clip(np.diff(segment), 0.0, None).sum())
 
 
 class ChargingLoader:
@@ -226,7 +233,7 @@ class ChargingLoader:
 
         sessions = []
         for window_start, window_end, in_progress in windows:
-            charger_kwh = _window_max(charger, window_start, window_end)
+            charger_kwh = _window_energy(charger, window_start, window_end)
             # Drop sub-threshold and no-charger-data sessions: the losses view is about
             # THIS charger, so a session with no comparable Zappi energy (charged
             # elsewhere / DC) or a trivial top-up is not listed. NaN < threshold is
