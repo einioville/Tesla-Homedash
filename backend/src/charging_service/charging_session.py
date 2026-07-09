@@ -32,7 +32,11 @@ from datetime import datetime, timezone
 
 import numpy as np
 
+from .spot_price import price_hourly_energy
+
 logger = logging.getLogger("charging_service.charging_session")
+
+_HOUR_MS = 3_600_000
 
 # InfluxDB "id" tags this module reads. The charger ids are written by
 # MyEnergiService under the "myenergi_data" measurement; the tesla ids are logged by
@@ -95,6 +99,34 @@ def _positive_increment(result) -> float:
     return float(np.clip(np.diff(values), 0.0, None).sum())
 
 
+def bucket_positive_increments_by_hour(timestamps_ms, values) -> dict:
+    '''
+    Buckets an accumulator series' positive increments (kWh) by the UTC hour they fell in —
+    the per-hour version of _positive_increment, so charging energy can be priced against
+    each hour's spot price. Each increment (ChargeAdded step between two samples) is
+    attributed to the UTC hour of the *later* sample; since ChargeAdded is logged ~10 s
+    apart while charging, an interval almost never straddles an hour boundary, so no
+    sub-step splitting is needed. Pure/testable: no I/O. Fewer than two samples -> {}.
+    Arguments:
+        timestamps_ms: Ascending epoch-ms sample times (int64 array/sequence).
+        values: The accumulator value (kWh) at each sample, same length.
+    Returns:
+        dict: {utc_hour_start_ms: energy_kwh} — only hours with delivered energy appear.
+    '''
+    if timestamps_ms is None or values is None or len(timestamps_ms) < 2:
+        return {}
+    ts = np.asarray(timestamps_ms, dtype=np.int64)
+    vals = np.asarray(values, dtype=np.float64)
+    increments = np.clip(np.diff(vals), 0.0, None)
+    hours = (ts[1:] // _HOUR_MS) * _HOUR_MS
+    result: dict[int, float] = {}
+    for hour, increment in zip(hours, increments):
+        if increment > 0.0:
+            key = int(hour)
+            result[key] = result.get(key, 0.0) + float(increment)
+    return result
+
+
 def _first(result) -> float:
     '''First value of a series, or NaN if empty/missing.'''
     values = _series_values(result)
@@ -130,15 +162,30 @@ class ChargingSession:
             session still in progress), epoch-ms UTC.
         in_progress (bool): True if the car was still charging at the query-window end
             (no stop observed yet).
+        spot_provider (SpotPriceProvider | None): Supplies the hourly Nord Pool spot price
+            for the session's cost estimate. None (or a disabled provider) -> cost falls
+            back to flat_tariff, or NaN if that is also None.
+        flat_tariff (float | None): Flat €/kWh fallback used for any hour with no spot
+            price (and the whole cost when spot pricing is off). None -> unpriced hours are
+            uncounted.
     '''
 
-    def __init__(self, influx_handler, start_ms: int, end_ms: int, in_progress: bool = False):
+    def __init__(
+        self, influx_handler, start_ms: int, end_ms: int, in_progress: bool = False,
+        spot_provider=None, flat_tariff: float | None = None,
+    ):
         self.__influx = influx_handler
         self.__start_ms = int(start_ms)
         self.__end_ms = int(end_ms)
         self.__in_progress = in_progress
+        self.__spot_provider = spot_provider
+        self.__flat_tariff = flat_tariff
         self.__summary: dict | None = None
         self.__charger_kwh: float | None = None
+        # Optional (timestamps_ms, values) of the window's ChargeAdded series, seeded by
+        # ChargingLoader from its single bulk read so the cost path buckets by hour without
+        # a re-read. None -> summary() reads the series itself (the single-session path).
+        self.__charger_series: tuple | None = None
 
     @property
     def session_id(self) -> int:
@@ -160,13 +207,69 @@ class ChargingSession:
     def seed_charger_kwh(self, value: float) -> None:
         '''
         Seeds the cached charger energy from a value computed elsewhere (ChargingLoader
-        reads the whole span's ChargeAdded once and takes each window's in-memory max),
-        so charger_kwh()/summary() don't re-read it per session. NaN when the window
-        held no charger sample (a session at another charger).
+        reads the whole span's ChargeAdded once and sums each window's positive
+        increments), so charger_kwh()/summary() don't re-read it per session. NaN when the
+        window held no charger sample (a session at another charger).
         Arguments:
             value (float): The session's delivered energy in kWh (may be NaN).
         '''
         self.__charger_kwh = value
+
+    def seed_charger_series(self, timestamps_ms, values) -> None:
+        '''
+        Seeds the window's raw ChargeAdded series (already sliced out of ChargingLoader's
+        single bulk read) so summary()'s cost path can bucket delivered energy by hour
+        without a second query. Optional — the single-session detail path leaves it unset
+        and summary() reads the series itself.
+        Arguments:
+            timestamps_ms: Ascending epoch-ms sample times for this window.
+            values: The ChargeAdded accumulator value (kWh) at each sample.
+        '''
+        self.__charger_series = (timestamps_ms, values)
+
+    async def __hourly_charger_kwh(self) -> dict:
+        '''
+        Returns the session's delivered energy bucketed by UTC hour ({hour_ms: kWh}) for
+        the spot-price cost path. Uses the seeded window series when present (the month
+        path), else reads the ChargeAdded series for the window once (the detail path).
+        Empty when no charger data covers the window.
+        '''
+        if self.__charger_series is not None:
+            timestamps_ms, values = self.__charger_series
+        else:
+            result = await self.__influx.read_charger_data_property(
+                CHARGER_ENERGY_ID, to_flux_time(self.__start_ms), to_flux_time(self.__end_ms)
+            )
+            if result is None:
+                return {}
+            _count, timestamps_ms, values = result
+        return bucket_positive_increments_by_hour(timestamps_ms, values)
+
+    async def __cost(self, charger_kwh: float) -> tuple:
+        '''
+        Computes (cost_eur, avg_price_eur_per_kwh) for the session: its delivered energy
+        bucketed by UTC hour, each hour priced at that hour's all-in spot price, with a
+        per-hour fallback to the flat tariff. cost is NaN when neither a spot price nor a
+        flat tariff can price any hour; avg price is cost / delivered energy.
+        Arguments:
+            charger_kwh (float): The session's total delivered energy (for the average).
+        '''
+        provider = self.__spot_provider
+        spot_active = provider is not None and provider.enabled
+        if not spot_active and self.__flat_tariff is None:
+            # Nothing can price this session — skip the extra read entirely.
+            return float("nan"), float("nan")
+        hourly = await self.__hourly_charger_kwh()
+        prices: dict = {}
+        if provider is not None and provider.enabled:
+            prices = await provider.prices_for_range(self.__start_ms, self.__end_ms)
+        cost_eur = price_hourly_energy(hourly, prices, self.__flat_tariff)
+        avg_price = (
+            cost_eur / charger_kwh
+            if (not math.isnan(cost_eur) and not math.isnan(charger_kwh) and charger_kwh > 0)
+            else float("nan")
+        )
+        return cost_eur, avg_price
 
     async def charger_kwh(self) -> float:
         '''
@@ -190,12 +293,14 @@ class ChargingSession:
 
     async def summary(self) -> dict:
         '''
-        Computes (and caches) the session's loss breakdown. Charger energy is the
-        in-window max of the myenergi accumulator; AC-in / DC-in / battery energies are
-        deltas of the vehicle's in-window series; SoC is read at the window endpoints.
-        Losses are simple differences, each NaN if either operand is missing — so a
-        session with no charger data (charged elsewhere) reports NaN losses rather than
-        a fabricated number. duration is wall-clock (start to end).
+        Computes (and caches) the session's loss breakdown and cost. Charger energy is the
+        sum of the myenergi accumulator's positive increments in the window; AC-in / DC-in
+        / battery energies are deltas of the vehicle's in-window series; SoC is read at the
+        window endpoints. Losses are simple differences, each NaN if either operand is
+        missing — so a session with no charger data (charged elsewhere) reports NaN losses
+        rather than a fabricated number. cost_eur prices the delivered energy per UTC hour
+        against the hourly spot price (falling back to the flat tariff); avg_price_eur_per_kwh
+        is cost / delivered energy. duration is wall-clock (start to end).
         '''
         if self.__summary is not None:
             return self.__summary
@@ -223,6 +328,8 @@ class ChargingSession:
             else float("nan")
         )
 
+        cost_eur, avg_price_eur_per_kwh = await self.__cost(charger_kwh)
+
         self.__summary = {
             "session_id": self.__start_ms,
             "start_ms": self.__start_ms,
@@ -238,6 +345,8 @@ class ChargingSession:
             "loss_total_pct": loss_total_pct,
             "start_soc": _first(soc),
             "end_soc": _last(soc),
+            "cost_eur": cost_eur,
+            "avg_price_eur_per_kwh": avg_price_eur_per_kwh,
             "in_progress": self.__in_progress,
         }
         logger.debug(

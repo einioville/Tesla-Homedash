@@ -2,7 +2,7 @@ from influxdb_client.client.influxdb_client_async import InfluxDBClientAsync
 import logging
 import re
 import numpy as np
-from datetime import datetime
+from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 from ..utils.config_parser import get_env
 
@@ -12,7 +12,58 @@ _SAFE_ID = re.compile(r'^[A-Za-z0-9_\-]+$')
 # 5m, 1h, 30d).
 _SAFE_WINDOW = re.compile(r'^[1-9][0-9]*[smhd]$')
 
+_HOUR_MS = 3_600_000
+
 logger = logging.getLogger("influxdb_service.influxdb_handler")
+
+
+def _ms_to_flux_z(timestamp_ms: int) -> str:
+    '''Epoch-ms -> the RFC3339 'Z' string a Flux range() accepts.'''
+    return (
+        datetime.fromtimestamp(timestamp_ms / 1000, tz=timezone.utc)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
+
+
+def integrate_power_series_hourly(timestamps_ms, values) -> dict:
+    '''
+    Trapezoidally integrates a power (W) time series into energy (kWh) bucketed by UTC hour.
+    Each sample interval is split at hour boundaries and the (linearly interpolated) power
+    at each slice's endpoints is trapezoided, so energy lands in the hour it was actually
+    drawn — the per-hour analogue of Flux integral(unit: 1h). Negative power (grid export)
+    is clamped to zero first, so only imported energy ("energy bought") is counted. Pure/
+    testable: no I/O. Fewer than two samples -> {}.
+    Arguments:
+        timestamps_ms: Ascending epoch-ms sample times (int64 array/sequence).
+        values: Power in W at each sample (float array/sequence), same length.
+    Returns:
+        dict: {utc_hour_start_ms: energy_kwh} for every hour the series spans.
+    '''
+    ts = np.asarray(timestamps_ms, dtype=np.int64)
+    clamped = np.clip(np.asarray(values, dtype=np.float64), 0.0, None)
+    n = len(ts)
+    result: dict[int, float] = {}
+    for i in range(n - 1):
+        t0 = int(ts[i])
+        t1 = int(ts[i + 1])
+        if t1 <= t0:
+            continue
+        p0 = float(clamped[i])
+        p1 = float(clamped[i + 1])
+        span = t1 - t0
+        a = t0
+        while a < t1:
+            hour = (a // _HOUR_MS) * _HOUR_MS
+            b = min(t1, hour + _HOUR_MS)
+            # Power linearly interpolated at the slice endpoints, then trapezoided
+            # (exact for a linear segment). W * (ms / 3.6e6) -> Wh; /1000 -> kWh.
+            pa = p0 + (p1 - p0) * (a - t0) / span
+            pb = p0 + (p1 - p0) * (b - t0) / span
+            wh = (pa + pb) / 2.0 * (b - a) / _HOUR_MS
+            result[hour] = result.get(hour, 0.0) + wh / 1000.0
+            a = b
+    return result
 
 
 class InfluxDBHandler:
@@ -174,6 +225,33 @@ class InfluxDBHandler:
         values = np.array([record.get_value() for record in records], dtype=np.float64)
 
         return len(values), timestamps, values
+
+    async def read_grid_import_kwh_hourly(self, start_ms: int, end_ms: int) -> dict | None:
+        '''
+        Reads the logged grid power (myenergi "GridPower", W) over [start_ms, end_ms] and
+        integrates it into imported energy (kWh) bucketed by UTC hour — the per-hour input
+        the spot-price cost path needs (each hour's kWh × that hour's price). Reuses the
+        raw read_charger_data_property("GridPower", …) read and integrates in Python
+        (integrate_power_series_hourly), rather than a Flux windowed integral(): it reuses
+        the existing safe read and keeps the bucketing unit-testable. Only import (positive
+        power) is counted, so grid export doesn't subtract. The month total is just
+        sum(result.values()). Degrades to None on an unreachable/failed query or a window
+        with fewer than two samples.
+        Arguments:
+            start_ms (int): Window start, epoch-ms UTC.
+            end_ms (int): Window end, epoch-ms UTC.
+        Returns:
+            dict | None: {utc_hour_start_ms: kwh}, or None.
+        '''
+        result = await self.read_charger_data_property(
+            "GridPower", _ms_to_flux_z(start_ms), _ms_to_flux_z(end_ms)
+        )
+        if result is None:
+            return None
+        count, timestamps, values = result
+        if count < 2:
+            return None
+        return integrate_power_series_hourly(timestamps, values)
 
     async def read_last_value_before(
         self, data_property_id: str, stop_time: str
@@ -568,54 +646,3 @@ class InfluxDBHandler:
         value = table.records[0].get_value()
         logger.debug("First value of month for %s: %s", data_property_id, value)
         return value
-
-    async def read_grid_import_kwh_month(self) -> float | None:
-        '''
-        Integrates the logged grid power (myenergi "GridPower", W) over the current
-        calendar month (from the 1st, 00:00 in the configured timezone) into energy (kWh),
-        counting only import (positive power) so grid export does not subtract from
-        "energy bought" — the Charging view's month-to-date home grid-import figure. Uses
-        Flux integral(unit: 1h) (W integrated over hours -> Wh), converted to kWh. Relies
-        on GridPower being logged every poll (MyEnergiService), so the integral has a dense
-        series to trapezoid over. Degrades to None on an unreachable/failed query or a
-        month with no samples yet, matching the other reads' contract.
-        Returns:
-            float | None: Imported energy this month in kWh, or None.
-        '''
-        month_start = datetime.now(self.__timezone).replace(
-            day=1, hour=0, minute=0, second=0, microsecond=0
-        ).isoformat()
-
-        # "GridPower" is a fixed literal id (not caller input), so no _SAFE_ID needed.
-        query = f'from(bucket:"{self.__bucket}")'
-        query += f'\n  |> range(start: {month_start})'
-        query += '\n  |> filter(fn: (r) => r["_measurement"] == "myenergi_data")'
-        query += '\n  |> filter(fn: (r) => r["id"] == "GridPower")'
-        query += '\n  |> filter(fn: (r) => r["_field"] == "value_float")'
-        query += '\n  |> sort(columns: ["_time"])'
-        # Clamp export (negative) to zero so only imported energy is counted, then
-        # integrate W over hours to get Wh. NOTE: integral() requires the range's _start
-        # column to stay in the group key, so we must NOT keep()-drop the columns before
-        # integrating (doing so fails with "integral needs _start column").
-        query += '\n  |> map(fn: (r) => ({ r with _value: if r._value < 0.0 then 0.0 else r._value }))'
-        query += '\n  |> integral(unit: 1h)'
-
-        try:
-            result = await self.__client.query_api().query(query=query)
-        except Exception as e:
-            logger.warning(
-                "InfluxDB grid-import-month read failed: %s: %s", type(e).__name__, e
-            )
-            return None
-
-        if len(result) == 0:
-            return None
-
-        table = result[0]
-        if not table.records:
-            return None
-
-        value = table.records[0].get_value()
-        if value is None:
-            return None
-        return float(value) / 1000.0  # Wh -> kWh

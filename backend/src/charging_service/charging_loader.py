@@ -16,6 +16,7 @@ import math
 import numpy as np
 
 from .charging_session import CHARGER_ENERGY_ID, ChargingSession, to_flux_time
+from .spot_price import price_hourly_energy
 
 logger = logging.getLogger("charging_service.charging_loader")
 
@@ -170,19 +171,27 @@ class ChargingLoader:
     Arguments:
         influx_handler (InfluxDBHandler): Shared data-access layer. Never queries the
             client directly — only its typed read methods.
-        config (Config): Provides myenergi_config (minSessionEnergyKwh, sessionMergeMinutes).
+        config (Config): Provides myenergi_config (minSessionEnergyKwh, sessionMergeMinutes)
+            and the flat electricityPriceEurPerKwh fallback tariff.
+        spot_provider (SpotPriceProvider | None): Hourly Nord Pool spot pricing for session
+            and month cost. Passed into every ChargingSession; None -> flat-tariff pricing.
     '''
 
     CHARGE_STATE_ID = "DetailedChargeState"
 
-    def __init__(self, influx_handler, config):
+    def __init__(self, influx_handler, config, spot_provider=None):
         self.__influx = influx_handler
+        self.__spot_provider = spot_provider
+        self.__flat_tariff = config.electricity_price_eur_per_kwh
         myenergi_config = config.myenergi_config
         self.__merge_ms = int(myenergi_config["sessionMergeMinutes"]) * 60 * 1000
         self.__min_energy_kwh = float(myenergi_config["minSessionEnergyKwh"])
         logger.info(
-            "ChargingLoader initialized: merge_gap=%s min, min_energy=%.2f kWh",
+            "ChargingLoader initialized: merge_gap=%s min, min_energy=%.2f kWh, "
+            "spot_pricing=%s, flat_tariff=%s",
             myenergi_config["sessionMergeMinutes"], self.__min_energy_kwh,
+            self.__spot_provider is not None and self.__spot_provider.enabled,
+            "unset" if self.__flat_tariff is None else f"{self.__flat_tariff:.4f}",
         )
 
     async def list_sessions(self, start_ms: int, end_ms: int) -> list:
@@ -245,14 +254,41 @@ class ChargingLoader:
                     self.__min_energy_kwh, window_start,
                 )
                 continue
-            session = ChargingSession(self.__influx, window_start, window_end, in_progress)
+            session = ChargingSession(
+                self.__influx, window_start, window_end, in_progress,
+                spot_provider=self.__spot_provider, flat_tariff=self.__flat_tariff,
+            )
             session.seed_charger_kwh(charger_kwh)
+            # Seed the window's ChargeAdded slice from the bulk read too, so the session's
+            # cost path buckets energy by hour without a second query (mirrors the scalar
+            # seed above; both come from the one read this method already did).
+            self.__seed_series(session, charger, window_start, window_end)
             sessions.append(session)
 
         logger.info(
             "Detected %d charging session(s) in [%s, %s]", len(sessions), start_ms, end_ms
         )
         return sessions
+
+    def __seed_series(self, session, charger, window_start_ms: int, window_end_ms: int) -> None:
+        '''
+        Slices the window's ChargeAdded samples out of the bulk-read series and seeds them
+        onto the session, so its cost path buckets delivered energy by hour without a
+        second query. A no-op when no charger series was read (a priced session then reads
+        its own window). Uses the same left/right searchsorted bounds as _window_energy so
+        the seeded slice matches the seeded scalar energy exactly.
+        Arguments:
+            session (ChargingSession): The session to seed.
+            charger (tuple | None): (count, timestamps_ms, values) bulk read, or None.
+            window_start_ms (int): Session window start, epoch-ms UTC.
+            window_end_ms (int): Session window end, epoch-ms UTC.
+        '''
+        if charger is None:
+            return
+        _count, timestamps, values = charger
+        low = int(np.searchsorted(timestamps, window_start_ms, side="left"))
+        high = int(np.searchsorted(timestamps, window_end_ms, side="right"))
+        session.seed_charger_series(timestamps[low:high], values[low:high])
 
     async def load_summary(self, start_ms: int, end_ms: int) -> dict | None:
         '''
@@ -270,7 +306,10 @@ class ChargingLoader:
         '''
         if end_ms <= start_ms:
             return None
-        session = ChargingSession(self.__influx, start_ms, end_ms)
+        session = ChargingSession(
+            self.__influx, start_ms, end_ms,
+            spot_provider=self.__spot_provider, flat_tariff=self.__flat_tariff,
+        )
         return await session.summary()
 
     async def get_power_history(self, data_property_id: str, time_start: str, time_end: str):
@@ -299,16 +338,18 @@ class ChargingLoader:
         session's summary()), so charger vs car energy stay apples-to-apples over the same
         session set. Distance and driving energy are the tesla lifetime counters' month
         deltas (Odometer / LifetimeEnergyUsed, the same first-of-month baseline
-        DrivenThisMonth uses); the home grid import is the month integral of positive
-        GridPower. Every field degrades to NaN when its source is missing, so a partial-
-        data month still yields a well-formed record. Cost is added by the request handler
-        (it owns the tariff).
+        DrivenThisMonth uses); the home grid import is the per-hour integral of positive
+        GridPower, summed. Both cost fields are computed here (the loader owns the spot
+        provider + flat tariff): charging_cost_eur = Σ per-session spot-priced cost;
+        home_cost_eur = Σ hour_kwh × that hour's spot price. Every field degrades to NaN
+        when its source is missing, so a partial-data month still yields a well-formed record.
         Arguments:
             start_ms (int): Month start (1st, 00:00 local), epoch-ms UTC.
             end_ms (int): Now, epoch-ms UTC.
         Returns:
             dict: The month aggregate (energy, waste, efficiency, consumption/km,
-                sessions, charge time, home import), each value a float (may be NaN).
+                sessions, charge time, cost, home import + cost), each value a float
+                (may be NaN).
         '''
         sessions = await self.list_sessions(start_ms, end_ms)
 
@@ -316,6 +357,8 @@ class ChargingLoader:
         battery_sum = 0.0
         battery_count = 0
         charge_time_s = 0.0
+        cost_sum = 0.0
+        cost_count = 0
         for session in sessions:
             summary = await session.summary()
             # list_sessions already dropped NaN-charger sessions, so charger_kwh is real.
@@ -325,6 +368,13 @@ class ChargingLoader:
                 battery_sum += battery_kwh
                 battery_count += 1
             charge_time_s += summary["duration_s"]
+            # Month charging cost = Σ per-session spot-priced cost (each session already
+            # priced its energy per hour). A NaN session cost (unpriceable) is skipped so
+            # one gap doesn't void the month, matching how car_kwh handles missing battery.
+            session_cost = summary["cost_eur"]
+            if not math.isnan(session_cost):
+                cost_sum += session_cost
+                cost_count += 1
 
         session_count = len(sessions)
         charger_kwh = charger_sum if session_count > 0 else float("nan")
@@ -356,16 +406,32 @@ class ChargingLoader:
             else float("nan")
         )
 
-        home_grid_kwh = await self.__influx.read_grid_import_kwh_month()
-        if home_grid_kwh is None:
+        charging_cost_eur = cost_sum if cost_count > 0 else float("nan")
+
+        # Whole-home grid import + its cost, priced per UTC hour. One hourly read yields
+        # both the total (Σ hours) and the cost (Σ hour_kwh × that hour's spot price, per-
+        # hour flat-tariff fallback) — no separate month integral.
+        hourly_home = await self.__influx.read_grid_import_kwh_hourly(start_ms, end_ms)
+        if hourly_home:
+            home_grid_kwh = float(sum(hourly_home.values()))
+            home_prices: dict = {}
+            if self.__spot_provider is not None and self.__spot_provider.enabled:
+                home_prices = await self.__spot_provider.prices_for_range(start_ms, end_ms)
+            home_cost_eur = price_hourly_energy(hourly_home, home_prices, self.__flat_tariff)
+        else:
             home_grid_kwh = float("nan")
+            home_cost_eur = float("nan")
 
         logger.info(
-            "Month charging summary: sessions=%d charger=%s kWh car=%s kWh eff=%s%%",
+            "Month charging summary: sessions=%d charger=%s kWh car=%s kWh eff=%s%% "
+            "charging_cost=%s home=%s kWh home_cost=%s",
             session_count,
             "n/a" if math.isnan(charger_kwh) else f"{charger_kwh:.2f}",
             "n/a" if math.isnan(car_kwh) else f"{car_kwh:.2f}",
             "n/a" if math.isnan(efficiency_pct) else f"{efficiency_pct:.1f}",
+            "n/a" if math.isnan(charging_cost_eur) else f"{charging_cost_eur:.2f}€",
+            "n/a" if math.isnan(home_grid_kwh) else f"{home_grid_kwh:.1f}",
+            "n/a" if math.isnan(home_cost_eur) else f"{home_cost_eur:.2f}€",
         )
         return {
             "charger_kwh": charger_kwh,
@@ -378,7 +444,9 @@ class ChargingLoader:
             "km_month": km_month,
             "session_count": float(session_count),
             "total_charge_s": charge_time_s,
+            "charging_cost_eur": charging_cost_eur,
             "home_grid_kwh": home_grid_kwh,
+            "home_cost_eur": home_cost_eur,
         }
 
     async def __month_delta(self, data_property_id: str, now_iso: str) -> float:
