@@ -59,7 +59,9 @@ backend/
       trip.py, trip_loader.py     # On-demand trip detection from stored telemetry (the Trips view)
     charging_service/
       charging_loader.py          # On-demand charging-session detection (DetailedChargeState segmentation)
-      charging_session.py         # Per-session energy + loss breakdown (charger vs AC-in vs battery)
+      charging_session.py         # Per-session energy + loss breakdown (charger vs AC-in vs battery) + spot cost
+      spot_price.py               # SpotPriceProvider — Nord Pool FI spot price fetch/cache/convert (sähkötin.fi) + pricing helpers
+      spot_price_service.py       # SpotPriceService — hourly live spot-price broadcast (SPOT_PRICE_STREAM)
     myenergi_service/
       myenergi_service.py         # myenergi Zappi cloud poll → CHARGER_STREAM broadcast + myenergi_data logging
     influxdb_service/
@@ -200,7 +202,13 @@ Parsed once by `Config` and injected into every service. Keys:
 - `trip` (optional) — trip-detection tunables: `min_stop_minutes`, `min_trip_distance_km`.
 - `electricityPriceEurPerKwh` (optional) — flat €/kWh tariff for the Charging view's cost tiles
   (`Latauskulut` = charging cost, `Sähkölasku` = total home electricity cost); `null`/absent → "—".
-  Spot/hourly (Nord Pool) pricing is tracked in issue #12.
+  Now a **fallback**: used per-hour when spot pricing is off or a given hour has no spot price.
+- `spotPrice` (optional, issue #12) — Nord Pool FI hourly spot pricing for the cost tiles + the live
+  price tile: `enabled` (master switch; `false` → flat-tariff pricing, no live service),
+  `vatPercent` (Finnish electricity VAT, default `25.5`), `marginCentsPerKwh` (seller margin c/kWh
+  added before VAT), `baseUrl` (the no-key sähkötin.fi range endpoint; swappable for another source).
+  All-in €/kWh for an hour = `(spot + marginCentsPerKwh/100) × (1 + vatPercent/100)`. Prices are
+  fetched on demand (no self-logging) — historical hours price past sessions retroactively.
 
 ### Frontend environment variables (read only by `AppConfig::load()`)
 All optional; defaults match the embedded target.
@@ -261,11 +269,12 @@ payload[1..N-1] = type-specific data
 | `0x80` | CHARGING_GET_LIST | F→B | `start_ms(8B) + end_ms(8B)` |
 | `0x81` | CHARGING_LIST | B→F | `req_start(8B)+req_end(8B)+count(2B)` + count×(`start(8B)+end(8B)+charger_kwh(8B double)`) |
 | `0x82` | CHARGING_GET_SUMMARY | F→B | `start_ms(8B) + end_ms(8B)` |
-| `0x83` | CHARGING_SUMMARY | B→F | `session_id(8B)+status(1B)+start(8B)+end(8B)` + 9×`double` (per-session losses) |
+| `0x83` | CHARGING_SUMMARY | B→F | `session_id(8B)+status(1B)+start(8B)+end(8B)` + 11×`double` (per-session losses + `cost_eur` + `avg_price_eur_per_kwh`) |
 | `0x84` | CHARGING_GET_MONTH | F→B | (empty) |
 | `0x85` | CHARGING_MONTH | B→F | `status(1B)` + 13×`double` (month aggregate — see below) |
 | `0x86` | CHARGER_GET_HISTORY | F→B | `range_code(1B) + id_len(2B)+id + start_ms(8B) + end_ms(8B)` |
 | `0x87` | CHARGER_HISTORY | B→F | `id_len(2B)+id + status(1B) + count(4B)` + count×(`ts_ms(8B)+value(8B double)`) — reads `myenergi_data` |
+| `0x88` | SPOT_PRICE_STREAM | B→F | live spot price broadcast: `status(1B) + hour_start_ms(8B) + spot(8B double) + all_in(8B double)` (raw wholesale + VAT/margin all-in €/kWh; both NaN when status 0) |
 
 (Trip codes `0x74`–`0x7D` — the Trips view — are omitted from this table; they mirror the History
 request/response shape. See the `frontend_v2` memory.)
@@ -295,9 +304,11 @@ the Zappi's live state, a weather-style sequence of `sub_id(1B) + value` pairs: 
 `0x5F` the full raw pymyenergi payload as `len(4B)+UTF-8 JSON` (every field, most unused — the one
 length-prefixed sub-id, so an unknown fixed-width sub-id can't be skipped and stops the parse). The
 `0x80`–`0x87` codes are **request/response** (reply to the requesting client only), served by
-`charging_service` from stored telemetry + `myenergi_data`. `CHARGING_MONTH`'s 13 doubles, in order:
+`charging_service` from stored telemetry + `myenergi_data`; `0x88` (`SPOT_PRICE_STREAM`) is a
+**broadcast** of the live hourly spot price (see §5.2.7). `CHARGING_MONTH`'s 13 doubles, in order:
 charger_kwh, car_kwh, wasted_kwh, efficiency_pct, car_wh_per_km, charger_wh_per_km, driving_kwh,
 km_month, session_count, total_charge_s, charging_cost_eur, home_grid_kwh, home_cost_eur (any → NaN → "—").
+Both cost fields are now **spot-priced per hour** (flat-tariff fallback) — see §5.2.7.
 
 **Adding a telemetry field** — update these in sync:
 1. `config.json` `tesla data` — new entry with a unique `stream_id`.
@@ -439,9 +450,10 @@ dropping the leading null windows, but is currently unused), and `read_last_valu
 `last()` query bounded by `stop` — the held value before an empty window, used to boundary-fill the
 History graph with a flat line). For the myenergi charger it adds `write_charger_data` (the
 `myenergi_data` measurement), `read_charger_data_property` (raw charger history), and
-`read_grid_import_kwh_month` (a positive-`GridPower` `integral()` → the month's home grid import;
-`integral()` needs the range's `_start` column, so do **not** `keep()`-drop columns before it). Read
-failures degrade to `None` rather than crashing the app. **Talks to:** InfluxDB,
+`read_grid_import_kwh_hourly` (reuses the raw `GridPower` read + the module-level pure
+`integrate_power_series_hourly` — a trapezoidal per-UTC-hour integral, export clamped to 0 → a
+`{utc_hour_ms: kwh}` map; the month home-import total is `sum(...)` and the spot-cost path dots it
+with hourly prices). Read failures degrade to `None` rather than crashing the app. **Talks to:** InfluxDB,
 `Vehicle`. *Flux queries interpolate `data_property_id` via f-strings gated by the `_SAFE_ID` regex
 `^[A-Za-z0-9_\-]+$`, and `aggregate_window` by `_SAFE_WINDOW` (`^[1-9][0-9]*[smhd]$`) — keep both
 guards; they're the only thing preventing injection if non-config input ever reaches these paths.*
@@ -471,8 +483,21 @@ guards; they're the only thing preventing injection if non-config input ever rea
   in the window** (NOT the in-window max: the myenergi accumulator can carry a value in from charging
   that predates the Tesla-detected session, so a max double-counts — this was a real bug). `month_summary`
   sums the sessions' charger/battery energy + the tesla month-counter deltas (`LifetimeEnergyUsed`,
-  `Odometer`) for consumption/km; the `CHARGING_GET_MONTH` handler multiplies energy by the flat
-  `electricityPriceEurPerKwh` tariff for the cost tiles. **Talks to:** `InfluxDBHandler`, `Server`.
+  `Odometer`) for consumption/km. **Talks to:** `InfluxDBHandler`, `Server`.
+- **Spot pricing (issue #12).** **`spot_price.py`** (`SpotPriceProvider`) fetches Nord Pool FI hourly
+  spot prices from the no-key **sähkötin.fi** range endpoint (`?start&end`, raw €/MWh, UTC hours),
+  converts to an all-in `(spot + margin) × (1 + VAT)` €/kWh, and caches immutable past hours — so a
+  session from days ago is priced retroactively **without self-logging prices**. The module also holds
+  the pure pricing helper `price_hourly_energy` (dot energy-by-hour with price, flat-tariff fallback).
+  Cost now lives in the **loader/session** (not the month handler): `ChargingSession.summary()` buckets
+  its `ChargeAdded` increments by UTC hour (`bucket_positive_increments_by_hour`) and prices each →
+  `cost_eur`/`avg_price_eur_per_kwh`; `month_summary` sums session costs (`charging_cost_eur`) and
+  prices the hourly home import (`home_cost_eur`), each falling back per-hour to the flat
+  `electricityPriceEurPerKwh` tariff (→ NaN → "—" when neither is available). **`spot_price_service.py`**
+  (`SpotPriceService`) is a thin always-on `WeatherService`-style broadcaster: it re-broadcasts the
+  current hour's price as `SPOT_PRICE_STREAM` (`0x88`) hourly + snapshots it on connect. Always
+  constructed (works with no Zappi); `run()` no-ops when `spotPrice.enabled` is false. **Talks to:**
+  sähkötin.fi (aiohttp), `InfluxDBHandler`, `Server`.
 
 ### 5.3 Frontend
 
@@ -646,16 +671,22 @@ a new/renamed service or widget, a protocol change, a build-command change, or a
 invariant. Treat the doc as part of the change, not an afterthought, and bump §7.7.
 
 ### 7.7 Documentation currency
-This guide and `README.md` are current as of commit **`966a04a`** ("Add: fixed-price electricity
-cost"), the head of the **charging-stats** work on `feature/charging-stats-backend`: the myenergi
-Zappi integration (`myenergi_service`, `CHARGER_STREAM` `0x50`, `myenergi_data` logging), the
-on-demand **charging-session analysis** (`charging_service`; `CHARGING_*` / `CHARGER_HISTORY`
-`0x80`–`0x87`), the **month-to-date aggregate** (`CHARGING_MONTH`, 13 doubles) and the **flat-tariff
-cost tiles** (`electricityPriceEurPerKwh`; spot pricing is issue #12). Per-session charger energy is
-the **sum of positive `ChargeAdded` increments** (not the in-window max — that double-counted). The
-frontend_v2 "Lataus" view consumes these (out of scope here; see the `frontend_v2` memory). The
-earlier History-graph **empty-window boundary-fill** (`1184b60` / `cc11bb8`) and the `0x70`–`0x73`
-request/response protocol + `(payload, writer)` handler signature (`827824d`) still apply.
+This guide and `README.md` are current as of the **spot-price cost** work on
+`feature/spot-price-cost` (issue #12), which builds on the charging-stats backend: **hourly Nord Pool
+FI spot pricing** for the Charging view's cost tiles + a live current-price tile. New backend modules
+`charging_service/spot_price.py` (`SpotPriceProvider` — no-key sähkötin.fi fetch/cache/convert, all-in
+`(spot + margin) × (1 + VAT)`, retroactive/historical) and `spot_price_service.py` (`SpotPriceService`
+— hourly `SPOT_PRICE_STREAM` `0x88` broadcast). Cost moved from the `CHARGING_GET_MONTH` handler into
+the loader/session: sessions bucket `ChargeAdded` by UTC hour and price each hour; `month_summary`
+sums session costs + prices the hourly home import (new `read_grid_import_kwh_hourly` +
+`integrate_power_series_hourly`, replacing `read_grid_import_kwh_month`). The flat
+`electricityPriceEurPerKwh` is now a per-hour fallback. `CHARGING_SUMMARY` `0x83` grew to **11 doubles**
+(+`cost_eur`, +`avg_price_eur_per_kwh`); `CHARGING_MONTH` `0x85` unchanged (13 doubles, now spot-valued).
+New `spotPrice` config block. Pure cost math is unit-tested in `backend/tests/test_spot_price.py`.
+Predecessor work — the **charging-stats** backend (`966a04a`; myenergi `CHARGER_STREAM` `0x50`,
+`CHARGING_*`/`CHARGER_HISTORY` `0x80`–`0x87`, per-session energy = **sum of positive `ChargeAdded`
+increments**), the History **empty-window boundary-fill** (`1184b60`/`cc11bb8`), and the `0x70`–`0x73`
+request/response + `(payload, writer)` handler signature (`827824d`) — still applies.
 When you land changes that touch behaviour documented here, update this line to the new HEAD commit.
 
 ## 8. Session workflow — main checkout by default, worktree only for parallelism
