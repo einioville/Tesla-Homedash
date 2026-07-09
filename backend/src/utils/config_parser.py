@@ -92,6 +92,19 @@ class Config:
         "sessionMergeMinutes": 5,
     }
 
+    # Spot-price tunables (issue #12). Like the myenergi block, not a REQUIRED_KEY: a
+    # gitignored config.json may omit it and the stack must still start. A partial
+    # "spotPrice" block is merged over these per-key (see spot_price_config). No secret
+    # here — the sähkötin.fi source needs no API key. When "enabled" is false (or the
+    # block is absent) the Charging view falls back to the flat electricityPriceEurPerKwh
+    # tariff. All-in €/kWh for an hour = (spot + marginCentsPerKwh/100) * (1 + vatPercent/100).
+    _SPOT_PRICE_DEFAULTS = {
+        "enabled": True,
+        "vatPercent": 25.5,
+        "marginCentsPerKwh": 0.0,
+        "baseUrl": "https://sahkotin.fi/prices",
+    }
+
     def __init__(self, config_path: str):
         if not config_path:
             raise RuntimeError("Config path is empty or None")
@@ -217,3 +230,17 @@ class Config:
           the surrounding session rather than splitting it (the charging analogue of
           the trip block's min_stop_minutes).'''
         return {**self._MYENERGI_DEFAULTS, **self.__data.get("myenergi", {})}
+
+    @property
+    def spot_price_config(self) -> dict:
+        '''Nord Pool spot-price tunables (issue #12), with defaults filled in for any
+        missing key so a fully or partially absent "spotPrice" block is safe:
+        - enabled: master switch. False -> the Charging view keeps using the flat
+          electricityPriceEurPerKwh tariff and no live-price service runs.
+        - vatPercent: Finnish electricity VAT applied on top of the wholesale price
+          (25.5% since 2024-09-01).
+        - marginCentsPerKwh: the seller's fixed margin (c/kWh) added to the raw spot
+          price before VAT, approximating a real spot contract's energy price.
+        - baseUrl: the sähkötin.fi range endpoint; config-driven so an alternate
+          no-key source (e.g. sahkonhintatanaan.fi) can be swapped in without code.'''
+        return {**self._SPOT_PRICE_DEFAULTS, **self.__data.get("spotPrice", {})}

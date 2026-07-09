@@ -392,5 +392,11 @@
         "pollIntervalActiveSeconds": 10,
         "minSessionEnergyKwh": 0.5,
         "sessionMergeMinutes": 5
+    },
+    "spotPrice": {
+        "enabled": true,
+        "vatPercent": 25.5,
+        "marginCentsPerKwh": 0.0,
+        "baseUrl": "https://sahkotin.fi/prices"
     }
 }
