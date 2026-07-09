@@ -79,6 +79,53 @@ inline constexpr quint8 TRIP_SUMMARY = 0x7B;      // B->F: trip_id(8B) + status(
 inline constexpr quint8 TRIP_GET_SERIES = 0x7C;   // F->B: start_ms(8B) + end_ms(8B) + id(len(2B)+UTF-8)
 inline constexpr quint8 TRIP_SERIES = 0x7D;       // B->F: trip_id(8B) + id(len(2B)+UTF-8) + status(1B) + count(4B) + count*(ts_ms(8B)+value(8B double))
 
+// MyEnergi (Zappi) charger live stream (backend -> frontend broadcast). A sequence of
+// (sub_id(1B) + value) pairs; each fixed-width sub_id implies its value width. The one
+// variable-width sub_id, CHARGER_RAW_JSON, is length-prefixed (4B). Mirror of protocol.py.
+inline constexpr quint8 CHARGER_STREAM = 0x50;
+inline constexpr quint8 CHARGER_STATUS = 0x51;            // uint8 (CHARGER_STATUS_*)
+inline constexpr quint8 CHARGER_PLUG_STATUS = 0x52;       // uint8 (CHARGER_PLUG_*)
+inline constexpr quint8 CHARGER_MODE = 0x53;              // uint8 (CHARGER_MODE_*)
+inline constexpr quint8 CHARGER_CHARGE_POWER = 0x54;      // float64 W
+inline constexpr quint8 CHARGER_SESSION_ENERGY = 0x55;    // float64 kWh
+inline constexpr quint8 CHARGER_SUPPLY_VOLTAGE = 0x56;    // uint16 V
+inline constexpr quint8 CHARGER_GRID_POWER = 0x57;        // float64 W (+import/-export)
+inline constexpr quint8 CHARGER_GENERATED_POWER = 0x58;   // float64 W (solar/PV)
+inline constexpr quint8 CHARGER_SUPPLY_FREQUENCY = 0x59;  // float64 Hz
+inline constexpr quint8 CHARGER_L1_PHASE = 0x5A;          // uint8
+inline constexpr quint8 CHARGER_RAW_JSON = 0x5F;          // len(4B) + UTF-8 JSON (full raw Zappi payload)
+
+// CHARGER_STATUS enum (maps pymyenergi Zappi.status)
+inline constexpr quint8 CHARGER_STATUS_UNKNOWN = 0;
+inline constexpr quint8 CHARGER_STATUS_PAUSED = 1;
+inline constexpr quint8 CHARGER_STATUS_CHARGING = 2;
+inline constexpr quint8 CHARGER_STATUS_COMPLETED = 3;
+// CHARGER_PLUG_STATUS enum
+inline constexpr quint8 CHARGER_PLUG_UNKNOWN = 0;
+inline constexpr quint8 CHARGER_PLUG_DISCONNECTED = 1;
+inline constexpr quint8 CHARGER_PLUG_CONNECTED = 2;
+inline constexpr quint8 CHARGER_PLUG_WAITING = 3;
+inline constexpr quint8 CHARGER_PLUG_READY = 4;
+inline constexpr quint8 CHARGER_PLUG_CHARGING = 5;
+inline constexpr quint8 CHARGER_PLUG_FAULT = 6;
+// CHARGER_MODE enum
+inline constexpr quint8 CHARGER_MODE_UNKNOWN = 0;
+inline constexpr quint8 CHARGER_MODE_FAST = 1;
+inline constexpr quint8 CHARGER_MODE_ECO = 2;
+inline constexpr quint8 CHARGER_MODE_ECO_PLUS = 3;
+inline constexpr quint8 CHARGER_MODE_STOPPED = 4;
+
+// Charging-losses / month request/response + charger telemetry history (the Charging
+// view). All replied to this client only. Keep in lockstep with protocol.py.
+inline constexpr quint8 CHARGING_GET_LIST = 0x80;    // F->B: start_ms(8B) + end_ms(8B)
+inline constexpr quint8 CHARGING_LIST = 0x81;        // B->F: req_start(8B)+req_end(8B)+count(2B)+count*(start(8B)+end(8B)+charger_kwh(8B))
+inline constexpr quint8 CHARGING_GET_SUMMARY = 0x82; // F->B: start_ms(8B) + end_ms(8B)
+inline constexpr quint8 CHARGING_SUMMARY = 0x83;     // B->F: session_id(8B)+status(1B)+start(8B)+end(8B)+9*double
+inline constexpr quint8 CHARGING_GET_MONTH = 0x84;   // F->B: (empty)
+inline constexpr quint8 CHARGING_MONTH = 0x85;       // B->F: status(1B) + 13*double (charger_kwh, car_kwh, wasted_kwh, efficiency_pct, car_wh_per_km, charger_wh_per_km, driving_kwh, km_month, session_count, total_charge_s, charging_cost_eur, home_grid_kwh, home_cost_eur)
+inline constexpr quint8 CHARGER_GET_HISTORY = 0x86;  // F->B: range_code(1B)+id(len(2B)+UTF-8)+start(8B)+end(8B)
+inline constexpr quint8 CHARGER_HISTORY = 0x87;      // B->F: id(len(2B)+UTF-8)+status(1B)+count(4B)+count*(ts(8B)+value(8B double))
+
 // History request range codes (mirror the backend _RANGE_* and the QML RangeSelector)
 inline constexpr quint8 HISTORY_RANGE_1H = 0;
 inline constexpr quint8 HISTORY_RANGE_1D = 1;

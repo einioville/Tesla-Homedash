@@ -186,6 +186,14 @@ class Config:
         return self.__data["spotifyMarket"]
 
     @property
+    def electricity_price_eur_per_kwh(self) -> float | None:
+        '''Flat electricity tariff (EUR/kWh) for the Charging view's cost estimate, or
+        None when not configured (the cost tile then shows "—"). Optional and non-secret;
+        spot/hourly pricing is a separate future feature.'''
+        value = self.get("electricityPriceEurPerKwh")
+        return float(value) if value is not None else None
+
+    @property
     def trip_config(self) -> dict:
         '''Trip-detection tunables (issue #5), with defaults filled in for any
         missing key so a fully or partially absent "trip" block is safe:

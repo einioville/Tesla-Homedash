@@ -9,8 +9,11 @@ injected InfluxDBHandler and computes the per-session metrics on demand, caching
 result.
 
 The loss model uses three energy readings over the same window:
-  - charger_kwh  : energy the Zappi delivered this session (myenergi "ChargeAdded",
-                   an accumulator that ramps from 0 — so the in-window MAX is the total)
+  - charger_kwh  : energy the Zappi delivered this session (myenergi "ChargeAdded", an
+                   accumulator — the SUM OF ITS POSITIVE INCREMENTS in the window, which
+                   is robust to the accumulator carrying a value in from charging that
+                   predates the detected session, or resetting mid-window; a plain max
+                   over-counts both)
   - ac_in_kwh    : AC energy the car's onboard charger took in (Tesla
                    "ACChargingEnergyIn", a lifetime counter — so the in-window DELTA)
   - battery_kwh  : energy that actually reached the pack (Tesla "EnergyRemaining"
@@ -26,6 +29,8 @@ partial-data session still yields a well-formed record.
 import logging
 import math
 from datetime import datetime, timezone
+
+import numpy as np
 
 logger = logging.getLogger("charging_service.charging_session")
 
@@ -77,10 +82,17 @@ def _delta(result) -> float:
     return float(values[-1] - values[0])
 
 
-def _max(result) -> float:
-    '''Maximum of a series (an accumulator's in-window peak), or NaN if empty.'''
+def _positive_increment(result) -> float:
+    '''
+    Sum of an accumulator series' positive increments over the read window (kWh) — the
+    energy delivered, robust to the accumulator carrying a non-zero value into the window
+    or resetting inside it (a plain in-window max over-counts both cases). NaN when the
+    series has fewer than two samples (nothing to difference).
+    '''
     values = _series_values(result)
-    return float(values.max()) if values is not None else float("nan")
+    if values is None or len(values) < 2:
+        return float("nan")
+    return float(np.clip(np.diff(values), 0.0, None).sum())
 
 
 def _first(result) -> float:
@@ -158,12 +170,13 @@ class ChargingSession:
 
     async def charger_kwh(self) -> float:
         '''
-        Computes (and caches) just the charger-delivered energy (kWh): the in-window
-        MAX of the myenergi ChargeAdded accumulator (it ramps from 0 to the session
-        total). Split out from summary() so the session-list path — which only needs
-        this for its min-energy filter and the CHARGING_LIST record — can skip the
-        other reads summary() performs. summary() reuses this value. NaN when no
-        charger sample falls in the window.
+        Computes (and caches) just the charger-delivered energy (kWh): the SUM OF POSITIVE
+        INCREMENTS of the myenergi ChargeAdded accumulator over the window (robust to the
+        accumulator carrying a value in from before the detected session, or resetting
+        inside it — a plain max over-counts both). Split out from summary() so the
+        session-list path — which only needs this for its min-energy filter and the
+        CHARGING_LIST record — can skip the other reads summary() performs. summary()
+        reuses this value. NaN when fewer than two charger samples fall in the window.
         '''
         if self.__charger_kwh is not None:
             return self.__charger_kwh
@@ -172,7 +185,7 @@ class ChargingSession:
         charger = await self.__influx.read_charger_data_property(
             CHARGER_ENERGY_ID, start_iso, end_iso
         )
-        self.__charger_kwh = _max(charger)
+        self.__charger_kwh = _positive_increment(charger)
         return self.__charger_kwh
 
     async def summary(self) -> dict:

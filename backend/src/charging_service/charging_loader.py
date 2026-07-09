@@ -19,6 +19,12 @@ from .charging_session import CHARGER_ENERGY_ID, ChargingSession, to_flux_time
 
 logger = logging.getLogger("charging_service.charging_loader")
 
+# Tesla lifetime counters read for the month-to-date consumption figures — the same ids
+# and first-of-month baseline DrivenThisMonth uses. Odometer is stored in km (its formula
+# is applied on write); LifetimeEnergyUsed is stored raw in kWh.
+ODOMETER_ID = "Odometer"
+DRIVING_ENERGY_ID = "LifetimeEnergyUsed"
+
 
 def _is_charging(state: str) -> bool:
     '''
@@ -125,14 +131,20 @@ def segment_sessions(
     return windows
 
 
-def _window_max(charger, window_start_ms: int, window_end_ms: int) -> float:
+def _window_energy(charger, window_start_ms: int, window_end_ms: int) -> float:
     '''
     Computes a session window's charger energy (kWh) from an already-read ChargeAdded
-    series, without another query: the maximum sample inside [window_start, window_end]
-    (ChargeAdded is an accumulator that ramps from 0 to the session total). NaN when the
-    series is missing or holds no sample inside the window (a session at another
-    charger) — matching the per-session read's NaN so min-energy filtering behaves
-    identically. The charging analogue of trip_service._window_distance.
+    series, without another query: the SUM OF POSITIVE INCREMENTS of the accumulator
+    inside [window_start, window_end]. ChargeAdded ramps up as energy is delivered and
+    only drops when the myenergi charger begins a new session, so summing its positive
+    steps is the energy actually delivered in the window — robust to the accumulator
+    CARRYING a non-zero value into the window (a physical charge whose start Tesla did not
+    yet report as "charging", so it falls outside the detected session) or RESETTING
+    inside it. The earlier in-window MAX over-counted both cases by the carried/earlier
+    peak (e.g. a 16.6 kWh session that had only delivered 5.6 kWh in its window). NaN when
+    the series is missing or holds fewer than two samples in the window (nothing to
+    difference — e.g. a session at another charger), matching the old NaN so the
+    min-energy filter still drops those. The charging analogue of _window_distance.
     Arguments:
         charger (tuple | None): (count, timestamps_ms, values) from
             read_charger_data_property(ChargeAdded, ...), ascending by time, or None.
@@ -145,10 +157,11 @@ def _window_max(charger, window_start_ms: int, window_end_ms: int) -> float:
     if count == 0 or len(values) == 0:
         return float("nan")
     low = int(np.searchsorted(timestamps, window_start_ms, side="left"))
-    high = int(np.searchsorted(timestamps, window_end_ms, side="right")) - 1
-    if low > high or low >= count or high < 0:
+    high = int(np.searchsorted(timestamps, window_end_ms, side="right"))
+    segment = values[low:high]
+    if len(segment) < 2:
         return float("nan")
-    return float(values[low:high + 1].max())
+    return float(np.clip(np.diff(segment), 0.0, None).sum())
 
 
 class ChargingLoader:
@@ -220,7 +233,7 @@ class ChargingLoader:
 
         sessions = []
         for window_start, window_end, in_progress in windows:
-            charger_kwh = _window_max(charger, window_start, window_end)
+            charger_kwh = _window_energy(charger, window_start, window_end)
             # Drop sub-threshold and no-charger-data sessions: the losses view is about
             # THIS charger, so a session with no comparable Zappi energy (charged
             # elsewhere / DC) or a trivial top-up is not listed. NaN < threshold is
@@ -259,3 +272,126 @@ class ChargingLoader:
             return None
         session = ChargingSession(self.__influx, start_ms, end_ms)
         return await session.summary()
+
+    async def get_power_history(self, data_property_id: str, time_start: str, time_end: str):
+        '''
+        Reads a logged charger power series (e.g. GridPower / ChargePower) raw over a
+        window, for the Charging view's past-hour graphs — a thin pass-through to the
+        InfluxDBHandler's myenergi_data read, kept here so the charger-history request
+        handler has one charging-data entry point (the loader owns all myenergi_data
+        access). Raises ValueError on a malformed id (the read's _SAFE_ID guard) — the
+        handler replies status=0.
+        Arguments:
+            data_property_id (str): The charger property id (InfluxDB "id" tag).
+            time_start (str): Flux range start (relative like "-1h" or RFC3339).
+            time_end (str): Flux range stop ("now()" or RFC3339).
+        Returns:
+            tuple | None: (count, timestamps_ms, values) ascending, or None.
+        '''
+        return await self.__influx.read_charger_data_property(
+            data_property_id, time_start, time_end
+        )
+
+    async def month_summary(self, start_ms: int, end_ms: int) -> dict:
+        '''
+        Aggregates the month-to-date charging stats for the Charging view. Sums the
+        myenergi-detected sessions in [start_ms, end_ms] (via list_sessions + each
+        session's summary()), so charger vs car energy stay apples-to-apples over the same
+        session set. Distance and driving energy are the tesla lifetime counters' month
+        deltas (Odometer / LifetimeEnergyUsed, the same first-of-month baseline
+        DrivenThisMonth uses); the home grid import is the month integral of positive
+        GridPower. Every field degrades to NaN when its source is missing, so a partial-
+        data month still yields a well-formed record. Cost is added by the request handler
+        (it owns the tariff).
+        Arguments:
+            start_ms (int): Month start (1st, 00:00 local), epoch-ms UTC.
+            end_ms (int): Now, epoch-ms UTC.
+        Returns:
+            dict: The month aggregate (energy, waste, efficiency, consumption/km,
+                sessions, charge time, home import), each value a float (may be NaN).
+        '''
+        sessions = await self.list_sessions(start_ms, end_ms)
+
+        charger_sum = 0.0
+        battery_sum = 0.0
+        battery_count = 0
+        charge_time_s = 0.0
+        for session in sessions:
+            summary = await session.summary()
+            # list_sessions already dropped NaN-charger sessions, so charger_kwh is real.
+            charger_sum += summary["charger_kwh"]
+            battery_kwh = summary["battery_kwh"]
+            if not math.isnan(battery_kwh):
+                battery_sum += battery_kwh
+                battery_count += 1
+            charge_time_s += summary["duration_s"]
+
+        session_count = len(sessions)
+        charger_kwh = charger_sum if session_count > 0 else float("nan")
+        # Car energy sums only sessions that had a battery reading, so a rare missing
+        # EnergyRemaining slightly under-counts rather than voiding the whole month.
+        car_kwh = battery_sum if battery_count > 0 else float("nan")
+        wasted_kwh = (
+            charger_kwh - car_kwh
+            if (not math.isnan(charger_kwh) and not math.isnan(car_kwh))
+            else float("nan")
+        )
+        efficiency_pct = (
+            car_kwh / charger_kwh * 100.0
+            if (not math.isnan(car_kwh) and not math.isnan(charger_kwh) and charger_kwh > 0)
+            else float("nan")
+        )
+
+        now_iso = to_flux_time(end_ms)
+        km_month = await self.__month_delta(ODOMETER_ID, now_iso)
+        driving_kwh = await self.__month_delta(DRIVING_ENERGY_ID, now_iso)
+        car_wh_per_km = (
+            driving_kwh * 1000.0 / km_month
+            if (not math.isnan(driving_kwh) and not math.isnan(km_month) and km_month > 0)
+            else float("nan")
+        )
+        charger_wh_per_km = (
+            charger_kwh * 1000.0 / km_month
+            if (not math.isnan(charger_kwh) and not math.isnan(km_month) and km_month > 0)
+            else float("nan")
+        )
+
+        home_grid_kwh = await self.__influx.read_grid_import_kwh_month()
+        if home_grid_kwh is None:
+            home_grid_kwh = float("nan")
+
+        logger.info(
+            "Month charging summary: sessions=%d charger=%s kWh car=%s kWh eff=%s%%",
+            session_count,
+            "n/a" if math.isnan(charger_kwh) else f"{charger_kwh:.2f}",
+            "n/a" if math.isnan(car_kwh) else f"{car_kwh:.2f}",
+            "n/a" if math.isnan(efficiency_pct) else f"{efficiency_pct:.1f}",
+        )
+        return {
+            "charger_kwh": charger_kwh,
+            "car_kwh": car_kwh,
+            "wasted_kwh": wasted_kwh,
+            "efficiency_pct": efficiency_pct,
+            "car_wh_per_km": car_wh_per_km,
+            "charger_wh_per_km": charger_wh_per_km,
+            "driving_kwh": driving_kwh,
+            "km_month": km_month,
+            "session_count": float(session_count),
+            "total_charge_s": charge_time_s,
+            "home_grid_kwh": home_grid_kwh,
+        }
+
+    async def __month_delta(self, data_property_id: str, now_iso: str) -> float:
+        '''
+        Month-to-date delta of a tesla lifetime counter: its last value up to now minus
+        its first value since the 1st of the month (the baseline DrivenThisMonth uses).
+        NaN if either endpoint is missing (InfluxDB down / not logged this month).
+        Arguments:
+            data_property_id (str): The counter's id (Odometer / LifetimeEnergyUsed).
+            now_iso (str): The window end as an RFC3339 string (Flux stop).
+        '''
+        baseline = await self.__influx.read_first_value_month(data_property_id)
+        latest = await self.__influx.read_last_value_before(data_property_id, now_iso)
+        if baseline is None or latest is None:
+            return float("nan")
+        return float(latest) - float(baseline)

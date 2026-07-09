@@ -568,3 +568,54 @@ class InfluxDBHandler:
         value = table.records[0].get_value()
         logger.debug("First value of month for %s: %s", data_property_id, value)
         return value
+
+    async def read_grid_import_kwh_month(self) -> float | None:
+        '''
+        Integrates the logged grid power (myenergi "GridPower", W) over the current
+        calendar month (from the 1st, 00:00 in the configured timezone) into energy (kWh),
+        counting only import (positive power) so grid export does not subtract from
+        "energy bought" — the Charging view's month-to-date home grid-import figure. Uses
+        Flux integral(unit: 1h) (W integrated over hours -> Wh), converted to kWh. Relies
+        on GridPower being logged every poll (MyEnergiService), so the integral has a dense
+        series to trapezoid over. Degrades to None on an unreachable/failed query or a
+        month with no samples yet, matching the other reads' contract.
+        Returns:
+            float | None: Imported energy this month in kWh, or None.
+        '''
+        month_start = datetime.now(self.__timezone).replace(
+            day=1, hour=0, minute=0, second=0, microsecond=0
+        ).isoformat()
+
+        # "GridPower" is a fixed literal id (not caller input), so no _SAFE_ID needed.
+        query = f'from(bucket:"{self.__bucket}")'
+        query += f'\n  |> range(start: {month_start})'
+        query += '\n  |> filter(fn: (r) => r["_measurement"] == "myenergi_data")'
+        query += '\n  |> filter(fn: (r) => r["id"] == "GridPower")'
+        query += '\n  |> filter(fn: (r) => r["_field"] == "value_float")'
+        query += '\n  |> sort(columns: ["_time"])'
+        # Clamp export (negative) to zero so only imported energy is counted, then
+        # integrate W over hours to get Wh. NOTE: integral() requires the range's _start
+        # column to stay in the group key, so we must NOT keep()-drop the columns before
+        # integrating (doing so fails with "integral needs _start column").
+        query += '\n  |> map(fn: (r) => ({ r with _value: if r._value < 0.0 then 0.0 else r._value }))'
+        query += '\n  |> integral(unit: 1h)'
+
+        try:
+            result = await self.__client.query_api().query(query=query)
+        except Exception as e:
+            logger.warning(
+                "InfluxDB grid-import-month read failed: %s: %s", type(e).__name__, e
+            )
+            return None
+
+        if len(result) == 0:
+            return None
+
+        table = result[0]
+        if not table.records:
+            return None
+
+        value = table.records[0].get_value()
+        if value is None:
+            return None
+        return float(value) / 1000.0  # Wh -> kWh

@@ -55,6 +55,13 @@ backend/
         spotify_setup.py          # Standalone OAuth + Connect-device-ID helper (run once during setup)
     weather_service/
       weather_service.py          # FMI WFS polling, forecast serialization, 15-min refresh
+    trip_service/
+      trip.py, trip_loader.py     # On-demand trip detection from stored telemetry (the Trips view)
+    charging_service/
+      charging_loader.py          # On-demand charging-session detection (DetailedChargeState segmentation)
+      charging_session.py         # Per-session energy + loss breakdown (charger vs AC-in vs battery)
+    myenergi_service/
+      myenergi_service.py         # myenergi Zappi cloud poll → CHARGER_STREAM broadcast + myenergi_data logging
     influxdb_service/
       influxdb_handler.py         # Async InfluxDB client — telemetry write + Flux history reads
     utils/
@@ -125,6 +132,10 @@ The backend is an asyncio app managed with [uv](https://docs.astral.sh/uv/). Run
 Dev environment: **Ninja + Qt 6.11.1 MSVC2022**. CMake ships with Qt at
 `D:\Qt\Tools\CMake_64\bin\cmake.exe`. The build directory is **`frontend/builddir`**.
 
+> This section covers the frozen Widgets `frontend/`. For the active **`frontend_v2`**, prefer
+> `scripts\build-frontend.ps1` — it imports the MSVC env, finds the Qt kit, and configures + builds
+> (+ optionally runs) in one command, with sccache reuse. See §8.
+
 - **Configure** (required once before the first build, and after CMakeLists changes):
 
   ```
@@ -167,7 +178,9 @@ Required secrets/paths, loaded by `utils/config_parser.get_env`:
 - `INFLUX_TOKEN` — InfluxDB auth token
 - `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET` — from your Spotify Developer App
 
-`start_services.main()` fails fast if any of these are missing.
+`start_services.main()` fails fast if any of these are missing. **Optional:** `MYENERGI_HUB_SERIAL`
+/ `MYENERGI_API_KEY` (myenergi cloud digest-auth creds) — absent → the charger service is skipped
+and the rest of the stack still runs.
 
 ### `config.json` (copy from `config_template.json`)
 Parsed once by `Config` and injected into every service. Keys:
@@ -182,6 +195,12 @@ Parsed once by `Config` and injected into every service. Keys:
   (default `http://127.0.0.1:8080/callback`, must match the Spotify app); `spotifyCachePath`
   — spotipy OAuth token cache; `spotifyMarket` — ISO-3166-1 alpha-2 (e.g. `FI`).
 - `weatherPlace` — FMI place (e.g. `Tampere`); `timeZone` — IANA zone (e.g. `Europe/Helsinki`).
+- `myenergi` (optional) — Zappi tunables: `zappiSerial` (`""` = auto-select the first Zappi),
+  `pollIntervalIdleSeconds` / `pollIntervalActiveSeconds`, `minSessionEnergyKwh`, `sessionMergeMinutes`.
+- `trip` (optional) — trip-detection tunables: `min_stop_minutes`, `min_trip_distance_km`.
+- `electricityPriceEurPerKwh` (optional) — flat €/kWh tariff for the Charging view's cost tiles
+  (`Latauskulut` = charging cost, `Sähkölasku` = total home electricity cost); `null`/absent → "—".
+  Spot/hourly (Nord Pool) pricing is tracked in issue #12.
 
 ### Frontend environment variables (read only by `AppConfig::load()`)
 All optional; defaults match the embedded target.
@@ -238,6 +257,18 @@ payload[1..N-1] = type-specific data
 | `0x71` | TESLA_GRAPH_PROPERTIES | B→F | `count(2B)` + per property `id_len(2B)+id + unit_len(2B)+unit + cat_len(2B)+category` (UTF-8) |
 | `0x72` | TESLA_GET_HISTORY | F→B | `range_code(1B)` (0=1h,1=1d,2=1M,3=custom,4=1week) + `id_len(2B)+id` + `start_ms(8B)` + `end_ms(8B)` |
 | `0x73` | TESLA_HISTORY | B→F | `id_len(2B)+id` + `status(1B)` + `count(4B)` + count×(`ts_ms(8B)` + `value(8B double)`) |
+| `0x50` | CHARGER_STREAM | B→F | myenergi charger live state: repeated `sub_id(1B) + value` (see charger sub-ids below) |
+| `0x80` | CHARGING_GET_LIST | F→B | `start_ms(8B) + end_ms(8B)` |
+| `0x81` | CHARGING_LIST | B→F | `req_start(8B)+req_end(8B)+count(2B)` + count×(`start(8B)+end(8B)+charger_kwh(8B double)`) |
+| `0x82` | CHARGING_GET_SUMMARY | F→B | `start_ms(8B) + end_ms(8B)` |
+| `0x83` | CHARGING_SUMMARY | B→F | `session_id(8B)+status(1B)+start(8B)+end(8B)` + 9×`double` (per-session losses) |
+| `0x84` | CHARGING_GET_MONTH | F→B | (empty) |
+| `0x85` | CHARGING_MONTH | B→F | `status(1B)` + 13×`double` (month aggregate — see below) |
+| `0x86` | CHARGER_GET_HISTORY | F→B | `range_code(1B) + id_len(2B)+id + start_ms(8B) + end_ms(8B)` |
+| `0x87` | CHARGER_HISTORY | B→F | `id_len(2B)+id + status(1B) + count(4B)` + count×(`ts_ms(8B)+value(8B double)`) — reads `myenergi_data` |
+
+(Trip codes `0x74`–`0x7D` — the Trips view — are omitted from this table; they mirror the History
+request/response shape. See the `frontend_v2` memory.)
 
 The `0x70`–`0x73` pair is **request/response** (the History view): the backend replies to the
 requesting client only (`send_to`), never a broadcast, and `TESLA_HISTORY` echoes the requested id so
@@ -255,6 +286,18 @@ flat held line across the whole range instead of "no data". Only a genuinely abs
 
 **Weather sub-IDs**: `0x31` temperature `int8` °C; `0x32` wind `uint8` m/s;
 `0x33` precipitation `uint8` mm; `0x34` cloud cover `uint8` %; `0x35` hour `uint8`.
+
+**Charger (myenergi) protocol** — the Charging view. `CHARGER_STREAM` (`0x50`) is a **broadcast** of
+the Zappi's live state, a weather-style sequence of `sub_id(1B) + value` pairs: `0x51` status `uint8`,
+`0x52` plug `uint8`, `0x53` mode `uint8`, `0x54` charge power `float64` W, `0x55` session energy
+`float64` kWh, `0x56` supply voltage `uint16` V, `0x57` grid power `float64` W (+import/−export),
+`0x58` generated power `float64` W, `0x59` frequency `float64` Hz, `0x5A` L1 phase `uint8`, and
+`0x5F` the full raw pymyenergi payload as `len(4B)+UTF-8 JSON` (every field, most unused — the one
+length-prefixed sub-id, so an unknown fixed-width sub-id can't be skipped and stops the parse). The
+`0x80`–`0x87` codes are **request/response** (reply to the requesting client only), served by
+`charging_service` from stored telemetry + `myenergi_data`. `CHARGING_MONTH`'s 13 doubles, in order:
+charger_kwh, car_kwh, wasted_kwh, efficiency_pct, car_wh_per_km, charger_wh_per_km, driving_kwh,
+km_month, session_count, total_charge_s, charging_cost_eur, home_grid_kwh, home_cost_eur (any → NaN → "—").
 
 **Adding a telemetry field** — update these in sync:
 1. `config.json` `tesla data` — new entry with a unique `stream_id`.
@@ -275,8 +318,10 @@ flat held line across the whole range instead of "no data". Only a genuinely abs
 
 The backend is entirely asyncio. `start_services.main()` constructs every service,
 calls `_register_handlers` and `register_service` on the `Server`, runs
-`vehicle.init_async_dependent()`, then **`asyncio.gather`s four tasks**: telemetry, the TCP
-server, `MediaManager.get_run_task()`, and `WeatherService.get_run_task()`.
+`vehicle.init_async_dependent()`, then **`asyncio.gather`s the run tasks**: telemetry, the TCP
+server, `MediaManager.get_run_task()`, `WeatherService.get_run_task()`, and — when charger
+credentials are set — `MyEnergiService.get_run_task()`. (`trip_service` / `charging_service` are
+stateless request/response and have no run task.)
 
 > **Orchestration note.** The media and weather `run()` coroutines schedule APScheduler jobs
 > and then *return* — their ongoing work lives in those jobs, and APScheduler logs+swallows
@@ -392,8 +437,11 @@ snapshot), `read_first_value_day`/`_month` (calculated-field baselines), `read_t
 `aggregateWindow(fn: mean) + fill(usePrevious)` to downsample + forward-fill onto a regular grid,
 dropping the leading null windows, but is currently unused), and `read_last_value_before` (a
 `last()` query bounded by `stop` — the held value before an empty window, used to boundary-fill the
-History graph with a flat line). Read failures degrade to `None` rather
-than crashing the app. **Talks to:** InfluxDB,
+History graph with a flat line). For the myenergi charger it adds `write_charger_data` (the
+`myenergi_data` measurement), `read_charger_data_property` (raw charger history), and
+`read_grid_import_kwh_month` (a positive-`GridPower` `integral()` → the month's home grid import;
+`integral()` needs the range's `_start` column, so do **not** `keep()`-drop columns before it). Read
+failures degrade to `None` rather than crashing the app. **Talks to:** InfluxDB,
 `Vehicle`. *Flux queries interpolate `data_property_id` via f-strings gated by the `_SAFE_ID` regex
 `^[A-Za-z0-9_\-]+$`, and `aggregate_window` by `_SAFE_WINDOW` (`^[1-9][0-9]*[smhd]$`) — keep both
 guards; they're the only thing preventing injection if non-config input ever reaches these paths.*
@@ -403,7 +451,28 @@ guards; they're the only thing preventing injection if non-config input ever rea
 - **`protocol.py`**: every message-type byte, weather sub-id, `MAX_MSG_SIZE`, and `frame()`. The
   single source of truth — add new constants here, never on a class.
 - **`logger_configurator.py`**: `configure_logging` wires the shared stdout formatter
-  (`LEVEL | YYYY-MM-DD | HH:MM:SS | name | message`).
+  (`LEVEL | YYYY-MM-DD | HH:MM:SS | name | message`) onto an allow-list of top-level loggers.
+  **Every service's logger prefix must be in `_SERVICE_LOGGERS`** (`tesla_service`, `media_service`,
+  `weather_service`, `influxdb_service`, `charging_service`, `myenergi_service`, `trip_service`,
+  `server`, `start_services`, `utils`) — an unlisted prefix propagates to a handler-less root and its
+  INFO/DEBUG logs silently vanish.
+
+#### 5.2.7 `myenergi_service/` + `charging_service/` — charger + charging stats
+- **`myenergi_service.py`** (`MyEnergiService`) polls a myenergi Zappi via `pymyenergi` (cloud
+  digest auth), broadcasts its live state as `CHARGER_STREAM`, and logs to the `myenergi_data`
+  measurement: `GridPower` + `ChargePower` **every poll** (gap-free for the past-hour graphs and the
+  month home-import integral) and `ChargeAdded` (the session accumulator) **while charging**. Mirrors
+  `WeatherService` (initial poll + APScheduler job, last frame cached for `stream_everything`), with
+  two poll cadences (idle/active). Optional — skipped when the `.env` creds are unset.
+- **`charging_service/`** (`ChargingLoader` + `ChargingSession`) derives charging sessions **on
+  demand** from stored `DetailedChargeState` history (segmentation like `trip_service`), joined to
+  the logged charger energy — no live tracking. Serves `CHARGING_GET_LIST`/`_SUMMARY`/`_MONTH` +
+  `CHARGER_GET_HISTORY`. **Per-session charger energy = the SUM OF POSITIVE `ChargeAdded` increments
+  in the window** (NOT the in-window max: the myenergi accumulator can carry a value in from charging
+  that predates the Tesla-detected session, so a max double-counts — this was a real bug). `month_summary`
+  sums the sessions' charger/battery energy + the tesla month-counter deltas (`LifetimeEnergyUsed`,
+  `Odometer`) for consumption/km; the `CHARGING_GET_MONTH` handler multiplies energy by the flat
+  `electricityPriceEurPerKwh` tariff for the cost tiles. **Talks to:** `InfluxDBHandler`, `Server`.
 
 ### 5.3 Frontend
 
@@ -577,57 +646,66 @@ a new/renamed service or widget, a protocol change, a build-command change, or a
 invariant. Treat the doc as part of the change, not an afterthought, and bump §7.7.
 
 ### 7.7 Documentation currency
-This guide and `README.md` are current as of commit **`1184b60`** ("Add: throttle the live History
-tick on long windows"), which — together with the preceding **`cc11bb8`** ("Fix: boundary-fill empty
-History windows with a flat held line") — adds the History-graph **empty-window boundary-fill**
-(`read_last_value_before` / `get_value_before`; a constant-value window now draws a flat line instead
-of "Ei dataa"). The earlier interactive **History-graph view** (commit `827824d`) lands the
-`0x70`–`0x73` request/response protocol, the `(payload, writer)` handler signature, history **range
-code 4 = 1 week**, and the Qt 6.11 build. The frontend-only live-graph mode (and its per-window tick
-throttle) rides on these codes — out of scope here; see the `frontend_v2` memory.
+This guide and `README.md` are current as of commit **`966a04a`** ("Add: fixed-price electricity
+cost"), the head of the **charging-stats** work on `feature/charging-stats-backend`: the myenergi
+Zappi integration (`myenergi_service`, `CHARGER_STREAM` `0x50`, `myenergi_data` logging), the
+on-demand **charging-session analysis** (`charging_service`; `CHARGING_*` / `CHARGER_HISTORY`
+`0x80`–`0x87`), the **month-to-date aggregate** (`CHARGING_MONTH`, 13 doubles) and the **flat-tariff
+cost tiles** (`electricityPriceEurPerKwh`; spot pricing is issue #12). Per-session charger energy is
+the **sum of positive `ChargeAdded` increments** (not the in-window max — that double-counted). The
+frontend_v2 "Lataus" view consumes these (out of scope here; see the `frontend_v2` memory). The
+earlier History-graph **empty-window boundary-fill** (`1184b60` / `cc11bb8`) and the `0x70`–`0x73`
+request/response protocol + `(payload, writer)` handler signature (`827824d`) still apply.
 When you land changes that touch behaviour documented here, update this line to the new HEAD commit.
 
-## 8. Session workflow — one worktree per session
+## 8. Session workflow — main checkout by default, worktree only for parallelism
 
-Parallel Claude Code sessions (or a session running alongside your own manual work) must not
-share a working tree: simultaneous edits, competing git operations, and the single backend port
-**6969** will collide. So each **work session gets its own git worktree on its own branch** and
-lands via a pull request. Pure Q&A / exploration that changes no files skips all of this.
+The default is to **work in the main checkout** (`P:\Tesla-Homedash`). An isolated git worktree is
+only worth its setup cost when you genuinely need **two sessions running at the same time** — reach
+for one *only then*. Most sessions are sequential and stay in the main checkout with a warm build
+dir and incremental builds. Pure Q&A / exploration that changes no files needs neither.
 
-**Start of a work session — ask first, then isolate.**
-1. Before touching files, ask the user two things: **(a) what are we doing this session** and
-   **(b) a short name for it.** Choose the branch **type** from the nature of the work
-   (`feature` / `fix` / `chore` / `docs` / `refactor` / `test` / `perf`); confirm if unsure.
-2. Create the worktree + branch:
-   `powershell -ExecutionPolicy Bypass -File scripts\new-session.ps1 -Type <type> -Name "<name>"`
-   It makes branch `<type>/<slug-of-name>` off the freshest `origin/main`, adds a worktree under
-   `..\Tesla-Homedash-worktrees\<type>-<slug>`, copies the gitignored `.env` + `config.json` into
-   it, and repoints that `.env`'s `CONFIG_PATH` at the worktree's own `config.json`. The final
-   stdout line is `WORKTREE_PATH=<path>`.
-3. Switch the session into it with the **`EnterWorktree`** tool (`path:` = that `WORKTREE_PATH`).
-   From here every edit / build / commit happens in the worktree, isolated from `main` and from
-   any other session.
+**Backend — run one, shared.** The frontend connects to whatever backend is on `127.0.0.1:6969`
+(`TESLA_HOMEDASH_BACKEND_HOST` / `_PORT` default there), and port 6969 is fixed so only **one**
+backend can run at a time. Start it **once** (from the main checkout: `cd backend; uv run python
+run.py`) and leave it — every frontend, in any checkout, connects to it. Do **not** start a backend
+per session. Only a session that actually edits backend code runs its own, and it stops the shared
+one first.
 
-**During the session** — work as normal, entirely within the worktree. `frontend_v2` needs a
-fresh CMake configure in the worktree before its first build (build dirs are not copied). The
-backend runs standalone there (its `.env` / `config.json` were copied in), but only **one**
-session at a time can run the live backend — port 6969 is fixed, so never run two live stacks.
+**Frontend — build from the CLI, no Qt Creator needed.** Build + run `frontend_v2` with
+`powershell -ExecutionPolicy Bypass -File scripts\build-frontend.ps1 -Run` (add `-Clean` for a full
+rebuild, `-Config Release`, `-Fullscreen`). From **cmd.exe** use the `.cmd` shim instead:
+`scripts\build-frontend.cmd -Run` (same for `new-session.cmd` / `finish-session.cmd`). It imports the MSVC env, finds the newest Qt
+`msvc2022_64` kit, and runs a Ninja configure + build of `appfrontend_v2` into `frontend_v2\build`
+— works from the main checkout or any worktree. Open Qt Creator only when you need the debugger /
+QML profiler / designer. **sccache** is wired into `frontend_v2/CMakeLists.txt` (auto-enabled when
+on PATH), so object files are reused across rebuilds *and across worktrees* — a fresh worktree's
+"clean" build is mostly cache hits. Inspect with `sccache --show-stats`. (Per §7.3 the agent still
+doesn't build; it reasons about the code and the user runs the script.)
 
-**Finish — open a PR, then land via GitHub (never a local merge).**
-1. Commit per §7.5 (still only once the user confirms the work is verified), then push:
+**When you *do* need a parallel session (worktree).**
+1. Ask the user **(a) what we're doing** and **(b) a short name**; choose the branch **type**
+   (`feature` / `fix` / `chore` / `docs` / `refactor` / `test` / `perf`).
+2. `powershell -ExecutionPolicy Bypass -File scripts\new-session.ps1 -Type <type> -Name "<name>"`
+   — makes branch `<type>/<slug>` off the freshest `origin/main`, adds a worktree under
+   `..\Tesla-Homedash-worktrees\<type>-<slug>`, copies the gitignored `.env` + `config.json` in, and
+   repoints `CONFIG_PATH` at the worktree's copy. Final stdout line: `WORKTREE_PATH=<path>`.
+3. Switch in with the **`EnterWorktree`** tool (`path:` = that `WORKTREE_PATH`). Build there with
+   `build-frontend.ps1`; connect to the already-running shared backend (don't start a second one).
+
+**Finish — land via GitHub, never a local merge** (applies whether you used a branch or a worktree).
+1. Commit per §7.5 (only once the user confirms the work is verified), then
    `git push -u origin <type>/<slug>`.
-2. Open the PR with a proper body (summary, reason, manual verification steps, UI screenshots)
-   per §7.5 — e.g. `gh pr create` with the body inline.
-3. After review, merge **on GitHub**: `gh pr merge --squash --delete-branch`. GitHub is the
-   single source of truth — **do not** merge the branch into `main` locally; that diverges local
-   `main` from `origin/main` and makes the PR redundant.
-4. Return + clean up: call **`ExitWorktree`** (action `keep`) to leave the worktree, then
-   `powershell -ExecutionPolicy Bypass -File scripts\finish-session.ps1 -Type <type> -Name "<name>"`.
-   It refuses until the PR reads MERGED (checked via `gh`), then removes the worktree,
-   `checkout main && pull` on the main checkout, deletes the merged local branch, and prunes.
-   (`-Force` skips the merged check for edge cases.)
+2. Open the PR with a proper body (summary, reason, manual verification, UI screenshots) per §7.5.
+3. Merge **on GitHub**: `gh pr merge --squash --delete-branch`. GitHub is the single source of
+   truth — **do not** merge into `main` locally (it diverges local `main` from `origin/main`). Then
+   update the main checkout: `git checkout main && git pull`.
+4. If a worktree was used: `ExitWorktree` (action `keep`), then
+   `powershell -ExecutionPolicy Bypass -File scripts\finish-session.ps1 -Type <type> -Name "<name>"`
+   — refuses until the PR reads MERGED (via `gh`), then removes the worktree, pulls main, deletes the
+   merged local branch, and prunes. (`-Force` skips the merged check.)
 
-**Memory caveat.** This project's memories load at session start from the main checkout, *before*
-you switch, so their guidance stays in context for the whole session. But the memory *store*
-follows the working directory, so any durable memory you write during a worktree session must
-target the **main checkout's** project-memory dir, not the worktree's (which is deleted at cleanup).
+**Memory caveat.** Memories load at session start from the main checkout, so their guidance stays in
+context even after an `EnterWorktree`. But the memory *store* follows the working directory, so any
+durable memory you write during a worktree session must target the **main checkout's** project-memory
+dir, not the worktree's (which is deleted at cleanup).
