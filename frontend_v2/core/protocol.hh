@@ -120,11 +120,16 @@ inline constexpr quint8 CHARGER_MODE_STOPPED = 4;
 inline constexpr quint8 CHARGING_GET_LIST = 0x80;    // F->B: start_ms(8B) + end_ms(8B)
 inline constexpr quint8 CHARGING_LIST = 0x81;        // B->F: req_start(8B)+req_end(8B)+count(2B)+count*(start(8B)+end(8B)+charger_kwh(8B))
 inline constexpr quint8 CHARGING_GET_SUMMARY = 0x82; // F->B: start_ms(8B) + end_ms(8B)
-inline constexpr quint8 CHARGING_SUMMARY = 0x83;     // B->F: session_id(8B)+status(1B)+start(8B)+end(8B)+9*double
+inline constexpr quint8 CHARGING_SUMMARY = 0x83;     // B->F: session_id(8B)+status(1B)+start(8B)+end(8B)+11*double (…, end_soc, cost_eur, avg_price_eur_per_kwh)
 inline constexpr quint8 CHARGING_GET_MONTH = 0x84;   // F->B: (empty)
 inline constexpr quint8 CHARGING_MONTH = 0x85;       // B->F: status(1B) + 13*double (charger_kwh, car_kwh, wasted_kwh, efficiency_pct, car_wh_per_km, charger_wh_per_km, driving_kwh, km_month, session_count, total_charge_s, charging_cost_eur, home_grid_kwh, home_cost_eur)
 inline constexpr quint8 CHARGER_GET_HISTORY = 0x86;  // F->B: range_code(1B)+id(len(2B)+UTF-8)+start(8B)+end(8B)
 inline constexpr quint8 CHARGER_HISTORY = 0x87;      // B->F: id(len(2B)+UTF-8)+status(1B)+count(4B)+count*(ts(8B)+value(8B double))
+
+// Live Nord Pool spot price broadcast (the Charging view's current-price tile). Mirror of
+// protocol.py: status 0 => no price (fields NaN), else 1. spot is raw wholesale €/kWh,
+// allIn the VAT+margin estimate; hourStartMs is the UTC start of the priced hour.
+inline constexpr quint8 SPOT_PRICE_STREAM = 0x88;    // B->F: status(1B)+hour_start_ms(8B)+spot(8B double)+all_in(8B double)
 
 // History request range codes (mirror the backend _RANGE_* and the QML RangeSelector)
 inline constexpr quint8 HISTORY_RANGE_1H = 0;
