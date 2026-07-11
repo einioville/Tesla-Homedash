@@ -54,6 +54,7 @@ int TeslaDataGen::valueTypeForStream(quint16 streamId) {
         case 43: return 0;
         case 44: return 0;
         case 45: return 0;
+        case 46: return 0;
         default: return -1;
     }
 }
@@ -80,6 +81,7 @@ QString TeslaDataGen::unitOf(const QString &propertyName) const {
         { QStringLiteral("drivenToday"), QStringLiteral("km") },
         { QStringLiteral("drivenThisMonth"), QStringLiteral("km") },
         { QStringLiteral("estBatteryRange"), QStringLiteral("km") },
+        { QStringLiteral("aCChargingEnergyIn"), QStringLiteral("kWh") },
     };
     return units.value(propertyName);
 }
@@ -132,6 +134,7 @@ bool TeslaDataGen::applyValue(quint16 streamId, const QVariant &value) {
         case 43: m_seatHeaterLeft = value.toDouble(); emit seatHeaterLeftChanged(); return true;
         case 44: m_seatHeaterRight = value.toDouble(); emit seatHeaterRightChanged(); return true;
         case 45: m_estBatteryRange = value.toDouble(); emit estBatteryRangeChanged(); return true;
+        case 46: m_aCChargingEnergyIn = value.toDouble(); emit aCChargingEnergyInChanged(); return true;
         default: return false;
     }
 }
