@@ -28,6 +28,9 @@ Item {
         id: graph
         anchors.fill: parent
         showBackground: false
+        // Extra top padding to clear the overlaid title (below); the other three sides
+        // keep the default card padding.
+        plotMarginTop: 40
         unit: root.unit
         pointsData: root.series && root.series.points ? root.series.points : []
         dataMinX: root.series && root.series.minX !== undefined ? root.series.minX : 0
