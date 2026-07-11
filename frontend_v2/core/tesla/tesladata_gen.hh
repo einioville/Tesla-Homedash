@@ -60,6 +60,7 @@ class TeslaDataGen : public QObject {
     Q_PROPERTY(double seatHeaterLeft READ seatHeaterLeft NOTIFY seatHeaterLeftChanged)
     Q_PROPERTY(double seatHeaterRight READ seatHeaterRight NOTIFY seatHeaterRightChanged)
     Q_PROPERTY(double estBatteryRange READ estBatteryRange NOTIFY estBatteryRangeChanged)
+    Q_PROPERTY(double aCChargingEnergyIn READ aCChargingEnergyIn NOTIFY aCChargingEnergyInChanged)
 
 public:
     explicit TeslaDataGen(QObject *parent = nullptr) : QObject(parent) {}
@@ -110,6 +111,7 @@ public:
     double seatHeaterLeft() const { return m_seatHeaterLeft; }
     double seatHeaterRight() const { return m_seatHeaterRight; }
     double estBatteryRange() const { return m_estBatteryRange; }
+    double aCChargingEnergyIn() const { return m_aCChargingEnergyIn; }
 
     // Expected protocol value_type (0=double,1=string,2=bool,3=location)
     // for a stream id, or -1 if the id is not in the registry.
@@ -165,6 +167,7 @@ signals:
     void seatHeaterLeftChanged();
     void seatHeaterRightChanged();
     void estBatteryRangeChanged();
+    void aCChargingEnergyInChanged();
 
 protected:
     // Sets the field bound to streamId from value (interpreted per the
@@ -218,6 +221,7 @@ private:
     double m_seatHeaterLeft = 0.0;
     double m_seatHeaterRight = 0.0;
     double m_estBatteryRange = 0.0;
+    double m_aCChargingEnergyIn = 0.0;
 };
 
 #endif  // FRONTEND_V2_TESLADATA_GEN_HH

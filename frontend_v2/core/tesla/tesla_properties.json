@@ -46,6 +46,7 @@
         { "name": "RearDefrostEnabled", "streamId": 42, "type": "bool", "unit": "" },
         { "name": "SeatHeaterLeft", "streamId": 43, "type": "double", "unit": "" },
         { "name": "SeatHeaterRight", "streamId": 44, "type": "double", "unit": "" },
-        { "name": "EstBatteryRange", "streamId": 45, "type": "double", "unit": "km" }
+        { "name": "EstBatteryRange", "streamId": 45, "type": "double", "unit": "km" },
+        { "name": "ACChargingEnergyIn", "streamId": 46, "type": "double", "unit": "kWh" }
     ]
 }

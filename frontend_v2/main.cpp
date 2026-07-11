@@ -2,6 +2,7 @@
 #include <QFontDatabase>
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
+#include <QQuickStyle>
 #include <QtQml>  // qmlRegisterSingletonInstance + QQmlEngine
 #include <memory>
 
@@ -66,6 +67,14 @@ int main(int argc, char* argv[]) {
     // and renders config/notifications.json rules. Built before the engine so it
     // is subscribed before serverClient.start() fires the first connect.
     NotificationHandler notificationHandler(&teslaData, &serverClient);
+
+    // Pin the Qt Quick Controls style to Basic — the style the custom control
+    // styling (e.g. TripComboBox's themed field / popup / delegate) is written for.
+    // Without this the platform default wins: on Windows that's the native style,
+    // which refuses ComboBox background/contentItem customization (it warns and
+    // renders native), so the dark theme only took on the Linux target. Must be set
+    // before the engine loads any Controls.
+    QQuickStyle::setStyle(QStringLiteral("Basic"));
 
     QQmlApplicationEngine engine;
     // The engine takes ownership of the image provider; it shares the cache with
