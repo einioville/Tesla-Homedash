@@ -30,6 +30,9 @@ Item {
         id: graph
         anchors.fill: parent
         showBackground: false
+        // Extra top padding to clear the overlaid title (below); the other three sides
+        // keep the default card padding.
+        plotMarginTop: 40
         unit: root.unitLabel
         // Feed from the Trips per-trip series instead of the History singleton, so this
         // graph is fully independent of the History view's graph.

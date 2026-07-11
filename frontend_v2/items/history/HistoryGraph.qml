@@ -11,8 +11,10 @@ import frontend_v2
 //    fresh load and advanceLive() on a live tick, so the graph itself subscribes to no
 //    singleton and two independent instances never share state.
 //  - The visible x-window [viewMinX, viewMaxX] can be panned/zoomed; the y-axis
-//    auto-fits the visible data (with a little padding) so nothing clips. X-axis
-//    labels are deferred; gridlines are off, so only the line shows.
+//    auto-fits the visible data (with a little padding) so nothing clips. The x-axis
+//    is time: tick marks + labels snap to nice clock boundaries and adapt to the window
+//    (times for hour-scale spans, dates for day-scale). Gridlines are off, only the line
+//    and the axis lines show.
 //
 // Interaction:
 //   Touch  — one finger moves the inspection line; two fingers pinch to zoom the
@@ -28,6 +30,20 @@ Item {
     // The built-in dark-gradient card background. The Trips view sets this false and
     // supplies its own minimalistic card, so the History view keeps its dashboard card.
     property bool showBackground: true
+
+    // Card padding: the gap between the card edge and the plot area, per side — the space
+    // where the card's own frame (its translucent fill + rounded border) shows around the
+    // graph. These map straight to GraphsView's own margins, which default to a chunky 20px
+    // all round — pure padding ON TOP OF the axis-label area (plotArea already excludes the
+    // axis areas). We drive them ourselves and pair them with a transparent graph background
+    // (below), so this is the ONLY inset: the graph itself adds no padding of its own and
+    // blends into the card instead of floating an opaque rectangle inside it. A host that
+    // overlays a title on the graph (the Trip / Charging cards) bumps plotMarginTop to
+    // reserve room for it; the History view has no inner title and keeps the default.
+    property real plotMarginTop: 16
+    property real plotMarginBottom: 16
+    property real plotMarginLeft: 16
+    property real plotMarginRight: 16
 
     // Data source (defaults to the History singleton; the Trips view overrides these).
     // pointsData is [{ x: epochMs, y: value }] ascending; the bounds fit the axes.
@@ -59,6 +75,13 @@ Item {
     readonly property bool viewIsFull:
         Math.abs(viewMinX - fullMinX) < 1 && Math.abs(viewMaxX - fullMaxX) < 1
 
+    // Adaptive x-axis (time) ticks over the visible window: ~5 marks snapped to nice clock
+    // boundaries. The step drives BOTH the axis tick spacing (xAxis.tickInterval) and the
+    // label format — a day-scale step shows a date, a smaller step a time — so labels can
+    // never duplicate. Anchored to local midnight so ticks land on round clock times.
+    readonly property real xTickStep: niceTimeStep((viewMaxX - viewMinX) / 5)
+    readonly property real xTickAnchor: localMidnight(viewMinX)
+
     // Inspection state, exposed so a host can mirror the cursor elsewhere (the Trips
     // view drops a marker on the map at the inspected time). inspectTime is the epoch-ms
     // time under the cursor; only meaningful while `inspecting`.
@@ -75,15 +98,54 @@ Item {
     GraphsView {
         id: graph
         anchors.fill: parent
-        anchors.margins: 16
+        marginTop: root.plotMarginTop
+        marginBottom: root.plotMarginBottom
+        marginLeft: root.plotMarginLeft
+        marginRight: root.plotMarginRight
+
+        // Transparent background so the card behind the graph shows through — the
+        // Trip / Charging translucent Rectangle, or the History GradientCard. Without
+        // this the default theme paints an opaque rectangle over the card, which reads
+        // as "the card disappeared". Only the two background flags are overridden; axis
+        // line / label colours keep the default theme, so the graph looks unchanged
+        // apart from blending into its card. The LineSeries sets its own colour.
+        theme: GraphsTheme {
+            backgroundVisible: false
+            plotAreaBackgroundVisible: false
+        }
 
         axisX: ValueAxis {
             id: xAxis
             min: root.viewMinX
             max: root.viewMaxX
-            labelsVisible: false   // deferred — raw epoch-ms labels would be noise
+            // Time axis. Tick MARKS sit on clock boundaries (tickInterval/tickAnchor); the
+            // labels are drawn by labelDelegate, which the axis positions natively UNDER
+            // each tick (no hand-placed overlay to misalign). labelFormat emits the raw
+            // epoch-ms as a plain full-precision integer ("%.0f") that the delegate reparses
+            // and formats as a time or date per the step — so labels never duplicate.
+            labelsVisible: true
+            labelFormat: "%.0f"
+            tickInterval: root.xTickStep
+            tickAnchor: root.xTickAnchor
             gridVisible: false     // only the line shows in the plot area
             subGridVisible: false
+            labelDelegate: Item {
+                id: xLabelDelegate
+                property string text   // assigned by the axis: the epoch-ms label value
+                implicitWidth: xLabelText.implicitWidth
+                implicitHeight: xLabelText.implicitHeight
+                Text {
+                    id: xLabelText
+                    anchors.centerIn: parent
+                    text: {
+                        const ms = parseFloat(xLabelDelegate.text)
+                        return isNaN(ms) ? "" : root.formatTimeTick(ms, root.xTickStep)
+                    }
+                    color: Theme.dataLabelTitle
+                    font.family: Theme.fontFamily
+                    font.pixelSize: 12
+                }
+            }
         }
         axisY: ValueAxis {
             id: yAxis
@@ -338,6 +400,39 @@ Item {
         if (a.width <= 0)
             return xAxis.min
         return xAxis.min + (px - a.x) / a.width * (xAxis.max - xAxis.min)
+    }
+
+    // --- Adaptive x-axis time ticks -------------------------------------------
+    // Smallest "nice" clock step (ms) >= raw, from 1s up to ~4 weeks, so a ~5-tick target
+    // lands on round times/dates instead of arbitrary epoch values.
+    function niceTimeStep(raw) {
+        const steps = [1000, 2000, 5000, 10000, 15000, 30000,           // seconds
+                       60000, 120000, 300000, 600000, 900000, 1800000,  // minutes
+                       3600000, 7200000, 10800000, 21600000, 43200000,  // hours
+                       86400000, 172800000, 604800000, 1209600000, 2419200000]  // days
+        for (let i = 0; i < steps.length; ++i)
+            if (steps[i] >= raw)
+                return steps[i]
+        return steps[steps.length - 1]
+    }
+    // Epoch-ms of the local-time midnight at or before t — the tick anchor, so ticks fall
+    // on round clock boundaries in the display timezone. (Day-scale ticks step by a fixed
+    // 24h from here, so they can drift an hour across a DST change; harmless for a date label.)
+    function localMidnight(t) {
+        const d = new Date(t)
+        d.setHours(0, 0, 0, 0)
+        return d.getTime()
+    }
+    // Label for one tick, chosen by the step: day-scale steps read as a date, minute/hour
+    // steps as a time, second steps as a time with seconds. Format follows the step, so
+    // adjacent labels are always distinct.
+    function formatTimeTick(t, step) {
+        const d = new Date(t)
+        if (step >= 86400000)
+            return Qt.formatDateTime(d, "dd.MM")
+        if (step >= 60000)
+            return Qt.formatDateTime(d, "HH:mm")
+        return Qt.formatDateTime(d, "HH:mm:ss")
     }
 
     // Expand the raw readings into an explicit step path: a horizontal segment at
