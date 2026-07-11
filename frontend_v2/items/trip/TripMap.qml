@@ -22,6 +22,12 @@ import frontend_v2
 Item {
     id: root
 
+    // Clip so the inspect-arrow overlay (a plain Image projected from a geo-coordinate)
+    // can never paint outside the map card and over the neighbouring view items when the
+    // inspected fix sits off the current viewport. The Map + route Canvas fill root
+    // exactly, so clipping them is a no-op.
+    clip: true
+
     property bool isCurrent: true
     property real maxSpeedKmh: Theme.tripMaxSpeedKmh
     property real lineWidth: Theme.tripRouteWidth
@@ -97,7 +103,7 @@ Item {
             maximumPointCount: 1
             dragThreshold: 0
             property point lastCentroid
-            onActiveChanged: if (active) lastCentroid = centroid.position
+            onActiveChanged: if (active) { lastCentroid = centroid.position; followAnim.stop() }
             onCentroidChanged: {
                 if (!active)
                     return
@@ -113,6 +119,7 @@ Item {
         WheelHandler {
             acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
             onWheel: function(event) {
+                followAnim.stop()
                 map.zoomLevel += event.angleDelta.y / 120 * 0.5
             }
         }
@@ -121,7 +128,7 @@ Item {
             target: null
             minimumPointCount: 2
             property real startZoom: root.defaultZoom
-            onActiveChanged: if (active) startZoom = map.zoomLevel
+            onActiveChanged: if (active) { startZoom = map.zoomLevel; followAnim.stop() }
             onActiveScaleChanged: {
                 if (!active)
                     return
@@ -166,7 +173,7 @@ Item {
     // the Canvas's z 5) so it sits ON TOP of the drawn path — a MapQuickItem would draw
     // as part of the map, under the Canvas overlay. Projected via map.fromCoordinate
     // (which references map.center + zoomLevel so it re-projects on every pan/zoom).
-    // Shown only while inspecting.
+    // The map follows it (dead-zone pan, see followInspect) so it stays on-screen.
     Image {
         id: inspectMarker
         source: "qrc:/resources/icons/arrow.svg"
@@ -175,22 +182,84 @@ Item {
         smooth: true
         antialiasing: true
         z: 6
+        // Shown only while inspecting AND while the inspected fix projects onto the map
+        // (within half an icon of an edge, so it can slide in). A fix that's off the
+        // current view therefore never paints a stray arrow over the neighbouring cards;
+        // the follow logic below keeps the fix on-map so this is normally true. root is
+        // clipped as well (belt and braces), trimming any straddling marker at the edge.
         visible: root.inspecting && root.inspectPoint !== null && map.mapReady
+                 && projected.x > -width / 2 && projected.x < map.width + width / 2
+                 && projected.y > -height / 2 && projected.y < map.height + height / 2
         rotation: root.inspectPoint ? root.inspectPoint.bearing : 0
 
         // Screen position of the inspected fix. Referencing map.center + map.zoomLevel
         // makes this re-evaluate as the map moves (fromCoordinate alone is not a tracked
-        // dependency), matching how the route Canvas repaints on view changes.
+        // dependency), matching how the route Canvas repaints on view changes. Kept
+        // independent of `visible` (which reads it back) to avoid a binding loop.
         property point projected: {
             var c = map.center
             var z = map.zoomLevel
-            if (!visible)
-                return Qt.point(-1000, -1000)
+            if (!root.inspecting || root.inspectPoint === null || !map.mapReady)
+                return Qt.point(-100000, -100000)
             return map.fromCoordinate(
                 QtPositioning.coordinate(root.inspectPoint.lat, root.inspectPoint.lon), false)
         }
         x: projected.x - width / 2
         y: projected.y - height / 2
+    }
+
+    // Dead-zone follow for the inspect arrow. The arrow roams freely inside a centred
+    // box inset 20% from every map edge; the moment the inspected fix would cross that
+    // box (the user scrubbed the graph to a spot outside the current view) the map eases
+    // so the fix lands 35% in from that edge — a cushion so small subsequent moves don't
+    // immediately re-trigger. Only map.center is animated, so the user's chosen zoom is
+    // preserved. Driven off inspectPoint/inspecting changes (never off center changes),
+    // so the pan it starts can't feed back into itself; manual pan/pinch/wheel stop it.
+    CoordinateAnimation {
+        id: followAnim
+        target: map
+        property: "center"
+        duration: 350
+        easing.type: Easing.OutQuad
+    }
+
+    onInspectPointChanged: followInspect()
+    onInspectingChanged: {
+        if (inspecting)
+            followInspect()
+        else
+            followAnim.stop()
+    }
+
+    // Pan the map (if needed) to keep the inspected fix inside the free-move box.
+    function followInspect() {
+        if (!inspecting || inspectPoint === null || !map.mapReady)
+            return
+        var w = map.width, h = map.height
+        if (w <= 0 || h <= 0)
+            return
+        var cur = map.fromCoordinate(
+            QtPositioning.coordinate(inspectPoint.lat, inspectPoint.lon), false)
+
+        // Free-move box edges at 20%/80%; when crossed, target the 35%/65% cushion.
+        // Axes are handled independently — only the crossed one moves.
+        var targetX = cur.x
+        if (cur.x < w * 0.20)      targetX = w * 0.35
+        else if (cur.x > w * 0.80) targetX = w * 0.65
+        var targetY = cur.y
+        if (cur.y < h * 0.20)      targetY = h * 0.35
+        else if (cur.y > h * 0.80) targetY = h * 0.65
+
+        if (targetX === cur.x && targetY === cur.y)
+            return   // inside the box on both axes -> hold still, let the arrow glide
+
+        // Move center so the fix goes from its current pixel to the target pixel — the
+        // same "grab a point and drag it" math the manual pan handler uses.
+        var geoAtTarget = map.toCoordinate(Qt.point(targetX, targetY), false)
+        followAnim.to = QtPositioning.coordinate(
+            map.center.latitude + (inspectPoint.lat - geoAtTarget.latitude),
+            map.center.longitude + (inspectPoint.lon - geoAtTarget.longitude))
+        followAnim.restart()
     }
 
     // A new route (or a cleared one) arrives from the backend.
@@ -218,7 +287,12 @@ Item {
     }
 
     // Redraw when returning to the view (in case GL state was released while hidden).
-    onIsCurrentChanged: if (isCurrent) routeCanvas.requestPaint()
+    onIsCurrentChanged: {
+        if (isCurrent)
+            routeCanvas.requestPaint()
+        else
+            followAnim.stop()
+    }
 
     // Dark green (0 km/h) -> red / dark red (maxSpeedKmh). Hue sweeps 120deg->0deg;
     // the value dips toward the top so the fast end reads as a darker red. Speeds
