@@ -30,6 +30,9 @@ void ChargingData::onPacket(quint8 type, const QByteArray &payload) {
         case protocol::CHARGER_STREAM:
             parseStream(payload);
             break;
+        case protocol::SPOT_PRICE_STREAM:
+            parseSpotPrice(payload);
+            break;
         case protocol::CHARGING_MONTH:
             parseMonth(payload);
             break;
@@ -130,6 +133,31 @@ void ChargingData::parseStream(const QByteArray &payload) {
         emit chargeChanged();
         emit chargeTick();
     }
+}
+
+void ChargingData::parseSpotPrice(const QByteArray &payload) {
+    QDataStream stream(payload);
+    stream.setByteOrder(QDataStream::BigEndian);
+    QIODevice *device = stream.device();
+
+    // status(1) + hour_start_ms(8) + spot(8) + all_in(8) = 25 bytes.
+    if (device->bytesAvailable() < 25) {
+        logger.warning(QStringLiteral("Spot-price frame too short"));
+        return;
+    }
+    quint8 status;
+    qint64 hourStartMs;
+    double spot;
+    double allIn;
+    stream >> status >> hourStartMs >> spot >> allIn;
+
+    // status 0 => no price this hour (fetch failed / unpublished): drop to "no price" so
+    // the tile shows "—" rather than a stale value.
+    m_hasSpotPrice = (status == 1);
+    m_spotHourStartMs = static_cast<double>(hourStartMs);
+    m_spotRawEurPerKwh = spot;
+    m_spotPriceEurPerKwh = allIn;
+    emit spotPriceChanged();
 }
 
 void ChargingData::parseMonth(const QByteArray &payload) {

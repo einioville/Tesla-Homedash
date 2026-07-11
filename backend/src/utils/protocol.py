@@ -139,9 +139,11 @@ CHARGING_LIST = 0x81       # B->F: req_start_ms(8B) + req_end_ms(8B) + count(2B)
                            #       (the echoed request window lets the client drop an out-of-order reply)
 CHARGING_GET_SUMMARY = 0x82  # F->B: start_ms(8B) + end_ms(8B)  — the selected session's window
 CHARGING_SUMMARY = 0x83      # B->F: session_id(8B) + status(1B) + start_ms(8B) + end_ms(8B)
-                             #       + 9*double(8B): charger_kwh, ac_in_kwh, battery_kwh,
+                             #       + 11*double(8B): charger_kwh, ac_in_kwh, battery_kwh,
                              #       loss_cable_kwh, loss_conversion_kwh, loss_total_kwh,
-                             #       loss_total_pct, start_soc, end_soc (any may be NaN)
+                             #       loss_total_pct, start_soc, end_soc, cost_eur,
+                             #       avg_price_eur_per_kwh (any may be NaN — cost is NaN when
+                             #       spot pricing is off/unavailable and no flat tariff is set)
 
 # Month-to-date charging aggregate (the Charging view's stats grid). Request/response,
 # replied to the requesting client only. The backend derives the month window from the
@@ -159,6 +161,16 @@ CHARGING_MONTH = 0x85      # B->F: status(1B) + 13*double(8B): charger_kwh, car_
 # logged every poll so the series is gap-free.
 CHARGER_GET_HISTORY = 0x86  # F->B: range_code(1B) + id(len(2B)+UTF-8) + start_ms(8B) + end_ms(8B)
 CHARGER_HISTORY = 0x87      # B->F: id(len(2B)+UTF-8) + status(1B) + count(4B) + count*(ts_ms(8B)+value(8B double))
+
+# Live Nord Pool spot electricity price (the Charging view's current-price tile). A
+# broadcast, like CHARGER_STREAM: SpotPriceService fetches the hourly FI-zone spot price
+# (sähkötin.fi), applies VAT + seller margin, and re-broadcasts the current hour's price
+# once per hour. status is 0 when no price is available yet (fetch failed / unpublished),
+# else 1. spot is the raw wholesale price (€/kWh, no VAT); all_in is the estimate the tiles
+# price energy with = (spot + margin) * (1 + VAT). hour_start_ms is the UTC start of the
+# price's hour, so the frontend can tell whether the tile is current.
+SPOT_PRICE_STREAM = 0x88    # B->F: status(1B) + hour_start_ms(8B) + spot_eur_per_kwh(8B double)
+                            #       + all_in_eur_per_kwh(8B double) (both NaN when status 0)
 
 # Maximum accepted size of a single incoming message (defensive cap)
 MAX_MSG_SIZE = 1024 * 1024  # 1 MB

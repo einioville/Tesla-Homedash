@@ -20,6 +20,8 @@ Item {
     }
     function power(w) { return has(w) ? Math.round(w) + " W" : "—" }
     function energy(kwh) { return has(kwh) ? kwh.toFixed(2) + " kWh" : "—" }
+    // All-in €/kWh -> c/kWh; "—" until a live spot price arrives (or when disabled).
+    function price(eur) { return (Charging.hasSpotPrice && has(eur)) ? (eur * 100).toFixed(2) + " c/kWh" : "—" }
 
     // One title-over-value stat in the row.
     component LiveStat: Column {
@@ -61,5 +63,6 @@ Item {
         LiveStat { t: qsTr("Istunto");    v: root.energy(Charging.sessionEnergyKwh) }
         LiveStat { t: qsTr("Latausteho"); v: root.power(Charging.chargePowerW) }
         LiveStat { t: qsTr("Verkkoteho"); v: root.power(Charging.gridPowerW) }
+        LiveStat { t: qsTr("Hinta");      v: root.price(Charging.spotPriceEurPerKwh) }
     }
 }

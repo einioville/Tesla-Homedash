@@ -43,6 +43,15 @@ class ChargingData : public QObject {
     Q_PROPERTY(int l1Phase READ l1Phase NOTIFY liveStateChanged)
     Q_PROPERTY(QVariantMap raw READ raw NOTIFY liveStateChanged)
 
+    // Live Nord Pool spot price (SPOT_PRICE_STREAM). `hasSpotPrice` stays false until the
+    // first status=1 frame (or when spot pricing is disabled backend-side). price is the
+    // VAT+margin all-in €/kWh the tiles use; rawPrice is the wholesale €/kWh; hourStartMs
+    // is the UTC start of the priced hour.
+    Q_PROPERTY(bool hasSpotPrice READ hasSpotPrice NOTIFY spotPriceChanged)
+    Q_PROPERTY(double spotPriceEurPerKwh READ spotPriceEurPerKwh NOTIFY spotPriceChanged)
+    Q_PROPERTY(double spotRawEurPerKwh READ spotRawEurPerKwh NOTIFY spotPriceChanged)
+    Q_PROPERTY(double spotHourStartMs READ spotHourStartMs NOTIFY spotPriceChanged)
+
     // Month-to-date aggregate (CHARGING_MONTH): `valid` + the 12 fields (NaN -> "—").
     Q_PROPERTY(QVariantMap monthSummary READ monthSummary NOTIFY monthChanged)
     Q_PROPERTY(bool monthLoading READ monthLoading NOTIFY monthLoadingChanged)
@@ -67,6 +76,10 @@ public:
     double supplyFrequency() const { return m_supplyFrequency; }
     int l1Phase() const { return m_l1Phase; }
     QVariantMap raw() const { return m_raw; }
+    bool hasSpotPrice() const { return m_hasSpotPrice; }
+    double spotPriceEurPerKwh() const { return m_spotPriceEurPerKwh; }
+    double spotRawEurPerKwh() const { return m_spotRawEurPerKwh; }
+    double spotHourStartMs() const { return m_spotHourStartMs; }
     QVariantMap monthSummary() const { return m_month; }
     bool monthLoading() const { return m_monthLoading; }
     QVariantMap gridSeries() const { return seriesMap(m_grid); }
@@ -84,6 +97,7 @@ public:
 
 signals:
     void liveStateChanged();
+    void spotPriceChanged();
     void monthChanged();
     void monthReady();
     void monthLoadingChanged();
@@ -113,6 +127,7 @@ private:
     };
 
     void parseStream(const QByteArray &payload);
+    void parseSpotPrice(const QByteArray &payload);
     void parseMonth(const QByteArray &payload);
     void parseChargerHistory(const QByteArray &payload);
     void sendHistoryRequest(const QString &id);
@@ -138,6 +153,12 @@ private:
     double m_supplyFrequency = 0.0;
     int m_l1Phase = 0;
     QVariantMap m_raw;
+
+    // Live spot price (SPOT_PRICE_STREAM).
+    bool m_hasSpotPrice = false;
+    double m_spotPriceEurPerKwh = 0.0;
+    double m_spotRawEurPerKwh = 0.0;
+    double m_spotHourStartMs = 0.0;
 
     // Month aggregate + reconnect-retry flag.
     QVariantMap m_month;

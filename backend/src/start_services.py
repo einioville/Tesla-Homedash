@@ -1,11 +1,12 @@
 import asyncio
 import logging
-import math
 import os
 import struct
 from datetime import datetime, timezone
 
 from .charging_service.charging_loader import ChargingLoader
+from .charging_service.spot_price import SpotPriceProvider
+from .charging_service.spot_price_service import SpotPriceService
 from .influxdb_service.influxdb_handler import InfluxDBHandler
 from .media_service.media_manager import MediaManager
 from .myenergi_service.myenergi_service import MyEnergiService
@@ -250,11 +251,13 @@ def _build_trip_series_frame(trip_id: int, data_property_id: str, result) -> byt
 
 # The charging-loss summary fields packed (in order) after the echoed
 # session_id/status/window. Every value is an IEEE-754 double; a missing metric packs
-# as NaN, which the frontend renders as "—". Mirrors _TRIP_SUMMARY_FIELDS.
+# as NaN, which the frontend renders as "—". Mirrors _TRIP_SUMMARY_FIELDS. cost_eur /
+# avg_price_eur_per_kwh are the session's spot-priced cost + its average €/kWh (NaN when
+# spot pricing is off and no flat tariff is set).
 _CHARGING_SUMMARY_FIELDS = (
     "charger_kwh", "ac_in_kwh", "battery_kwh",
     "loss_cable_kwh", "loss_conversion_kwh", "loss_total_kwh", "loss_total_pct",
-    "start_soc", "end_soc",
+    "start_soc", "end_soc", "cost_eur", "avg_price_eur_per_kwh",
 )
 
 
@@ -623,11 +626,12 @@ def _register_handlers(
     async def _get_charging_month(_payload: bytes, writer) -> None:
         '''
         Computes the month-to-date charging aggregate (energy, waste, efficiency,
-        consumption/km, sessions, cost, home import) and replies to the requesting client
-        only. The month runs from the 1st (00:00 in the configured timezone) to now. A
-        failed computation replies status=0 rather than no reply, so the stats grid never
-        hangs. The flat tariff (€/kWh from config, or None) turns charger energy into a
-        cost estimate here, keeping pricing out of the loader.
+        consumption/km, sessions, spot-priced cost, home import + cost) and replies to the
+        requesting client only. The month runs from the 1st (00:00 in the configured
+        timezone) to now. Both cost fields are computed inside month_summary (the loader
+        owns the spot provider + flat tariff), so this handler just derives the window and
+        packs. A failed computation replies status=0 rather than no reply, so the stats
+        grid never hangs.
         '''
         summary = None
         try:
@@ -636,20 +640,6 @@ def _register_handlers(
             now_ms = int(now.timestamp() * 1000)
             month_start_ms = int(month_start.timestamp() * 1000)
             summary = await charging_loader.month_summary(month_start_ms, now_ms)
-            tariff = config.electricity_price_eur_per_kwh
-            charger_kwh = summary.get("charger_kwh", float("nan"))
-            summary["charging_cost_eur"] = (
-                charger_kwh * tariff
-                if (tariff is not None and not math.isnan(charger_kwh))
-                else float("nan")
-            )
-            # Total home electricity cost this month (all grid import * flat tariff).
-            home_grid_kwh = summary.get("home_grid_kwh", float("nan"))
-            summary["home_cost_eur"] = (
-                home_grid_kwh * tariff
-                if (tariff is not None and not math.isnan(home_grid_kwh))
-                else float("nan")
-            )
         except Exception as e:
             logger.warning("CHARGING_GET_MONTH failed: %s: %s", type(e).__name__, e)
         await server.send_to(writer, _build_charging_month_frame(summary))
@@ -756,11 +746,24 @@ async def main():
     trip_loader = TripLoader(influx_handler, config)
     logger.debug("Trip loader initialized")
 
+    # Spot pricing (issue #12): shared fetch/cache/convert core for Nord Pool FI prices.
+    # Constructed unconditionally (independent of the charger) — the live price tile and
+    # the on-demand cost path both use it; when disabled in config every method no-ops and
+    # cost falls back to the flat tariff.
+    spot_provider = SpotPriceProvider(config)
+    logger.debug("Spot price provider initialized")
+
     # Charging-loss analysis (myenergi): stateless, reads DetailedChargeState +
     # myenergi_data history from InfluxDB on demand. Constructed unconditionally so the
-    # charging handlers always answer (an empty list when no charger data exists).
-    charging_loader = ChargingLoader(influx_handler, config)
+    # charging handlers always answer (an empty list when no charger data exists). The spot
+    # provider prices its sessions + month cost (flat tariff fallback).
+    charging_loader = ChargingLoader(influx_handler, config, spot_provider=spot_provider)
     logger.debug("Charging loader initialized")
+
+    # Live spot price broadcast (the Charging view's current-price tile). Always-on (works
+    # without a Zappi); run() no-ops when spot pricing is disabled.
+    spot_price_service = SpotPriceService(server=server, config=config, provider=spot_provider)
+    logger.debug("Spot price service initialized")
 
     # MyEnergi (Zappi) charger streaming + logging: optional. Absent credentials -> the
     # service is not started (a deployment without a charger still runs), while the
@@ -786,7 +789,7 @@ async def main():
 
     # Wire incoming-message dispatch and on-connect snapshot before start().
     _register_handlers(server, mm, vehicle, trip_loader, charging_loader, config)
-    services = [vehicle, mm, weather]
+    services = [vehicle, mm, weather, spot_price_service]
     if myenergi is not None:
         services.append(myenergi)
     for service in services:
@@ -802,8 +805,9 @@ async def main():
     t2 = asyncio.create_task(server.start())
     t3 = mm.get_run_task()
     t4 = weather.get_run_task()
+    t5 = spot_price_service.get_run_task()
 
-    tasks = [t1, t2, t3, t4]
+    tasks = [t1, t2, t3, t4, t5]
     if myenergi is not None:
         tasks.append(myenergi.get_run_task())
 
