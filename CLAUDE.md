@@ -663,6 +663,12 @@ checks and let the user run the live stack.
 - Commit subjects use short imperative prefixes: `Add:`, `Fix:`, `Update:`, `Remove:`, `Create:`.
 - Keep each commit focused on one purpose.
 - PRs include: change summary, reason, manual verification steps, and screenshots for UI changes.
+- **When opening a PR, check whether the branch resolves any open issue(s).** Before writing the PR
+  body, scan the open issues (`gh issue list`) against what the branch actually changes and, for every
+  issue the work fixes, add a GitHub closing keyword (`Closes #N` / `Fixes #N`, one per issue) to the
+  PR body so the issue auto-closes on merge instead of being left open after it's really fixed. If a
+  branch touches an issue only partially, reference it (`Refs #N`) without a closing keyword. Don't
+  invent a link — only tie a PR to an issue the change genuinely resolves.
 - **Prompt to commit once work is verified.** This repo tends to accumulate uncommitted,
   manually-verified changes (the frontend isn't agent-built, so verification happens on the user's
   side). When the user confirms a feature works — i.e. they say a manual test passed — proactively
