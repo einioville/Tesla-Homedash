@@ -49,6 +49,7 @@ Rectangle {
             title: qsTr("Verkkoteho") + " (W)"
             unit: "W"
             series: Charging.gridSeries
+            live: view.isCurrent
         }
         ChargingGraphCard {
             id: chargeCard
@@ -57,6 +58,7 @@ Rectangle {
             title: qsTr("Latausteho") + " (W)"
             unit: "W"
             series: Charging.chargeSeries
+            live: view.isCurrent
         }
     }
 
