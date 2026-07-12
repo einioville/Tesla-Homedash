@@ -388,8 +388,8 @@
     "electricityPriceEurPerKwh": null,
     "myenergi": {
         "zappiSerial": "",
-        "pollIntervalIdleSeconds": 30,
-        "pollIntervalActiveSeconds": 10,
+        "pollIntervalIdleSeconds": 60,
+        "pollIntervalActiveSeconds": 20,
         "minSessionEnergyKwh": 0.5,
         "sessionMergeMinutes": 5
     },

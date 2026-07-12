@@ -475,7 +475,16 @@ guards; they're the only thing preventing injection if non-config input ever rea
   measurement: `GridPower` + `ChargePower` **every poll** (gap-free for the past-hour graphs and the
   month home-import integral) and `ChargeAdded` (the session accumulator) **while charging**. Mirrors
   `WeatherService` (initial poll + APScheduler job, last frame cached for `stream_everything`), with
-  two poll cadences (idle/active). Optional — skipped when the `.env` creds are unset.
+  two poll cadences (idle/active, config-driven — default **60 s idle / 20 s active** to stay under
+  the myenergi cloud's rate limit; 10 s throttled us with 429s). `__apply_interval` is the single
+  place that reschedules the job: it picks the active/idle base then stretches it by a **capped
+  exponential backoff** (`2**consecutive_failures`, ≤ 5 min) whenever a poll fails, snapping back on
+  the first success. This matters because every failed request flips pymyenergi's `do_query_asn` back
+  on, so the next poll fires two requests (director + status) — polling a failing endpoint at full
+  cadence deepens a throttle. Refresh/resolve failures are logged via the module helper
+  `_describe_exception`, which surfaces the HTTP status a `MyenergiException` otherwise hides (its
+  ctor stores it in `.code`/`.message` but stringifies to `""`, so the old `str(e)` logged a blank
+  reason — issue #18). Optional — skipped when the `.env` creds are unset.
 - **`charging_service/`** (`ChargingLoader` + `ChargingSession`) derives charging sessions **on
   demand** from stored `DetailedChargeState` history (segmentation like `trip_service`), joined to
   the logged charger energy — no live tracking. Serves `CHARGING_GET_LIST`/`_SUMMARY`/`_MONTH` +
@@ -654,6 +663,12 @@ checks and let the user run the live stack.
 - Commit subjects use short imperative prefixes: `Add:`, `Fix:`, `Update:`, `Remove:`, `Create:`.
 - Keep each commit focused on one purpose.
 - PRs include: change summary, reason, manual verification steps, and screenshots for UI changes.
+- **When opening a PR, check whether the branch resolves any open issue(s).** Before writing the PR
+  body, scan the open issues (`gh issue list`) against what the branch actually changes and, for every
+  issue the work fixes, add a GitHub closing keyword (`Closes #N` / `Fixes #N`, one per issue) to the
+  PR body so the issue auto-closes on merge instead of being left open after it's really fixed. If a
+  branch touches an issue only partially, reference it (`Refs #N`) without a closing keyword. Don't
+  invent a link — only tie a PR to an issue the change genuinely resolves.
 - **Prompt to commit once work is verified.** This repo tends to accumulate uncommitted,
   manually-verified changes (the frontend isn't agent-built, so verification happens on the user's
   side). When the user confirms a feature works — i.e. they say a manual test passed — proactively

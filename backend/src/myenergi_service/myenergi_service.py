@@ -63,6 +63,36 @@ _CHARGE_ADDED_ID = "ChargeAdded"
 _CHARGE_POWER_ID = "ChargePower"
 _GRID_POWER_ID = "GridPower"
 
+# When a poll fails the myenergi cloud has almost always throttled us (429) or hiccuped
+# (5xx), and every failure also flips pymyenergi's do_query_asn back on, so the *next*
+# poll fires two requests (director ASN + status) instead of one — polling a failing
+# endpoint at the normal cadence therefore deepens a throttle. On consecutive failures the
+# interval is stretched by 2**failures (capped), snapping back to the normal idle/active
+# cadence on the first poll that succeeds.
+_BACKOFF_FACTOR_CAP = 4         # cap the multiplier at 2**4 = 16x the base interval
+_BACKOFF_MAX_INTERVAL_S = 300   # ...and never back off slower than once every 5 minutes
+
+
+def _describe_exception(e: Exception) -> str:
+    '''
+    Renders an exception for a log line, surfacing the HTTP status pymyenergi otherwise
+    hides. A pymyenergi MyenergiException stringifies to '' — its constructor stores the
+    status in .code / .message but never forwards code to the base Exception — so str(e)
+    alone logs a blank reason (the "MyenergiException:" with nothing after it). This pulls
+    .code and .message off the exception instead (e.g. "MyenergiException 429
+    TOO_MANY_REQUESTS"), falling back to str(e) for ordinary exceptions.
+    Arguments:
+        e (Exception): The caught exception to describe.
+    '''
+    parts = [type(e).__name__]
+    code = getattr(e, "code", None)
+    if code is not None:
+        parts.append(str(code))
+    message = getattr(e, "message", "") or str(e)
+    if message:
+        parts.append(message)
+    return " ".join(parts)
+
 
 class MyEnergiService:
     def __init__(
@@ -99,6 +129,11 @@ class MyEnergiService:
         self.__zappi: Zappi | None = None
         self.__job = None
         self.__current_interval: int | None = None
+        # Cadence inputs for __apply_interval: whether the last successful poll saw the
+        # charger charging (active vs idle base), and how many polls have failed in a row
+        # (drives the backoff). Reset to 0 on the first poll that succeeds.
+        self.__is_charging = False
+        self.__consecutive_failures = 0
 
         # Most recent framed CHARGER_STREAM packet, replayed verbatim to a newly
         # connecting client (same idea as WeatherService.__last_forecast).
@@ -166,7 +201,7 @@ class MyEnergiService:
             return True
         except Exception as e:
             # Network / auth / discovery failure: stay dormant and retry next tick.
-            logger.warning("Failed to resolve Zappi: %s: %s", type(e).__name__, e)
+            logger.warning("Failed to resolve Zappi: %s", _describe_exception(e))
             return False
 
     async def __poll(self) -> None:
@@ -181,8 +216,19 @@ class MyEnergiService:
         try:
             await self.__zappi.refresh()
         except Exception as e:
-            logger.warning("Zappi refresh failed: %s: %s", type(e).__name__, e)
+            self.__consecutive_failures += 1
+            logger.warning(
+                "Zappi refresh failed (%d in a row): %s",
+                self.__consecutive_failures, _describe_exception(e),
+            )
+            self.__apply_interval()
             return
+
+        if self.__consecutive_failures:
+            logger.info(
+                "Zappi refresh recovered after %d failure(s)", self.__consecutive_failures
+            )
+            self.__consecutive_failures = 0
 
         status = self.__zappi.status
         plug = self.__zappi.plug_status
@@ -203,7 +249,8 @@ class MyEnergiService:
         await self.__server.broadcast(self.__last_frame)
 
         await self.__log_poll(status, charge_added, power, grid_power)
-        self.__adjust_interval(status)
+        self.__is_charging = _STATUS_MAP.get(status) == protocol.CHARGER_STATUS_CHARGING
+        self.__apply_interval()
 
     def __derive_power(self, charge_added) -> float:
         '''
@@ -276,16 +323,23 @@ class MyEnergiService:
             .time(when, WritePrecision.MS)
         )
 
-    def __adjust_interval(self, status) -> None:
+    def __apply_interval(self) -> None:
         '''
-        Switches the poll cadence between the active and idle intervals based on whether
-        the charger is charging, by rescheduling the job. No-op when the desired interval
-        already matches the current one.
-        Arguments:
-            status: The Zappi status string this poll.
+        Sets the poll cadence to the desired interval by rescheduling the job, a no-op
+        when it already matches. The base cadence is the active interval while charging or
+        the idle interval otherwise; consecutive failures then stretch it by a capped
+        exponential backoff (2**failures, bounded by _BACKOFF_MAX_INTERVAL_S) so a
+        sustained cloud throttle (429) or outage is not hammered — and because each failure
+        also forces pymyenergi to re-query the director next poll, backing off is what
+        actually lets a throttle clear. The first successful poll resets the failure count,
+        snapping the cadence straight back to idle/active.
         '''
-        is_charging = _STATUS_MAP.get(status) == protocol.CHARGER_STATUS_CHARGING
-        desired = self.__active_interval if is_charging else self.__idle_interval
+        base = self.__active_interval if self.__is_charging else self.__idle_interval
+        if self.__consecutive_failures:
+            factor = 2 ** min(self.__consecutive_failures, _BACKOFF_FACTOR_CAP)
+            desired = min(base * factor, _BACKOFF_MAX_INTERVAL_S)
+        else:
+            desired = base
         if desired != self.__current_interval and self.__job is not None:
             self.__job.reschedule(trigger=IntervalTrigger(seconds=desired))
             self.__current_interval = desired
