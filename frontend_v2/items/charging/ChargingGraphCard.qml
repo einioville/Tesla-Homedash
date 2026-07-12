@@ -12,6 +12,9 @@ Item {
     property string unit: "W"
     // A { points, minX, maxX, minY, maxY, count } map from Charging.gridSeries/.chargeSeries.
     property var series: ({})
+    // Forwarded to the graph's pulsing "now" marker — these past-hour graphs roll, so the
+    // owning view sets this true while it's on screen.
+    property bool live: false
 
     function reload() { graph.reloadFull() }
     function advance() { graph.advanceLive() }
@@ -32,6 +35,7 @@ Item {
         // keep the default card padding.
         plotMarginTop: 40
         unit: root.unit
+        live: root.live
         pointsData: root.series && root.series.points ? root.series.points : []
         dataMinX: root.series && root.series.minX !== undefined ? root.series.minX : 0
         dataMaxX: root.series && root.series.maxX !== undefined ? root.series.maxX : 1

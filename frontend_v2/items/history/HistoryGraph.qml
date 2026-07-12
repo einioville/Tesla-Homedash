@@ -1,4 +1,6 @@
 import QtQuick
+import QtQuick.Shapes
+import QtQuick.Effects
 import QtGraphs
 import frontend_v2
 
@@ -27,8 +29,79 @@ Item {
 
     property string unit: ""
 
-    // The built-in dark-gradient card background. The Trips view sets this false and
-    // supplies its own minimalistic card, so the History view keeps its dashboard card.
+    // --- Gradient glow under the line (the modern look; tweak here) -----------
+    // A translucent area fill under the line that fades to transparent toward the plot
+    // floor — the "glow" that makes the graph read as modern instead of a bare stroke.
+    // Colour tracks the line (Theme.accent) by default; a host can override per graph.
+    // glowOpacity is the alpha directly under the line (the fade bottoms out at 0). These
+    // two are the knobs to iterate on the look.
+    property color glowColor: Theme.accent
+    property real glowOpacity: 0.35
+
+    // --- Outer glow on the line itself (the bloom; tweak here) ----------------
+    // A soft blurred halo behind the crisp line. Kept OFF by default — it read as too blurry —
+    // but the machinery stays so it can be re-enabled and tuned. It is a blurred copy of the
+    // stepped path (via MultiEffect — the same glow tech as GlowIcon / GlassPanel), drawn
+    // behind the real line. lineGlowRadius is the blur reach in px, lineGlowStrength the overall
+    // opacity, lineGlowWidth the stroke fed into the blur (a wider source → a denser bloom).
+    // Flip lineGlowEnabled true to bring it back (a tighter look wants a smaller radius/width).
+    property bool lineGlowEnabled: false
+    property real lineGlowRadius: 14
+    property real lineGlowStrength: 0.85
+    property real lineGlowWidth: 6
+
+    // Horizontal gridline colour. ~25% white so the lines read over the plain dark card, not
+    // just where the brighter gradient sits behind them (10% was invisible on the dark areas).
+    property color gridLineColor: "#40ffffff"
+
+    // Draw-in animation: the plot content (line + fill glow) fades from 0 → 1 on every fresh
+    // load, so switching property / range feels alive. Driven by drawInAnim, which reloadFull
+    // restarts; a live tick (advanceLive) deliberately does NOT restart it, so the per-second
+    // roll stays smooth instead of blinking. 1 = fully shown (the resting state).
+    property real drawIn: 1
+
+    // Live "now" marker: when true, a pulsing dot is drawn at the latest value (the rolling
+    // right edge). Hosts set it for graphs whose newest point really is "now" — the History
+    // view in live mode and the rolling Charging past-hour graphs — and leave it false for
+    // static graphs (a past trip), where a pulsing "now" would be misleading.
+    property bool live: false
+
+    // Cached stepped path in DATA coordinates, rebuilt only when the data / extent changes
+    // (in reloadFull / advanceLive) — the same array handed to the LineSeries. glowPolyline
+    // maps it to plot-local pixels, so panning/zooming only remaps, never re-steps.
+    property var steppedData: []
+
+    // The glow outline in plot-local pixels: the cached stepped points mapped through the
+    // current axis window + plot geometry, bracketed by two floor points so the filled Shape
+    // closes down to the baseline. Rebinds whenever the window (xAxis / yAxis), the plot area
+    // or the data changes, so the glow stays locked under the line through every pan / zoom.
+    readonly property var glowPolyline: {
+        const a = graph.plotArea
+        const src = root.steppedData
+        const n = src.length
+        const xspan = xAxis.max - xAxis.min
+        const yspan = yAxis.max - yAxis.min
+        if (n === 0 || a.width <= 0 || a.height <= 0 || xspan <= 0 || yspan <= 0)
+            return []
+        const w = a.width, h = a.height
+        const x0 = xAxis.min, yTop = yAxis.max
+        const out = []
+        out.push(Qt.point((src[0].x - x0) / xspan * w, h))
+        for (let i = 0; i < n; ++i)
+            out.push(Qt.point((src[i].x - x0) / xspan * w, (yTop - src[i].y) / yspan * h))
+        out.push(Qt.point((src[n - 1].x - x0) / xspan * w, h))
+        return out
+    }
+
+    // The line-only outline in plot-local pixels: glowPolyline without its two floor-bracket
+    // points, i.e. just the stepped path the line traces. The (disabled) outer-glow Shape strokes this.
+    readonly property var linePolyline:
+        glowPolyline.length > 2 ? glowPolyline.slice(1, glowPolyline.length - 1) : []
+
+    // The built-in card background. Now the same minimalistic translucent-grey card the
+    // Trips / Charging graph cards draw, so all three graph surfaces share one look. The
+    // Trips / Charging views set this false and supply their own (identical) card; the
+    // History view keeps this built-in one.
     property bool showBackground: true
 
     // Card padding: the gap between the card edge and the plot area, per side — the space
@@ -88,23 +161,109 @@ Item {
     readonly property bool inspecting: overlay.inspecting
     readonly property real inspectTime: overlay.dataX
 
-    GradientCard {
+    Rectangle {
         anchors.fill: parent
         visible: root.showBackground
-        gradientCx: 0.5
-        gradientCy: 0.0
+        radius: Theme.tripCardRadius
+        color: Theme.tripCardBg
+        border.width: 1
+        border.color: Theme.tripCardBorder
+    }
+
+    // Gradient glow under the line, drawn as ONE clean filled Shape rather than a QtGraphs
+    // AreaSeries — the area renderer triangulates our stepped path (points share x on every
+    // vertical jump) into visible diagonal streaks. glowClip is pinned to the plot area and
+    // clips, so panned/zoomed content outside the window can't spill. The ShapePath traces
+    // the stepped path in plot-local pixels and closes down to the floor, filled with a
+    // vertical LinearGradient that fades to transparent. Declared BEFORE the GraphsView so
+    // the line — which the GraphsView draws over its transparent plot area — sits on top of
+    // the glow. The inspect overlay is declared after the GraphsView, so it stays on top.
+    Item {
+        id: glowClip
+        visible: root.dataCount > 0 && root.glowPolyline.length > 0
+        opacity: root.drawIn
+        x: graph.plotArea.x
+        y: graph.plotArea.y
+        width: graph.plotArea.width
+        height: graph.plotArea.height
+        clip: true
+
+        Shape {
+            anchors.fill: parent
+            preferredRendererType: Shape.CurveRenderer
+
+            ShapePath {
+                strokeWidth: 0
+                strokeColor: "transparent"
+                startX: root.glowPolyline.length > 0 ? root.glowPolyline[0].x : 0
+                startY: root.glowPolyline.length > 0 ? root.glowPolyline[0].y : 0
+                fillGradient: LinearGradient {
+                    x1: 0
+                    y1: 0
+                    x2: 0
+                    y2: glowClip.height
+                    GradientStop { position: 0.0; color: Qt.rgba(root.glowColor.r, root.glowColor.g, root.glowColor.b, root.glowOpacity) }
+                    GradientStop { position: 0.55; color: Qt.rgba(root.glowColor.r, root.glowColor.g, root.glowColor.b, root.glowOpacity * 0.22) }
+                    GradientStop { position: 1.0; color: Qt.rgba(root.glowColor.r, root.glowColor.g, root.glowColor.b, 0.0) }
+                }
+                PathPolyline { path: root.glowPolyline }
+            }
+        }
+    }
+
+    // Outer glow on the line: a blurred copy of the stepped path, drawn behind the crisp line
+    // so the line reads as lit. The source Shape (hidden) strokes the same pixel polyline as
+    // the line; MultiEffect blurs it into a soft accent halo. blurEnabled (not shadowEnabled)
+    // renders ONLY the blurred version — no crisp second line to fight the real one on top.
+    // Same plot-area clip as the fill glow, and declared before the GraphsView so the crisp
+    // line sits on top. Reuses glowColor, so the fill glow, line and bloom stay one colour.
+    Item {
+        id: lineGlowClip
+        visible: root.lineGlowEnabled && root.dataCount > 0 && root.linePolyline.length > 1
+        x: graph.plotArea.x
+        y: graph.plotArea.y
+        width: graph.plotArea.width
+        height: graph.plotArea.height
+        clip: true
+
+        Shape {
+            id: lineGlowSource
+            anchors.fill: parent
+            visible: false
+            preferredRendererType: Shape.CurveRenderer
+
+            ShapePath {
+                strokeColor: root.glowColor
+                strokeWidth: root.lineGlowWidth
+                fillColor: "transparent"
+                capStyle: ShapePath.RoundCap
+                joinStyle: ShapePath.RoundJoin
+                PathPolyline { path: root.linePolyline }
+            }
+        }
+
+        MultiEffect {
+            anchors.fill: lineGlowSource
+            source: lineGlowSource
+            autoPaddingEnabled: false
+            blurEnabled: true
+            blur: 1.0
+            blurMax: root.lineGlowRadius
+            opacity: root.lineGlowStrength
+        }
     }
 
     GraphsView {
         id: graph
         anchors.fill: parent
+        opacity: root.drawIn
         marginTop: root.plotMarginTop
         marginBottom: root.plotMarginBottom
         marginLeft: root.plotMarginLeft
         marginRight: root.plotMarginRight
 
         // Transparent background so the card behind the graph shows through — the
-        // Trip / Charging translucent Rectangle, or the History GradientCard. Without
+        // translucent-grey Rectangle (History's built-in one, or the Trip / Charging card). Without
         // this the default theme paints an opaque rectangle over the card, which reads
         // as "the card disappeared". Only the two background flags are overridden; axis
         // line / label colours keep the default theme, so the graph looks unchanged
@@ -112,6 +271,11 @@ Item {
         theme: GraphsTheme {
             backgroundVisible: false
             plotAreaBackgroundVisible: false
+            // Whisper-faint horizontal gridlines (only the Y axis enables its grid, below)
+            // so a value can be read off the axis without dropping the inspect line. Kept
+            // very low-alpha so it adds depth without clutter; no sub-grid.
+            grid.mainColor: root.gridLineColor
+            grid.mainWidth: 1
         }
 
         axisX: ValueAxis {
@@ -127,7 +291,7 @@ Item {
             labelFormat: "%.0f"
             tickInterval: root.xTickStep
             tickAnchor: root.xTickAnchor
-            gridVisible: false     // only the line shows in the plot area
+            gridVisible: false     // no vertical gridlines (only the Y axis's faint horizontals)
             subGridVisible: false
             labelDelegate: Item {
                 id: xLabelDelegate
@@ -151,7 +315,10 @@ Item {
             id: yAxis
             min: root.yFit.min - root.yPad
             max: root.yFit.max + root.yPad
-            gridVisible: false
+            // Faint horizontal gridlines aligned with the value labels (colour from the
+            // theme's grid.mainColor above); the X axis keeps its grid off so only
+            // horizontals show. No minor gridlines.
+            gridVisible: true
             subGridVisible: false
         }
 
@@ -164,6 +331,8 @@ Item {
             // true step. Telemetry only sends a value when it changes, so each
             // reading holds until the next instead of sloping toward it; building
             // the path ourselves avoids relying on the renderer's step line style.
+            // (A spline was tried for a smoother look but was reverted: it turned a
+            // genuinely flat/held value into a wobble, misrepresenting the data.)
         }
     }
 
@@ -172,7 +341,21 @@ Item {
     // / Trips.onSeriesReady).
     function reloadFull() {
         root.resetView()
-        series.replace(root.buildStepped(root.pointsData))
+        root.steppedData = root.buildStepped(root.pointsData)
+        series.replace(root.steppedData)
+        drawInAnim.restart()
+    }
+
+    // The fade-in: sets drawIn to 0 and eases it back to 1 (bound to the plot content's
+    // opacity). restart() re-fires it from the start on each fresh load.
+    NumberAnimation {
+        id: drawInAnim
+        target: root
+        property: "drawIn"
+        from: 0.0
+        to: 1.0
+        duration: 420
+        easing.type: Easing.OutCubic
     }
     // A live window advanced one tick: redraw and follow "now" unless the user is
     // inspecting (then keep their window; the bounds still update so panning stays
@@ -185,9 +368,10 @@ Item {
             root.viewMinX = root.dataMinX
             root.viewMaxX = root.dataMaxX
         }
-        series.replace(root.buildStepped(root.pointsData))
+        root.steppedData = root.buildStepped(root.pointsData)
+        series.replace(root.steppedData)
     }
-    Component.onCompleted: if (root.dataCount > 0) { resetView(); series.replace(root.buildStepped(root.pointsData)) }
+    Component.onCompleted: if (root.dataCount > 0) { resetView(); root.steppedData = root.buildStepped(root.pointsData); series.replace(root.steppedData); drawInAnim.restart() }
 
     // Interactive overlay: pointer handlers for inspect + pan/zoom. Sized to the
     // GraphsView so handler positions share the plotArea coordinate space.
@@ -203,6 +387,9 @@ Item {
         readonly property real clampedX: root.clampToPlot(cursorX)
         readonly property real dataX: root.pixelToTime(clampedX)
         readonly property real dataY: root.valueAt(dataX)
+        // Pixel y of the inspected value (overlay coords = graph coords) — so the highlight dot
+        // lands exactly on the line.
+        readonly property real dataYPixel: root.valueToPixel(dataY)
 
         // Mouse hover → inspect.
         HoverHandler { id: hoverH }
@@ -271,16 +458,96 @@ Item {
             height: graph.plotArea.height
         }
 
-        // Inspect readout: time at the cursor + held value.
+        // Highlight where the inspect line meets the graph line: a soft accent halo behind a
+        // crisp white dot ringed in the accent colour, tying it to the line + glow.
         Rectangle {
             visible: overlay.inspecting && !isNaN(overlay.dataY)
-            color: "#cc1b2230"
-            border.color: Theme.dockBorder
-            border.width: 1
-            radius: 6
-            width: readoutCol.implicitWidth + 16
-            height: readoutCol.implicitHeight + 12
-            x: Math.min(overlay.clampedX + 10,
+            width: 22
+            height: 22
+            radius: width / 2
+            color: Qt.rgba(root.glowColor.r, root.glowColor.g, root.glowColor.b, 0.30)
+            x: overlay.clampedX - width / 2
+            y: overlay.dataYPixel - height / 2
+        }
+        Rectangle {
+            visible: overlay.inspecting && !isNaN(overlay.dataY)
+            width: 12
+            height: 12
+            radius: width / 2
+            color: "#ffffff"
+            border.width: 2
+            border.color: root.glowColor
+            x: overlay.clampedX - width / 2
+            y: overlay.dataYPixel - height / 2
+        }
+
+        // Live "now" marker: a solid accent core with a slow radar-style pulse ring, at the
+        // latest value (the rolling right edge). Shown only when the host marks the graph live
+        // AND "now" is inside the visible window (hidden once the user pans back into history).
+        // Independent of `inspecting`, so it keeps pulsing whether or not the cursor is down.
+        Item {
+            id: liveDot
+            readonly property real liveT: root.dataMaxX
+            readonly property real liveV: root.valueAt(root.dataMaxX)
+            visible: root.live && root.dataCount > 0 && !isNaN(liveV)
+                     && liveT >= root.viewMinX && liveT <= root.viewMaxX
+            x: root.timeToPixel(liveT)
+            y: root.valueToPixel(liveV)
+
+            // Expanding + fading pulse ring, looped while the marker is visible.
+            Rectangle {
+                id: livePulse
+                anchors.centerIn: parent
+                width: 12
+                height: 12
+                radius: width / 2
+                color: root.glowColor
+                SequentialAnimation {
+                    running: liveDot.visible
+                    loops: Animation.Infinite
+                    ParallelAnimation {
+                        NumberAnimation { target: livePulse; property: "scale"; from: 1.0; to: 3.2; duration: 1500; easing.type: Easing.OutQuad }
+                        NumberAnimation { target: livePulse; property: "opacity"; from: 0.5; to: 0.0; duration: 1500; easing.type: Easing.OutQuad }
+                    }
+                }
+            }
+            // Solid core dot with a white ring (accent-filled, so it reads as the live point
+            // distinct from the white-filled inspect dot).
+            Rectangle {
+                anchors.centerIn: parent
+                width: 11
+                height: 11
+                radius: width / 2
+                color: root.glowColor
+                border.width: 2
+                border.color: "#ffffff"
+            }
+        }
+
+        // Inspect readout: time at the cursor + held value, in a "liquid glass" pill matching
+        // the dock and notification containers (GlassPanel + a floating drop shadow). The
+        // frosted-blur backdrop is intentionally off: the tooltip lives inside the graph, so a
+        // real backdrop source would have to be an ancestor and would capture the panel itself.
+        // Without it GlassPanel degrades to the glass chrome — dark translucent tint, bright
+        // white rim, specular highlight — which reads cleanly over the dark card.
+        RectangularShadow {
+            anchors.fill: readout
+            visible: readout.visible
+            radius: readout.radius
+            blur: 24
+            spread: 0
+            offset: Qt.vector2d(0, 6)
+            color: Theme.notificationShadow
+        }
+
+        GlassPanel {
+            id: readout
+            visible: overlay.inspecting && !isNaN(overlay.dataY)
+            frostedBackdrop: false
+            radius: Theme.notificationRadius
+            width: readoutCol.implicitWidth + 28
+            height: readoutCol.implicitHeight + 20
+            x: Math.min(overlay.clampedX + 12,
                         graph.plotArea.x + graph.plotArea.width - width)
             y: graph.plotArea.y + 6
 
@@ -292,14 +559,14 @@ Item {
                 Text {
                     text: isNaN(overlay.dataX) ? ""
                           : Qt.formatDateTime(new Date(overlay.dataX), "dd.MM HH:mm:ss")
-                    color: "#c0c0c0"
+                    color: Theme.dataLabelTitle
                     font.family: Theme.fontFamily
                     font.pixelSize: 13
                 }
                 Text {
                     text: isNaN(overlay.dataY) ? ""
                           : overlay.dataY.toFixed(2) + (root.unit ? " " + root.unit : "")
-                    color: "#ffffff"
+                    color: Theme.notificationText
                     font.family: Theme.fontFamily
                     font.pixelSize: 16
                     font.bold: true
@@ -400,6 +667,18 @@ Item {
         if (a.width <= 0)
             return xAxis.min
         return xAxis.min + (px - a.x) / a.width * (xAxis.max - xAxis.min)
+    }
+    // Forward maps (data → plot pixels), the inverse of pixelToTime, using the same axis
+    // range the line is drawn with. Shared by the inspect highlight dot and the live marker.
+    function timeToPixel(t) {
+        const a = graph.plotArea
+        const span = xAxis.max - xAxis.min
+        return span <= 0 ? a.x : a.x + (t - xAxis.min) / span * a.width
+    }
+    function valueToPixel(v) {
+        const a = graph.plotArea
+        const span = yAxis.max - yAxis.min
+        return span <= 0 ? a.y : a.y + (yAxis.max - v) / span * a.height
     }
 
     // --- Adaptive x-axis time ticks -------------------------------------------

@@ -86,6 +86,9 @@ Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true
             unit: propertySelector.selectedUnit
+            // Pulsing "now" marker only when this view is showing a genuinely rolling window
+            // (live toggle on, not a custom range) — and paused when the view isn't current.
+            live: view.isCurrent && view.live && view.rangeCode !== 3
             // Data props default to the History singleton; the graph no longer
             // self-subscribes, so drive its reload/live-advance from here.
             Connections {
