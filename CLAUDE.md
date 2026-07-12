@@ -475,7 +475,16 @@ guards; they're the only thing preventing injection if non-config input ever rea
   measurement: `GridPower` + `ChargePower` **every poll** (gap-free for the past-hour graphs and the
   month home-import integral) and `ChargeAdded` (the session accumulator) **while charging**. Mirrors
   `WeatherService` (initial poll + APScheduler job, last frame cached for `stream_everything`), with
-  two poll cadences (idle/active). Optional — skipped when the `.env` creds are unset.
+  two poll cadences (idle/active, config-driven — default **60 s idle / 20 s active** to stay under
+  the myenergi cloud's rate limit; 10 s throttled us with 429s). `__apply_interval` is the single
+  place that reschedules the job: it picks the active/idle base then stretches it by a **capped
+  exponential backoff** (`2**consecutive_failures`, ≤ 5 min) whenever a poll fails, snapping back on
+  the first success. This matters because every failed request flips pymyenergi's `do_query_asn` back
+  on, so the next poll fires two requests (director + status) — polling a failing endpoint at full
+  cadence deepens a throttle. Refresh/resolve failures are logged via the module helper
+  `_describe_exception`, which surfaces the HTTP status a `MyenergiException` otherwise hides (its
+  ctor stores it in `.code`/`.message` but stringifies to `""`, so the old `str(e)` logged a blank
+  reason — issue #18). Optional — skipped when the `.env` creds are unset.
 - **`charging_service/`** (`ChargingLoader` + `ChargingSession`) derives charging sessions **on
   demand** from stored `DetailedChargeState` history (segmentation like `trip_service`), joined to
   the logged charger energy — no live tracking. Serves `CHARGING_GET_LIST`/`_SUMMARY`/`_MONTH` +
