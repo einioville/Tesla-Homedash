@@ -387,7 +387,12 @@ def _register_handlers(
         properties = await vehicle.get_graphable_properties()
         body = struct.pack("!H", len(properties))
         for entry in properties:
-            for field in (entry["id"], entry["unit"] or "", entry["category"] or ""):
+            for field in (
+                entry["id"],
+                entry["unit"] or "",
+                entry["category"] or "",
+                entry["line_mode"] or "step",
+            ):
                 encoded = field.encode("utf-8")
                 body += struct.pack("!H", len(encoded)) + encoded
         await server.send_to(

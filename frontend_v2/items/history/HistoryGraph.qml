@@ -29,6 +29,15 @@ Item {
 
     property string unit: ""
 
+    // How consecutive readings are connected. "step" (default): hold the previous value
+    // horizontally, then jump — right for sampled / held signals (VehicleSpeed, setpoints)
+    // where telemetry only sends on change and the in-between is unknown. "linear": a
+    // straight point-to-point line — right for accumulators / continuous quantities
+    // (Odometer, energy counters, OutsideTemp) whose value genuinely tracks ~linearly
+    // between readings. Sourced per-property from config.json; buildStepped() and valueAt()
+    // branch on it, and the glow / y-fit / live marker follow from those two.
+    property string lineMode: "step"
+
     // --- Gradient glow under the line (the modern look; tweak here) -----------
     // A translucent area fill under the line that fades to transparent toward the plot
     // floor — the "glow" that makes the graph read as modern instead of a bare stroke.
@@ -85,11 +94,23 @@ Item {
             return []
         const w = a.width, h = a.height
         const x0 = xAxis.min, yTop = yAxis.max
+        // Clamp mapped pixel coordinates to a bounded off-screen range. Points far outside
+        // the visible window (the full-extent endpoints, and any point many view-widths away)
+        // map to enormous pixels when zoomed in tight — and the fill Shape's CurveRenderer
+        // triangulates the WHOLE path (its clip is only a rasteriser scissor, not a geometry
+        // clip), which ASSERTS and aborts the app once a vertex exceeds 2^21 px
+        // (qtriangulator.cpp). LIM sits far off-screen — glowClip scissors it away, and the
+        // in/near-window points that shape the visible fill are never clamped — so the visible
+        // glow is unchanged; it only stops the off-screen tail from blowing past the limit.
+        const LIM = 1 << 15
+        function clamp(v) { return v < -LIM ? -LIM : (v > LIM ? LIM : v) }
+        function px(dx) { return clamp((dx - x0) / xspan * w) }
+        function py(dy) { return clamp((yTop - dy) / yspan * h) }
         const out = []
-        out.push(Qt.point((src[0].x - x0) / xspan * w, h))
+        out.push(Qt.point(px(src[0].x), h))
         for (let i = 0; i < n; ++i)
-            out.push(Qt.point((src[i].x - x0) / xspan * w, (yTop - src[i].y) / yspan * h))
-        out.push(Qt.point((src[n - 1].x - x0) / xspan * w, h))
+            out.push(Qt.point(px(src[i].x), py(src[i].y)))
+        out.push(Qt.point(px(src[n - 1].x), h))
         return out
     }
 
@@ -326,13 +347,14 @@ Item {
             id: series
             width: 2
             color: Theme.accent
-            // Steps are built explicitly in buildStepped() (a horizontal hold then
-            // a vertical jump per reading), so the default straight style renders a
-            // true step. Telemetry only sends a value when it changes, so each
-            // reading holds until the next instead of sloping toward it; building
-            // the path ourselves avoids relying on the renderer's step line style.
-            // (A spline was tried for a smoother look but was reverted: it turned a
-            // genuinely flat/held value into a wobble, misrepresenting the data.)
+            // The path geometry is built explicitly in buildStepped() per the property's
+            // lineMode, so the default straight-segment style renders exactly what we
+            // intend: "step" holds each reading then jumps (telemetry only sends on change,
+            // so a sampled value holds until the next instead of sloping toward it), while
+            // "linear" connects readings point-to-point for accumulators / continuous
+            // signals. Building the path ourselves avoids relying on any renderer line style.
+            // (A smooth spline was tried and reverted: it turned a genuinely flat/held
+            // value into a wobble, misrepresenting the data.)
         }
     }
 
@@ -714,17 +736,23 @@ Item {
         return Qt.formatDateTime(d, "HH:mm:ss")
     }
 
-    // Expand the raw readings into an explicit step path: a horizontal segment at
-    // the held value out to the next timestamp, then a vertical jump to the new
-    // value. Drawn with the straight line style this yields true steps (no slope),
-    // independent of any renderer step support. Data logic still uses the raw
-    // History.points, so the inspect readout and y-fit are unaffected.
+    // Expand the raw readings into an explicit path in DATA coordinates, clamped to the
+    // full extent [lo, hi], per root.lineMode — drawn with the straight line style so the
+    // path geometry we build IS what shows (no reliance on renderer step support). Data
+    // logic still uses the raw pointsData, so the inspect readout and y-fit stay consistent
+    // (valueAt() branches on lineMode the same way).
     function buildStepped(pts) {
         const n = pts.length
         if (n === 0)
             return []
         const lo = root.fullMinX
         const hi = root.fullMaxX
+        if (root.lineMode === "linear")
+            return buildLinearPath(pts, lo, hi)
+        // --- "step" (hold-forward), the default ---
+        // A horizontal segment at the held value out to the next timestamp, then a
+        // vertical jump to the new value — a true step (no slope). Right for sampled /
+        // held signals, whose in-between telemetry never sent is unknown.
         const out = []
         // Value held at the left edge: the y of the last point at or before lo (the
         // boundary the live roller keeps, or the first point), so the line starts
@@ -751,13 +779,65 @@ Item {
         return out
     }
 
-    // Step (hold-forward) lookup: the value at x is that of the most recent point
-    // at or before x. Binary search over the ascending raw series.
+    // "linear" (point-to-point) path in DATA coordinates, clamped to [lo, hi]: an
+    // interpolated point at the left edge, every raw reading strictly inside the window,
+    // then an interpolated point at the right edge. Right for accumulators / continuous
+    // quantities whose value genuinely tracks ~linearly between readings. The edge values
+    // match valueAt()'s "linear" branch (hold at the ends when the edge lies outside the
+    // data), so a value held constant across the window still draws as one flat line —
+    // identical to the step build's boundary-fill case.
+    function buildLinearPath(pts, lo, hi) {
+        const n = pts.length
+        const out = []
+        out.push(Qt.point(lo, interpAt(pts, lo)))
+        for (let i = 0; i < n; ++i) {
+            if (pts[i].x > lo && pts[i].x < hi)
+                out.push(Qt.point(pts[i].x, pts[i].y))
+        }
+        out.push(Qt.point(hi, interpAt(pts, hi)))
+        return out
+    }
+
+    // Linear interpolation of the raw ascending series at time dx: the value on the
+    // straight segment between the two readings bracketing dx, clamped to the endpoints
+    // outside the data range. Binary-searches for the bracketing pair.
+    function interpAt(pts, dx) {
+        const n = pts.length
+        if (n === 0)
+            return NaN
+        if (dx <= pts[0].x)
+            return pts[0].y
+        if (dx >= pts[n - 1].x)
+            return pts[n - 1].y
+        // Largest index with pts[i].x <= dx.
+        let lo = 0
+        let hi = n - 1
+        while (lo < hi) {
+            const mid = (lo + hi + 1) >> 1
+            if (pts[mid].x <= dx)
+                lo = mid
+            else
+                hi = mid - 1
+        }
+        const a = pts[lo]
+        const b = pts[lo + 1]
+        const span = b.x - a.x
+        if (span <= 0)
+            return a.y
+        return a.y + (b.y - a.y) * (dx - a.x) / span
+    }
+
+    // Value at x for the inspect readout, y-fit edge values and the live marker —
+    // consistent with the rendered line. "linear": interpolate between the bracketing
+    // readings. "step" (default): hold-forward — the value of the most recent point at
+    // or before x (binary search over the ascending raw series).
     function valueAt(dx) {
         const pts = root.pointsData
         const n = pts.length
         if (n === 0)
             return NaN
+        if (root.lineMode === "linear")
+            return interpAt(pts, dx)
         if (dx <= pts[0].x)
             return pts[0].y
         if (dx >= pts[n - 1].x)

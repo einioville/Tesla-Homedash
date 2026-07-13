@@ -30,6 +30,7 @@ class VehicleDataProperty:
         formula: str = None,
         log: bool = False,
         sleep_default=None,
+        line_mode: str = None,
     ):
         self.__id = data_id
         self.__stream_id = stream_id
@@ -47,6 +48,12 @@ class VehicleDataProperty:
         # last reading. The default is a FINAL value — the input formula is not
         # re-applied to it. See apply_sleep_default.
         self.__sleep_default = sleep_default
+        # How the History-view graph should connect this field's consecutive readings:
+        # "step" (hold the previous value, then jump — the default, right for sampled/held
+        # signals like VehicleSpeed) or "linear" (straight point-to-point line — right for
+        # accumulators / continuous quantities like Odometer or OutsideTemp). Purely a
+        # display hint handed to the frontend over TESLA_GRAPH_PROPERTIES; None → "step".
+        self.__line_mode = line_mode
         self._async_lock = asyncio.Lock()
         self._vehicle = vehicle
         self.__value_type = None
@@ -312,6 +319,10 @@ class VehicleDataProperty:
     async def get_unit(self):
         async with self._async_lock:
             return self.__unit
+
+    async def get_line_mode(self):
+        async with self._async_lock:
+            return self.__line_mode
 
     async def get_logging(self):
         async with self._async_lock:

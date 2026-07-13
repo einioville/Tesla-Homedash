@@ -25,6 +25,9 @@ ComboBox {
     readonly property var currentEntry:
         (currentIndex >= 0 && model && currentIndex < model.length) ? model[currentIndex] : null
     readonly property string selectedUnit: currentEntry ? (currentEntry.unit || "") : ""
+    // How the graph connects this property's readings: "step" (hold, default) or "linear"
+    // (point-to-point). Sourced from config.json metadata via History.properties.
+    readonly property string selectedLineMode: currentEntry ? (currentEntry.line_mode || "step") : "step"
 
     signal propertySelected(string id)
 

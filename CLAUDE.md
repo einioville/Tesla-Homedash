@@ -189,7 +189,14 @@ Parsed once by `Config` and injected into every service. Keys:
 - `tesla data` — per-field metadata map: `stream_id`, `category`, `unit`, `formula` (sympy
   string or null), `log` (bool), and optional `sleep_default` — the value the field reverts to
   when the vehicle goes to sleep (omit or `null` to leave it at its last reading; the default is
-  a final value, the `formula` is **not** re-applied to it).
+  a final value, the `formula` is **not** re-applied to it). Optional `line_mode` (issue #20) —
+  the History-graph render mode for the field: `"step"` (hold the previous value, then jump — the
+  default when absent; right for sampled/held signals like `VehicleSpeed` or setpoints) or
+  `"linear"` (straight point-to-point line; right for accumulators / continuous quantities like
+  `Odometer`, the energy counters, `OutsideTemp`). Display-only hint handed to the frontend over
+  `TESLA_GRAPH_PROPERTIES`. A field is graphable (appears in the History dropdown) only if
+  `log: true` **and** numeric — set `log: false` to keep a numeric field off the graph (e.g.
+  `GpsHeading`, which wraps 0↔360 and isn't worth graphing).
 - `calculated tesla data` — derived fields (`DrivenToday`, `DrivenThisMonth`): adds
   `source_data_property_id`, `period` (`day`/`month`), `calculation_formula` (e.g. `y - x`).
 - `radioMediaIds` — station name → Nelonen Media id; `defaultRadioStation` — a key from it.
@@ -262,7 +269,7 @@ payload[1..N-1] = type-specific data
 | `0x61` | TESLA_MINUS_TEMP | F→B | (empty) |
 | `0x62` | TESLA_PLUS_TEMP | F→B | (empty) |
 | `0x70` | TESLA_GET_GRAPH_PROPERTIES | F→B | (empty) |
-| `0x71` | TESLA_GRAPH_PROPERTIES | B→F | `count(2B)` + per property `id_len(2B)+id + unit_len(2B)+unit + cat_len(2B)+category` (UTF-8) |
+| `0x71` | TESLA_GRAPH_PROPERTIES | B→F | `count(2B)` + per property `id_len(2B)+id + unit_len(2B)+unit + cat_len(2B)+category + mode_len(2B)+line_mode` (UTF-8); `line_mode` = `step`/`linear` graph render hint |
 | `0x72` | TESLA_GET_HISTORY | F→B | `range_code(1B)` (0=1h,1=1d,2=1M,3=custom,4=1week) + `id_len(2B)+id` + `start_ms(8B)` + `end_ms(8B)` |
 | `0x73` | TESLA_HISTORY | B→F | `id_len(2B)+id` + `status(1B)` + `count(4B)` + count×(`ts_ms(8B)` + `value(8B double)`) |
 | `0x50` | CHARGER_STREAM | B→F | myenergi charger live state: repeated `sub_id(1B) + value` (see charger sub-ids below) |
@@ -689,22 +696,28 @@ a new/renamed service or widget, a protocol change, a build-command change, or a
 invariant. Treat the doc as part of the change, not an afterthought, and bump §7.7.
 
 ### 7.7 Documentation currency
-This guide and `README.md` are current as of the **spot-price cost** work on
-`feature/spot-price-cost` (issue #12), which builds on the charging-stats backend: **hourly Nord Pool
-FI spot pricing** for the Charging view's cost tiles + a live current-price tile. New backend modules
-`charging_service/spot_price.py` (`SpotPriceProvider` — no-key sähkötin.fi fetch/cache/convert, all-in
-`(spot + margin) × (1 + VAT)`, retroactive/historical) and `spot_price_service.py` (`SpotPriceService`
-— hourly `SPOT_PRICE_STREAM` `0x88` broadcast). Cost moved from the `CHARGING_GET_MONTH` handler into
-the loader/session: sessions bucket `ChargeAdded` by UTC hour and price each hour; `month_summary`
-sums session costs + prices the hourly home import (new `read_grid_import_kwh_hourly` +
-`integrate_power_series_hourly`, replacing `read_grid_import_kwh_month`). The flat
-`electricityPriceEurPerKwh` is now a per-hour fallback. `CHARGING_SUMMARY` `0x83` grew to **11 doubles**
-(+`cost_eur`, +`avg_price_eur_per_kwh`); `CHARGING_MONTH` `0x85` unchanged (13 doubles, now spot-valued).
-New `spotPrice` config block. Pure cost math is unit-tested in `backend/tests/test_spot_price.py`.
-Predecessor work — the **charging-stats** backend (`966a04a`; myenergi `CHARGER_STREAM` `0x50`,
-`CHARGING_*`/`CHARGER_HISTORY` `0x80`–`0x87`, per-session energy = **sum of positive `ChargeAdded`
-increments**), the History **empty-window boundary-fill** (`1184b60`/`cc11bb8`), and the `0x70`–`0x73`
-request/response + `(payload, writer)` handler signature (`827824d`) — still applies.
+This guide and `README.md` are current as of the **per-property graph line mode** work on
+`feature/graph-line-mode` (issue #20): a per-property `line_mode` (`step` default / `linear`) that
+tells the shared `HistoryGraph.qml` how to connect a property's consecutive readings — a held step
+for sampled/held signals (`VehicleSpeed`, setpoints) or a straight point-to-point line for
+accumulators / continuous quantities (`Odometer`, energy counters, `OutsideTemp`). Sourced from
+`config.json` `tesla data` metadata (new optional `line_mode` key, read via `prop_cfg.get`),
+threaded through a new `VehicleDataProperty.get_line_mode()`, added to
+`get_graphable_properties`, and serialized as a **4th** per-property field on
+`TESLA_GRAPH_PROPERTIES` `0x71` (`id/unit/category/line_mode`). Frontend: `TeslaHistory::parseProperties`
+reads the 4th field into `History.properties`; `PropertySelector.selectedLineMode` → `HistoryView`
+binds `HistoryGraph.lineMode`; `buildStepped()` and `valueAt()` branch on it (new `buildLinearPath`
++ `interpAt` helpers), and the glow fill / y-fit / live marker follow from those two. Trips and
+Charging inherit the `step` default (their graphs — `VehicleSpeed`, grid/charge power — are sampled),
+so they were untouched. `GpsHeading` was flipped to `log: false` (it wraps 0↔360 and its logged
+history had no consumer — the live map heading reads the live stream, the trip heading is computed
+from Location geometry), removing it from the graphable list and stopping its InfluxDB writes.
+Predecessor work — the **spot-price cost** (`feature/spot-price-cost`, issue #12; `SpotPriceProvider`
++ `SpotPriceService`, `SPOT_PRICE_STREAM` `0x88`, per-hour spot-valued Charging costs, `spotPrice`
+config, `CHARGING_SUMMARY` `0x83` = 11 doubles), the **charging-stats** backend (`966a04a`; myenergi
+`CHARGER_STREAM` `0x50`, `CHARGING_*`/`CHARGER_HISTORY` `0x80`–`0x87`, per-session energy = **sum of
+positive `ChargeAdded` increments**), and the History **empty-window boundary-fill**
+(`1184b60`/`cc11bb8`) — still applies.
 When you land changes that touch behaviour documented here, update this line to the new HEAD commit.
 
 ## 8. Session workflow — main checkout by default, worktree only for parallelism
