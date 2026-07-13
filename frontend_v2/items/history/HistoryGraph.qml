@@ -63,11 +63,12 @@ Item {
     // just where the brighter gradient sits behind them (10% was invisible on the dark areas).
     property color gridLineColor: "#40ffffff"
 
-    // Draw-in animation: the plot content (line + fill glow) fades from 0 → 1 on every fresh
-    // load, so switching property / range feels alive. Driven by drawInAnim, which reloadFull
-    // restarts; a live tick (advanceLive) deliberately does NOT restart it, so the per-second
-    // roll stays smooth instead of blinking. 1 = fully shown (the resting state).
-    property real drawIn: 1
+    // Draw-in animation: on every fresh load the line (and its fill glow) is DRAWN from left to
+    // right over ~0.5 s, rather than fading in — revealFrac sweeps 0 → 1 and revealedData exposes
+    // steppedData up to that fraction of the built window. Driven by revealAnim, which reloadFull
+    // restarts; a live tick (advanceLive) deliberately does NOT restart it, so the rolling window
+    // keeps advancing smoothly instead of re-drawing. 1 = fully drawn (the resting state).
+    property real revealFrac: 1
 
     // Live "now" marker: when true, a pulsing dot is drawn at the latest value (the rolling
     // right edge). Hosts set it for graphs whose newest point really is "now" — the History
@@ -118,13 +119,44 @@ Item {
     // sub-minute empty space, independent of the range's total length. clampWidth enforces it.
     property real minZoomSpanMs: 60000
 
+    // The portion of steppedData revealed so far, left-to-right, driven by revealFrac (the
+    // draw-in). At rest (revealFrac = 1) this IS the whole steppedData; while the load animation
+    // runs it is the prefix up to revealX with an interpolated tip, so the line and its glow
+    // draw in from the left. glowPolyline maps THIS, and onRevealedDataChanged pushes it to the
+    // LineSeries — so line + fill grow together (and any mid-draw rebuild honours the reveal).
+    readonly property var revealedData: {
+        const path = root.steppedData
+        const n = path.length
+        if (n === 0 || root.revealFrac >= 1)
+            return path
+        const cutX = root.buildMinX + root.revealFrac * (root.buildMaxX - root.buildMinX)
+        if (cutX >= path[n - 1].x)
+            return path
+        const out = []
+        for (let i = 0; i < n; ++i) {
+            const p = path[i]
+            if (p.x <= cutX) {
+                out.push(p)
+            } else {
+                if (i > 0) {
+                    const a = path[i - 1]
+                    const span = p.x - a.x
+                    const y = span > 0 ? a.y + (p.y - a.y) * (cutX - a.x) / span : a.y
+                    out.push(Qt.point(cutX, y))
+                }
+                break
+            }
+        }
+        return out
+    }
+
     // The glow outline in plot-local pixels: the cached stepped points mapped through the
     // current axis window + plot geometry, bracketed by two floor points so the filled Shape
     // closes down to the baseline. Rebinds whenever the window (xAxis / yAxis), the plot area
     // or the data changes, so the glow stays locked under the line through every pan / zoom.
     readonly property var glowPolyline: {
         const a = graph.plotArea
-        const src = root.steppedData
+        const src = root.revealedData
         const n = src.length
         const xspan = xAxis.max - xAxis.min
         const yspan = yAxis.max - yAxis.min
@@ -240,7 +272,6 @@ Item {
     Item {
         id: glowClip
         visible: root.dataCount > 0 && root.glowPolyline.length > 0
-        opacity: root.drawIn
         x: graph.plotArea.x
         y: graph.plotArea.y
         width: graph.plotArea.width
@@ -315,7 +346,6 @@ Item {
     GraphsView {
         id: graph
         anchors.fill: parent
-        opacity: root.drawIn
         marginTop: root.plotMarginTop
         marginBottom: root.plotMarginBottom
         marginLeft: root.plotMarginLeft
@@ -402,21 +432,27 @@ Item {
     function reloadFull() {
         root.resetView()
         root.snapshotPoints()
+        root.revealFrac = 0   // build the left-edge prefix first, then sweep the draw-in
         root.rebuildDecimated()
-        drawInAnim.restart()
+        revealAnim.restart()
     }
 
-    // The fade-in: sets drawIn to 0 and eases it back to 1 (bound to the plot content's
-    // opacity). restart() re-fires it from the start on each fresh load.
+    // The draw-in: sweeps revealFrac 0 → 1 so the line traces in from the left over ~0.5 s.
+    // restart() re-fires it from the start on each fresh load.
     NumberAnimation {
-        id: drawInAnim
+        id: revealAnim
         target: root
-        property: "drawIn"
+        property: "revealFrac"
         from: 0.0
         to: 1.0
-        duration: 420
-        easing.type: Easing.OutCubic
+        duration: 500
+        easing.type: Easing.InOutQuad
     }
+    // Keep the LineSeries geometry in sync with the revealed portion. This drives BOTH the
+    // fresh-load draw-in (revealFrac sweeps) and every rebuild (rebuildDecimated updates
+    // steppedData, which flows through revealedData), so the line + glow never diverge and a
+    // rebuild landing mid-draw-in still only shows the revealed prefix.
+    onRevealedDataChanged: series.replace(root.revealedData)
     // Debounce for the detailed LOD rebuild. A zoom/pan step restarts it (via setView); when
     // the user pauses, it fires one rebuildDecimated() for the settled window. During the
     // gesture the margin-built path just remaps to the new axis, so no per-frame re-stepping.
@@ -452,7 +488,7 @@ Item {
         settleTimer.stop()
         root.rebuildDecimated()
     }
-    Component.onCompleted: if (root.dataCount > 0) { resetView(); snapshotPoints(); rebuildDecimated(); drawInAnim.restart() }
+    Component.onCompleted: if (root.dataCount > 0) { resetView(); snapshotPoints(); revealFrac = 0; rebuildDecimated(); revealAnim.restart() }
 
     // Interactive overlay: pointer handlers for inspect + pan/zoom. Sized to the
     // GraphsView so handler positions share the plotArea coordinate space.
@@ -879,7 +915,8 @@ Item {
         root.buildMaxX = Math.min(root.fullMaxX, root.viewMaxX + margin)
         root.decimated = root.decimate(root.buildMinX, root.buildMaxX)
         root.steppedData = root.buildStepped(root.decimated)
-        series.replace(root.steppedData)
+        // The LineSeries is refilled by onRevealedDataChanged (steppedData → revealedData), so
+        // line + glow stay in sync and the draw-in reveal is honoured across a rebuild.
     }
 
     // --- Pixel <-> data mapping (GraphsView has no built-in conversion) -------
