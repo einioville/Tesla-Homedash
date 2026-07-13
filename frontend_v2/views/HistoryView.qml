@@ -52,31 +52,49 @@ Rectangle {
         anchors.margins: Theme.gridMargin
         spacing: 10
 
-        RowLayout {
+        // Controls card: the property + range selectors in the same translucent-grey card the
+        // Trips / Charging views wrap their selectors in, so the History view shares their look
+        // instead of floating bare controls on the background. Height tracks the row's content
+        // (so the custom-range date pickers, which appear inline, still fit).
+        Rectangle {
+            id: selectorCard
             Layout.fillWidth: true
-            spacing: 12
+            Layout.preferredHeight: controlsRow.implicitHeight + 16
+            radius: Theme.tripCardRadius
+            color: Theme.tripCardBg
+            border.width: 1
+            border.color: Theme.tripCardBorder
 
-            PropertySelector {
-                id: propertySelector
-                Layout.preferredWidth: 320
-                onPropertySelected: function(id) {
-                    view.selectedId = id
-                    view.refresh()
-                }
-            }
+            RowLayout {
+                id: controlsRow
+                anchors.fill: parent
+                anchors.margins: 8
+                spacing: 12
 
-            RangeSelector {
-                id: rangeSelector
-                Layout.fillWidth: true
-                onRangeChanged: function(code, startMs, endMs) {
-                    view.rangeCode = code
-                    view.customStartMs = startMs
-                    view.customEndMs = endMs
-                    view.refresh()
+                PropertySelector {
+                    id: propertySelector
+                    Layout.preferredWidth: 320
+                    Layout.alignment: Qt.AlignVCenter
+                    onPropertySelected: function(id) {
+                        view.selectedId = id
+                        view.refresh()
+                    }
                 }
-                onLiveToggled: function(on) {
-                    view.live = on
-                    view.refresh()
+
+                RangeSelector {
+                    id: rangeSelector
+                    Layout.fillWidth: true
+                    Layout.alignment: Qt.AlignVCenter
+                    onRangeChanged: function(code, startMs, endMs) {
+                        view.rangeCode = code
+                        view.customStartMs = startMs
+                        view.customEndMs = endMs
+                        view.refresh()
+                    }
+                    onLiveToggled: function(on) {
+                        view.live = on
+                        view.refresh()
+                    }
                 }
             }
         }

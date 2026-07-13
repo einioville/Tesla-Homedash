@@ -1,17 +1,18 @@
 import QtQuick
-import QtQuick.Controls
 import frontend_v2
 
 // Dropdown over the graphable-property list (History.properties). Emits
 // propertySelected(id) on a pick and auto-selects the first entry when the list
 // first arrives, so the graph shows something without an explicit click.
-ComboBox {
+//
+// Extends the shared dark-themed TripComboBox (field + popup + delegate restyled to
+// the translucent-grey card family), so the History controls match the Trips / Charging
+// selectors instead of flashing the Basic style's light popup.
+TripComboBox {
     id: combo
 
     model: History.properties
     textRole: "id"
-    font.family: Theme.fontFamily
-    font.pixelSize: 16
 
     // The id the user picked, tracked independently of the model so it survives a
     // list refresh: the view re-requests History.properties every time it becomes
