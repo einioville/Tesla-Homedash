@@ -70,4 +70,20 @@ Rectangle {
         width: view.spanW(4); height: view.spanH(4)
         isCurrent: view.isCurrent
     }
+
+    // Luna — a memorial overlay for our dog. Deliberately its OWN full-view layer
+    // on top of every card (NOT part of the grid), so she ambles across the
+    // foreground of the whole dashboard. Frozen while the view isn't current;
+    // toggled entirely by Theme.lunaEnabled. Input-transparent (no MouseArea), so
+    // the cards underneath stay tappable.
+    Item {
+        id: lunaLayer
+        anchors.fill: parent
+        z: 999
+        visible: Theme.lunaEnabled
+
+        Luna {
+            running: view.isCurrent && Theme.lunaEnabled
+        }
+    }
 }

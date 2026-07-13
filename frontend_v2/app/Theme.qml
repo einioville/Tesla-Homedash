@@ -2,6 +2,11 @@ pragma Singleton
 import QtQuick
 
 QtObject {
+    // --- Feature flags ----------------------------------------------------
+    // Luna — the dog-memorial overlay on the dashboard. The single on/off switch:
+    // set to false to remove her entirely (no sprite, no animation, no cost).
+    property bool lunaEnabled: true
+
     // Surfaces
     readonly property color appBackground: "#0f1115"
     readonly property color dockBackground: "#cc1b2230"

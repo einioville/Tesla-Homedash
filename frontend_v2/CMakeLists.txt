@@ -105,6 +105,7 @@ qt_add_qml_module(appfrontend_v2
         items/history/DateTimePicker.qml
         items/history/HistoryGraph.qml
         items/history/GraphPrewarm.qml
+        items/luna/Luna.qml
         items/util/Dock.qml
         items/util/DockIcon.qml
         items/util/HomeIndicator.qml
@@ -196,6 +197,13 @@ qt_add_resources(appfrontend_v2 "app_resources"
         resources/icons/weather/rain.svg
         resources/icons/weather/thermometer.svg
         resources/icons/weather/wind.svg
+        resources/Luna/stationary.png
+        resources/Luna/sitting_1.png
+        resources/Luna/walking_1.png
+        resources/Luna/walking_2.png
+        resources/Luna/walking_3.png
+        resources/Luna/walking_4.png
+        resources/Luna/walking_5.png
         config/notifications.json
 )
 
