@@ -75,10 +75,48 @@ Item {
     // static graphs (a past trip), where a pulsing "now" would be misleading.
     property bool live: false
 
-    // Cached stepped path in DATA coordinates, rebuilt only when the data / extent changes
-    // (in reloadFull / advanceLive) — the same array handed to the LineSeries. glowPolyline
-    // maps it to plot-local pixels, so panning/zooming only remaps, never re-steps.
+    // Cached stepped path in DATA coordinates, rebuilt when the data changes or the zoom
+    // window SETTLES (reloadFull / advanceLive / rebuildDecimated) — the same array handed to
+    // the LineSeries. It is built from the DECIMATED set for the current window (see below),
+    // not the full raw series, so it stays small (~a few k points). glowPolyline maps it to
+    // plot-local pixels, so panning/zooming within the built window only remaps, never re-steps.
     property var steppedData: []
+
+    // --- Viewport level-of-detail (LOD) decimation ----------------------------
+    // The graph keeps the full raw series (rawPoints) but only ever RENDERS a pixel-matched
+    // subset of it, rebuilt for the current zoom window. This keeps zoom/pan cost proportional
+    // to what's visible (~1 point per plot pixel) instead of the full dataset, and naturally
+    // shows more detail as you zoom in. See snapshotPoints() / decimate() / rebuildDecimated().
+
+    // Plain-JS { x, y } snapshot of pointsData, taken once per load. Reading the C++
+    // QVariantList (pointsData) marshals every element to JS on each access; snapshotting once
+    // means decimate() / valueAt() / fitY() iterate a cheap JS array instead of re-marshaling.
+    property var rawPoints: []
+
+    // The current decimated render set (M4: first/last/min/max per pixel bucket) for the built
+    // window [buildMinX, buildMaxX]. steppedData and the y-fit are derived from THIS, not raw.
+    property var decimated: []
+
+    // The x-range steppedData was last built for: the visible window grown by renderMarginFrac
+    // each side (clamped to the full extent). buildStepped clamps the path to this, so panning
+    // within the margin needs no rebuild — the margin-built path just remaps to the new axis.
+    property real buildMinX: 0
+    property real buildMaxX: 1
+
+    // LOD tunables (safe to iterate on after measuring):
+    //  renderMarginFrac — how far past the visible window each side is pre-built, as a fraction
+    //    of the visible span. 0.5 → a half-screen pan or a ~2x zoom-out shows no empty edge
+    //    before the settle rebuild catches up.
+    //  settleMs — debounce after the last zoom/pan step before the detailed rebuild fires.
+    //  bucketsPerPx — target render density: buckets per plot pixel (≈ points per pixel).
+    property real renderMarginFrac: 0.5
+    property int settleMs: 120
+    property real bucketsPerPx: 1.0
+
+    // Tightest allowed zoom: the visible window can never be narrower than this (ms). A flat
+    // 1-minute floor (capped at the loaded span for a shorter range) — stops zooming into
+    // sub-minute empty space, independent of the range's total length. clampWidth enforces it.
+    property real minZoomSpanMs: 60000
 
     // The glow outline in plot-local pixels: the cached stepped points mapped through the
     // current axis window + plot geometry, bracketed by two floor points so the filled Shape
@@ -363,8 +401,8 @@ Item {
     // / Trips.onSeriesReady).
     function reloadFull() {
         root.resetView()
-        root.steppedData = root.buildStepped(root.pointsData)
-        series.replace(root.steppedData)
+        root.snapshotPoints()
+        root.rebuildDecimated()
         drawInAnim.restart()
     }
 
@@ -379,6 +417,22 @@ Item {
         duration: 420
         easing.type: Easing.OutCubic
     }
+    // Debounce for the detailed LOD rebuild. A zoom/pan step restarts it (via setView); when
+    // the user pauses, it fires one rebuildDecimated() for the settled window. During the
+    // gesture the margin-built path just remaps to the new axis, so no per-frame re-stepping.
+    Timer {
+        id: settleTimer
+        interval: root.settleMs
+        repeat: false
+        onTriggered: root.rebuildDecimated()
+    }
+    // A layout change (initial size, resize, or the y-axis label column widening as values
+    // grow) changes plotArea and thus the target bucket density — refresh detail once it
+    // settles. Debounced so a resize drag or per-frame label jitter doesn't thrash.
+    Connections {
+        target: graph
+        function onPlotAreaChanged() { if (root.dataCount > 0) settleTimer.restart() }
+    }
     // A live window advanced one tick: redraw and follow "now" unless the user is
     // inspecting (then keep their window; the bounds still update so panning stays
     // clamped to the rolled data). Never resetView here — that would clobber the
@@ -390,10 +444,15 @@ Item {
             root.viewMinX = root.dataMinX
             root.viewMaxX = root.dataMaxX
         }
-        root.steppedData = root.buildStepped(root.pointsData)
-        series.replace(root.steppedData)
+        // Re-snapshot: the live roller appended/dropped points in pointsData. N stays small in
+        // live mode (recomputeBounds rolls the window), so snapshot + decimate per tick is cheap.
+        // advanceLive sets viewMin/Max directly (not via setView), so it never trips the settle
+        // debounce; stop any pending settle since this rebuild supersedes it.
+        root.snapshotPoints()
+        settleTimer.stop()
+        root.rebuildDecimated()
     }
-    Component.onCompleted: if (root.dataCount > 0) { resetView(); root.steppedData = root.buildStepped(root.pointsData); series.replace(root.steppedData); drawInAnim.restart() }
+    Component.onCompleted: if (root.dataCount > 0) { resetView(); snapshotPoints(); rebuildDecimated(); drawInAnim.restart() }
 
     // Interactive overlay: pointer handlers for inspect + pan/zoom. Sized to the
     // GraphsView so handler positions share the plotArea coordinate space.
@@ -437,6 +496,10 @@ Item {
                     startMinX = root.viewMinX
                     startMaxX = root.viewMaxX
                     startFocalT = root.pixelToTime(root.clampToPlot(centroid.position.x))
+                } else {
+                    // Gesture ended: refresh detail for the final window now, don't wait out the debounce.
+                    settleTimer.stop()
+                    root.rebuildDecimated()
                 }
             }
             onActiveScaleChanged: root.applyPinch(pinch)
@@ -462,7 +525,15 @@ Item {
             acceptedDevices: PointerDevice.Mouse
             acceptedButtons: Qt.LeftButton
             property real lastTx: 0
-            onActiveChanged: if (active) lastTx = 0
+            onActiveChanged: {
+                if (active) {
+                    lastTx = 0
+                } else {
+                    // Gesture ended: refresh detail for the final window now, don't wait out the debounce.
+                    settleTimer.stop()
+                    root.rebuildDecimated()
+                }
+            }
             onActiveTranslationChanged: {
                 const dx = activeTranslation.x - lastTx
                 lastTx = activeTranslation.x
@@ -631,13 +702,24 @@ Item {
         root.userControlled = false
         viewMinX = fullMinX
         viewMaxX = fullMaxX
+        // Programmatic view change: rebuild detail immediately (rawPoints is already snapshotted).
+        settleTimer.stop()
+        root.rebuildDecimated()
     }
     function clampWidth(w) {
         const fullSpan = fullMaxX - fullMinX
-        const minSpan = Math.max(1, fullSpan / 5000)  // limit how far we can zoom in
+        // Floor the zoom at minZoomSpanMs (1 min), but never below the loaded span itself
+        // (a range shorter than a minute can still be viewed whole).
+        const minSpan = Math.min(fullSpan, root.minZoomSpanMs)
         return Math.max(minSpan, Math.min(w, fullSpan))
     }
     function setView(newMin, newMax) {
+        // The single funnel for every gesture (zoomAround / panByPixels / applyPinch). Arm the
+        // settle debounce here so the detailed LOD rebuild fires once the user pauses; during
+        // the gesture the margin-built path just remaps to the new axis window. Programmatic
+        // view changes (resetView / viewFull / advanceLive) set viewMin/Max directly, bypassing
+        // this, and rebuild immediately instead.
+        settleTimer.restart()
         const fullSpan = fullMaxX - fullMinX
         const width = newMax - newMin
         if (width >= fullSpan) { viewMinX = fullMinX; viewMaxX = fullMaxX; return }
@@ -677,6 +759,127 @@ Item {
         const curFrac = (clampToPlot(p.centroid.position.x) - a.x) / a.width
         const newMin = p.startFocalT - curFrac * newWidth
         setView(newMin, newMin + newWidth)
+    }
+
+    // --- Viewport LOD decimation ----------------------------------------------
+    // Copy the C++ pointsData (a QVariantList of QPointF / {x,y}) into a plain-JS array once,
+    // so decimate() / valueAt() / fitY() never re-marshal the whole list per rebuild or per
+    // pointer move. Mirrors TripMap.snapshotRoute. Elements are { x, y } — QPointF (History /
+    // Charging) and QVariantMap {x,y} (Trips) both expose .x/.y, so this is source-agnostic.
+    function snapshotPoints() {
+        const src = root.pointsData
+        const n = src.length
+        const out = new Array(n)
+        for (let i = 0; i < n; ++i)
+            out[i] = { x: src[i].x, y: src[i].y }
+        root.rawPoints = out
+    }
+
+    // Build the pixel-matched render subset for [windowStart, windowEnd] from rawPoints, via
+    // M4 decimation: the window is divided into ~1 bucket per plot pixel, and each bucket keeps
+    // its first, last, min-y and max-y points (deduped, x-ascending). This reproduces the
+    // rasterized line at pixel resolution — spikes survive (a spike is its bucket's min/max), a
+    // held value collapses to one flat point, and the first/last points keep linear slopes
+    // faithful. The two bracket points just outside the window (the held left edge = last point
+    // <= windowStart, and the first point >= windowEnd) are always kept so the line enters and
+    // exits correctly and the edge interpolation is exact. O(visible raw count).
+    function decimate(windowStart, windowEnd) {
+        const S = root.rawPoints
+        const N = S.length
+        if (N === 0)
+            return []
+        // L = last index with x <= windowStart (the held left edge), or -1 if none.
+        let L = -1
+        if (S[0].x <= windowStart) {
+            let lo = 0, hi = N - 1
+            while (lo < hi) {
+                const mid = (lo + hi + 1) >> 1
+                if (S[mid].x <= windowStart) lo = mid
+                else hi = mid - 1
+            }
+            L = lo
+        }
+        // R = first index with x >= windowEnd, or N if none.
+        let R = N
+        {
+            let lo = 0, hi = N
+            while (lo < hi) {
+                const mid = (lo + hi) >> 1
+                if (S[mid].x < windowEnd) lo = mid + 1
+                else hi = mid
+            }
+            R = lo
+        }
+        // Early-out: a small visible set renders exactly (no decimation), keeping the small
+        // Trips / Charging graphs pixel-identical to the pre-LOD behaviour. Decimation only
+        // engages for the heavy History 1W / 1M case.
+        const plotW = Math.max(1, graph.plotArea.width)
+        const startIdx = L < 0 ? 0 : L
+        if (R - startIdx <= 2 * plotW)
+            return S.slice(startIdx, Math.min(R + 1, N))
+
+        const bucketDx = (windowEnd - windowStart) / (plotW * root.bucketsPerPx)
+        // Degenerate zero/negative-span window: bucketDx would be 0 and the advance loop below
+        // would never progress. Can't normally happen (clampWidth floors the span), but guard
+        // the hang and just return the raw slice.
+        if (bucketDx <= 0)
+            return S.slice(startIdx, Math.min(R + 1, N))
+
+        const out = []
+        if (L >= 0)
+            out.push(S[L])                       // held left-edge bracket
+
+        let bucketEnd = windowStart + bucketDx
+        let have = false
+        let first = null, mn = null, mx = null, last = null
+        function flush() {
+            // Emit first, last, min, max in x order, dropping any point equal (x AND y) to the
+            // previous emitted one — avoids duplicate / zero-area segments in the fill Shape.
+            const cand = [first, mn, mx, last]
+            cand.sort(function (a, b) { return a.x - b.x })
+            for (let k = 0; k < 4; ++k) {
+                const c = cand[k]
+                const prev = out.length > 0 ? out[out.length - 1] : null
+                if (prev && prev.x === c.x && prev.y === c.y)
+                    continue
+                out.push(c)
+            }
+        }
+        for (let i = (L < 0 ? 0 : L + 1); i < N && S[i].x < windowEnd; ++i) {
+            const p = S[i]
+            while (p.x > bucketEnd) {
+                if (have) { flush(); have = false }
+                bucketEnd += bucketDx
+            }
+            if (!have) {
+                first = mn = mx = last = p
+                have = true
+            } else {
+                if (p.y < mn.y) mn = p
+                if (p.y > mx.y) mx = p
+                last = p
+            }
+        }
+        if (have)
+            flush()
+
+        if (R < N)
+            out.push(S[R])                       // first point past the right edge
+        return out
+    }
+
+    // The one place steppedData / the LineSeries geometry is regenerated: decimate the raw
+    // series to the current window (grown by the render margin), step it, and hand it to the
+    // series. Called immediately on programmatic view changes (load, live tick, viewFull) and
+    // after a gesture settles (settleTimer) or ends.
+    function rebuildDecimated() {
+        const span = Math.max(0, root.viewMaxX - root.viewMinX)
+        const margin = span * root.renderMarginFrac
+        root.buildMinX = Math.max(root.fullMinX, root.viewMinX - margin)
+        root.buildMaxX = Math.min(root.fullMaxX, root.viewMaxX + margin)
+        root.decimated = root.decimate(root.buildMinX, root.buildMaxX)
+        root.steppedData = root.buildStepped(root.decimated)
+        series.replace(root.steppedData)
     }
 
     // --- Pixel <-> data mapping (GraphsView has no built-in conversion) -------
@@ -736,17 +939,20 @@ Item {
         return Qt.formatDateTime(d, "HH:mm:ss")
     }
 
-    // Expand the raw readings into an explicit path in DATA coordinates, clamped to the
-    // full extent [lo, hi], per root.lineMode — drawn with the straight line style so the
-    // path geometry we build IS what shows (no reliance on renderer step support). Data
-    // logic still uses the raw pointsData, so the inspect readout and y-fit stay consistent
-    // (valueAt() branches on lineMode the same way).
+    // Expand the (decimated) readings into an explicit path in DATA coordinates, clamped to the
+    // built window [lo, hi], per root.lineMode — drawn with the straight line style so the
+    // path geometry we build IS what shows (no reliance on renderer step support). The inspect
+    // readout uses the RAW series (valueAt reads rawPoints), so it stays exact regardless of
+    // decimation and branches on lineMode the same way.
     function buildStepped(pts) {
         const n = pts.length
         if (n === 0)
             return []
-        const lo = root.fullMinX
-        const hi = root.fullMaxX
+        // Clamp the path to the BUILT window (view ± render margin), NOT the full extent — pts
+        // is already the decimated subset for that window. Building to the full extent would
+        // spread the held edges across the whole range and defeat the decimation.
+        const lo = root.buildMinX
+        const hi = root.buildMaxX
         if (root.lineMode === "linear")
             return buildLinearPath(pts, lo, hi)
         // --- "step" (hold-forward), the default ---
@@ -832,7 +1038,7 @@ Item {
     // readings. "step" (default): hold-forward — the value of the most recent point at
     // or before x (binary search over the ascending raw series).
     function valueAt(dx) {
-        const pts = root.pointsData
+        const pts = root.rawPoints
         const n = pts.length
         if (n === 0)
             return NaN
@@ -854,10 +1060,13 @@ Item {
         return pts[lo].y
     }
 
-    // Min/max y over a time window, including the held edge values so the step
-    // line stays inside the re-fitted y-axis. Binary-searches the visible slice.
+    // Min/max y over a time window, including the held edge values so the step line stays
+    // inside the re-fitted y-axis. Scans the DECIMATED set's visible slice — M4 keeps each
+    // bucket's true min-y and max-y, so its envelope equals the raw visible envelope (the fit
+    // can't clip), and the scan is O(few-k) so it stays live every frame. The edge folds use
+    // valueAt (raw), so the exact held/interpolated value at the view edges is captured.
     function fitY(tMin, tMax) {
-        const pts = root.pointsData
+        const pts = root.decimated
         const n = pts.length
         if (n === 0)
             return { min: 0, max: 1 }
