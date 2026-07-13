@@ -68,6 +68,7 @@ class Vehicle:
                 formula=prop_cfg["formula"],
                 log=prop_cfg["log"],
                 sleep_default=prop_cfg.get("sleep_default"),
+                line_mode=prop_cfg.get("line_mode"),
             )
         logger.debug("Loaded %d vehicle data properties", len(self.__data))
 
@@ -457,7 +458,7 @@ class Vehicle:
         omitted until it next updates — the frontend re-requests this list each
         time the view is opened, so it fills in as the session runs.
         Returns:
-            list[dict]: [{"id", "unit", "category"}, ...].
+            list[dict]: [{"id", "unit", "category", "line_mode"}, ...].
         '''
         async with self.__async_lock:
             properties = list(self.__data.values())
@@ -471,6 +472,7 @@ class Vehicle:
                 "id": await data_property.get_id(),
                 "unit": await data_property.get_unit(),
                 "category": await data_property.get_category(),
+                "line_mode": (await data_property.get_line_mode()) or "step",
             })
         result.sort(key=lambda entry: (entry["category"] or "", entry["id"]))
         return result

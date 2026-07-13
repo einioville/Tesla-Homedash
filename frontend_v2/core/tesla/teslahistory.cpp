@@ -233,8 +233,9 @@ void TeslaHistory::parseProperties(const QByteArray &payload) {
         QString id;
         QString unit;
         QString category;
+        QString lineMode;
         if (!readString(stream, device, id) || !readString(stream, device, unit) ||
-            !readString(stream, device, category)) {
+            !readString(stream, device, category) || !readString(stream, device, lineMode)) {
             logger.warning(QStringLiteral("Truncated graph-properties frame at entry %1").arg(i));
             return;
         }
@@ -242,6 +243,8 @@ void TeslaHistory::parseProperties(const QByteArray &payload) {
         entry.insert(QStringLiteral("id"), id);
         entry.insert(QStringLiteral("unit"), unit);
         entry.insert(QStringLiteral("category"), category);
+        // Graph render hint: "step" (hold-forward, default) or "linear" (point-to-point).
+        entry.insert(QStringLiteral("line_mode"), lineMode);
         properties.append(entry);
     }
 

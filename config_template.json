@@ -13,7 +13,8 @@
             "unit": "%",
             "log": true,
             "formula": null,
-            "stream_id": 1
+            "stream_id": 1,
+            "line_mode": "linear"
         },
         "BmsFullchargecomplete": {
             "category": "Charging",
@@ -86,7 +87,8 @@
             "unit": "kWh",
             "log": true,
             "formula": null,
-            "stream_id": 11
+            "stream_id": 11,
+            "line_mode": "linear"
         },
         "EstimatedHoursToChargeTermination": {
             "category": "Charging",
@@ -138,7 +140,8 @@
             "unit": "kWh",
             "log": true,
             "formula": null,
-            "stream_id": 18
+            "stream_id": 18,
+            "line_mode": "linear"
         },
         "Location": {
             "category": "Location",
@@ -159,21 +162,24 @@
             "unit": "km",
             "log": true,
             "formula": "x * 1.609344",
-            "stream_id": 21
+            "stream_id": 21,
+            "line_mode": "linear"
         },
         "OutsideTemp": {
             "category": "Climate",
             "unit": "°C",
             "log": true,
             "formula": null,
-            "stream_id": 22
+            "stream_id": 22,
+            "line_mode": "linear"
         },
         "RatedRange": {
             "category": "Charging",
             "unit": "km",
             "log": true,
             "formula": "x * 1.609344",
-            "stream_id": 23
+            "stream_id": 23,
+            "line_mode": "linear"
         },
         "TimeToFullCharge": {
             "category": "Charging",
@@ -201,7 +207,7 @@
         "GpsHeading": {
             "category": "Driving",
             "unit": null,
-            "log": true,
+            "log": false,
             "formula": null,
             "stream_id": 29
         },
@@ -329,21 +335,24 @@
             "unit": "km",
             "log": true,
             "formula": "x * 1.609344",
-            "stream_id": 45
+            "stream_id": 45,
+            "line_mode": "linear"
         },
         "ACChargingEnergyIn": {
             "category": "Charging",
             "unit": "kWh",
             "log": true,
             "formula": null,
-            "stream_id": 46
+            "stream_id": 46,
+            "line_mode": "linear"
         },
         "DCChargingEnergyIn": {
             "category": "Charging",
             "unit": "kWh",
             "log": true,
             "formula": null,
-            "stream_id": 47
+            "stream_id": 47,
+            "line_mode": "linear"
         }
     },
     "calculated tesla data": {

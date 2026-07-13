@@ -49,7 +49,7 @@ TESLA_PLUS_TARGET_TEMP = 0x62
 # command bytes above, these are a request/response pair: the backend replies to
 # the requesting client only (server.send_to), never a broadcast.
 TESLA_GET_GRAPH_PROPERTIES = 0x70  # F->B: request the graphable-property list (empty payload)
-TESLA_GRAPH_PROPERTIES = 0x71      # B->F: count(2B) + per property id/unit/category (each len(2B)+UTF-8)
+TESLA_GRAPH_PROPERTIES = 0x71      # B->F: count(2B) + per property id/unit/category/line_mode (each len(2B)+UTF-8); line_mode = "step"|"linear" graph render hint
 TESLA_GET_HISTORY = 0x72           # F->B: range_code(1B) + id(len(2B)+UTF-8) + start_ms(8B) + end_ms(8B)
 TESLA_HISTORY = 0x73               # B->F: id(len(2B)+UTF-8) + status(1B) + count(4B) + count*(ts_ms(8B)+value(8B double))
 
