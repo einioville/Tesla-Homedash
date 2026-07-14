@@ -37,20 +37,34 @@ ComboBox {
 
     contentItem: Text {
         leftPadding: 12
-        rightPadding: control.indicator ? control.indicator.width + 12 : 12
+        // The control's Basic-style rightPadding already reserves the indicator's width
+        // (the template places the contentItem inside it), so pad only the 12px gap —
+        // adding indicator.width here too double-counted it and cut the collapsed
+        // label off ~30px early.
+        rightPadding: 12
         text: control.displayText
         font: control.font
         color: Theme.dataLabelValue
         verticalAlignment: Text.AlignVCenter
         wrapMode: Text.WordWrap
-        maximumLineCount: 2
         elide: Text.ElideRight
+        // Shrink-before-elide, constrained by the item HEIGHT (52px ≈ two lines), not
+        // maximumLineCount: the Text.Fit search only shrinks on physical overflow — a
+        // maximumLineCount truncation elides at full size without ever trying a smaller
+        // font (qquicktext.cpp fit loop) — so the label shrinks (≥12px) until it all
+        // fits and elides only below the minimum.
+        fontSizeMode: Text.Fit
+        minimumPixelSize: 12
     }
 
     delegate: ItemDelegate {
         id: entryDelegate
         width: ListView.view ? ListView.view.width : control.width
         height: 52
+        // The Basic style's default padding (12) left the row text only 28px of height —
+        // one line — so elide+wrap cut the label instead of wrapping it (issue #19). Zero
+        // padding hands the Text the full 52px, enough for two lines.
+        padding: 0
         required property int index
         required property var modelData
         // Hover / keyboard highlight (NOT the white default) — this is the fix.
@@ -60,15 +74,18 @@ ComboBox {
             color: entryDelegate.highlighted ? Theme.tripComboHover : "transparent"
         }
         contentItem: Text {
-            leftPadding: 8
-            rightPadding: 8
+            leftPadding: 12
+            rightPadding: 12
             text: control.formatEntry(entryDelegate.modelData)
             font: control.font
             color: Theme.dataLabelValue
             verticalAlignment: Text.AlignVCenter
             wrapMode: Text.WordWrap
-            maximumLineCount: 2
+            // Height-constrained like the field text (no maximumLineCount) so Text.Fit
+            // can actually shrink instead of eliding — see the contentItem note above.
             elide: Text.ElideRight
+            fontSizeMode: Text.Fit
+            minimumPixelSize: 12
         }
     }
 
