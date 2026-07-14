@@ -66,6 +66,10 @@ Item {
         id: map
         anchors.fill: parent
         plugin: osmPlugin
+        // QTBUG-62463/67169: hovering a popup/menu over a Map re-batches the scene and
+        // mis-batches the tile quads — random tiles draw as solid white. Opacity < 1
+        // forces the map subtree through the alpha pass, keeping its batching consistent.
+        opacity: 0.99
         copyrightsVisible: false
         zoomLevel: root.defaultZoom
         bearing: 0
