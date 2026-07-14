@@ -38,7 +38,7 @@ TripComboBox {
                  + pad(s.getHours()) + ":" + pad(s.getMinutes()) + "–"
                  + pad(e.getHours()) + ":" + pad(e.getMinutes())
         if (!isNaN(entry.distanceKm))
-            text += "  ·  " + entry.distanceKm.toFixed(1) + " km"
+            text += " · " + entry.distanceKm.toFixed(1) + " km"
         return text
     }
 

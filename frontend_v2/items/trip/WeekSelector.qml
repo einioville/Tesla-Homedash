@@ -51,7 +51,7 @@ TripComboBox {
                                               : Trips.weekCounts[String(startMs)]
         if (c === undefined)
             return ""
-        return "  ·  " + c + " " + (c === 1 ? qsTr("matka") : qsTr("matkaa"))
+        return " · " + c + " " + (c === 1 ? qsTr("matka") : qsTr("matkaa"))
     }
 
     // The week windows (start/end ms) computed fresh from the current date.
