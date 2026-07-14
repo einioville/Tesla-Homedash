@@ -69,9 +69,12 @@ ComboBox {
         required property var modelData
         // Hover / keyboard highlight (NOT the white default) — this is the fix.
         highlighted: control.highlightedIndex === index
+        // Always-opaque, always-present background: hovering only recolours an existing
+        // node. Toggling transparent<->opaque added/removed a node, and that re-batch is
+        // what flipped map tiles white underneath (issue #9, QTBUG-67169).
         background: Rectangle {
             radius: 6
-            color: entryDelegate.highlighted ? Theme.tripComboHover : "transparent"
+            color: entryDelegate.highlighted ? Theme.tripComboHover : Theme.tripComboRowBg
         }
         contentItem: Text {
             leftPadding: 12

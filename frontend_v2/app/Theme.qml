@@ -105,6 +105,10 @@ QtObject {
     readonly property color tripComboBg: "#662c2c2c"
     readonly property color tripComboPressed: "#992c2c2c"
     readonly property color tripComboPopupBg: "#f2242424"
+    // Opaque non-hover row background (the popup bg sans alpha). Kept opaque so a hover
+    // only recolours the row's node instead of adding/removing one — the node churn is
+    // what triggered the white-map-tile re-batch artifact (issue #9).
+    readonly property color tripComboRowBg: "#242424"
     readonly property color tripComboHover: "#5c5c5c"
     // Start/end route markers: a map-red so they read as pins, distinct from the
     // green→red speed gradient of the route line (the pin shape disambiguates).
