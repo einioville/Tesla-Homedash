@@ -178,3 +178,7 @@ config.json
 # Local 3D model assets + design blueprints (large binaries, not for the repo)
 docs/images/model_3_bluaprint.png
 frontend/resources/models/
+
+# High-res Luna source art — kept locally as the master for the downscaled sprite,
+# but too large (~1 MB) to ship in the repo. The runtime uses stationary.png.
+frontend_v2/resources/Luna/stationary_high_res.png
