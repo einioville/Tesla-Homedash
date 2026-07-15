@@ -74,8 +74,9 @@ Rectangle {
     // Luna — a memorial overlay for our dog. Deliberately its OWN full-view layer
     // on top of every card (NOT part of the grid), so she ambles across the
     // foreground of the whole dashboard. Frozen while the view isn't current;
-    // toggled entirely by Theme.lunaEnabled. Input-transparent (no MouseArea), so
-    // the cards underneath stay tappable.
+    // toggled entirely by Theme.lunaEnabled. The layer itself carries no MouseArea,
+    // so the cards underneath stay tappable everywhere EXCEPT the small moving patch
+    // under Luna's own tap hitbox (tap-to-sit / tap-to-wake).
     Item {
         id: lunaLayer
         anchors.fill: parent
