@@ -7,6 +7,7 @@
 #include <QHash>
 #include <QStringList>
 #include <QTextStream>
+#include <QUrl>
 #include <QtGlobal>
 
 namespace {
@@ -156,4 +157,25 @@ AppConfig::AppConfig(QObject* parent) : QObject(parent) {
         logger.info(QStringLiteral("Map basemap: EOX Sentinel-2 (keyless fallback); set "
                                    "TESLA_HOMEDASH_MAP_API_KEY in .env for MML 0.5 m imagery"));
     }
+
+    // Screensaver: after `screensaverTimeoutMs` of no input the frontend fades to a
+    // photo slideshow read from `screensaverDir`. The folder comes from the
+    // environment so the photos live outside the committed tree; it is handed to
+    // QML as a file:// URL. Empty when unset → the screensaver stays off.
+    const QString screensaverPath =
+        envOr(dotenv, "TESLA_HOMEDASH_SCREENSAVER_DIR", QString()).trimmed();
+    if (!screensaverPath.isEmpty()) {
+        m_screensaverDir = QUrl::fromLocalFile(screensaverPath).toString();
+        logger.info(QStringLiteral("Screensaver photos: %1").arg(screensaverPath));
+    } else {
+        logger.info(QStringLiteral("Screensaver folder unset; set TESLA_HOMEDASH_SCREENSAVER_DIR "
+                                   "to enable the screensaver"));
+    }
+
+    bool minsOk = false;
+    const int mins =
+        envOr(dotenv, "TESLA_HOMEDASH_SCREENSAVER_TIMEOUT_MIN", QString()).toInt(&minsOk);
+    m_screensaverTimeoutMs = (minsOk && mins >= 1) ? mins * 60000 : 30 * 60 * 1000;
+    logger.info(QStringLiteral("Screensaver inactivity timeout: %1 min")
+                    .arg(m_screensaverTimeoutMs / 60000));
 }

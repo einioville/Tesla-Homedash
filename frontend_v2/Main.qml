@@ -93,6 +93,11 @@ Window {
         anchors.fill: parent
         model: window.viewModel
         currentIndex: window.currentView
+        // Stop painting the live views while the screensaver covers them (saves
+        // GPU on the Pi); the ViewController keeps them resident, so returning is
+        // instant. If the map reloads tiles on return, drop this one line — the
+        // screensaver works without it.
+        visible: !screenSaver.active
     }
 
     HomeIndicator {
@@ -160,6 +165,7 @@ Window {
         glassActive: window.progress > 0.01
         onSelected: (index) => window.currentView = index
         onInteracted: hideTimer.restart()
+        onScreensaverRequested: screenSaver.forceShow = true
     }
 
     // Smartphone-style notifications, above all other chrome (top-centre). The
@@ -171,6 +177,15 @@ Window {
         z: 200
         backdropSource: viewHost
         frostedBackdrop: true
+    }
+
+    // Idle screensaver: after the inactivity timeout (or F10 for testing) it fades
+    // in a black photo pile and dismisses on tap, revealing the last-used view.
+    // Sits above every other layer (dock z:default, notifications z:200).
+    ScreenSaver {
+        id: screenSaver
+        anchors.fill: parent
+        z: 300
     }
 
     Component.onCompleted: hideTimer.start()

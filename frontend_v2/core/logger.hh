@@ -29,6 +29,7 @@
  *   media          — media metadata, transport, cover decode (core/media/mediadata.cpp)
  *   weather        — weather forecast (core/weather/weatherdata.cpp)
  *   notifications  — frontend notifications (core/notification/notificationhandler.cpp)
+ *   idle           — inactivity watcher / screensaver (core/idlewatcher.cpp)
  *   qt             — Qt-internal messages (QML/Quick warnings, etc.) via the handler
  *
  * The QML UI layer must not log — only the C++ core (data/transport) does.

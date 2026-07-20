@@ -8,6 +8,7 @@
 
 #include "core/appconfig.hh"
 #include "core/charging/chargingdata.hh"
+#include "core/idlewatcher.hh"
 #include "core/logger.hh"
 #include "core/media/mediadata.hh"
 #include "core/media/mediaimageprovider.hh"
@@ -67,6 +68,9 @@ int main(int argc, char* argv[]) {
     // and renders config/notifications.json rules. Built before the engine so it
     // is subscribed before serverClient.start() fires the first connect.
     NotificationHandler notificationHandler(&teslaData, &serverClient);
+    // Inactivity watcher driving the screensaver: installs an app-wide event
+    // filter (needs qApp, already constructed above). Timeout from AppConfig.
+    IdleWatcher idleWatcher(config.screensaverTimeoutMs());
 
     // Pin the Qt Quick Controls style to Basic — the style the custom control
     // styling (e.g. TripComboBox's themed field / popup / delegate) is written for.
@@ -90,6 +94,7 @@ int main(int argc, char* argv[]) {
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "Media", &mediaData);
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "Weather", &weatherData);
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "Notifications", &notificationHandler);
+    qmlRegisterSingletonInstance("frontend_v2", 1, 0, "Idle", &idleWatcher);
 
     QObject::connect(
         &engine, &QQmlApplicationEngine::objectCreationFailed, &app,

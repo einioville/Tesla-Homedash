@@ -8,6 +8,9 @@ Rectangle {
     property string label: ""
     // White (Theme.iconTint) icon shown on the dock tile; empty = no icon.
     property url source
+    // Optional full-colour photo tile (e.g. the screensaver launcher). When set,
+    // a rounded image fills the tile instead of the tinted glyph.
+    property url photoSource
     signal clicked()
 
     implicitWidth: Theme.iconSize
@@ -35,6 +38,17 @@ Rectangle {
         source: icon.source
         tint: Theme.iconTint
         visible: icon.source.toString() !== ""
+    }
+
+    // Photo tile (full colour, rounded to the tile) — used by the screensaver
+    // launcher (Luna's photo) instead of a tinted glyph.
+    RoundedImage {
+        anchors.fill: parent
+        anchors.margins: 4
+        radius: icon.radius - 2
+        source: icon.photoSource
+        fillMode: Image.PreserveAspectCrop
+        visible: icon.photoSource.toString() !== ""
     }
 
     MouseArea {
