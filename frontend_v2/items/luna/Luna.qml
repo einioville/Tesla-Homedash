@@ -18,9 +18,7 @@ import QtQuick
 //                    click forces a meal now — a mouse-only dev/test hook the deployed
 //                    touchscreen never triggers.
 //
-// Adding art later — sleeping/eating/sniffing already ship LIVE but with PLACEHOLDER
-// frames (an existing pose stands in), so the whole machine — timing, transitions,
-// the meal clock — runs today and only the pictures are stand-ins. To drop in real art:
+// Every behaviour now has real art. To add or replace a pose's frames:
 //   1. add the frame PNGs under resources/Luna/ and list them in CMakeLists' resources,
 //   2. point that behaviour's `frames` (and its `nativeW`/`nativeH`) at the new art.
 // For a brand-new behaviour, also add its `behaviours` entry and — if it should be
@@ -68,18 +66,25 @@ Item {
     property int sleepTapWindowMs: 5000
 
     // --- Sizing / placement ----------------------------------------------
-    // All poses are exported on a 150px-TALL canvas with the feet on the bottom
-    // edge, but at their own native WIDTH — side-view walk/stand = 183×150, the
-    // front-view sit = 92×150. We anchor on HEIGHT: each pose renders at
-    // `heightFraction` of the parent's height (times its optional `heightScale`),
-    // and WIDTH follows from that pose's own native aspect — no frame is
-    // distorted, and the front-view sit reads narrower than the side-view walker,
-    // as a real dog does. `y` plants her bottom on the floor line, so a taller
-    // pose would grow UPWARD with her feet staying put.
+    // ONE shared art scale for every frame: the STANDING dog is `_refArtHeight`
+    // (150) art px tall, and `heightFraction` maps that standing height onto the
+    // screen. Frames are tight-cropped at that scale — a crouched sniff is simply
+    // FEWER art px tall — and every frame renders at its TRUE size through the same
+    // scale (see the sprite Image: sourceSize × _artScale). So a pose's PNG
+    // dimensions ARE its rendered proportions: rescaling a PNG rescales the pose on
+    // screen, and no frame is ever stretched to fit a box. The item itself is the
+    // behaviour's BOUNDING BOX (`nativeW`/`nativeH` = its largest frame's art px,
+    // per axis) — it drives placement, movement maths and the tap hitbox, while the
+    // frames draw inside it anchored to her rear + the floor. `y` plants the box on
+    // the floor line. The optional per-behaviour `heightScale` remains a fine-tune
+    // for a pose that reads too big/small without re-exporting its art.
+    readonly property int _refArtHeight: 150
     readonly property var _pose: behaviours[behaviour] || behaviours["idle"]
     readonly property real _baseHeight: (parent ? parent.height : 0) * heightFraction
-    height: _baseHeight * (_pose.heightScale || 1.0)
-    width: height * (_pose.nativeW / _pose.nativeH)
+    // Screen px per art px for the current pose.
+    readonly property real _artScale: (_baseHeight / _refArtHeight) * (_pose.heightScale || 1.0)
+    height: _pose.nativeH * _artScale
+    width: _pose.nativeW * _artScale
     y: (parent ? parent.height : 0) - height - bottomMargin
 
     // --- Sprite frames ----------------------------------------------------
@@ -91,29 +96,94 @@ Item {
     ]
     readonly property string _stationaryFrame: _dir + "stationary.png"
     readonly property string _sittingFrame: _dir + "sitting_1.png"
+    // Sniff poses: _1 = head raised, _2/_3 = nose at the ground (slightly different
+    // head heights — the bob). Tight-cropped at the shared art scale, so each pose
+    // has its own size and renders exactly as exported.
+    readonly property var _sniffFrames: [
+        _dir + "sniffing_1.png", _dir + "sniffing_2.png", _dir + "sniffing_3.png"
+    ]
+    // Sleeping: one curled pose is all the nap needs. It still lives in an ARRAY, and
+    // the behaviour's frameInterval is already set, so appending a second frame here
+    // (a breathing pose) is the ONLY edit needed to animate her — the frame cycler
+    // stays dormant while a behaviour has just one frame.
+    readonly property var _sleepFrames: [
+        _dir + "sleeping_1.png"
+    ]
+    // Eating: she stands over the bowl (_1/_3) and dips in to eat (_2/_4). The two
+    // head-up frames were drawn ~1.37x larger than the two dips — the bowl, the same
+    // object in all four, measures ~63px across in _1/_3 vs ~47px in _2/_4 — so the
+    // behaviour carries a `frameScale` to bring them onto one scale (see its row).
+    readonly property var _eatFrames: [
+        _dir + "eating_1.png", _dir + "eating_2.png",
+        _dir + "eating_3.png", _dir + "eating_4.png"
+    ]
 
     // --- Behaviour registry ----------------------------------------------
     // Each behaviour: which frames to show, how fast to cycle them (ms; 0 = a
     // single held frame), whether it moves her across the floor, its random
     // selection weight (only used for the random pool — see `enabledBehaviours`),
-    // its dwell range (ms, for non-moving behaviours), and the frames' native size
-    // in px — all poses share the 150px-tall canvas, only the width varies. An
-    // optional `heightScale` (rendered-height multiplier vs the base, default 1)
-    // lets a pose render taller/shorter if its art isn't on the shared canvas.
+    // its dwell range (ms, for non-moving behaviours), and `nativeW`/`nativeH` —
+    // the behaviour's BOUNDING BOX in art px: its largest frame per axis (equal to
+    // the frame size when all frames match). Frames render at TRUE art scale inside
+    // that box (see Sizing). An optional `heightScale` (default 1) fine-tunes a
+    // pose that reads too big/small without re-exporting its art.
     //
-    // sniffing/sleeping/eating currently REUSE an existing frame as a PLACEHOLDER
-    // (noted per row) so the machine runs before their art exists — swap `frames`
-    // and `nativeW`/`nativeH` for the real sprites (and add them to CMakeLists) later.
+    // `nativeW`/`nativeH` are the max of the behaviour's frame sizes per axis (the
+    // per-row comments list them). A stale box never distorts art under the true-scale
+    // model — it only widens the hitbox — but keep it current when frames are re-exported.
+    //
+    // Optional per-behaviour extras (absent → plain round-robin at frameInterval):
+    //   frameHold  — per-frame-INDEX hold ms overriding frameInterval for that frame
+    //                (e.g. the sniff's head-up frame lingers longer than one bob tick).
+    //   frameStep  — function(currentIndex) → next index: a custom, possibly
+    //                stochastic frame order (the sniff bob). Round-robin when absent.
+    //   frameScale — per-frame-INDEX size multiplier, for a behaviour whose frames were
+    //                drawn at inconsistent scales (the eating set). 1 = as exported.
+    //                Fixes RELATIVE sizes within the behaviour; use `heightScale` to
+    //                resize the pose as a whole.
     readonly property var behaviours: ({
         "idle":     { frames: [_stationaryFrame], frameInterval: 0,   moves: false, weight: 1.0, minMs: 1600,   maxMs: 5200,   nativeW: 183, nativeH: 150 },
         "walking":  { frames: _walkFrames,        frameInterval: 110, moves: true,  weight: 2.2,                                nativeW: 183, nativeH: 150 },
         "sitting":  { frames: [_sittingFrame],    frameInterval: 0,   moves: false, weight: 0.9, minMs: 4000,   maxMs: 11000,  nativeW: 92,  nativeH: 150 },
-        // Post-walk (not pooled): she sniffs the ground wherever a stroll ends.
-        "sniffing": { frames: [_stationaryFrame], frameInterval: 0,   moves: false, weight: 0.0, minMs: 2200,   maxMs: 6000,   nativeW: 183, nativeH: 150 },  // placeholder art = stationary
+        // Post-walk (not pooled): she sniffs the ground wherever a stroll ends —
+        // planted on the spot; WALKING is what carries her to the next sniff spot.
+        // Starts head-up (_1, held a beat), then bobs nose-down 2<->3 and only
+        // sometimes lifts back to _1.
+        "sniffing": {
+            frames: _sniffFrames, frameInterval: 150,
+            frameHold: [420, 150, 150],                     // [head-up, bob, bob] ms
+            frameStep: function (i) {
+                if (i === 0)
+                    return 1                                // head drops back down
+                return Math.random() < 0.15 ? 0             // occasional head lift...
+                                            : (i === 1 ? 2 : 1)  // ...else bob 2<->3
+            },
+            moves: false, weight: 0.0, minMs: 2600, maxMs: 7000,
+            nativeW: 219, nativeH: 130                      // bbox of 219x130 / 211x100 / 216x100
+        },
         // Random pool: the occasional ~5 min nap; tapping her wakes her (see _wake).
-        "sleeping": { frames: [_sittingFrame],    frameInterval: 0,   moves: false, weight: 0.4, minMs: 270000, maxMs: 330000, nativeW: 92,  nativeH: 150 },  // placeholder art = sitting
-        // Scheduled (not pooled): fires at `eatingHours` each day, ~5 min fixed.
-        "eating":   { frames: [_stationaryFrame], frameInterval: 0,   moves: false, weight: 0.0, minMs: 300000, maxMs: 300000, nativeW: 183, nativeH: 150 }   // placeholder art = stationary
+        // One held frame today — frameInterval is a pre-set slow "breathing" cadence
+        // that stays dormant until a second frame is added to _sleepFrames.
+        "sleeping": { frames: _sleepFrames,       frameInterval: 1100, moves: false, weight: 0.4, minMs: 270000, maxMs: 330000, nativeW: 184, nativeH: 90 },   // 184x90
+        // Scheduled (not pooled): fires at `eatingHours` each day, ~5 min fixed. Head
+        // mostly IN the bowl (the two dip frames trading off), lifting now and then to
+        // chew — the same shape as the sniff bob, one notch slower.
+        "eating": {
+            frames: _eatFrames, frameInterval: 600,
+            frameHold: [1040, 600, 1040, 600],              // [up, dip, up, dip] ms (2x slower)
+            frameStep: function (i) {
+                if (i === 0 || i === 2)                     // head up → back into the bowl
+                    return i + 1
+                return Math.random() < 0.2 ? i - 1          // ...occasionally lift to chew
+                                           : (i === 1 ? 3 : 1)   // ...else dip <-> dip
+            },
+            // The head-up frames were drawn ~1.37x larger than the dips; these bring all
+            // four onto one scale. If she reads too big/small OVERALL while eating, add
+            // a `heightScale` rather than editing these four.
+            frameScale: [0.88, 1.21, 0.88, 1.21],
+            moves: false, weight: 0.0, minMs: 300000, maxMs: 300000,
+            nativeW: 218, nativeH: 158                      // scaled bbox: 217x158/218x109/209x158/194x109
+        }
     })
     // The RANDOM POOL she picks from at each decision point. sniffing (post-walk) and
     // eating (scheduled) are triggered directly and are deliberately excluded here.
@@ -132,13 +202,39 @@ Item {
 
     readonly property int _frameInterval: (behaviours[behaviour] && behaviours[behaviour].frameInterval) || 0
     readonly property bool _animatingFrames: currentFrames.length > 1 && _frameInterval > 0
+    // Hold time for the CURRENT frame: frameHold[frameIndex] when the behaviour
+    // defines it (the sniff's lingering head-up frame), else the flat frameInterval.
+    readonly property int _frameHoldMs: {
+        var cfg = behaviours[behaviour]
+        return (cfg && cfg.frameHold && cfg.frameHold[frameIndex] !== undefined)
+            ? cfg.frameHold[frameIndex]
+            : _frameInterval
+    }
+    // Size multiplier for the CURRENT frame: frameScale[frameIndex] when the behaviour
+    // defines it (the eating set's mixed-scale art), else 1 — art renders as exported.
+    readonly property real _frameScale: {
+        var cfg = behaviours[behaviour]
+        return (cfg && cfg.frameScale && cfg.frameScale[frameIndex] !== undefined)
+            ? cfg.frameScale[frameIndex]
+            : 1.0
+    }
 
     // --- Render -----------------------------------------------------------
     Image {
         id: sprite
-        anchors.fill: parent
+        // Each frame renders at its TRUE art scale — sourceSize × _artScale — so the
+        // dog is the same size in every frame and only the pose's real extent varies.
+        // Anchored to the item's left/bottom (her rear + the floor), so frames of
+        // different sizes within one behaviour (the sniff poses) keep the body
+        // planted while the nose stretches. The facing mirror flips around the
+        // ITEM's centre, which maps her rear to the item's right edge when she faces
+        // left — still planted, every frame.
+        anchors.left: parent.left
+        anchors.bottom: parent.bottom
+        width: sourceSize.width * luna._artScale * luna._frameScale
+        height: sourceSize.height * luna._artScale * luna._frameScale
         source: luna.currentFrames[luna.frameIndex] || luna._stationaryFrame
-        fillMode: Image.PreserveAspectFit
+        fillMode: Image.PreserveAspectFit   // box is exactly proportional → pure scaling
         // Downscaled pixel art: mipmapped bilinear minification stays stable
         // (no shimmer) while she moves, unlike nearest-neighbour.
         smooth: true
@@ -167,13 +263,15 @@ Item {
         }
     }
 
-    // Advances the walk (or any multi-frame) cycle. Auto-pauses via `running`.
+    // Advances the walk (or any multi-frame) cycle. Auto-pauses via `running`. The
+    // interval re-binds per frame so a behaviour can hold individual frames longer
+    // (frameHold); the step order defers to the behaviour's frameStep when present.
     Timer {
         id: frameTimer
         repeat: true
         running: luna.running && luna._animatingFrames
-        interval: Math.max(1, luna._frameInterval)
-        onTriggered: luna.frameIndex = (luna.frameIndex + 1) % luna.currentFrames.length
+        interval: Math.max(1, luna._frameHoldMs)
+        onTriggered: luna._advanceFrame()
     }
 
     // Holds a non-moving behaviour (idle/sleeping/eating) for its dwell, then
@@ -218,6 +316,15 @@ Item {
     // --- Behaviour machine ------------------------------------------------
     function _randRange(min, max) {
         return min + Math.random() * (max - min)
+    }
+
+    // One frame-cycler tick: the behaviour's custom frameStep (possibly stochastic —
+    // the sniff bob) when defined, else plain round-robin.
+    function _advanceFrame() {
+        var cfg = behaviours[behaviour]
+        frameIndex = (cfg && cfg.frameStep)
+            ? cfg.frameStep(frameIndex)
+            : (frameIndex + 1) % currentFrames.length
     }
 
     // Weighted-random pick among the currently enabled behaviours.
