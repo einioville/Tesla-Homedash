@@ -7,15 +7,45 @@ import struct
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 
+from xml.etree.ElementTree import ParseError
+
+import aiohttp
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
-from fmiopendata.wfs import download_stored_query
+from fmiopendata.multipoint import MultiPoint
+from fmiopendata.wfs import STORED_QUERY_URL
 
 from ..server.server import Server
 from ..utils import protocol
 from ..utils.config_parser import Config
 
 logger = logging.getLogger("weather_service.weather_service")
+
+# Hard per-request ceiling on an FMI WFS fetch.  fmiopendata's own helper
+# (`wfs.download_stored_query` → `utils.read_url`) calls `requests.get(url)` with
+# NO timeout and exposes no way to pass one, and nothing here sets
+# socket.setdefaulttimeout.  A server that accepts the connection, sends a
+# partial body and then goes silent — no FIN, no RST — therefore parks the caller
+# in read() forever.  That happened in production: the socket sat ESTABLISHED for
+# 16 days, permanently burning an executor thread and (via max_instances=1)
+# gating every later run of the refresh job, so weather silently stopped
+# updating while the rest of the backend stayed healthy.  We now issue the GET
+# ourselves so the timeout is enforced at the socket layer.
+_FMI_TIMEOUT = aiohttp.ClientTimeout(total=30, sock_connect=10, sock_read=20)
+
+# Belt-and-braces deadline around the whole fetch-and-parse coroutine, covering
+# anything _FMI_TIMEOUT does not (e.g. a pathological XML parse).  Must exceed
+# _FMI_TIMEOUT.total so a genuine network timeout reports as such.
+_FETCH_DEADLINE_SECONDS = 45
+
+# Scheduler resilience.  APScheduler's default max_instances=1 means a single
+# run that never returns refuses every subsequent tick for the process lifetime
+# ('skipped: maximum number of running instances reached (1)').  Allowing a
+# second concurrent instance keeps the schedule alive even if one run wedges;
+# the grace time stops a briefly busy event loop from dropping a tick as a
+# misfire (the APScheduler default is 1 second).
+_JOB_MAX_INSTANCES = 2
+_MISFIRE_GRACE_SECONDS = 300
 
 
 class ForecastMeasurement:
@@ -139,13 +169,21 @@ class WeatherService:
         every 15 minutes.
         '''
         logger.info("Weather service starting: place=%s", self.__place)
-        logger.info("Performing initial weather fetch")
-        await self.__update_forecast()
+        # Schedule BEFORE the initial fetch: the periodic refresh must exist even
+        # if the first fetch fails or runs long, otherwise a bad start leaves the
+        # service with no job at all and weather never recovers.  Overlapping the
+        # initial fetch with a cron tick is harmless — _JOB_MAX_INSTANCES allows
+        # it and a broadcast is idempotent.
         self.__scheduler.start()
         self.__scheduler.add_job(
             func=self.__update_forecast,
             trigger=CronTrigger(hour="*", minute="0,15,30,45", timezone=self.__zone_info),
+            max_instances=_JOB_MAX_INSTANCES,
+            misfire_grace_time=_MISFIRE_GRACE_SECONDS,
+            coalesce=True,
         )
+        logger.info("Performing initial weather fetch")
+        await self.__update_forecast()
 
     def get_run_task(self) -> asyncio.Task:
         '''
@@ -186,6 +224,21 @@ class WeatherService:
             for key in ("Precipitation amount", "Total cloud cover"):
                 observation.set_measurement(key, current_forecast.get_measurement(key))
 
+        # A cycle with no future hours is a FAILED cycle, not a partial one: the
+        # frontend replaces its whole forecast model per frame, so broadcasting a
+        # banner-only frame blanks all five forecast cards until the next good
+        # frame — and caches that blanked frame for every client that reconnects
+        # afterwards.  Keeping the previous frame degrades to stale-but-complete
+        # instead, and the warning makes an otherwise silent dead cycle visible.
+        if not future_hours:
+            logger.warning(
+                "Weather cycle produced no forecast hours (observation=%s, "
+                "forecast rows=%d) — keeping the previous frame",
+                "ok" if observation is not None else "missing",
+                len(forecast_hours),
+            )
+            return
+
         forecasts: list[ForecastHour] = []
         if observation is not None:
             forecasts.append(observation)
@@ -194,13 +247,68 @@ class WeatherService:
             forecasts.append(current_forecast)
         forecasts.extend(future_hours)
 
-        if forecasts:
-            logger.info("Broadcasting weather forecast to clients")
-            stream_data = await self.__get_stream_data(forecasts)
-            self.__last_forecast = protocol.frame(
-                protocol.WEATHER_FORECAST, b"".join(stream_data)
+        logger.info("Broadcasting weather forecast to clients")
+        stream_data = await self.__get_stream_data(forecasts)
+        self.__last_forecast = protocol.frame(
+            protocol.WEATHER_FORECAST, b"".join(stream_data)
+        )
+        await self.__server.broadcast(self.__last_forecast)
+
+    async def __download_stored_query(
+        self, query_id: str, params: dict[str, str], label: str
+    ):
+        '''
+        Downloads and parses an FMI WFS stored query, replacing
+        fmiopendata.wfs.download_stored_query so a socket-level timeout can be
+        enforced (see _FMI_TIMEOUT).  Returns a fmiopendata MultiPoint, or None
+        when the request or the parse fails — every failure is logged and
+        swallowed so one bad cycle never wedges the refresh job.
+
+        The URL is built exactly as fmiopendata builds it (STORED_QUERY_URL +
+        query_id + query args); passing the args as aiohttp params percent-encodes
+        non-ASCII place names (e.g. Ryttylä), which is what requests did for
+        fmiopendata implicitly.
+        Arguments:
+            query_id (str): FMI stored query id.
+            params (dict[str, str]): Query arguments (starttime/endtime/place).
+            label (str): Human-readable query name used in log messages.
+        '''
+        try:
+            return await asyncio.wait_for(
+                self.__fetch_and_parse(query_id, params), _FETCH_DEADLINE_SECONDS
             )
-            await self.__server.broadcast(self.__last_forecast)
+        except asyncio.TimeoutError:
+            # Must precede the OSError clause: on Python 3.11+ asyncio.TimeoutError
+            # is the builtin TimeoutError, which is an OSError subclass.
+            logger.warning(
+                "FMI %s fetch timed out for place=%s (deadline %ds)",
+                label, self.__place, _FETCH_DEADLINE_SECONDS,
+            )
+            return None
+        except (aiohttp.ClientError, OSError, ParseError, ValueError, KeyError, IndexError) as e:
+            # ClientError/OSError → network + HTTP failures; ParseError/ValueError →
+            # malformed or defused XML; KeyError/IndexError → unexpected response shape.
+            logger.warning(
+                "FMI %s fetch failed for place=%s: %s: %s",
+                label, self.__place, type(e).__name__, e,
+            )
+            return None
+
+    async def __fetch_and_parse(self, query_id: str, params: dict[str, str]):
+        '''
+        Performs one FMI WFS request and parses the response.  Raises on any
+        failure; __download_stored_query owns the error handling.
+        Arguments:
+            query_id (str): FMI stored query id.
+            params (dict[str, str]): Query arguments (starttime/endtime/place).
+        '''
+        async with aiohttp.ClientSession(timeout=_FMI_TIMEOUT) as session:
+            async with session.get(STORED_QUERY_URL + query_id, params=params) as response:
+                response.raise_for_status()
+                xml = await response.read()
+        # The XML parse is pure CPU and always terminates, but it is heavy enough
+        # (numpy-backed) to keep off the event loop.
+        return await self.__loop.run_in_executor(None, MultiPoint, xml, query_id)
 
     async def stream_everything(self, client) -> None:
         '''
@@ -228,28 +336,17 @@ class WeatherService:
         start_str = current_hour_start.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
         end_str = end_time.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
-        try:
-            # NOTE: confirmed stored query for 10-minute surface weather
-            # observations; returns air temp, wind speed, precipitation, cloud cover.
-            data = await self.__loop.run_in_executor(
-                None,
-                lambda: download_stored_query(
-                    query_id="fmi::observations::weather::multipointcoverage",
-                    args=[
-                        f"starttime={start_str}",
-                        f"endtime={end_str}",
-                        f"place={self.__place}",
-                    ],
-                ),
-            )
-        except (OSError, ValueError, KeyError) as e:
-            # OSError covers network/HTTP failures from fmiopendata's urllib layer;
-            # ValueError/KeyError catch malformed XML and unexpected response shapes.
-            logger.warning(
-                "FMI observation fetch failed for place=%s: %s: %s",
-                self.__place, type(e).__name__, e,
-            )
-            return None
+        # NOTE: confirmed stored query for 10-minute surface weather
+        # observations; returns air temp, wind speed, precipitation, cloud cover.
+        data = await self.__download_stored_query(
+            query_id="fmi::observations::weather::multipointcoverage",
+            params={
+                "starttime": start_str,
+                "endtime": end_str,
+                "place": self.__place,
+            },
+            label="observation",
+        )
 
         if not data or not data.data:
             return None
@@ -324,24 +421,15 @@ class WeatherService:
         start_str = current_hour.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
         end_str = end_time.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
-        try:
-            data = await self.__loop.run_in_executor(
-                None,
-                lambda: download_stored_query(
-                    query_id="fmi::forecast::harmonie::surface::point::multipointcoverage",
-                    args=[
-                        f"starttime={start_str}",
-                        f"endtime={end_str}",
-                        f"place={self.__place}",
-                    ],
-                ),
-            )
-        except (OSError, ValueError, KeyError) as e:
-            logger.warning(
-                "FMI forecast fetch failed for place=%s: %s: %s",
-                self.__place, type(e).__name__, e,
-            )
-            return []
+        data = await self.__download_stored_query(
+            query_id="fmi::forecast::harmonie::surface::point::multipointcoverage",
+            params={
+                "starttime": start_str,
+                "endtime": end_str,
+                "place": self.__place,
+            },
+            label="forecast",
+        )
 
         if not data or not data.data:
             return []

@@ -448,6 +448,25 @@ needed). `__fetch_observation` walks observation slots newest→oldest and uses 
 with a valid air-temperature reading (avoiding the all-NaN padding slots fmiopendata returns).
 **Talks to:** FMI open data, `Server`.
 
+> **Load-bearing invariants — do not break:**
+> - **Never call `fmiopendata.wfs.download_stored_query`.** Its fetch helper is `requests.get(url)`
+>   with **no timeout** and no way to pass one. A stalled FMI response (connection accepted, partial
+>   body, then silence — no FIN/RST) parks the caller in `read()` *forever*; in production that burned
+>   an executor thread and killed weather for 16 days. `__download_stored_query` +
+>   `__fetch_and_parse` replace it: the same URL (`STORED_QUERY_URL + query_id`, args as aiohttp
+>   `params` so non-ASCII places like `Ryttylä` percent-encode) fetched with an explicit
+>   `_FMI_TIMEOUT`, then handed to fmiopendata's own `MultiPoint` parser in an executor. Any failure
+>   logs a WARNING and returns `None`. An `asyncio.wait_for(_FETCH_DEADLINE_SECONDS)` wraps both.
+> - **Keep `max_instances` ≥ 2 + a real `misfire_grace_time` on the refresh job.** APScheduler's
+>   default `max_instances=1` turns one wedged run into a permanent outage — every later tick is
+>   refused with *"skipped: maximum number of running instances reached (1)"*.
+> - **Schedule the job before the initial fetch** in `run()`, so a failed/slow first fetch can't
+>   leave the service with no periodic refresh at all.
+> - **A cycle with no future forecast hours is a failed cycle** — return without broadcasting or
+>   caching. The frontend replaces its whole forecast model per frame, so a banner-only frame blanks
+>   all five cards *and* poisons `__last_forecast` for every later reconnect. Stale-but-complete
+>   beats half-blank.
+
 #### 5.2.5 `influxdb_service/influxdb_handler.py`
 `InfluxDBHandler` wraps the async InfluxDB client: `write_tesla_data` (logged fields + midnight
 snapshot), `read_first_value_day`/`_month` (calculated-field baselines), `read_tesla_data_property`
@@ -696,7 +715,17 @@ a new/renamed service or widget, a protocol change, a build-command change, or a
 invariant. Treat the doc as part of the change, not an afterthought, and bump §7.7.
 
 ### 7.7 Documentation currency
-This guide and `README.md` are current as of the **per-property graph line mode** work on
+This guide is current as of the **weather-service hang fix**: `WeatherService` had deadlocked on the
+Pi for 16 days (widget empty, rest of the backend healthy). `fmiopendata`'s fetch helper calls
+`requests.get()` with no timeout, so a stalled FMI response parked an executor thread forever, and
+APScheduler's default `max_instances=1` then refused every later tick. Fixed in three layers, all
+inside `backend/src` (no new dependencies): the FMI GET is now issued directly with aiohttp +
+`_FMI_TIMEOUT` and parsed with fmiopendata's own `MultiPoint` (`__download_stored_query` /
+`__fetch_and_parse`) under an `asyncio.wait_for` deadline; the refresh job gained
+`max_instances=2` / `misfire_grace_time=300` / `coalesce=True` and is now scheduled *before* the
+initial fetch; and a cycle yielding no future forecast hours returns without broadcasting or caching
+(a banner-only frame blanked the frontend's five cards permanently — see §5.2.4's invariants).
+Predecessor work — this guide and `README.md` are current as of the **per-property graph line mode** work on
 `feature/graph-line-mode` (issue #20): a per-property `line_mode` (`step` default / `linear`) that
 tells the shared `HistoryGraph.qml` how to connect a property's consecutive readings — a held step
 for sampled/held signals (`VehicleSpeed`, setpoints) or a straight point-to-point line for
