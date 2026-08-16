@@ -1,4 +1,7 @@
 import logging
+import os
+
+from dotenv import load_dotenv
 
 # ── Logger name constants ─────────────────────────────────────────────────────
 
@@ -32,13 +35,55 @@ _SERVICE_LOGGERS = (
 )
 
 
-def configure_logging(level: int = logging.DEBUG) -> None:
+_LOG_LEVEL_ENV = "TESLA_HOMEDASH_LOG_LEVEL"
+
+_LEVEL_NAMES = {
+    "debug": logging.DEBUG,
+    "info": logging.INFO,
+    "warning": logging.WARNING,
+    "error": logging.ERROR,
+    "critical": logging.CRITICAL,
+}
+
+_DEFAULT_LEVEL = logging.INFO
+
+
+def _resolve_level() -> tuple[int, str | None]:
+    '''
+    Reads the log level from TESLA_HOMEDASH_LOG_LEVEL, mirroring the frontend's
+    variable of the same name.  Returns the level plus the offending string when
+    the value was unrecognised, so the caller can warn once handlers exist.
+    Unset or invalid falls back to INFO — DEBUG emits a line per telemetry
+    property, which on the embedded deployment rotates the systemd journal fast
+    enough to destroy incident history.
+    '''
+    raw = os.getenv(_LOG_LEVEL_ENV)
+    if raw is None:
+        return _DEFAULT_LEVEL, None
+    level = _LEVEL_NAMES.get(raw.strip().lower())
+    if level is None:
+        return _DEFAULT_LEVEL, raw
+    return level, None
+
+
+def configure_logging(level: int | None = None) -> None:
     '''
     Configures all service loggers with a shared StreamHandler and formatter.
     Must be called once at application startup before any service is initialised.
     Arguments:
-        level (int): Minimum log level for all service loggers (default: DEBUG).
+        level (int): Minimum log level for all service loggers.  When None (the
+            default) the level comes from TESLA_HOMEDASH_LOG_LEVEL, falling back
+            to INFO.
     '''
+    invalid: str | None = None
+    if level is None:
+        # `.env` is normally loaded lazily by config_parser.get_env, whose first
+        # call happens *after* logging is configured — so load it here too.
+        # load_dotenv is idempotent and does not override real env vars, which is
+        # what lets systemd's Environment= win over a stale `.env` on the Pi.
+        load_dotenv()
+        level, invalid = _resolve_level()
+
     formatter = logging.Formatter(fmt=_LOG_FORMAT, datefmt=_DATE_FORMAT)
     handler = logging.StreamHandler()
     handler.setFormatter(formatter)
@@ -52,3 +97,11 @@ def configure_logging(level: int = logging.DEBUG) -> None:
             logger.addHandler(handler)
         # Do not propagate to the root logger — each service logger is self-contained.
         logger.propagate = False
+
+    # Warn only now that the handlers exist, so the message is formatted like
+    # every other log line instead of hitting logging's lastResort handler.
+    if invalid is not None:
+        logging.getLogger(UTILS).warning(
+            "Invalid %s=%r; falling back to INFO (valid: %s)",
+            _LOG_LEVEL_ENV, invalid, ", ".join(_LEVEL_NAMES),
+        )

@@ -182,7 +182,13 @@ Required secrets/paths, loaded by `utils/config_parser.get_env`:
 
 `start_services.main()` fails fast if any of these are missing. **Optional:** `MYENERGI_HUB_SERIAL`
 / `MYENERGI_API_KEY` (myenergi cloud digest-auth creds) — absent → the charger service is skipped
-and the rest of the stack still runs.
+and the rest of the stack still runs. Also optional: `TESLA_HOMEDASH_LOG_LEVEL` —
+`debug`/`info`/`warning`/`error`/`critical`, **default `info`** (invalid → `info` + a warning),
+mirroring the frontend variable of the same name. Read by `configure_logging()`, which calls
+`load_dotenv()` itself because `get_env`'s lazy load happens after logging is set up; a real
+environment variable (systemd `Environment=`) still wins over `.env`. **Keep the deployment at
+`info`** — `debug` logs a line per telemetry property and rotates the Pi's journal fast enough to
+destroy incident history.
 
 ### `config.json` (copy from `config_template.json`)
 Parsed once by `Config` and injected into every service. Keys:
@@ -488,7 +494,8 @@ guards; they're the only thing preventing injection if non-config input ever rea
 - **`config_parser.py`**: `Config` validates + exposes `config.json`; `get_env` loads `.env` once.
 - **`protocol.py`**: every message-type byte, weather sub-id, `MAX_MSG_SIZE`, and `frame()`. The
   single source of truth — add new constants here, never on a class.
-- **`logger_configurator.py`**: `configure_logging` wires the shared stdout formatter
+- **`logger_configurator.py`**: `configure_logging(level=None)` resolves the level from
+  `TESLA_HOMEDASH_LOG_LEVEL` (default **INFO**, not DEBUG) and wires the shared stdout formatter
   (`LEVEL | YYYY-MM-DD | HH:MM:SS | name | message`) onto an allow-list of top-level loggers.
   **Every service's logger prefix must be in `_SERVICE_LOGGERS`** (`tesla_service`, `media_service`,
   `weather_service`, `influxdb_service`, `charging_service`, `myenergi_service`, `trip_service`,
@@ -724,7 +731,9 @@ inside `backend/src` (no new dependencies): the FMI GET is now issued directly w
 `__fetch_and_parse`) under an `asyncio.wait_for` deadline; the refresh job gained
 `max_instances=2` / `misfire_grace_time=300` / `coalesce=True` and is now scheduled *before* the
 initial fetch; and a cycle yielding no future forecast hours returns without broadcasting or caching
-(a banner-only frame blanked the frontend's five cards permanently — see §5.2.4's invariants).
+(a banner-only frame blanked the frontend's five cards permanently — see §5.2.4's invariants). Also
+`configure_logging` is now env-driven via `TESLA_HOMEDASH_LOG_LEVEL`, defaulting to **INFO** instead
+of the hardcoded DEBUG that was rotating the Pi's journal too fast for forensics.
 Predecessor work — this guide and `README.md` are current as of the **per-property graph line mode** work on
 `feature/graph-line-mode` (issue #20): a per-property `line_mode` (`step` default / `linear`) that
 tells the shared `HistoryGraph.qml` how to connect a property's consecutive readings — a held step
