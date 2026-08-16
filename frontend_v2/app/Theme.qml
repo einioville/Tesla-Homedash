@@ -3,9 +3,10 @@ import QtQuick
 
 QtObject {
     // --- Feature flags ----------------------------------------------------
-    // Luna — the dog-memorial overlay on the dashboard. The single on/off switch:
-    // set to false to remove her entirely (no sprite, no animation, no cost).
-    property bool lunaEnabled: true
+    // Luna — the dog-memorial overlay on the dashboard. The single on/off switch,
+    // off by default: nothing is constructed, no timer runs, no frame is drawn.
+    // Set to true to bring her back (a rebuild away).
+    property bool lunaEnabled: false
 
     // Screensaver — after TESLA_HOMEDASH_SCREENSAVER_TIMEOUT_MIN minutes of no
     // touch, a black photo slideshow (from TESLA_HOMEDASH_SCREENSAVER_DIR) takes
