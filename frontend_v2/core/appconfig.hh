@@ -25,6 +25,13 @@
  *                                otherwise it falls back to the keyless EOX
  *                                Sentinel-2 basemap. Kept in the environment so
  *                                the key never lives in the committed QML.
+ *   TESLA_HOMEDASH_SCREENSAVER_DIR         (string)  optional — a folder of photos
+ *                                the screensaver cycles through. Exposed to QML as
+ *                                a file:// URL; empty (unset) → the screensaver has
+ *                                nothing to show and stays off.
+ *   TESLA_HOMEDASH_SCREENSAVER_TIMEOUT_MIN (int)     minutes of inactivity before
+ *                                the screensaver appears (default 30). Read by
+ *                                main() and pushed to the IdleWatcher.
  *
  * Registered with the QML engine as the singleton `App` (see main.cpp), which
  * is how items/tesla/TeslaMap.qml reads mapTilesUrl / mapAttribution.
@@ -35,6 +42,9 @@ class AppConfig : public QObject {
     // host. Both are decided once at construction (CONSTANT — no NOTIFY needed).
     Q_PROPERTY(QString mapTilesUrl READ mapTilesUrl CONSTANT)
     Q_PROPERTY(QString mapAttribution READ mapAttribution CONSTANT)
+    // Screensaver photo folder as a file:// URL (empty when unset). Decided once
+    // at construction. Consumed by items/util/ScreenSaver.qml's FolderListModel.
+    Q_PROPERTY(QString screensaverDir READ screensaverDir CONSTANT)
 
 public:
     explicit AppConfig(QObject* parent = nullptr);
@@ -43,10 +53,12 @@ public:
     const QString& backendHost() const { return m_backendHost; }
     quint16 backendPort() const { return m_backendPort; }
     Logger::Level logLevel() const { return m_logLevel; }
+    int screensaverTimeoutMs() const { return m_screensaverTimeoutMs; }
 
     // Exposed to QML via the Q_PROPERTYs above.
     const QString& mapTilesUrl() const { return m_mapTilesUrl; }
     const QString& mapAttribution() const { return m_mapAttribution; }
+    const QString& screensaverDir() const { return m_screensaverDir; }
 
 private:
     QString m_backendHost;
@@ -54,6 +66,8 @@ private:
     Logger::Level m_logLevel = Logger::Level::Info;
     QString m_mapTilesUrl;
     QString m_mapAttribution;
+    QString m_screensaverDir;
+    int m_screensaverTimeoutMs = 30 * 60 * 1000;
 };
 
 #endif  // FRONTEND_V2_APPCONFIG_HH

@@ -16,6 +16,8 @@ Item {
 
     signal selected(int index)
     signal interacted()
+    // Emitted by the screensaver launcher tile (not a view — an action button).
+    signal screensaverRequested()
 
     implicitWidth: iconRow.implicitWidth + 2 * Theme.dockPadding
     implicitHeight: iconRow.implicitHeight + 2 * Theme.dockPadding
@@ -49,6 +51,19 @@ Item {
                     dock.selected(index)
                     dock.interacted()
                 }
+            }
+        }
+
+        // Screensaver launcher — Luna's photo. Not a view: starts the photo
+        // screensaver on demand (the touch equivalent of the F10 test key). Only
+        // present while the feature is enabled.
+        DockIcon {
+            label: qsTr("Näytönsäästäjä")
+            photoSource: "qrc:/resources/icons/screensaver.png"
+            visible: Theme.screensaverEnabled
+            onClicked: {
+                dock.screensaverRequested()
+                dock.interacted()
             }
         }
     }

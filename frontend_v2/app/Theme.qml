@@ -2,6 +2,19 @@ pragma Singleton
 import QtQuick
 
 QtObject {
+    // --- Feature flags ----------------------------------------------------
+    // Luna — the dog-memorial overlay on the dashboard. The single on/off switch,
+    // off by default: nothing is constructed, no timer runs, no frame is drawn.
+    // Set to true to bring her back (a rebuild away).
+    property bool lunaEnabled: false
+
+    // Screensaver — after TESLA_HOMEDASH_SCREENSAVER_TIMEOUT_MIN minutes of no
+    // touch, a black photo slideshow (from TESLA_HOMEDASH_SCREENSAVER_DIR) takes
+    // over the screen; any tap dismisses it and returns to the last-used view.
+    // The single on/off switch (folder + timeout live in AppConfig / the
+    // environment). Press F10 to toggle it on demand for testing.
+    property bool screensaverEnabled: true
+
     // Surfaces
     readonly property color appBackground: "#0f1115"
     readonly property color dockBackground: "#cc1b2230"
@@ -120,4 +133,19 @@ QtObject {
     readonly property color tripCardBg: "#325c5c5c"      // rgba(92, 92, 92, 50)
     readonly property color tripCardBorder: "#78ffffff"  // rgba(255, 255, 255, 120)
     readonly property int tripCardRadius: 12
+
+    // --- Screensaver ------------------------------------------------------
+    // Printed-photo pile on a black background: each photo sits in a white frame
+    // with a soft drop shadow, tossed on at a random tilt/offset (newest on top).
+    readonly property color screensaverBackground: "#000000"
+    readonly property color screensaverFrameColor: "#ffffff"
+    readonly property real screensaverSizeFraction: 0.75   // max photo box vs. window
+    readonly property int screensaverMatte: 14             // white frame thickness (px)
+    readonly property int screensaverCornerRadius: 2
+    readonly property real screensaverTiltMaxDeg: 7        // random ± tilt per photo
+    readonly property int screensaverScatterPx: 60         // random pile offset radius
+    readonly property int screensaverStackCount: 10        // photos kept on the pile
+    readonly property int screensaverAdvanceMs: 8000       // per-photo dwell
+    readonly property int screensaverEnterMs: 650          // toss-in animation
+    readonly property int screensaverFadeMs: 500           // fade in/out (photos + overlay)
 }

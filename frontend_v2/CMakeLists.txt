@@ -10,7 +10,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # meta-object symbols. CMP0100 (CMake 3.18+) opts .hh/.h++ into AUTOMOC.
 cmake_policy(SET CMP0100 NEW)
 
-find_package(Qt6 REQUIRED COMPONENTS Quick Network Concurrent Svg Location Positioning QuickControls2 Core5Compat Graphs)
+find_package(Qt6 REQUIRED COMPONENTS Quick Network Concurrent Svg Location Positioning QuickControls2 Core5Compat Graphs LabsFolderListModel)
 
 qt_standard_project_setup(REQUIRES 6.11)
 
@@ -49,6 +49,8 @@ qt_add_executable(appfrontend_v2
     core/serverclient.cpp
     core/appconfig.hh
     core/appconfig.cpp
+    core/idlewatcher.hh
+    core/idlewatcher.cpp
     core/tesla/tesladata_gen.hh
     core/tesla/tesladata_gen.cpp
     core/tesla/tesladata.hh
@@ -105,6 +107,7 @@ qt_add_qml_module(appfrontend_v2
         items/history/DateTimePicker.qml
         items/history/HistoryGraph.qml
         items/history/GraphPrewarm.qml
+        items/luna/Luna.qml
         items/util/Dock.qml
         items/util/DockIcon.qml
         items/util/HomeIndicator.qml
@@ -115,6 +118,7 @@ qt_add_qml_module(appfrontend_v2
         items/util/RoundedImage.qml
         items/util/GlassPanel.qml
         items/util/NotificationLayer.qml
+        items/util/ScreenSaver.qml
         items/tesla/DataEntry.qml
         items/tesla/DataEntryList.qml
         items/tesla/TemperatureCard.qml
@@ -156,7 +160,7 @@ target_compile_definitions(appfrontend_v2 PRIVATE
 
 target_link_libraries(appfrontend_v2
     PRIVATE Qt6::Quick Qt6::Network Qt6::Concurrent Qt6::Svg Qt6::Location Qt6::Positioning
-            Qt6::QuickControls2 Qt6::Core5Compat Qt6::Graphs
+            Qt6::QuickControls2 Qt6::Core5Compat Qt6::Graphs Qt6::LabsFolderListModel
 )
 
 # Static resources (font + icons) exposed at :/resources/... — the same paths
@@ -186,6 +190,7 @@ qt_add_resources(appfrontend_v2 "app_resources"
         resources/icons/power_on.svg
         resources/icons/power_pending.svg
         resources/icons/redshadow.png
+        resources/icons/screensaver.png
         resources/icons/seat.svg
         resources/icons/skip_backward.svg
         resources/icons/skip_forward.svg
@@ -196,6 +201,21 @@ qt_add_resources(appfrontend_v2 "app_resources"
         resources/icons/weather/rain.svg
         resources/icons/weather/thermometer.svg
         resources/icons/weather/wind.svg
+        resources/Luna/stationary.png
+        resources/Luna/eating_1.png
+        resources/Luna/eating_2.png
+        resources/Luna/eating_3.png
+        resources/Luna/eating_4.png
+        resources/Luna/sitting_1.png
+        resources/Luna/sleeping_1.png
+        resources/Luna/sniffing_1.png
+        resources/Luna/sniffing_2.png
+        resources/Luna/sniffing_3.png
+        resources/Luna/walking_1.png
+        resources/Luna/walking_2.png
+        resources/Luna/walking_3.png
+        resources/Luna/walking_4.png
+        resources/Luna/walking_5.png
         config/notifications.json
 )
 
