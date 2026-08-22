@@ -677,12 +677,25 @@ Add inline comments only for non-obvious logic (protocol packing, formula eval, 
 transitions, scheduling edge cases). Don't comment self-explanatory code.
 
 ### 7.3 Agent validation policy
-The agent does **not** build or run the Qt frontend (no `cmake --build`, no launching `gui.exe`) —
-the user verifies frontend builds and runtime behaviour locally. Validate frontend changes by reading
-and reasoning about the code, and report what to look for at runtime. **Ignore clangd "file not found"
-/ "unknown type" diagnostics on Qt headers** in the editor — the real CMake build resolves them. Same
-for the backend: don't start long-running services; use `python -m compileall backend/src` for syntax
-checks and let the user run the live stack.
+**The agent builds the frontend** — compile errors should surface in the session that caused them, not
+on the user's next manual build. Use `scripts\build-frontend.ps1` (§8) after frontend changes; it is
+incremental and sccache-backed, so a rebuild after a small edit is cheap. Report build failures with
+the compiler output. Running the built binary is still the user's call (it needs the 1280×800 display
+and a live backend), so report what to look for at runtime rather than launching `gui.exe`.
+**Ignore clangd "file not found" / "unknown type" diagnostics on Qt headers** in the editor — the real
+CMake build resolves them. For the backend: don't start long-running services; `python -m compileall
+backend/src` is the syntax check and the user runs the live stack.
+
+**Automated pre-build checks.** `.claude/hooks/check-edit.py` runs on every agent Edit/Write and is the
+first line of defence, catching syntax breakage without a full build:
+- `backend/src/**.py` → `python -m compileall backend/src`
+- `**.qml` → `qmllint` (newest installed Qt kit; `TESLA_HOMEDASH_QMLLINT` overrides the path)
+
+The QML check is deliberately gated to `[syntax]` warnings and `Error:` lines. qmllint reports ~750
+style diagnostics across `frontend_v2` (mostly `unqualified` access and `missing-property`) but **zero**
+syntax warnings — blocking on that backlog would fire on untouched code, so the hook matches
+`compileall`'s contract: catch syntax, leave style alone. A machine with no Qt kit skips the QML check
+rather than blocking edits. The hook is a fast filter, not a substitute for the build.
 
 ### 7.4 Frontend logging
 - Format is byte-identical to the backend; stdout only, no files/rotation.
@@ -703,7 +716,7 @@ checks and let the user run the live stack.
   branch touches an issue only partially, reference it (`Refs #N`) without a closing keyword. Don't
   invent a link — only tie a PR to an issue the change genuinely resolves.
 - **Prompt to commit once work is verified.** This repo tends to accumulate uncommitted,
-  manually-verified changes (the frontend isn't agent-built, so verification happens on the user's
+  manually-verified changes (the agent builds, but *runtime* verification happens on the user's
   side). When the user confirms a feature works — i.e. they say a manual test passed — proactively
   prompt to commit it then, in focused commits per the above, rather than letting verified work pile
   up. The agent still only commits/pushes when the user agrees; this is about offering at the right
@@ -722,7 +735,17 @@ a new/renamed service or widget, a protocol change, a build-command change, or a
 invariant. Treat the doc as part of the change, not an afterthought, and bump §7.7.
 
 ### 7.7 Documentation currency
-This guide is current as of the **weather-service hang fix**: `WeatherService` had deadlocked on the
+This guide is current as of the **agent-builds-the-frontend policy change** (§7.3): the agent now runs
+`scripts\build-frontend.ps1` itself after frontend changes instead of deferring every build to the
+user, so compile errors surface in the session that caused them. Backing that up, `.claude/settings.json`
+(new, committed) registers a `PostToolUse` hook on `Edit|Write` running `.claude/hooks/check-edit.py`,
+which byte-compiles `backend/src` on Python edits and runs `qmllint` on QML edits — the latter gated to
+`[syntax]`/`Error:` only, because `frontend_v2` carries ~750 pre-existing style diagnostics but zero
+syntax warnings. `.claude/settings.local.json` was trimmed from 46 permission rules to 16 (project-wide
+rules moved into the committed `settings.json`; dead entries for removed MCP servers and a stale
+machine's statusline paths dropped). Note for future edits: `QT_QML_GENERATE_QMLLS_INI` is **deprecated
+since Qt 6.10** ("no replacement needed") — don't add it to `frontend_v2/CMakeLists.txt`.
+Predecessor work — the **weather-service hang fix**: `WeatherService` had deadlocked on the
 Pi for 16 days (widget empty, rest of the backend healthy). `fmiopendata`'s fetch helper calls
 `requests.get()` with no timeout, so a stalled FMI response parked an executor thread forever, and
 APScheduler's default `max_instances=1` then refused every later tick. Fixed in three layers, all
@@ -780,8 +803,8 @@ rebuild, `-Config Release`, `-Fullscreen`). From **cmd.exe** use the `.cmd` shim
 — works from the main checkout or any worktree. Open Qt Creator only when you need the debugger /
 QML profiler / designer. **sccache** is wired into `frontend_v2/CMakeLists.txt` (auto-enabled when
 on PATH), so object files are reused across rebuilds *and across worktrees* — a fresh worktree's
-"clean" build is mostly cache hits. Inspect with `sccache --show-stats`. (Per §7.3 the agent still
-doesn't build; it reasons about the code and the user runs the script.)
+"clean" build is mostly cache hits. Inspect with `sccache --show-stats`. (Per §7.3 the agent runs this
+script itself after frontend changes; the user still runs the built binary.)
 
 **When you *do* need a parallel session (worktree).**
 1. Ask the user **(a) what we're doing** and **(b) a short name**; choose the branch **type**
