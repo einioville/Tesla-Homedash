@@ -1,0 +1,41 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m compileall:*)",
+      "Bash(uv run:*)",
+      "Bash(uv sync)",
+      "Bash(uv lock:*)",
+      "Bash(powershell -ExecutionPolicy Bypass -File scripts/build-frontend.ps1 *)",
+      "Bash(scripts/build-frontend.cmd *)",
+      "PowerShell(powershell -ExecutionPolicy Bypass -File scripts/build-frontend.ps1 *)",
+      "Bash(git status:*)",
+      "Bash(git log:*)",
+      "Bash(git diff:*)",
+      "Bash(git show:*)",
+      "Bash(git branch:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(git fetch:*)",
+      "Bash(git ls-remote:*)",
+      "Bash(git worktree list)",
+      "Bash(gh issue:*)",
+      "Bash(gh pr:*)",
+      "Bash(gh repo view:*)",
+      "Bash(gh label list:*)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"${CLAUDE_PROJECT_DIR}/.claude/hooks/check-edit.py\""
+          }
+        ]
+      }
+    ]
+  }
+}
