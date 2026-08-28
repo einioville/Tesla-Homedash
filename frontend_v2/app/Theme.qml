@@ -1,19 +1,36 @@
 pragma Singleton
 import QtQuick
+import frontend_v2
 
+// Design tokens for the dashboard.
+//
+// Two kinds of value live here, and the distinction matters:
+//
+//  - CONSTANTS (the vast majority): colours, radii, motion durations, the font.
+//    Plain `readonly property` literals. They are the app's visual identity, not
+//    user options, and qmlcachegen AOT-compiles them into the binary — which is
+//    exactly what you want for values on binding hot paths.
+//
+//  - USER-TUNABLE tokens: bound to `Settings.values.<key>` instead of a literal.
+//    A property initialiser is a BINDING, so when the Options view writes the
+//    setting the token re-evaluates and every `Theme.x` call site updates live —
+//    no call-site churn, and the 200+ existing references keep working unchanged.
+//    Add one by adding a schema entry in config/settings.json and a binding here.
 QtObject {
     // --- Feature flags ----------------------------------------------------
-    // Luna — the dog-memorial overlay on the dashboard. The single on/off switch,
-    // off by default: nothing is constructed, no timer runs, no frame is drawn.
-    // Set to true to bring her back (a rebuild away).
-    property bool lunaEnabled: false
+    // Luna — the dog-memorial overlay on the dashboard. Toggled from the Options
+    // view (Sovellus > Luna), off by default. She is gated by `visible`/`running`
+    // rather than a Loader, so she is constructed either way; flipping this only
+    // stops her painting and animating.
+    readonly property bool lunaEnabled: Settings.values.lunaEnabled
 
-    // Screensaver — after TESLA_HOMEDASH_SCREENSAVER_TIMEOUT_MIN minutes of no
-    // touch, a black photo slideshow (from TESLA_HOMEDASH_SCREENSAVER_DIR) takes
-    // over the screen; any tap dismisses it and returns to the last-used view.
-    // The single on/off switch (folder + timeout live in AppConfig / the
-    // environment). Press F10 to toggle it on demand for testing.
-    property bool screensaverEnabled: true
+    // Screensaver — after the configured idle timeout a black photo slideshow
+    // takes over the screen; any tap dismisses it and returns to the last-used
+    // view. On/off, timeout, dwell and pile size are all Options-view settings;
+    // only the photo FOLDER stays in the environment (TESLA_HOMEDASH_SCREENSAVER_DIR),
+    // since it is a path rather than something to type on a touchscreen.
+    // Press F10 to toggle it on demand for testing.
+    readonly property bool screensaverEnabled: Settings.values.screensaverEnabled
 
     // Surfaces
     readonly property color appBackground: "#0f1115"
@@ -102,7 +119,7 @@ QtObject {
     // Speed at which the route line reaches the top of the colour ramp (red).
     // The gradient runs dark green (0 km/h) → red / dark red (this value); speeds
     // above it clamp to the top colour. TripMap.colorForSpeed reads this.
-    readonly property real tripMaxSpeedKmh: 150
+    readonly property real tripMaxSpeedKmh: Settings.values.tripMaxSpeedKmh
     // Coloured route line width (px) and its dark casing underneath (for legibility
     // over satellite imagery / bright tiles).
     readonly property real tripRouteWidth: 4
@@ -144,8 +161,18 @@ QtObject {
     readonly property int screensaverCornerRadius: 2
     readonly property real screensaverTiltMaxDeg: 7        // random ± tilt per photo
     readonly property int screensaverScatterPx: 60         // random pile offset radius
-    readonly property int screensaverStackCount: 10        // photos kept on the pile
-    readonly property int screensaverAdvanceMs: 8000       // per-photo dwell
+    readonly property int screensaverStackCount: Settings.values.screensaverStackCount
+    readonly property int screensaverAdvanceMs: Settings.values.screensaverAdvanceSec * 1000
     readonly property int screensaverEnterMs: 650          // toss-in animation
     readonly property int screensaverFadeMs: 500           // fade in/out (photos + overlay)
+
+    // --- History / Trip graph tuning --------------------------------------
+    // Viewport-decimation and zoom-debounce knobs shared by every HistoryGraph
+    // instance (History, Trips and Charging all reuse it). Exposed in the Options
+    // view because the right values depend on the target hardware: the Pi wants a
+    // coarser bucketsPerPx and a longer settle than a desktop does.
+    readonly property real graphBucketsPerPx: Settings.values.graphBucketsPerPx
+    readonly property int graphSettleMs: Settings.values.graphSettleMs
+    readonly property real graphRenderMarginFrac: Settings.values.graphRenderMarginFrac
+    readonly property int graphMinZoomSpanMs: Settings.values.graphMinZoomSpanMs
 }

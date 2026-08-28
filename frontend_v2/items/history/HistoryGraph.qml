@@ -110,14 +110,17 @@ Item {
     //    before the settle rebuild catches up.
     //  settleMs — debounce after the last zoom/pan step before the detailed rebuild fires.
     //  bucketsPerPx — target render density: buckets per plot pixel (≈ points per pixel).
-    property real renderMarginFrac: 0.5
-    property int settleMs: 120
-    property real bucketsPerPx: 1.0
+    // Defaults come from Theme, which binds them to the Options view's settings —
+    // the right values are hardware-dependent (the Pi wants coarser buckets and a
+    // longer settle than a desktop). An instance can still override them locally.
+    property real renderMarginFrac: Theme.graphRenderMarginFrac
+    property int settleMs: Theme.graphSettleMs
+    property real bucketsPerPx: Theme.graphBucketsPerPx
 
     // Tightest allowed zoom: the visible window can never be narrower than this (ms). A flat
     // 1-minute floor (capped at the loaded span for a shorter range) — stops zooming into
     // sub-minute empty space, independent of the range's total length. clampWidth enforces it.
-    property real minZoomSpanMs: 60000
+    property real minZoomSpanMs: Theme.graphMinZoomSpanMs
 
     // The portion of steppedData revealed so far, left-to-right, driven by revealFrac (the
     // draw-in). At rest (revealFrac = 1) this IS the whole steppedData; while the load animation

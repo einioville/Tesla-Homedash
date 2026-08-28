@@ -131,6 +131,21 @@ inline constexpr quint8 CHARGER_HISTORY = 0x87;      // B->F: id(len(2B)+UTF-8)+
 // allIn the VAT+margin estimate; hourStartMs is the UTC start of the priced hour.
 inline constexpr quint8 SPOT_PRICE_STREAM = 0x88;    // B->F: status(1B)+hour_start_ms(8B)+spot(8B double)+all_in(8B double)
 
+// Runtime configuration (the Options view). Mirror of protocol.py: a request/response
+// pair plus one command. Both JSON bodies are len(4B) + UTF-8 (the CHARGER_RAW_JSON
+// idiom) because the schema is variable-shaped and these packets are rare. A successful
+// CONFIG_SET replies CONFIG_SET_RESULT to this client AND broadcasts a fresh
+// CONFIG_SCHEMA to every client, so a second frontend refreshes its values.
+inline constexpr quint8 CONFIG_GET_SCHEMA = 0x90;  // F->B: (empty)
+inline constexpr quint8 CONFIG_SCHEMA = 0x91;      // B->F: status(1B) + len(4B) + UTF-8 JSON
+inline constexpr quint8 CONFIG_SET = 0x92;         // F->B: len(4B) + UTF-8 JSON {"key","value"}
+inline constexpr quint8 CONFIG_SET_RESULT = 0x93;  // B->F: status(1B) + len(4B) + UTF-8 JSON
+inline constexpr quint8 CONFIG_RESTART = 0x94;     // F->B: (empty) — ask the backend to exit for systemd
+
+// CONFIG_* status byte: 0 = failure (schema unavailable / value rejected, nothing written).
+inline constexpr quint8 CONFIG_STATUS_ERROR = 0;
+inline constexpr quint8 CONFIG_STATUS_OK = 1;
+
 // History request range codes (mirror the backend _RANGE_* and the QML RangeSelector)
 inline constexpr quint8 HISTORY_RANGE_1H = 0;
 inline constexpr quint8 HISTORY_RANGE_1D = 1;

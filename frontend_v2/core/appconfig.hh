@@ -7,6 +7,8 @@
 
 #include "logger.hh"
 
+class Settings;
+
 /**
  * AppConfig — minimal runtime configuration read at construction from the
  * environment, falling back to the repo-root .env (the same file the backend
@@ -17,6 +19,10 @@
  *
  *   TESLA_HOMEDASH_BACKEND_HOST  (string)  default "127.0.0.1"
  *   TESLA_HOMEDASH_BACKEND_PORT  (uint16)  default 6969
+ *                                Both are also Options-view settings: a value the
+ *                                user saved there WINS over the environment (see
+ *                                the Settings ctor arg), because an explicit
+ *                                on-device change must not be silently ignored.
  *   TESLA_HOMEDASH_LOG_LEVEL     (string)  default "info"
  *                                (debug|info|warning|error|critical)
  *   TESLA_HOMEDASH_MAP_API_KEY   (string)  optional — a National Land Survey of
@@ -31,7 +37,8 @@
  *                                nothing to show and stays off.
  *   TESLA_HOMEDASH_SCREENSAVER_TIMEOUT_MIN (int)     minutes of inactivity before
  *                                the screensaver appears (default 30). Read by
- *                                main() and pushed to the IdleWatcher.
+ *                                main() and pushed to the IdleWatcher. Also an
+ *                                Options-view setting, which takes precedence.
  *
  * Registered with the QML engine as the singleton `App` (see main.cpp), which
  * is how items/tesla/TeslaMap.qml reads mapTilesUrl / mapAttribution.
@@ -47,7 +54,10 @@ class AppConfig : public QObject {
     Q_PROPERTY(QString screensaverDir READ screensaverDir CONSTANT)
 
 public:
-    explicit AppConfig(QObject* parent = nullptr);
+    // `settings` is optional but normally supplied: main.cpp constructs Settings
+    // FIRST so a user override of the backend host/port/screensaver timeout beats
+    // the environment. Passing nullptr falls back to env/.env only.
+    explicit AppConfig(const Settings* settings = nullptr, QObject* parent = nullptr);
 
     // Startup config — read by main() before the QML engine exists.
     const QString& backendHost() const { return m_backendHost; }

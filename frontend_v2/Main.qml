@@ -27,7 +27,8 @@ Window {
         { name: qsTr("Musiikki"), icon: "qrc:/resources/icons/music.svg", component: mediaComponent },
         { name: qsTr("Historia"), icon: "qrc:/resources/icons/chart_line.svg", component: historyComponent },
         { name: qsTr("Matkat"), icon: "qrc:/resources/icons/trip.svg", component: tripsComponent },
-        { name: qsTr("Lataus"), icon: "qrc:/resources/icons/charger.svg", component: chargingComponent }
+        { name: qsTr("Lataus"), icon: "qrc:/resources/icons/charger.svg", component: chargingComponent },
+        { name: qsTr("Asetukset"), icon: "qrc:/resources/icons/settings.svg", component: settingsComponent }
     ]
     property int currentView: 0
 
@@ -37,6 +38,7 @@ Window {
     Component { id: historyComponent; HistoryView {} }
     Component { id: tripsComponent; TripsView {} }
     Component { id: chargingComponent; ChargingView {} }
+    Component { id: settingsComponent; SettingsView {} }
 
     // --- Dock reveal state ------------------------------------------------
     // 0.0 = dock fully hidden (off-screen), 1.0 = dock fully shown.
@@ -186,6 +188,16 @@ Window {
         id: screenSaver
         anchors.fill: parent
         z: 300
+    }
+
+    // The screensaver's inactivity timeout is an Options-view setting, so push it
+    // at the IdleWatcher whenever it changes. AppConfig seeds the watcher with the
+    // same value at construction (it also honours the env var), so this binding
+    // only ever re-applies a user edit — it does not fight the startup value.
+    Binding {
+        target: Idle
+        property: "timeoutMs"
+        value: Settings.values.screensaverTimeoutMin * 60000
     }
 
     Component.onCompleted: hideTimer.start()

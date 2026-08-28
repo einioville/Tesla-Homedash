@@ -49,6 +49,10 @@ qt_add_executable(appfrontend_v2
     core/serverclient.cpp
     core/appconfig.hh
     core/appconfig.cpp
+    core/dotenv.hh
+    core/dotenv.cpp
+    core/settings.hh
+    core/settings.cpp
     core/idlewatcher.hh
     core/idlewatcher.cpp
     core/tesla/tesladata_gen.hh
@@ -90,6 +94,16 @@ qt_add_qml_module(appfrontend_v2
         views/MapView.qml
         views/TripsView.qml
         views/ChargingView.qml
+        views/SettingsView.qml
+        items/settings/SettingRow.qml
+        items/settings/SettingSwitch.qml
+        items/settings/SettingSlider.qml
+        items/settings/SettingNumber.qml
+        items/settings/SettingAction.qml
+        items/settings/SettingText.qml
+        items/settings/SettingSelect.qml
+        items/settings/SettingsSidebar.qml
+        items/settings/SettingsPane.qml
         items/trip/TripMap.qml
         items/trip/TripComboBox.qml
         items/trip/WeekSelector.qml
@@ -171,6 +185,7 @@ qt_add_resources(appfrontend_v2 "app_resources"
     PREFIX "/"
     FILES
         resources/fonts/gothamrnd_medium.otf
+        resources/icons/app.svg
         resources/icons/arrow.svg
         resources/icons/arrow_left.svg
         resources/icons/arrow_right.svg
@@ -180,18 +195,22 @@ qt_add_resources(appfrontend_v2 "app_resources"
         resources/icons/greenshadow.png
         resources/icons/heating.png
         resources/icons/home.svg
+        resources/icons/link.svg
         resources/icons/location.svg
         resources/icons/music.svg
         resources/icons/minus.svg
         resources/icons/pause.svg
         resources/icons/play.svg
+        resources/icons/price.svg
         resources/icons/plus.svg
         resources/icons/power_off.svg
         resources/icons/power_on.svg
         resources/icons/power_pending.svg
         resources/icons/redshadow.png
+        resources/icons/restart.svg
         resources/icons/screensaver.png
         resources/icons/seat.svg
+        resources/icons/settings.svg
         resources/icons/skip_backward.svg
         resources/icons/skip_forward.svg
         resources/icons/steering.svg
@@ -217,6 +236,7 @@ qt_add_resources(appfrontend_v2 "app_resources"
         resources/Luna/walking_4.png
         resources/Luna/walking_5.png
         config/notifications.json
+        config/settings.json
 )
 
 # Developer convenience: regenerate the Tesla data layer from the registry.

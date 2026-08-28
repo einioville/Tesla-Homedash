@@ -14,6 +14,7 @@
 #include "core/media/mediaimageprovider.hh"
 #include "core/notification/notificationhandler.hh"
 #include "core/serverclient.hh"
+#include "core/settings.hh"
 #include "core/tesla/tesladata.hh"
 #include "core/tesla/teslahistory.hh"
 #include "core/trip/tripsdata.hh"
@@ -40,7 +41,13 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    AppConfig config;
+    // Settings is constructed BEFORE AppConfig on purpose: it owns the user's
+    // saved backend host/port and screensaver timeout, and AppConfig has to see
+    // those overrides rather than the environment's values. The socket does not
+    // exist yet, so the CONFIG_* wiring is attached further down.
+    Settings settings;
+
+    AppConfig config(&settings);
     Logger::install(config.logLevel());
     logger.info(QStringLiteral("Starting frontend_v2 | backend=%1:%2")
                     .arg(config.backendHost())
@@ -51,6 +58,9 @@ int main(int argc, char* argv[]) {
     // socket before the backend's on-connect snapshot burst. Declared before the
     // engine so they outlive it at shutdown.
     ServerClient serverClient(config.backendHost(), config.backendPort());
+    // Now that the socket exists, let Settings serve the backend half of the
+    // Options view (CONFIG_SCHEMA / CONFIG_SET / CONFIG_RESTART).
+    settings.attachServer(&serverClient);
     TeslaData teslaData(&serverClient);
     // History reads live values off the Tesla singleton (by property id) for the
     // live-graph mode, so it takes a TeslaData pointer.
@@ -95,6 +105,7 @@ int main(int argc, char* argv[]) {
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "Weather", &weatherData);
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "Notifications", &notificationHandler);
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "Idle", &idleWatcher);
+    qmlRegisterSingletonInstance("frontend_v2", 1, 0, "Settings", &settings);
 
     QObject::connect(
         &engine, &QQmlApplicationEngine::objectCreationFailed, &app,

@@ -1,14 +1,12 @@
 #include "appconfig.hh"
 
-#include <QCoreApplication>
-#include <QDir>
-#include <QFile>
-#include <QFileInfo>
-#include <QHash>
 #include <QStringList>
-#include <QTextStream>
 #include <QUrl>
+#include <QVariant>
 #include <QtGlobal>
+
+#include "dotenv.hh"
+#include "settings.hh"
 
 namespace {
 const Logger logger = Logger::get("app");
@@ -36,105 +34,39 @@ const QString kMmlTilesUrlTemplate = QStringLiteral(
     "default/WGS84_Pseudo-Mercator/%z/%y/%x.jpg?api-key=%1");
 const QString kMmlAttribution = QStringLiteral("© Maanmittauslaitos");
 
-// --- .env loading -----------------------------------------------------------
-// The frontend shares the backend's repo-root .env. Real environment variables
-// still win; .env is a fallback so secrets (the map api-key) live outside the
-// committed source tree.
-
-// Walk up from the working directory and the executable directory to find the
-// first .env. Returns an empty string if none is found.
-QString findDotEnv() {
-    QStringList starts{QDir::currentPath()};
-    if (QCoreApplication::instance() != nullptr) {
-        starts << QCoreApplication::applicationDirPath();
-    }
-#ifdef FRONTEND_V2_SOURCE_DIR
-    // Dev builds (Qt Creator shadow build) put the exe outside the source tree,
-    // so the cwd/exe walk-up never reaches the repo .env; the baked source dir
-    // walks up to it. Harmless when the path no longer exists (deploy targets
-    // rely on real environment variables, which take precedence anyway).
-    starts << QStringLiteral(FRONTEND_V2_SOURCE_DIR);
-#endif
-    for (const QString& start : starts) {
-        QDir dir(start);
-        do {
-            const QString candidate = dir.filePath(QStringLiteral(".env"));
-            if (QFileInfo::exists(candidate)) {
-                return candidate;
-            }
-        } while (dir.cdUp());
-    }
-    return QString();
-}
-
-// Minimal KEY=VALUE parser: skips blank/`#` lines, tolerates a leading
-// `export `, strips matching surrounding quotes. Values are not interpolated.
-QHash<QString, QString> parseDotEnv(const QString& path) {
-    QHash<QString, QString> out;
-    QFile file(path);
-    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        return out;
-    }
-    QTextStream in(&file);
-    while (!in.atEnd()) {
-        QString line = in.readLine().trimmed();
-        if (line.isEmpty() || line.startsWith('#')) {
-            continue;
-        }
-        if (line.startsWith(QStringLiteral("export "))) {
-            line = line.mid(7).trimmed();
-        }
-        const int eq = line.indexOf('=');
-        if (eq <= 0) {
-            continue;
-        }
-        const QString key = line.left(eq).trimmed();
-        QString value = line.mid(eq + 1).trimmed();
-        if (value.size() >= 2 &&
-            ((value.startsWith('"') && value.endsWith('"')) ||
-             (value.startsWith('\'') && value.endsWith('\'')))) {
-            value = value.mid(1, value.size() - 2);
-        }
-        out.insert(key, value);
-    }
-    return out;
-}
-
-// Real env var (if set and non-empty) wins; then the .env value (if non-empty);
-// then the supplied default. An empty placeholder line in .env reads as "unset".
-QString envOr(const QHash<QString, QString>& dotenv, const char* key, const QString& def) {
-    if (qEnvironmentVariableIsSet(key)) {
-        const QString fromEnv = qEnvironmentVariable(key);
-        if (!fromEnv.isEmpty()) {
-            return fromEnv;
-        }
-    }
-    const auto it = dotenv.constFind(QString::fromLatin1(key));
-    if (it != dotenv.constEnd() && !it.value().isEmpty()) {
-        return it.value();
-    }
-    return def;
-}
 }  // namespace
 
-AppConfig::AppConfig(QObject* parent) : QObject(parent) {
-    const QString dotEnvPath = findDotEnv();
-    const QHash<QString, QString> dotenv =
-        dotEnvPath.isEmpty() ? QHash<QString, QString>() : parseDotEnv(dotEnvPath);
+AppConfig::AppConfig(const Settings* settings, QObject* parent) : QObject(parent) {
+    const QString dotEnvPath = dotenv::sourcePath();
     if (!dotEnvPath.isEmpty()) {
         logger.info(QStringLiteral("Loaded .env from %1").arg(dotEnvPath));
     }
 
-    m_backendHost = envOr(dotenv, "TESLA_HOMEDASH_BACKEND_HOST", QStringLiteral("127.0.0.1"));
+    // Precedence for the three values the Options view can also set:
+    //   built-in default  <  environment / .env  <  saved user setting
+    // The user's explicit on-device change has to win, or the Options view would
+    // appear to do nothing on a deployment that sets these in .env.
+    const auto saved = [settings](const char* key) -> QVariant {
+        return settings != nullptr ? settings->savedValue(QLatin1String(key)) : QVariant();
+    };
+
+    const QVariant savedHost = saved("backendHost");
+    m_backendHost = savedHost.isValid()
+                        ? savedHost.toString()
+                        : dotenv::valueOr("TESLA_HOMEDASH_BACKEND_HOST",
+                                          QStringLiteral("127.0.0.1"));
 
     bool ok = false;
-    const int port = envOr(dotenv, "TESLA_HOMEDASH_BACKEND_PORT", QString()).toInt(&ok);
+    const QVariant savedPort = saved("backendPort");
+    const int port = savedPort.isValid()
+                         ? savedPort.toInt(&ok)
+                         : dotenv::valueOr("TESLA_HOMEDASH_BACKEND_PORT", QString()).toInt(&ok);
     m_backendPort = (ok && port >= 1 && port <= 65535) ? static_cast<quint16>(port) : 6969;
 
     // Log level: parse, defaulting to INFO. An explicit-but-invalid value falls
     // back to INFO with a warning (which lands because main() has already
     // installed the logger at INFO before constructing AppConfig).
-    const QString rawLevel = envOr(dotenv, "TESLA_HOMEDASH_LOG_LEVEL", QString());
+    const QString rawLevel = dotenv::valueOr("TESLA_HOMEDASH_LOG_LEVEL", QString());
     m_logLevel = Logger::parseLevel(rawLevel, Logger::Level::Info);
     static const QStringList kValidLevels = {
         QStringLiteral("debug"), QStringLiteral("info"), QStringLiteral("warning"),
@@ -146,7 +78,7 @@ AppConfig::AppConfig(QObject* parent) : QObject(parent) {
     // Map basemap: high-res MML orthophoto when an api-key is configured,
     // otherwise the keyless EOX Sentinel-2 fallback. The key never lives in the
     // committed QML/resource bundle — it comes from the environment or .env.
-    const QString mapApiKey = envOr(dotenv, "TESLA_HOMEDASH_MAP_API_KEY", QString()).trimmed();
+    const QString mapApiKey = dotenv::valueOr("TESLA_HOMEDASH_MAP_API_KEY", QString()).trimmed();
     if (!mapApiKey.isEmpty()) {
         m_mapTilesUrl = kMmlTilesUrlTemplate.arg(mapApiKey);
         m_mapAttribution = kMmlAttribution;
@@ -163,7 +95,7 @@ AppConfig::AppConfig(QObject* parent) : QObject(parent) {
     // environment so the photos live outside the committed tree; it is handed to
     // QML as a file:// URL. Empty when unset → the screensaver stays off.
     const QString screensaverPath =
-        envOr(dotenv, "TESLA_HOMEDASH_SCREENSAVER_DIR", QString()).trimmed();
+        dotenv::valueOr("TESLA_HOMEDASH_SCREENSAVER_DIR", QString()).trimmed();
     if (!screensaverPath.isEmpty()) {
         m_screensaverDir = QUrl::fromLocalFile(screensaverPath).toString();
         logger.info(QStringLiteral("Screensaver photos: %1").arg(screensaverPath));
@@ -173,8 +105,11 @@ AppConfig::AppConfig(QObject* parent) : QObject(parent) {
     }
 
     bool minsOk = false;
+    const QVariant savedTimeout = saved("screensaverTimeoutMin");
     const int mins =
-        envOr(dotenv, "TESLA_HOMEDASH_SCREENSAVER_TIMEOUT_MIN", QString()).toInt(&minsOk);
+        savedTimeout.isValid()
+            ? savedTimeout.toInt(&minsOk)
+            : dotenv::valueOr("TESLA_HOMEDASH_SCREENSAVER_TIMEOUT_MIN", QString()).toInt(&minsOk);
     m_screensaverTimeoutMs = (minsOk && mins >= 1) ? mins * 60000 : 30 * 60 * 1000;
     logger.info(QStringLiteral("Screensaver inactivity timeout: %1 min")
                     .arg(m_screensaverTimeoutMs / 60000));
