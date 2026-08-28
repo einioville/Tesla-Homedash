@@ -182,6 +182,8 @@ class ChargingLoader:
     def __init__(self, influx_handler, config, spot_provider=None):
         self.__influx = influx_handler
         self.__spot_provider = spot_provider
+        # Retained so apply_config() can re-read the tunables at runtime.
+        self.__config = config
         self.__flat_tariff = config.electricity_price_eur_per_kwh
         myenergi_config = config.myenergi_config
         self.__merge_ms = int(myenergi_config["sessionMergeMinutes"]) * 60 * 1000
@@ -191,6 +193,26 @@ class ChargingLoader:
             "spot_pricing=%s, flat_tariff=%s",
             myenergi_config["sessionMergeMinutes"], self.__min_energy_kwh,
             self.__spot_provider is not None and self.__spot_provider.enabled,
+            "unset" if self.__flat_tariff is None else f"{self.__flat_tariff:.4f}",
+        )
+
+    def apply_config(self) -> None:
+        '''
+        Re-reads the session-segmentation thresholds and the flat tariff after the
+        Options view writes them.  Sessions are derived on demand per request, so
+        the next CHARGING_GET_LIST/_SUMMARY/_MONTH already uses the new values.
+
+        The spot-price provider is re-read separately (SpotPriceProvider owns its
+        own apply_config) -- this loader only holds the flat fallback tariff.
+        '''
+        self.__flat_tariff = self.__config.electricity_price_eur_per_kwh
+        myenergi_config = self.__config.myenergi_config
+        self.__merge_ms = int(myenergi_config["sessionMergeMinutes"]) * 60 * 1000
+        self.__min_energy_kwh = float(myenergi_config["minSessionEnergyKwh"])
+        logger.info(
+            "ChargingLoader reconfigured: merge_gap=%s min, min_energy=%.2f kWh, "
+            "flat_tariff=%s",
+            myenergi_config["sessionMergeMinutes"], self.__min_energy_kwh,
             "unset" if self.__flat_tariff is None else f"{self.__flat_tariff:.4f}",
         )
 

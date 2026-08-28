@@ -41,6 +41,8 @@ class RadioPlayer(BaseMediaPlayer):
             vlc.EventType.MediaPlayerEndReached, self.__on_vlc_event
         )
 
+        # Retained so apply_config() can re-read the default station at runtime.
+        self.__config = config
         self.__media_ids = config.radio_media_ids
         self.__channels = list(self.__media_ids.keys())
         self.__channel = config.default_radio_station
@@ -53,6 +55,28 @@ class RadioPlayer(BaseMediaPlayer):
         self.__intentional_stop = False
 
         self.__async_loop = asyncio.get_running_loop()
+
+    def apply_config(self) -> None:
+        '''
+        Re-reads the default radio station after the Options view writes it.
+
+        This repoints which station the player will LOAD next (the radio fallback
+        after Spotify releases control, or the next skip's starting point); it does
+        not interrupt a stream that is already playing.  An unknown station name is
+        ignored rather than raising -- the schema constrains the value to the keys
+        of radioMediaIds, so this is belt-and-braces.
+        '''
+        new_channel = self.__config.default_radio_station
+        if new_channel == self.__channel:
+            return
+        if new_channel not in self.__channels:
+            logger.warning("Unknown default radio station %s; keeping %s",
+                           new_channel, self.__channel)
+            return
+        logger.info("Default radio station changed: %s -> %s",
+                    self.__channel, new_channel)
+        self.__channel = new_channel
+        self.__channel_index = self.__channels.index(new_channel)
 
     def __on_vlc_event(self, event) -> None:
         '''

@@ -12,6 +12,7 @@ INFLUXDB_SERVICE = "influxdb_service"
 CHARGING_SERVICE = "charging_service"
 MYENERGI_SERVICE = "myenergi_service"
 TRIP_SERVICE = "trip_service"
+CONFIG_SERVICE = "config_service"
 SERVER = "server"
 START_SERVICES = "start_services"
 UTILS = "utils"
@@ -29,6 +30,7 @@ _SERVICE_LOGGERS = (
     CHARGING_SERVICE,
     MYENERGI_SERVICE,
     TRIP_SERVICE,
+    CONFIG_SERVICE,
     SERVER,
     START_SERVICES,
     UTILS,

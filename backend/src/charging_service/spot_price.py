@@ -101,6 +101,8 @@ class SpotPriceProvider:
     '''
 
     def __init__(self, config):
+        # Retained so apply_config() can re-read VAT/margin/baseUrl at runtime.
+        self.__config = config
         cfg = config.spot_price_config
         self.__enabled = bool(cfg["enabled"])
         self.__base_url = str(cfg["baseUrl"])
@@ -109,6 +111,26 @@ class SpotPriceProvider:
         # UTC-hour-start ms -> raw spot €/kWh (no VAT/margin). Past hours are immutable, so a
         # cache hit is never re-fetched; the all-in conversion is applied on read.
         self.__raw_cache: dict[int, float] = {}
+
+    def apply_config(self) -> None:
+        '''
+        Re-reads the pricing tunables after the Options view writes them.
+
+        The raw-price cache is deliberately NOT flushed: it stores wholesale
+        prices and the VAT/margin conversion is applied on read (see _all_in), so
+        new rates re-price every already-cached hour for free.  `enabled` is not
+        re-read either -- it decides whether SpotPriceService has a run task at
+        all, which makes it a restart-tier setting.
+        '''
+        cfg = self.__config.spot_price_config
+        self.__base_url = str(cfg["baseUrl"])
+        self.__vat_multiplier = 1.0 + float(cfg["vatPercent"]) / 100.0
+        self.__margin_eur_per_kwh = float(cfg["marginCentsPerKwh"]) / 100.0
+        logger.info(
+            "SpotPriceProvider reconfigured: vat=%.2f%%, margin=%.3f c/kWh",
+            (self.__vat_multiplier - 1.0) * 100.0,
+            self.__margin_eur_per_kwh * 100.0,
+        )
 
     @property
     def enabled(self) -> bool:

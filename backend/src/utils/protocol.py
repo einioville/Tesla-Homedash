@@ -172,6 +172,37 @@ CHARGER_HISTORY = 0x87      # B->F: id(len(2B)+UTF-8) + status(1B) + count(4B) +
 SPOT_PRICE_STREAM = 0x88    # B->F: status(1B) + hour_start_ms(8B) + spot_eur_per_kwh(8B double)
                             #       + all_in_eur_per_kwh(8B double) (both NaN when status 0)
 
+# --- Runtime configuration (the Options view) --------------------------------
+# A request/response pair plus one command, mirroring the History/Trip idiom: the
+# backend replies to the REQUESTING client only (send_to), except that a successful
+# CONFIG_SET also BROADCASTS a fresh CONFIG_SCHEMA so a second frontend refreshes.
+#
+# Both bodies are UTF-8 JSON with a 4-byte length prefix (the CHARGER_RAW_JSON idiom)
+# rather than a packed layout: the schema is variable-shaped and these packets are
+# rare (a settings screen, not a stream), so self-describing beats compact here.
+#
+# CONFIG_SCHEMA's JSON is {"groups": [{"id", "label", "settings": [...]}]} where each
+# setting carries key/type/label/default/value plus per-type bounds (min/max/step,
+# options) and an "apply" tier — see config_service.SETTINGS_SCHEMA. Keys are dotted
+# paths into config.json ("myenergi.pollIntervalIdleSeconds").
+#
+# The "apply" tier tells the frontend what a write actually did:
+#   live    — services read the value on demand; the in-memory Config mutation is enough
+#   hook    — a service hook ran (rescheduled a poll job, forced a refresh)
+#   restart — written to config.json, but only picked up on the next process start
+CONFIG_GET_SCHEMA = 0x90    # F->B: (empty) — request the editable-settings schema + values
+CONFIG_SCHEMA = 0x91        # B->F: status(1B) + len(4B) + UTF-8 JSON
+CONFIG_SET = 0x92           # F->B: len(4B) + UTF-8 JSON {"key": <dotted>, "value": <json>}
+CONFIG_SET_RESULT = 0x93    # B->F: status(1B) + len(4B) + UTF-8 JSON
+                            #       {"key", "value", "applied": live|hook|restart, "message"}
+CONFIG_RESTART = 0x94       # F->B: (empty) — exit the process so systemd restarts it
+                            #       (needs Restart=always in the unit; see README)
+
+# CONFIG_* status byte. 0 is the failure case for both CONFIG_SCHEMA (no schema could
+# be built) and CONFIG_SET_RESULT (validation rejected the value, nothing was written).
+CONFIG_STATUS_ERROR = 0
+CONFIG_STATUS_OK = 1
+
 # Maximum accepted size of a single incoming message (defensive cap)
 MAX_MSG_SIZE = 1024 * 1024  # 1 MB
 

@@ -153,6 +153,9 @@ class WeatherService:
         '''
         self.__loop = asyncio.get_running_loop()
         self.__server = server
+        # Retained so apply_config() can re-read the place after the Options view
+        # writes it; the scheduler timezone is NOT re-read (see apply_config).
+        self.__config = config
         self.__zone_info = config.zone_info
         self.__scheduler = AsyncIOScheduler(timezone=self.__zone_info)
         # Observation and forecast place — configure via "weatherPlace" in config.json
@@ -161,6 +164,26 @@ class WeatherService:
         # connecting client so its weather UI populates immediately without
         # waiting for the next 15-minute cron tick.
         self.__last_forecast: bytes | None = None
+
+    def apply_config(self) -> None:
+        '''
+        Re-reads the runtime-editable settings this service owns and refreshes
+        immediately, so the change is visible without waiting up to 15 minutes for
+        the next cron tick.  Called by ConfigService after the Options view writes
+        "weatherPlace"; safe to call at any time.
+
+        Only the place is re-read.  The scheduler's timezone is fixed at
+        construction, which is why "timeZone" is a restart-tier setting.
+        '''
+        new_place = self.__config.weather_place
+        if new_place == self.__place:
+            return
+        logger.info("Weather place changed: %s -> %s", self.__place, new_place)
+        self.__place = new_place
+        # Drop the cached frame: it describes the OLD place, and replaying it to a
+        # client that connects before the refetch lands would show the wrong city.
+        self.__last_forecast = None
+        self.__loop.create_task(self.__update_forecast())
 
     async def run(self) -> None:
         '''

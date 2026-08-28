@@ -117,6 +117,8 @@ class MyEnergiService:
         self.__influx = influx_handler
         self.__hub_serial = hub_serial
         self.__api_key = api_key
+        # Retained so apply_config() can re-read the poll cadence at runtime.
+        self.__config = config
 
         myenergi_config = config.myenergi_config
         # Blank zappiSerial -> auto-select the first Zappi discovered on the account.
@@ -322,6 +324,29 @@ class MyEnergiService:
             .field("value_float", value)
             .time(when, WritePrecision.MS)
         )
+
+    def apply_config(self) -> None:
+        '''
+        Re-reads the poll cadence and reschedules the poll job through the single
+        reschedule point (__apply_interval), so a cadence change from the Options
+        view takes effect without a restart and without clobbering the backoff
+        state that __apply_interval folds in.
+
+        zappiSerial is deliberately NOT re-read: the Zappi is resolved once when
+        the service connects, so changing it is a restart-tier setting.
+        '''
+        myenergi_config = self.__config.myenergi_config
+        idle = int(myenergi_config["pollIntervalIdleSeconds"])
+        active = int(myenergi_config["pollIntervalActiveSeconds"])
+        if idle == self.__idle_interval and active == self.__active_interval:
+            return
+        logger.info(
+            "MyEnergi poll cadence changed: idle %ss -> %ss, active %ss -> %ss",
+            self.__idle_interval, idle, self.__active_interval, active,
+        )
+        self.__idle_interval = idle
+        self.__active_interval = active
+        self.__apply_interval()
 
     def __apply_interval(self) -> None:
         '''

@@ -27,6 +27,18 @@ class MediaManager:
         self.__active_player: BaseMediaPlayer | None = None
         self.__server = server
 
+    def apply_config_radio(self) -> None:
+        '''
+        Forwards a config change to the radio player (the default station).
+        Exposed separately from the Spotify hook so ConfigService can apply just
+        the setting that changed rather than poking both players.
+        '''
+        self.__radio_player.apply_config()
+
+    def apply_config_spotify(self) -> None:
+        '''Forwards a config change to the Spotify player (the market).'''
+        self.__spotify_player.apply_config()
+
     async def play(self) -> None:
         logger.debug("Media command: play")
         if self.__active_player:

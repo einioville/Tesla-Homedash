@@ -39,6 +39,8 @@ class SpotifyPlayer(BaseMediaPlayer):
         )
 
         self._spotify = Spotify(auth_manager=self._auth_manager)
+        # Retained so apply_config() can re-read the market at runtime.
+        self._config = config
         self._target_device_id: str = config.spotify_device_id
         self._market: str = config.spotify_market
         self._loop = asyncio.get_running_loop()
@@ -56,6 +58,21 @@ class SpotifyPlayer(BaseMediaPlayer):
         self._state_lock = asyncio.Lock()
 
         self._scheduler = AsyncIOScheduler(timezone=config.zone_info)
+
+    def apply_config(self) -> None:
+        '''
+        Re-reads the Spotify market after the Options view writes it.  The market
+        is passed per API call, so the next poll already uses the new value.
+
+        spotifyDeviceId is NOT re-read here: it is produced by the one-off setup
+        helper rather than typed on a touchscreen, and is not exposed in the
+        Options view at all.
+        '''
+        new_market = self._config.spotify_market
+        if new_market == self._market:
+            return
+        logger.info("Spotify market changed: %s -> %s", self._market, new_market)
+        self._market = new_market
 
     async def run(self) -> None:
         '''

@@ -13,6 +13,8 @@ Two public surfaces:
 import json
 import logging
 import os
+import shutil
+import tempfile
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -56,6 +58,11 @@ class Config:
     Arguments:
         config_path (str): Absolute path to the JSON config file.
     '''
+
+    # Suffix of the rollback copy written by save() before every runtime write.
+    # Paired with the __init__ fallback below: a structurally bad write costs one
+    # bad boot instead of a systemd restart LOOP.
+    BACKUP_SUFFIX = ".bak"
 
     REQUIRED_KEYS = (
         "timeZone",
@@ -110,27 +117,28 @@ class Config:
             raise RuntimeError("Config path is empty or None")
         if not os.path.isfile(config_path):
             raise FileNotFoundError(f"Config file not found: {config_path}")
-        try:
-            with open(config_path, "r") as f:
-                self.__data: dict = json.load(f)
-        except json.JSONDecodeError as e:
-            raise ValueError(f"Config file contains invalid JSON: {e}") from e
 
-        missing = [k for k in self.REQUIRED_KEYS if k not in self.__data]
-        if missing:
-            raise RuntimeError(
-                f"Config is missing required keys: {', '.join(missing)}"
+        # Load the live config, rolling back to the backup copy if it is
+        # unusable.  This file is now written at RUNTIME by the Options view
+        # (see config_service), and applying a restart-tier setting exits the
+        # process for systemd to restart -- so a structurally bad write would
+        # otherwise be a restart LOOP.  save() snapshots the previous good file
+        # to <path>.bak before every write, so one bad boot rolls back.
+        backup_path = config_path + self.BACKUP_SUFFIX
+        try:
+            self.__data, self.__zone_info = self._load_and_validate(config_path)
+        except (ValueError, RuntimeError) as e:
+            if not os.path.isfile(backup_path):
+                raise
+            logger.error(
+                "Config at %s is unusable (%s); rolling back to %s",
+                config_path, e, backup_path,
             )
-
-        # Build the ZoneInfo once at load time so services can take it
-        # directly without each re-parsing the IANA string.  Invalid zone
-        # names fail here, not deep inside a service's first scheduler call.
-        try:
-            self.__zone_info = ZoneInfo(self.__data["timeZone"])
-        except ZoneInfoNotFoundError as e:
-            raise ValueError(
-                f"Invalid timeZone in config: {self.__data['timeZone']!r}"
-            ) from e
+            self.__data, self.__zone_info = self._load_and_validate(backup_path)
+            # Promote the backup to the live file so the next start is clean and
+            # the Options view shows the values actually in effect.
+            shutil.copyfile(backup_path, config_path)
+            logger.warning("Restored %s from the rollback copy", config_path)
 
         self.__path = config_path
         logger.info(
@@ -244,3 +252,120 @@ class Config:
         - baseUrl: the sähkötin.fi range endpoint; config-driven so an alternate
           no-key source (e.g. sahkonhintatanaan.fi) can be swapped in without code.'''
         return {**self._SPOT_PRICE_DEFAULTS, **self.__data.get("spotPrice", {})}
+
+    # ── Loading / validation ───────────────────────────────────────
+
+    @classmethod
+    def _load_and_validate(cls, path: str) -> tuple[dict, ZoneInfo]:
+        '''
+        Parses one config file and validates it well enough to start services:
+        valid JSON, every REQUIRED_KEYS entry present, and a resolvable IANA
+        timezone.  Returns the parsed document and its pre-built ZoneInfo so
+        callers assign both together.  Raises rather than returning a partial
+        result -- `__init__` turns a raise on the live file into a rollback.
+        Arguments:
+            path (str): Absolute path to a JSON config file.
+        '''
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data: dict = json.load(f)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Config file contains invalid JSON: {e}") from e
+
+        missing = [k for k in cls.REQUIRED_KEYS if k not in data]
+        if missing:
+            raise RuntimeError(
+                f"Config is missing required keys: {', '.join(missing)}"
+            )
+
+        # Build the ZoneInfo once at load time so services can take it directly
+        # without each re-parsing the IANA string.  Invalid zone names fail
+        # here, not deep inside a service's first scheduler call.
+        try:
+            zone_info = ZoneInfo(data["timeZone"])
+        except (ZoneInfoNotFoundError, ValueError) as e:
+            raise ValueError(
+                f"Invalid timeZone in config: {data['timeZone']!r}"
+            ) from e
+
+        return data, zone_info
+
+    # ── Runtime writes (the Options view) ──────────────────────────
+
+    def set(self, key_path: str, value: Any) -> None:
+        '''
+        Writes one value into the in-memory document by dotted key path
+        ("myenergi.pollIntervalIdleSeconds").  Missing intermediate blocks are
+        created: the optional "trip" / "myenergi" / "spotPrice" blocks are
+        merged over defaults at read time, so a real config.json may legitimately
+        not contain them yet.
+
+        The change is visible to every service immediately -- they hold this
+        instance by constructor injection and never re-read the file -- but is
+        NOT persisted until `save()`.  Does not validate; `config_service`
+        validates against the settings schema before calling this.
+        Arguments:
+            key_path (str): Dotted path into the config document.
+            value (Any): JSON-serializable value to store.
+        '''
+        parts = key_path.split(".")
+        target = self.__data
+        for part in parts[:-1]:
+            existing = target.get(part)
+            if not isinstance(existing, dict):
+                existing = {}
+                target[part] = existing
+            target = existing
+        target[parts[-1]] = value
+
+        # timeZone is the one key with a derived cached value.  Rebuild it so a
+        # live change is consistent even though the APScheduler cron jobs built
+        # from it only pick the new zone up on the next process start (which is
+        # why the schema marks timeZone as a restart-tier setting).
+        if key_path == "timeZone":
+            self.__zone_info = ZoneInfo(value)
+
+    def save(self) -> None:
+        '''
+        Persists the in-memory document to the config path, atomically.
+
+        Two safety steps matter on the embedded target, where the Options view
+        can write this file and power can be cut at any moment:
+        - the previous on-disk file is copied to `<path>.bak` first, which is
+          what `__init__` rolls back to if a write ever produces an unusable
+          config (otherwise a restart-tier setting could restart-loop systemd);
+        - the new document is written to a temp file in the SAME directory,
+          flushed + fsynced, then `os.replace`d onto the real path.  Same
+          directory because os.replace is only atomic within a filesystem, and
+          fsync because a rename can otherwise land before the data does.
+        '''
+        directory = os.path.dirname(self.__path) or "."
+
+        if os.path.isfile(self.__path):
+            try:
+                shutil.copyfile(self.__path, self.__path + self.BACKUP_SUFFIX)
+            except OSError as e:
+                # A missing rollback copy is worth a loud log but must not block
+                # the write -- the user asked for this change.
+                logger.warning("Could not write config backup: %s", e)
+
+        fd, tmp_path = tempfile.mkstemp(
+            prefix=".config-", suffix=".tmp", dir=directory
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(self.__data, f, indent=4, ensure_ascii=False)
+                f.write("\n")
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, self.__path)
+        except BaseException:
+            # Leave the live config untouched on any failure, including
+            # cancellation, and never leak the temp file.
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
+
+        logger.info("Configuration saved to %s", self.__path)

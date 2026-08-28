@@ -5,6 +5,7 @@ import struct
 from datetime import datetime, timezone
 
 from .charging_service.charging_loader import ChargingLoader
+from .config_service.config_service import ConfigService
 from .charging_service.spot_price import SpotPriceProvider
 from .charging_service.spot_price_service import SpotPriceService
 from .influxdb_service.influxdb_handler import InfluxDBHandler
@@ -370,6 +371,7 @@ def _register_handlers(
     trip_loader: TripLoader,
     charging_loader: ChargingLoader,
     config: Config,
+    config_service: ConfigService,
 ) -> None:
     '''
     Maps every frontend->backend message type to the service method that
@@ -702,6 +704,11 @@ def _register_handlers(
     server.register_handler(protocol.CHARGING_GET_SUMMARY,       _get_charging_summary)
     server.register_handler(protocol.CHARGING_GET_MONTH,         _get_charging_month)
     server.register_handler(protocol.CHARGER_GET_HISTORY,        _get_charger_history)
+    # Options view: schema request / one-setting write / restart request. The
+    # write handler replies to this client and broadcasts the new schema itself.
+    server.register_handler(protocol.CONFIG_GET_SCHEMA,          config_service.handle_get_schema)
+    server.register_handler(protocol.CONFIG_SET,                 config_service.handle_set)
+    server.register_handler(protocol.CONFIG_RESTART,             config_service.handle_restart)
 
 
 async def main():
@@ -792,9 +799,27 @@ async def main():
             "charger streaming + logging disabled"
         )
 
+    # Runtime configuration (the Options view). Every service snapshots its
+    # config at construction and never re-reads it, so applying a change means
+    # calling that service's apply_config(); a setting whose hook is missing
+    # (e.g. no Zappi -> no MyEnergiService) is reported to the frontend as
+    # restart-tier instead of silently doing nothing.
+    config_service = ConfigService(config=config, server=server)
+    config_service.register_hook("weather", weather.apply_config)
+    config_service.register_hook("trip", trip_loader.apply_config)
+    config_service.register_hook("charging", charging_loader.apply_config)
+    config_service.register_hook("spot_price", spot_provider.apply_config)
+    config_service.register_hook("radio", mm.apply_config_radio)
+    config_service.register_hook("spotify", mm.apply_config_spotify)
+    if myenergi is not None:
+        config_service.register_hook("myenergi", myenergi.apply_config)
+    logger.debug("Config service initialized")
+
     # Wire incoming-message dispatch and on-connect snapshot before start().
-    _register_handlers(server, mm, vehicle, trip_loader, charging_loader, config)
-    services = [vehicle, mm, weather, spot_price_service]
+    _register_handlers(
+        server, mm, vehicle, trip_loader, charging_loader, config, config_service
+    )
+    services = [vehicle, mm, weather, spot_price_service, config_service]
     if myenergi is not None:
         services.append(myenergi)
     for service in services:
@@ -812,7 +837,12 @@ async def main():
     t4 = weather.get_run_task()
     t5 = spot_price_service.get_run_task()
 
-    tasks = [t1, t2, t3, t4, t5]
+    # Waits for a CONFIG_RESTART, then raises SystemExit(RESTART_EXIT_CODE) out
+    # of the gather below so the service manager restarts the process. Without a
+    # request it never returns, so gathering it unconditionally is harmless.
+    t6 = config_service.get_run_task()
+
+    tasks = [t1, t2, t3, t4, t5, t6]
     if myenergi is not None:
         tasks.append(myenergi.get_run_task())
 
