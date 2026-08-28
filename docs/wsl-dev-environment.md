@@ -386,6 +386,25 @@ half-copied `.env` surfaces immediately rather than at first use.
 Point it at a POSIX path such as `/home/<you>/.cache/tesla-homedash/spotify`. Also
 update `spotifyDeviceId` per §5.2.
 
+> **Carry the spotipy token cache over with it.** `spotifyCachePath` is not just a
+> location — the file it points at *is* the OAuth grant. Repoint it at an empty path
+> and spotipy finds no `refresh_token`, falls back to the **interactive** handshake,
+> tries to open a browser (`gio: ... Operation not supported` under WSL), then blocks
+> forever on its local callback server. The backend still starts and binds 6969, so
+> this does not look like a failure — but the poll runs in an executor thread that
+> never returns, and APScheduler then refuses every later tick with *"skipped: maximum
+> number of running instances reached (1)"*. Spotify is silently dead until restart.
+> Copy the existing cache instead of re-authenticating:
+>
+> ```bash
+> cp /mnt/p/Tesla-Homedash/backend/src/media_service/.cache ~/.cache/tesla-homedash/spotify
+> chmod 600 ~/.cache/tesla-homedash/spotify     # it is a credential
+> ```
+>
+> The cached `access_token` being expired is fine — the `refresh_token` renews it
+> without a browser. Only run §5.2's `spotify_setup` helper if you have no cache to
+> carry over.
+
 > As of this branch `config.json` is **written at runtime** by the new `config_service`
 > (the Options view): it snapshots to `config.json.bak`, then writes atomically via a
 > temp file plus `os.replace`. Nothing there is Windows-specific — `os.replace` is
