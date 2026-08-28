@@ -132,14 +132,37 @@ The backend is an asyncio app managed with [uv](https://docs.astral.sh/uv/). Run
 - **Add a package**: `uv add <package>`
 - **Update everything**: `uv lock --upgrade && uv sync`
 
-### 3.2 Frontend (CMake / Qt Widgets)
+### 3.2 Frontend (CMake)
 
-Dev environment: **Ninja + Qt 6.11.1 MSVC2022**. CMake ships with Qt at
-`D:\Qt\Tools\CMake_64\bin\cmake.exe`. The build directory is **`frontend/builddir`**.
+**Two dev environments are supported, both on Qt 6.11.1.** Use whichever box you are on:
 
-> This section covers the frozen Widgets `frontend/`. For the active **`frontend_v2`**, prefer
-> `scripts\build-frontend.ps1` — it imports the MSVC env, finds the Qt kit, and configures + builds
-> (+ optionally runs) in one command, with sccache reuse. See §8.
+| | Windows | Linux / WSL2 |
+|---|---|---|
+| Toolchain | MSVC 2022 (`vcvars64.bat` via `vswhere`) | `g++` from `build-essential` |
+| Qt kit | `D:\Qt\6.11.1\msvc2022_64` | `~/Qt/6.11.1/gcc_64` |
+| CMake | ships with Qt: `D:\Qt\Tools\CMake_64\bin\cmake.exe` | `cmake` from apt |
+| `frontend_v2` script | `scripts\build-frontend.ps1` | `scripts/build-frontend.sh` |
+| Compiler cache | `sccache` | `ccache` (CMakeLists probes for either) |
+| `frontend_v2` binary | `frontend_v2\build\appfrontend_v2.exe` | `frontend_v2/build/appfrontend_v2` |
+
+For the active **`frontend_v2`**, prefer the build script for your platform (see §8) — each
+finds the Qt kit and runs a Ninja configure + build in one command, with compiler-cache reuse.
+The rest of this section covers the **frozen Widgets `frontend/`**.
+
+> **WSL2 setup** — a full bootstrap guide (system packages, Qt, InfluxDB, spotifyd, WSLg
+> troubleshooting) lives in **`docs/wsl-dev-environment.md`**. Two things bite hardest: Qt needs the
+> OpenGL **-dev** packages (`libgl1-mesa-dev`), not just `libgl1`, or `find_package` fails
+> misleadingly on the `Quick` component; and the repo must live on ext4, not `/mnt/`.
+
+**Linux / WSL2 — the frozen `frontend/`** (rarely needed; `frontend_v2` is the live target):
+
+```bash
+cmake -S frontend -B frontend/builddir -G Ninja -DCMAKE_PREFIX_PATH="$QTDIR"
+cmake --build frontend/builddir --target all
+./frontend/builddir/gui
+```
+
+**Windows — the frozen `frontend/`:**
 
 - **Configure** (required once before the first build, and after CMakeLists changes):
 
@@ -156,11 +179,12 @@ Dev environment: **Ninja + Qt 6.11.1 MSVC2022**. CMake ships with Qt at
 - **Run**: `.\frontend\builddir\gui.exe`
   (PowerShell with overrides: `$env:TESLA_HOMEDASH_FULLSCREEN=1; .\frontend\builddir\gui.exe`)
 
-**Important:** the Ninja generator does **not** set up the MSVC toolchain itself (unlike the
-Visual Studio generator). Run the configure/build from an **"x64 Native Tools Command Prompt
+**Important (Windows only):** the Ninja generator does **not** set up the MSVC toolchain itself
+(unlike the Visual Studio generator). Run the configure/build from an **"x64 Native Tools Command Prompt
 for VS 2022"** (so `cl.exe` is on PATH), or let Qt Creator's configured kit drive it.
-Single-config Ninja puts the binary directly at `frontend/builddir/gui.exe` — there is no
-`Debug/` or `Release/` subfolder.
+Single-config Ninja puts the binary directly at `frontend/builddir/gui.exe` (`gui` on Linux) —
+there is no `Debug/` or `Release/` subfolder. On Linux `g++` is already on `PATH`, so there is no
+environment to import.
 
 ### 3.3 Validation
 
@@ -915,7 +939,23 @@ a new/renamed service or widget, a protocol change, a build-command change, or a
 invariant. Treat the doc as part of the change, not an afterthought, and bump §7.7.
 
 ### 7.7 Documentation currency
-This guide is current as of the **settings / Options-view** work on `feature/settings-options-view`.
+This guide is current as of the **WSL2 development-environment migration**. Development moved from
+native Windows to WSL2 (Ubuntu 24.04), and §3.2 + §8 now document **both** flows side by side rather
+than Windows only — the Windows box still builds, so neither replaces the other. New on the Linux
+side: `scripts/build-frontend.sh` (the counterpart of `build-frontend.ps1`; kit from `--qt-prefix`,
+else `$QTDIR`, else newest `~/Qt/*/gcc_64`), `ccache` instead of `sccache` (the CMakeLists probes for
+either), and `~/Tesla-Homedash` as the main checkout. `.claude/hooks/check-edit.py` now finds
+`~/Qt/*/gcc_64/bin/qmllint` (`QT_SEARCH` replaces `QT_ROOTS`/`QT_GLOB`), so the QML half of the hook
+no longer silently no-ops off Windows — it still skips rather than blocks when no Qt kit exists, and
+`TESLA_HOMEDASH_QMLLINT` still wins. `.claude/settings.json` gained the Linux build invocations
+alongside the PowerShell ones. **There is no Linux port of `new-session.ps1` / `finish-session.ps1`**
+— use plain `git worktree` (§8). The full bootstrap guide is `docs/wsl-dev-environment.md`, corrected
+in the same pass from a real run: Qt needs the OpenGL **-dev** packages (`libgl1-mesa-dev`), not just
+`libgl1`, or `find_package` fails claiming the `Quick` component is missing when the real cause is
+the absent `libGL.so`; and `http://localhost:8086` in a Windows browser reaches a *Windows* InfluxDB
+if one exists, not WSL's.
+
+Predecessor work — the **settings / Options-view** work on `feature/settings-options-view`.
 The dashboard gained an **Asetukset** view (7th dock entry) that edits both frontend preferences
 and the backend's `config.json` tunables at runtime, driven by *schemas* rather than hand-laid
 rows — adding a tunable is one schema entry and no UI code.
@@ -987,7 +1027,8 @@ When you land changes that touch behaviour documented here, update this line to 
 
 ## 8. Session workflow — main checkout by default, worktree only for parallelism
 
-The default is to **work in the main checkout** (`P:\Tesla-Homedash`). An isolated git worktree is
+The default is to **work in the main checkout** (`P:\Tesla-Homedash` on Windows,
+`~/Tesla-Homedash` on WSL2). An isolated git worktree is
 only worth its setup cost when you genuinely need **two sessions running at the same time** — reach
 for one *only then*. Most sessions are sequential and stay in the main checkout with a warm build
 dir and incremental builds. Pure Q&A / exploration that changes no files needs neither.
@@ -995,30 +1036,43 @@ dir and incremental builds. Pure Q&A / exploration that changes no files needs n
 **Backend — run one, shared.** The frontend connects to whatever backend is on `127.0.0.1:6969`
 (`TESLA_HOMEDASH_BACKEND_HOST` / `_PORT` default there), and port 6969 is fixed so only **one**
 backend can run at a time. Start it **once** (from the main checkout: `cd backend; uv run python
-run.py`) and leave it — every frontend, in any checkout, connects to it. Do **not** start a backend
+run.py` — identical on both platforms) and leave it — every frontend, in any checkout, connects to it. Do **not** start a backend
 per session. Only a session that actually edits backend code runs its own, and it stops the shared
 one first.
 
-**Frontend — build from the CLI, no Qt Creator needed.** Build + run `frontend_v2` with
-`powershell -ExecutionPolicy Bypass -File scripts\build-frontend.ps1 -Run` (add `-Clean` for a full
-rebuild, `-Config Release`, `-Fullscreen`). From **cmd.exe** use the `.cmd` shim instead:
-`scripts\build-frontend.cmd -Run` (same for `new-session.cmd` / `finish-session.cmd`). It imports the MSVC env, finds the newest Qt
-`msvc2022_64` kit, and runs a Ninja configure + build of `appfrontend_v2` into `frontend_v2\build`
-— works from the main checkout or any worktree. Open Qt Creator only when you need the debugger /
-QML profiler / designer. **sccache** is wired into `frontend_v2/CMakeLists.txt` (auto-enabled when
-on PATH), so object files are reused across rebuilds *and across worktrees* — a fresh worktree's
-"clean" build is mostly cache hits. Inspect with `sccache --show-stats`. (Per §7.3 the agent runs this
-script itself after frontend changes; the user still runs the built binary.)
+**Frontend — build from the CLI, no Qt Creator needed.** Build + run `frontend_v2` with the script
+for your platform; both configure + build `appfrontend_v2` into `frontend_v2/build` and work from
+the main checkout or any worktree.
+
+- **Windows:** `powershell -ExecutionPolicy Bypass -File scripts\build-frontend.ps1 -Run`
+  (add `-Clean`, `-Config Release`, `-Fullscreen`). From **cmd.exe** use the `.cmd` shim:
+  `scripts\build-frontend.cmd -Run` (same for `new-session.cmd` / `finish-session.cmd`).
+  It imports the MSVC env and finds the newest Qt `msvc2022_64` kit.
+- **Linux / WSL2:** `./scripts/build-frontend.sh --run` (add `--clean`, `--config Release`,
+  `--fullscreen`; `--help` lists everything). No MSVC environment to import — it takes the kit from
+  `--qt-prefix`, else `$QTDIR`, else the newest `~/Qt/*/gcc_64`. A cold build is 163 targets; an
+  incremental re-run is ~6s.
+
+Open Qt Creator only when you need the debugger / QML profiler / designer. A **compiler cache** is
+wired into `frontend_v2/CMakeLists.txt` — it probes for `sccache` *or* `ccache` and auto-enables
+whichever is on PATH — so object files are reused across rebuilds *and across worktrees*; a fresh
+worktree's "clean" build is mostly cache hits. Inspect with `sccache --show-stats` / `ccache
+--show-stats`. (Per §7.3 the agent runs this script itself after frontend changes; the user still
+runs the built binary.)
 
 **When you *do* need a parallel session (worktree).**
 1. Ask the user **(a) what we're doing** and **(b) a short name**; choose the branch **type**
    (`feature` / `fix` / `chore` / `docs` / `refactor` / `test` / `perf`).
-2. `powershell -ExecutionPolicy Bypass -File scripts\new-session.ps1 -Type <type> -Name "<name>"`
+2. **Windows:** `powershell -ExecutionPolicy Bypass -File scripts\new-session.ps1 -Type <type> -Name "<name>"`
+   — **there is no Linux port of the session scripts**; on WSL2 use plain
+   `git worktree add ../Tesla-Homedash-worktrees/<type>-<slug> -b <type>/<slug> origin/main`, then
+   copy `.env` + `config.json` in by hand and repoint `CONFIG_PATH` at the copy.
    — makes branch `<type>/<slug>` off the freshest `origin/main`, adds a worktree under
    `..\Tesla-Homedash-worktrees\<type>-<slug>`, copies the gitignored `.env` + `config.json` in, and
    repoints `CONFIG_PATH` at the worktree's copy. Final stdout line: `WORKTREE_PATH=<path>`.
 3. Switch in with the **`EnterWorktree`** tool (`path:` = that `WORKTREE_PATH`). Build there with
-   `build-frontend.ps1`; connect to the already-running shared backend (don't start a second one).
+   the platform's build script; connect to the already-running shared backend (don't start a second
+   one).
 
 **Finish — land via GitHub, never a local merge** (applies whether you used a branch or a worktree).
 1. Commit per §7.5 (only once the user confirms the work is verified), then
@@ -1027,10 +1081,12 @@ script itself after frontend changes; the user still runs the built binary.)
 3. Merge **on GitHub**: `gh pr merge --squash --delete-branch`. GitHub is the single source of
    truth — **do not** merge into `main` locally (it diverges local `main` from `origin/main`). Then
    update the main checkout: `git checkout main && git pull`.
-4. If a worktree was used: `ExitWorktree` (action `keep`), then
+4. If a worktree was used: `ExitWorktree` (action `keep`), then on **Windows**
    `powershell -ExecutionPolicy Bypass -File scripts\finish-session.ps1 -Type <type> -Name "<name>"`
    — refuses until the PR reads MERGED (via `gh`), then removes the worktree, pulls main, deletes the
-   merged local branch, and prunes. (`-Force` skips the merged check.)
+   merged local branch, and prunes. (`-Force` skips the merged check.) On **Linux/WSL2** there is no
+   port: `git worktree remove <path> && git checkout main && git pull && git branch -d <type>/<slug>
+   && git worktree prune`, after checking the PR merged yourself.
 
 **Memory caveat.** Memories load at session start from the main checkout, so their guidance stays in
 context even after an `EnterWorktree`. But the memory *store* follows the working directory, so any
