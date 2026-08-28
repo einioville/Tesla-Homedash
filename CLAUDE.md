@@ -64,6 +64,9 @@ backend/
       spot_price_service.py       # SpotPriceService — hourly live spot-price broadcast (SPOT_PRICE_STREAM)
     myenergi_service/
       myenergi_service.py         # myenergi Zappi cloud poll → CHARGER_STREAM broadcast + myenergi_data logging
+    config_service/
+      config_service.py           # ConfigService — the Options view's backend half: SETTINGS_SCHEMA (the allow-list of
+                                  #   runtime-editable config.json keys), validation, persistence, apply hooks, restart
     influxdb_service/
       influxdb_handler.py         # Async InfluxDB client — telemetry write + Flux history reads
     utils/
@@ -223,6 +226,16 @@ Parsed once by `Config` and injected into every service. Keys:
   All-in €/kWh for an hour = `(spot + marginCentsPerKwh/100) × (1 + vatPercent/100)`. Prices are
   fetched on demand (no self-logging) — historical hours price past sessions retroactively.
 
+> **`config.json` is now written at runtime.** The frontend's Options view can change the
+> subset of keys listed in `config_service.SETTINGS_SCHEMA` (§5.2.8). `Config` gained
+> `set(dotted_key, value)` + `save()`: the save snapshots the previous file to
+> `config.json.bak`, then writes atomically (temp file in the same directory + `os.replace`,
+> with an `fsync` first). `Config.__init__` rolls back to that `.bak` if the live file fails
+> to parse or validate — which is what stops a restart-tier setting from restart-looping
+> systemd. The structural parts (`tesla data`, `calculated tesla data`, `radioMediaIds`) are
+> deliberately NOT in the schema: the frontend registry mirrors them, so editing them at
+> runtime would desync the two halves (that's issue #29).
+
 ### Frontend environment variables (read only by `AppConfig::load()`)
 All optional; defaults match the embedded target.
 - `TESLA_HOMEDASH_BACKEND_HOST` (default `127.0.0.1`)
@@ -232,6 +245,17 @@ All optional; defaults match the embedded target.
   skips the fixed-size lock; windowed mode locks to the configured size.
 - `TESLA_HOMEDASH_LOG_LEVEL` — `debug`/`info`/`warning`/`error`/`critical` (default `info`;
   invalid → `info` + a startup warning).
+- `TESLA_HOMEDASH_SETTINGS_FILE` — override the path of the frontend's writable settings
+  file (default `<QStandardPaths::AppConfigLocation>/settings.json`).
+
+**Frontend settings file.** `frontend_v2/config/settings.json` is the *bundled schema*
+(defaults, types, bounds, Finnish labels) compiled into the binary; the user's overrides are
+written to the writable file above via `QSaveFile`. A schema entry may name an `env` key,
+making that environment variable supply the setting's **default** — so the precedence is
+`schema default < env/.env < saved user override`, and an existing deployment's `.env` keeps
+working until the user changes the setting on-device. `TESLA_HOMEDASH_BACKEND_HOST`, `_PORT`
+and `_SCREENSAVER_TIMEOUT_MIN` are wired this way; `AppConfig` reads the resolved values from
+`Settings` rather than the environment directly.
 
 External services: InfluxDB at `http://localhost:8086` (org `Tesla-Homedash`, bucket `data`);
 Teslemetry stream at `eu.teslemetry.com`.
@@ -288,6 +312,11 @@ payload[1..N-1] = type-specific data
 | `0x86` | CHARGER_GET_HISTORY | F→B | `range_code(1B) + id_len(2B)+id + start_ms(8B) + end_ms(8B)` |
 | `0x87` | CHARGER_HISTORY | B→F | `id_len(2B)+id + status(1B) + count(4B)` + count×(`ts_ms(8B)+value(8B double)`) — reads `myenergi_data` |
 | `0x88` | SPOT_PRICE_STREAM | B→F | live spot price broadcast: `status(1B) + hour_start_ms(8B) + spot(8B double) + all_in(8B double)` (raw wholesale + VAT/margin all-in €/kWh; both NaN when status 0) |
+| `0x90` | CONFIG_GET_SCHEMA | F→B | (empty) — request the editable-settings schema + values |
+| `0x91` | CONFIG_SCHEMA | B→F | `status(1B) + len(4B) + UTF-8 JSON` — `{"groups":[{id,label,settings:[…]}]}` |
+| `0x92` | CONFIG_SET | F→B | `len(4B) + UTF-8 JSON` — `{"key": <dotted>, "value": <json>}` |
+| `0x93` | CONFIG_SET_RESULT | B→F | `status(1B) + len(4B) + UTF-8 JSON` — `{key, value, applied, message}` |
+| `0x94` | CONFIG_RESTART | F→B | (empty) — exit with code 42 so the service manager restarts |
 
 (Trip codes `0x74`–`0x7D` — the Trips view — are omitted from this table; they mirror the History
 request/response shape. See the `frontend_v2` memory.)
@@ -302,6 +331,15 @@ inside it), the backend **boundary-fills**: it queries the last value before the
 returns two synthetic points (window-start + window-end at that held value) so the graph draws a
 flat held line across the whole range instead of "no data". Only a genuinely absent prior value
 (or an InfluxDB outage, where the boundary query also yields nothing) replies `status=0`.
+
+**Config protocol (`0x90`–`0x94`)** — the Options view. Request/response like History/Trips
+(the backend replies to the requesting client via `send_to`), with one exception: a successful
+`CONFIG_SET` *also broadcasts* a fresh `CONFIG_SCHEMA` so a second frontend refreshes its
+displayed values. Bodies are `len(4B) + UTF-8 JSON` (the `CHARGER_RAW_JSON` idiom) rather than
+a packed layout — the schema is variable-shaped and these packets are rare. Keys are dotted
+paths into `config.json` (`myenergi.pollIntervalIdleSeconds`). `CONFIG_SET_RESULT.applied` is
+`hook` (a service re-snapshotted), `restart` (written but only live after a restart) or
+`unchanged` (the value already matched, so nothing was written or broadcast).
 
 **Tesla stream value types**: `0` float `double(8B)`; `1` string `length(2B)+UTF-8`;
 `2` bool `uint8(1B)`; `3` dict — sequence of `double(8B)` (Location = lat, lon).
@@ -343,9 +381,10 @@ Both cost fields are now **spot-priced per hour** (flat-tariff fallback) — see
 The backend is entirely asyncio. `start_services.main()` constructs every service,
 calls `_register_handlers` and `register_service` on the `Server`, runs
 `vehicle.init_async_dependent()`, then **`asyncio.gather`s the run tasks**: telemetry, the TCP
-server, `MediaManager.get_run_task()`, `WeatherService.get_run_task()`, and — when charger
-credentials are set — `MyEnergiService.get_run_task()`. (`trip_service` / `charging_service` are
-stateless request/response and have no run task.)
+server, `MediaManager.get_run_task()`, `WeatherService.get_run_task()`,
+`ConfigService.get_run_task()` (the restart watch), and — when charger credentials are set —
+`MyEnergiService.get_run_task()`. (`trip_service` / `charging_service` are stateless
+request/response and have no run task.)
 
 > **Orchestration note.** The media and weather `run()` coroutines schedule APScheduler jobs
 > and then *return* — their ongoing work lives in those jobs, and APScheduler logs+swallows
@@ -541,6 +580,49 @@ guards; they're the only thing preventing injection if non-config input ever rea
   constructed (works with no Zappi); `run()` no-ops when `spotPrice.enabled` is false. **Talks to:**
   sähkötin.fi (aiohttp), `InfluxDBHandler`, `Server`.
 
+#### 5.2.8 `config_service/config_service.py` — runtime configuration (the Options view)
+`ConfigService` serves `CONFIG_GET_SCHEMA` / `CONFIG_SET` / `CONFIG_RESTART` and snapshots the
+schema to every new client (`register_service`). `SETTINGS_SCHEMA` is a literal list of groups
+→ settings, each declaring `key` (dotted), `type` (`bool|int|float|string|enum`), Finnish
+`label`/`help`, `unit`, numeric `min`/`max`/`step`, `nullable`, `options` (or the string
+`"dynamic"`, resolved at schema-build time — `defaultRadioStation`'s choices are the configured
+`radioMediaIds` keys), an optional `validator` name, and its **apply tier**. It is both the
+write allow-list and the frontend's UI description, so adding a tunable is one entry here and
+**no frontend change at all**.
+
+> **Apply tiers — the load-bearing design point.** Every service snapshots the values it needs
+> into instance attributes in its constructor and *never re-reads* `Config`, so mutating
+> `Config` alone changes nothing at runtime. There is therefore no "live" tier:
+> - **`hook`** — the owning service exposes **`apply_config()`**, which re-snapshots from
+>   `Config` and does whatever else applying means (`MyEnergiService` reschedules through its
+>   single `__apply_interval` point; `WeatherService` drops its cached frame and refetches).
+>   Registered in `start_services` via `config_service.register_hook(name, svc.apply_config)`.
+>   Implemented on: `WeatherService`, `MyEnergiService`, `TripLoader`, `ChargingLoader`,
+>   `SpotPriceProvider`, and `MediaManager.apply_config_radio()` / `_spotify()` (which forward
+>   to the two players). `SpotPriceProvider` needs no cache flush — it caches *raw* prices and
+>   applies VAT/margin on read.
+> - **`restart`** — the value builds something that cannot be rebuilt in place: `timeZone`
+>   (APScheduler cron jobs), `myenergi.zappiSerial` (the Zappi resolved at connect),
+>   `spotPrice.enabled` (whether `SpotPriceService` has a run task at all).
+>
+> A `hook` setting whose hooks are all **unregistered** (no Zappi → no `MyEnergiService`) is
+> reported to the frontend as `restart`, because that is what it truly is for that deployment.
+
+**Restart.** `CONFIG_RESTART` sets an `asyncio.Event`; `run()` awaits it, waits
+`_RESTART_DRAIN_SECONDS` so the preceding reply flushes, then flushes the log handlers and
+calls `os._exit(RESTART_EXIT_CODE)`. The code is **42 — deliberately non-zero**, so the
+README's `Restart=on-failure` unit restarts it without needing `Restart=always`. `os._exit`
+rather than `raise SystemExit`: asyncio does not store SystemExit on a task, it propagates it
+through the runner's teardown and prints a full traceback plus *"Task exception was never
+retrieved"* — misleading noise in the journal for an intentional restart.
+
+**Safety.** Validation happens before any write (`_validate_timezone` is the important one —
+an unresolvable zone makes `Config.__init__` raise, and since `timeZone` is restart-tier that
+would be a restart *loop*). A failed `save()` rolls the in-memory value back so services and
+disk never disagree. A hook that raises is logged and swallowed: the value is already saved,
+so failing the write there would leave the reply and the disk disagreeing.
+**Talks to:** `Config` (set/save), `Server` (send_to/broadcast), every hooked service.
+
 ### 5.3 Frontend
 
 The Widgets frontend uses a signal/slot routing pattern: `ServerClient` emits one signal per
@@ -596,10 +678,96 @@ Outbound control packets are written **non-blocking** — do not reintroduce
 - **`Logger`** mirrors the backend format to stdout. Never call `qInfo/qWarning/qDebug/qCritical`
   directly — `Logger::install()` funnels Qt's own messages through the same formatter under the source
   `qt`. Worker-thread logs are serialised by a static mutex. Source names today: `app`, `config`,
-  `server_client`, `tesla.data`, `media.data`, `media.card`, `weather.data`, `qt`.
+  `server_client`, `tesla.data`, `media.data`, `media.card`, `weather.data`, `settings`, `qt`.
   `main.cpp` also sets a global `QLabel, QPushButton { color: #FFFFFF }` default so text stays white on
   platforms (e.g. Raspberry Pi OS) whose default palette renders near-black on the dark background;
   per-widget QSS still overrides it.
+
+#### 5.3.6 `frontend_v2` settings (the Options view) — `core/settings.{hh,cpp}`
+> Applies to **`frontend_v2`** (the active QML frontend), not the frozen Widgets `frontend/`.
+
+`Settings` is one QML singleton (`Settings`) fronting **both** halves of the Options view:
+
+- **Local settings** — schema from the bundled `:/config/settings.json`, user overrides
+  persisted with `QSaveFile` (atomic; the Pi loses power without a shutdown). Exposed as
+  `values`, a **`QQmlPropertyMap`** — that type is what makes `app/Theme.qml`'s bindings
+  re-evaluate, since it emits per-key change notification. Only *overridden* keys are written
+  to disk, so a default that changes in a later release still reaches existing installs.
+- **Backend settings** — the `CONFIG_SCHEMA` document, never edited optimistically: the
+  backend re-broadcasts the authoritative schema after each accepted write.
+
+`groups` concatenates both, tagging each entry `origin: "local" | "backend"`, so one delegate
+family renders everything. **Construction order in `main.cpp` matters**: `Settings` is built
+**before** `AppConfig`, which consults `savedValue()` for `backendHost` / `backendPort` /
+`screensaverTimeoutMin` — a user override must beat the environment. The socket does not exist
+yet at that point, so the `CONFIG_*` wiring is deferred to `attachServer()` after
+`ServerClient` is constructed. `core/dotenv.{hh,cpp}` holds the `.env` discovery/parsing that
+used to be private to `appconfig.cpp`, because both readers now need it.
+
+**`app/Theme.qml` is the façade.** Tokens that are user-tunable are bound
+(`readonly property bool lunaEnabled: Settings.values.lunaEnabled`) instead of being literals;
+everything else stays a `readonly` literal that qmlcachegen AOT-compiles. A property
+initialiser is a *binding*, so all ~236 existing `Theme.x` call sites across 38 files keep
+working unchanged and gain live updates for free. **Add a tunable = one schema entry + one
+Theme binding**, no call-site edits.
+
+**Layout — master/detail.** `views/SettingsView.qml` is a sidebar + pane split, not one long
+list: `items/settings/SettingsSidebar.qml` lists the sections (one per schema group) and
+`SettingsPane.qml` renders the selected section's settings at full width. Two details are
+load-bearing:
+- **Two independent restart tiers.** `restartPending` tracks restart-tier *backend* writes,
+  `appRestartPending` restart-tier *local* ones (`backendHost` / `backendPort`, consumed once
+  by `AppConfig` at startup). They are fixed by restarting different processes, so the banner
+  names which and shows a button per pending one.
+- **Selection is a group ID, and it is sticky.** The section list grows from 3 entries to 8
+  when the backend's schema arrives and shrinks again if the connection drops, so an index
+  would silently select a different section. `currentSectionId` holds what the user *chose*
+  and is never overwritten by a list change; `currentGroup` resolves it on read, falling back
+  to the first section. That is what makes a backend section still be selected after a
+  reconnect instead of the user being bounced to the first one.
+- **Group `icon` is a SEMANTIC name** (`"charger"`, `"media"`, `"price"`, …), mapped to a
+  resource by `SettingsSidebar.iconFor()`. The backend names icons without knowing anything
+  about frontend assets; an unknown name falls back to the gear. Both schema builders copy
+  *every* group-level key rather than an allow-list, so the next group field needs no code
+  change (the icon was the first, and an allow-list is exactly what dropped it initially).
+
+**Delegates** (`items/settings/`): `SettingRow` dispatches on `setting.type` to
+`SettingSwitch` / `SettingNumber` / `SettingSlider` / `SettingText` / `SettingSelect` (the
+last subclasses `TripComboBox`, inheriting the dark styling and the #9/#19 dropdown fixes).
+
+> **Numeric settings default to `SettingNumber` — a `[−] [typed value] [+]` stepper — and
+> sliders are OPT-IN** via the schema's `editor: "slider"`. A slider only works when the exact
+> number does not matter; most settings here are the opposite. Dispatching on `type` alone
+> gave `backendPort` (1–65535) a slider whose 320px track is ~205 ports per pixel, and 13 of
+> the 18 numeric settings were similarly undraggable. Only four are genuine coarse dials and
+> carry the hint: `tripMaxSpeedKmh`, `graphBucketsPerPx`, `graphRenderMarginFrac`,
+> `screensaverStackCount`. **Rule of thumb: if the user knows the number they want, it is not
+> a slider.** `SettingNumber`'s ± buttons hold-to-repeat, and it accepts typing for big jumps.
+
+> **`type: "action"` is a button, not a value.** `SettingAction.qml` renders it and calls
+> `Settings::invokeAction(key)`; nothing is stored, persisted or sent as `CONFIG_SET`. Keeping
+> actions in the schema is what lets the *Ylläpito* section — **restart the dashboard**,
+> **restart the backend** — be ordinary sidebar rows instead of a widget bolted onto the view.
+> Entries carry `actionLabel` and optionally `requiresConnection` (which greys the backend
+> restart while disconnected). Both need a **second tap to confirm** (armed for 4 s, then it
+> lapses) — a modal would need a Cancel button and a way to dismiss it, which a fullscreen
+> keyboard-less panel does not have.
+>
+> **`Settings::restartApp()` quits with exit code 42**, the same non-zero code the backend
+> uses, so the README's `Restart=on-failure` frontend unit relaunches it. It calls
+> `QCoreApplication::exit()` rather than `os._exit`'s equivalent: unwinding `exec()` closes the
+> socket and flushes cleanly, and unlike the backend there is no journal-traceback problem to
+> avoid. On the embedded target this is the ONLY way to restart the dashboard — it runs
+> fullscreen with no keyboard — which is also why no bare "quit" is offered.
+
+Three write-rate / semantics rules matter:
+- the **slider commits on release**, not per frame (otherwise a drag rewrites the settings
+  file — or fires a `CONFIG_SET` the backend persists — dozens of times a second);
+- **text and number fields commit on `editingFinished`**, not per keystroke (otherwise every
+  prefix of a typed value gets sent and rejected);
+- a **nullable setting that is null renders as "—" / an empty field, not as its minimum**, and
+  can be cleared back to null. `electricityPriceEurPerKwh` null means "no flat tariff, show —"
+  in the Charging view, which is not the same as pricing energy at 0.000 €/kWh.
 
 ## 6. Event flows
 
@@ -632,6 +800,18 @@ Teslemetry state event (state != "online") → Vehicle.__update → VehicleOnlin
 ```
 Server.__handle_connection → for each registered service: service.stream_everything(writer)
   → protocol.frame(...) per packet → Server.send_to(writer, …)   (delivered to the new client only)
+```
+
+**Settings write (the Options view)**
+```
+SettingRow delegate → Settings.setValue(key, value)
+  local key:   coerce → QQmlPropertyMap.insert → QSaveFile → Theme binding re-evaluates (live)
+  backend key: protocol::frame(CONFIG_SET) → Server.__read_loop → ConfigService.handle_set
+    → validate against SETTINGS_SCHEMA → Config.set + Config.save (bak + atomic replace)
+    → apply tier "hook": run the registered service apply_config()s
+    → CONFIG_SET_RESULT → send_to(requesting client)   [+ CONFIG_SCHEMA broadcast to all]
+    → Settings.parseSetResult → writeSucceeded/writeFailed → SettingsView toast
+  apply tier "restart": banner → CONFIG_RESTART → ConfigService.run → os._exit(42) → systemd
 ```
 
 **Weather refresh**
@@ -735,50 +915,74 @@ a new/renamed service or widget, a protocol change, a build-command change, or a
 invariant. Treat the doc as part of the change, not an afterthought, and bump §7.7.
 
 ### 7.7 Documentation currency
-This guide is current as of the **agent-builds-the-frontend policy change** (§7.3): the agent now runs
+This guide is current as of the **settings / Options-view** work on `feature/settings-options-view`.
+The dashboard gained an **Asetukset** view (7th dock entry) that edits both frontend preferences
+and the backend's `config.json` tunables at runtime, driven by *schemas* rather than hand-laid
+rows — adding a tunable is one schema entry and no UI code.
+
+Backend: new `config_service/` (§5.2.8) with `SETTINGS_SCHEMA` (16 settings in 5 groups) as the
+write allow-list + UI description, served over new protocol codes `0x90`–`0x94` (§5.1).
+`Config` gained `set()` / `save()` — atomic write with a `config.json.bak` snapshot, and a
+`__init__` rollback to that backup when the live file fails to load, which is what keeps a
+restart-tier setting from restart-looping systemd. **The key discovery that shaped the design:
+no service re-reads `Config`** — every one snapshots its values in its constructor — so there
+is no "live" apply tier. Seven services gained **`apply_config()`** (`WeatherService`,
+`MyEnergiService`, `TripLoader`, `ChargingLoader`, `SpotPriceProvider`, `RadioPlayer`,
+`SpotifyPlayer`, the last two via `MediaManager`), and settings with no such path are marked
+restart-tier; a hook whose service is absent is honestly *downgraded* to restart. The restart
+button exits with code **42** (non-zero, so the README's `Restart=on-failure` suffices) via
+`os._exit` rather than `raise SystemExit`, which would print a spurious traceback.
+
+Frontend (`frontend_v2`): new `core/settings.{hh,cpp}` singleton (§5.3.6) fronting local +
+backend settings, `core/dotenv.{hh,cpp}` extracted from `appconfig.cpp` so both can read `.env`,
+`views/SettingsView.qml` as a **master/detail** screen (`SettingsSidebar` + `SettingsPane`,
+one sidebar section per schema group, sticky ID-based selection) with the `items/settings/`
+delegates (numeric settings render as a `[−] value [+]` stepper; sliders are opt-in via the
+schema's `editor: "slider"`, since only 4 of 18 numeric settings are coarse enough to drag;
+a `type: "action"` button powers the *Ylläpito* section, which restarts the dashboard itself
+with exit code 42 — the only way to do that on a fullscreen keyboard-less Pi), and
+`app/Theme.qml` converted into a
+**façade**: user-tunable tokens now bind to `Settings.values.*` while the ~236 existing
+`Theme.x` call sites across 38 files are untouched. `AppConfig` now takes a `const Settings*`
+and honours saved overrides for `backendHost`/`backendPort`/`screensaverTimeoutMin` over the
+environment (`schema default < env/.env < saved override`). `HistoryGraph`'s LOD tunables
+(`bucketsPerPx`, `settleMs`, `renderMarginFrac`, `minZoomSpanMs`) now default from Theme so
+they are tunable per device.
+
+Deliberately **out of scope**, tracked as **issue #29**: editing the `tesla data` /
+`calculated tesla data` tables (47 properties × 6 keys). Their `stream_id`/`category`/`unit`
+must stay in lockstep with the frontend registry and the `0x71` wire format, so only the
+display-only `log` and `line_mode` fields are safely editable — a separate sub-view, not a
+settings form.
+
+Predecessor work — the **agent-builds-the-frontend policy change** (§7.3): the agent now runs
 `scripts\build-frontend.ps1` itself after frontend changes instead of deferring every build to the
 user, so compile errors surface in the session that caused them. Backing that up, `.claude/settings.json`
-(new, committed) registers a `PostToolUse` hook on `Edit|Write` running `.claude/hooks/check-edit.py`,
+(committed) registers a `PostToolUse` hook on `Edit|Write` running `.claude/hooks/check-edit.py`,
 which byte-compiles `backend/src` on Python edits and runs `qmllint` on QML edits — the latter gated to
 `[syntax]`/`Error:` only, because `frontend_v2` carries ~750 pre-existing style diagnostics but zero
-syntax warnings. `.claude/settings.local.json` was trimmed from 46 permission rules to 16 (project-wide
-rules moved into the committed `settings.json`; dead entries for removed MCP servers and a stale
-machine's statusline paths dropped). Note for future edits: `QT_QML_GENERATE_QMLLS_INI` is **deprecated
+syntax warnings. Note for future edits: `QT_QML_GENERATE_QMLLS_INI` is **deprecated
 since Qt 6.10** ("no replacement needed") — don't add it to `frontend_v2/CMakeLists.txt`.
 Predecessor work — the **weather-service hang fix**: `WeatherService` had deadlocked on the
-Pi for 16 days (widget empty, rest of the backend healthy). `fmiopendata`'s fetch helper calls
-`requests.get()` with no timeout, so a stalled FMI response parked an executor thread forever, and
-APScheduler's default `max_instances=1` then refused every later tick. Fixed in three layers, all
-inside `backend/src` (no new dependencies): the FMI GET is now issued directly with aiohttp +
-`_FMI_TIMEOUT` and parsed with fmiopendata's own `MultiPoint` (`__download_stored_query` /
-`__fetch_and_parse`) under an `asyncio.wait_for` deadline; the refresh job gained
-`max_instances=2` / `misfire_grace_time=300` / `coalesce=True` and is now scheduled *before* the
-initial fetch; and a cycle yielding no future forecast hours returns without broadcasting or caching
-(a banner-only frame blanked the frontend's five cards permanently — see §5.2.4's invariants). Also
-`configure_logging` is now env-driven via `TESLA_HOMEDASH_LOG_LEVEL`, defaulting to **INFO** instead
-of the hardcoded DEBUG that was rotating the Pi's journal too fast for forensics.
-Predecessor work — this guide and `README.md` are current as of the **per-property graph line mode** work on
-`feature/graph-line-mode` (issue #20): a per-property `line_mode` (`step` default / `linear`) that
-tells the shared `HistoryGraph.qml` how to connect a property's consecutive readings — a held step
-for sampled/held signals (`VehicleSpeed`, setpoints) or a straight point-to-point line for
-accumulators / continuous quantities (`Odometer`, energy counters, `OutsideTemp`). Sourced from
-`config.json` `tesla data` metadata (new optional `line_mode` key, read via `prop_cfg.get`),
-threaded through a new `VehicleDataProperty.get_line_mode()`, added to
-`get_graphable_properties`, and serialized as a **4th** per-property field on
-`TESLA_GRAPH_PROPERTIES` `0x71` (`id/unit/category/line_mode`). Frontend: `TeslaHistory::parseProperties`
-reads the 4th field into `History.properties`; `PropertySelector.selectedLineMode` → `HistoryView`
-binds `HistoryGraph.lineMode`; `buildStepped()` and `valueAt()` branch on it (new `buildLinearPath`
-+ `interpAt` helpers), and the glow fill / y-fit / live marker follow from those two. Trips and
-Charging inherit the `step` default (their graphs — `VehicleSpeed`, grid/charge power — are sampled),
-so they were untouched. `GpsHeading` was flipped to `log: false` (it wraps 0↔360 and its logged
-history had no consumer — the live map heading reads the live stream, the trip heading is computed
-from Location geometry), removing it from the graphable list and stopping its InfluxDB writes.
-Predecessor work — the **spot-price cost** (`feature/spot-price-cost`, issue #12; `SpotPriceProvider`
-+ `SpotPriceService`, `SPOT_PRICE_STREAM` `0x88`, per-hour spot-valued Charging costs, `spotPrice`
-config, `CHARGING_SUMMARY` `0x83` = 11 doubles), the **charging-stats** backend (`966a04a`; myenergi
-`CHARGER_STREAM` `0x50`, `CHARGING_*`/`CHARGER_HISTORY` `0x80`–`0x87`, per-session energy = **sum of
-positive `ChargeAdded` increments**), and the History **empty-window boundary-fill**
-(`1184b60`/`cc11bb8`) — still applies.
+Pi for 16 days. `fmiopendata`'s fetch helper calls `requests.get()` with no timeout, so a stalled
+FMI response parked an executor thread forever, and APScheduler's default `max_instances=1`
+then refused every later tick. Fixed in three layers inside `backend/src`: the FMI GET is now
+issued directly with aiohttp + `_FMI_TIMEOUT` and parsed with fmiopendata's own `MultiPoint`
+(`__download_stored_query` / `__fetch_and_parse`) under an `asyncio.wait_for` deadline; the
+refresh job gained `max_instances=2` / `misfire_grace_time=300` / `coalesce=True` and is now
+scheduled *before* the initial fetch; and a cycle yielding no future forecast hours returns
+without broadcasting or caching (see §5.2.4's invariants). Also `configure_logging` is env-driven
+via `TESLA_HOMEDASH_LOG_LEVEL`, defaulting to **INFO**.
+Predecessor work — the **per-property graph line mode** (issue #20, PR #23, merged `50500f6`):
+a per-property `line_mode` (`step` default / `linear`) sourced from `config.json` metadata,
+threaded through `VehicleDataProperty.get_line_mode()` and serialized as a **4th** per-property
+field on `TESLA_GRAPH_PROPERTIES` `0x71`; `HistoryGraph.buildStepped()`/`valueAt()` branch on it.
+`GpsHeading` was flipped to `log: false`.
+Predecessor work — the **spot-price cost** (issue #12; `SpotPriceProvider` + `SpotPriceService`,
+`SPOT_PRICE_STREAM` `0x88`, per-hour spot-valued Charging costs, `CHARGING_SUMMARY` `0x83` = 11
+doubles), the **charging-stats** backend (`966a04a`; `CHARGER_STREAM` `0x50`, `CHARGING_*` /
+`CHARGER_HISTORY` `0x80`–`0x87`, per-session energy = **sum of positive `ChargeAdded`
+increments**), and the History **empty-window boundary-fill** (`1184b60`/`cc11bb8`) — still applies.
 When you land changes that touch behaviour documented here, update this line to the new HEAD commit.
 
 ## 8. Session workflow — main checkout by default, worktree only for parallelism

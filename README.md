@@ -376,6 +376,17 @@ RestartSec=5
 WantedBy=default.target
 ```
 
+> **The Options view's restart button works with this unit as written.** Some settings
+> (the timezone, the Zappi serial, the spot-pricing master switch) are consumed once when
+> a service is constructed and cannot be re-applied in place, so the dashboard offers a
+> *Käynnistä uudelleen* button. It makes the backend exit with code **42** — deliberately
+> non-zero, so `Restart=on-failure` above brings it straight back up. Switch to
+> `Restart=always` only if you also want a clean `systemctl --user stop` to relaunch.
+>
+> A bad value cannot restart-loop the unit: settings are validated against the schema
+> before being written, and `config.json` is snapshotted to `config.json.bak` before every
+> write — a config that fails to load rolls back to the backup on the next start.
+
 **3. Frontend** — `~/.config/systemd/user/tesla-homedash-frontend.service`. This one is
 tied to the graphical session (it needs the desktop's display), and it starts after the
 backend so there's data to show:
@@ -395,6 +406,13 @@ RestartSec=5
 [Install]
 WantedBy=graphical-session.target
 ```
+
+> **`Restart=on-failure` is what makes the dashboard's own restart button work.** The
+> Options view has an *Ylläpito* section with *Käynnistä sovellus uudelleen*, which quits the
+> app with exit code **42** so this unit relaunches it. That is the only way to apply the
+> connection settings (or recover a wedged UI) on the Pi, where the dashboard runs fullscreen
+> with no keyboard. The same section restarts the backend, and both buttons need a second
+> tap to confirm.
 
 Reload the unit files, then enable and start everything:
 
