@@ -41,7 +41,7 @@
 |---|---|---|
 | Compiler | MSVC 2022 (`vcvars64.bat` via `vswhere`) | `g++` from `build-essential` (C++20 — GCC 13 on 24.04 is fine) |
 | Qt kit | `D:\Qt\6.11.1\msvc2022_64` | `~/Qt/6.11.1/gcc_64` (`aqt` or the online installer) |
-| Frontend build | `scripts\build-frontend.ps1` | `scripts/build-frontend.sh` — **does not exist yet**, see §7 |
+| Frontend build | `scripts\build-frontend.ps1` | `scripts/build-frontend.sh` (§7.2) |
 | Compiler cache | `sccache` | `ccache` (`apt install ccache`) — `CMakeLists.txt` already probes for both |
 | Binary | `frontend_v2\build\appfrontend_v2.exe` | `frontend_v2/build/appfrontend_v2` |
 | Display | native window | WSLg (Wayland/X11 forwarded to Windows automatically) |
@@ -135,6 +135,7 @@ sudo apt install -y \
     build-essential cmake ninja-build ccache git curl \
     python3 python3-pip python-is-python3 \
     vlc \
+    libgl1-mesa-dev libegl1-mesa-dev \
     libgl1 libegl1 libfontconfig1 libdbus-1-3 libxkbcommon-x11-0 \
     libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
     libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-sync1 \
@@ -152,6 +153,16 @@ Why each group:
 - **`vlc`** — `python-vlc` is only a binding; `radio_player.py` is silent without the
   libVLC runtime. WSLg provides a PulseAudio server, so radio audio really does come
   out of your Windows speakers.
+- **`libgl1-mesa-dev` / `libegl1-mesa-dev`** — the *development* half of OpenGL:
+  the `libGL.so` / `libOpenGL.so` / `libGLX.so` symlinks and `GL/gl.h`. `libgl1` and
+  `libegl1` ship only the runtime `.so.N` files, which is enough to *run* a Qt app but
+  not to *configure* one: `Qt6Gui` declares `WrapOpenGL` as a REQUIRED third-party
+  dependency (`__qt_Gui_third_party_deps` marks it `FALSE` for optional), so CMake
+  fails at `find_package`. The error names the wrong culprit —
+  *"Failed to find required Qt component Quick"*, with `Qt6QuickConfig.cmake`
+  reported as present — and only `--debug-find-pkg=Qt6Quick` reveals
+  `Could NOT find OpenGL (missing: OPENGL_opengl_LIBRARY ...)` underneath.
+  `WrapVulkanHeaders` is marked optional, so no Vulkan package is needed.
 - **the `libxcb-*` / `libxkbcommon-x11-0` block** — Qt's `xcb` platform plugin links
   these at runtime, and Qt does *not* pull them in as package dependencies because you
   install Qt outside apt. Missing any one of them produces the classic and thoroughly
@@ -242,11 +253,28 @@ sudo systemctl enable --now influxdb
 systemctl status influxdb --no-pager
 ```
 
-Open `http://localhost:8086` **in your Windows browser** (WSLg forwards it) and complete
-the setup wizard, creating:
+Open the InfluxDB UI **in your Windows browser** and complete the setup wizard,
+creating:
 
 - **Organization**: `Tesla-Homedash`
 - **Bucket**: `data`
+
+> **Which `localhost`?** Under WSL's default NAT networking the distro has its own
+> network namespace, so WSL's `:8086` and Windows' `:8086` are different sockets and
+> two InfluxDB instances coexist happily. But that also means `http://localhost:8086`
+> *in a Windows browser* reaches a **Windows** InfluxDB if you have one — you would
+> configure the wrong database and mint a token the WSL backend cannot use. With
+> anything already on Windows' 8086, browse to the WSL IP instead:
+>
+> ```bash
+> hostname -I | awk '{print $1}'      # e.g. 172.23.72.94 -> http://172.23.72.94:8086
+> ```
+>
+> That address is NAT-assigned and **changes when WSL restarts**. Do *not* reach for
+> `networkingMode=mirrored` (§2.3) to get a stable `localhost` here: with a Windows
+> instance already holding 8086, mirrored networking makes the two genuinely collide
+> and the WSL one fails to start. With nothing on Windows' 8086, plain `localhost`
+> works and none of this applies.
 
 Then under **Load Data → API Tokens** generate an All-Access token (or scope one to the
 `data` bucket) — it becomes `INFLUX_TOKEN` in `.env`. The backend hardcodes
@@ -387,65 +415,23 @@ cmake --build frontend_v2/build --target appfrontend_v2
 There is no MSVC environment to import — GCC is already on `PATH` — which is why the
 Linux script below is a third the length of the PowerShell one.
 
-### 7.2 `scripts/build-frontend.sh` — create this on the WSL side
+### 7.2 `scripts/build-frontend.sh`
+
+Committed and working — the Linux counterpart of `build-frontend.ps1`:
 
 ```bash
-#!/usr/bin/env bash
-# Configure + build (and optionally run) frontend_v2. Linux counterpart of
-# scripts/build-frontend.ps1 — no MSVC environment to import, so it is mostly
-# kit detection plus the same Ninja configure + build.
-set -euo pipefail
-
-CONFIG=Debug
-RUN=0
-FULLSCREEN=0
-CLEAN=0
-QT_PREFIX="${QTDIR:-}"
-
-while [[ $# -gt 0 ]]; do
-    case "$1" in
-        -c|--config)     CONFIG="$2"; shift 2 ;;
-        -q|--qt-prefix)  QT_PREFIX="$2"; shift 2 ;;
-        -r|--run)        RUN=1; shift ;;
-        -f|--fullscreen) FULLSCREEN=1; shift ;;
-        --clean)         CLEAN=1; shift ;;
-        *) echo "unknown option: $1" >&2; exit 1 ;;
-    esac
-done
-
-REPO_ROOT="$(git rev-parse --show-toplevel)"
-SRC="$REPO_ROOT/frontend_v2"
-BUILD="$SRC/build"
-[[ -f "$SRC/CMakeLists.txt" ]] || { echo "No frontend_v2/CMakeLists.txt under $REPO_ROOT" >&2; exit 1; }
-
-# Newest ~/Qt/6.*/gcc_64 unless QTDIR or --qt-prefix says otherwise.
-if [[ -z "$QT_PREFIX" ]]; then
-    QT_PREFIX="$(find "$HOME/Qt" -maxdepth 2 -type d -name gcc_64 2>/dev/null | sort -V | tail -1)"
-fi
-[[ -n "$QT_PREFIX" ]] || { echo "No Qt kit found; pass --qt-prefix or export QTDIR." >&2; exit 1; }
-echo "Qt kit:  $QT_PREFIX"
-
-(( CLEAN )) && rm -rf "$BUILD"
-
-cmake -S "$SRC" -B "$BUILD" -G Ninja \
-      -DCMAKE_PREFIX_PATH="$QT_PREFIX" \
-      -DCMAKE_BUILD_TYPE="$CONFIG"
-cmake --build "$BUILD" --target appfrontend_v2
-
-EXE="$BUILD/appfrontend_v2"
-echo "Build OK -> $EXE"
-command -v ccache >/dev/null && ccache --show-stats | head -5 || true
-
-if (( RUN )); then
-    (( FULLSCREEN )) && export TESLA_HOMEDASH_FULLSCREEN=1
-    exec "$EXE"
-fi
+./scripts/build-frontend.sh                      # configure + build (Debug)
+./scripts/build-frontend.sh --run                # ...then launch it
+./scripts/build-frontend.sh --config Release --clean
+./scripts/build-frontend.sh --help
 ```
 
-```bash
-chmod +x scripts/build-frontend.sh
-./scripts/build-frontend.sh --run
-```
+Options: `-c/--config` (Debug | Release | RelWithDebInfo), `-q/--qt-prefix`,
+`-r/--run`, `-f/--fullscreen`, `--clean`. The Qt kit comes from `--qt-prefix`, else
+`$QTDIR`, else the newest `~/Qt/*/gcc_64` — so it works with `QTDIR` unset.
+
+A cold build is 163 targets; an incremental re-run is ~6s. `ccache` is picked up
+automatically by `frontend_v2/CMakeLists.txt` and its stats print after each build.
 
 Per CLAUDE.md §7.3 the agent runs this after frontend changes; you run the binary.
 
@@ -513,21 +499,17 @@ Two failure modes on a fresh Ubuntu:
    `which python` — it must print `/usr/bin/python`. Installing `python-is-python3`
    puts `/usr/bin` ahead of the Windows entries and resolves this too.
 
-### 9.2 The QML half of the hook skips silently
+### 9.2 The QML half of the hook — fixed
 
-`check-edit.py` looks for qmllint at `QT_ROOTS = ("D:/Qt", "C:/Qt")` using the glob
-`*/msvc2022_64/bin/qmllint.exe` — Windows-only, both of them. In WSL it finds nothing
-and, by design, **skips the check rather than blocking edits**. You lose QML syntax
-validation with no message saying so.
+`check-edit.py` used to look for qmllint only under `D:/Qt` and `C:/Qt` with the glob
+`*/msvc2022_64/bin/qmllint.exe`, so in WSL it found nothing and — by design — skipped
+the QML check rather than blocking edits. You lost QML syntax validation with no
+message saying so.
 
-Re-enable it with no code change — the hook honours an explicit override:
-
-```bash
-echo 'export TESLA_HOMEDASH_QMLLINT=$QTDIR/bin/qmllint' >> ~/.bashrc
-```
-
-Teaching `find_qmllint()` about `~/Qt/*/gcc_64/bin/qmllint` is a good small first commit
-from WSL, but the environment variable works today.
+It now searches `~/Qt/*/gcc_64/bin/qmllint` as well (`QT_SEARCH`, a list of
+`(root, glob)` pairs covering both platforms), so the check works out of the box on a
+Linux kit. Both original behaviours are preserved: no Qt kit at all still skips rather
+than blocks, and `TESLA_HOMEDASH_QMLLINT` still overrides discovery.
 
 ### 9.3 Permissions
 
@@ -537,12 +519,15 @@ from WSL, but the environment variable works today.
 "Bash(powershell -ExecutionPolicy Bypass -File scripts/build-frontend.ps1 *)"
 ```
 
-which never matches in WSL. Once §7.2's script exists, add its Linux siblings:
+which never matches in WSL. The Linux siblings are now allow-listed alongside it (the
+Windows entries stay — that box still builds):
 
 ```
-"Bash(scripts/build-frontend.sh *)",
-"Bash(./scripts/build-frontend.sh *)",
-"Bash(cmake:*)"
+"Bash(scripts/build-frontend.sh:*)",
+"Bash(./scripts/build-frontend.sh:*)",
+"Bash(cmake:*)",
+"Bash(ninja:*)",
+"Bash(python3 -m compileall:*)"
 ```
 
 `.claude/settings.local.json` is per-machine and unversioned, so the WSL side starts
@@ -579,9 +564,9 @@ Not blockers, listed so they don't surprise you:
 
 | File | Status in WSL | Action |
 |---|---|---|
-| `scripts/build-frontend.ps1` / `.cmd` | unusable | keep for the Windows box; add `build-frontend.sh` (§7.2) |
+| `scripts/build-frontend.ps1` / `.cmd` | unusable | keep for the Windows box; `build-frontend.sh` (§7.2) is the Linux one |
 | `scripts/new-session.ps1`, `finish-session.ps1` | unusable | port only if you actually use worktrees — per CLAUDE.md §8 the default is the main checkout |
-| `.claude/hooks/check-edit.py` | Python check works; QML check skips | `TESLA_HOMEDASH_QMLLINT` now, patch `QT_ROOTS` later |
+| `.claude/hooks/check-edit.py` | both checks work | fixed — finds `~/Qt/*/gcc_64/bin/qmllint` (§9.2) |
 | `CLAUDE.md` §3.2, §8 | describe MSVC / Ninja / PowerShell only | update once the Linux flow is proven (§7.6 requires it) |
 | `README.md` Setup chapter | describes the **frozen Widgets `frontend/`** | out of date for development; this document replaces it |
 | `frontend/` (Qt Widgets) | builds on Linux, but frozen | ignore — all work is `frontend_v2` |
