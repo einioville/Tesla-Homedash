@@ -64,6 +64,14 @@ backend/
       spot_price_service.py       # SpotPriceService — hourly live spot-price broadcast (SPOT_PRICE_STREAM)
     myenergi_service/
       myenergi_service.py         # myenergi Zappi cloud poll → CHARGER_STREAM broadcast + myenergi_data logging
+    audio_service/
+      audio_backend.py            # AudioBackend adapters (pactl / wpctl / amixer) + detect_backend()
+      audio_service.py            # AudioService — system volume + output device, applied from config.json
+    display_service/
+      display_service.py          # DisplayService — panel power via wlopm; the frontend decides when
+    system_service/
+      system_metrics.py           # Pure /proc readers (uptime, CPU, memory, network, disk, temp)
+      system_status_service.py    # SystemStatusService — SYSTEM_GET_STATUS, per-service health probes
     config_service/
       config_service.py           # ConfigService — the Options view's backend half: SETTINGS_SCHEMA (the allow-list of
                                   #   runtime-editable config.json keys), validation, persistence, apply hooks, restart
@@ -153,6 +161,32 @@ The rest of this section covers the **frozen Widgets `frontend/`**.
 > troubleshooting) lives in **`docs/wsl-dev-environment.md`**. Two things bite hardest: Qt needs the
 > OpenGL **-dev** packages (`libgl1-mesa-dev`), not just `libgl1`, or `find_package` fails
 > misleadingly on the `Quick` component; and the repo must live on ext4, not `/mnt/`.
+> A third bite is subtler, and has **two halves that must land together**. WSL2 exposes the GPU as
+> `/dev/dxg` with **no `/dev/dri`**, so Mesa lands on llvmpipe and Chromium refuses every WebGL
+> context — which breaks the Spotify consent page specifically. `GALLIUM_DRIVER=d3d12` reaches the
+> real adapter. But once Chromium HAS a GPU it hands frames to Qt as **dma_buf native pixmaps**, and
+> Mesa's d3d12 EGL driver does not expose `EGL_EXT_image_dma_buf_import` — so that fix alone trades
+> "renders, no WebGL" for "WebGL, renders nothing": a black panel spamming *"Failed to get native
+> pixmap due to dma_buf acquisition failure"*. `QTWEBENGINE_CHROMIUM_FLAGS=--disable-gpu-compositing`
+> keeps the GPU process (and WebGL) while delivering frames through shared memory.
+> `scripts/build-frontend.sh` exports **both** under `--run` when it sees that host shape. Measured
+> on a 600×400 grab of a solid-colour page: plain d3d12 = 0 % of the expected colour, with the flag
+> = 100 %, WebGL still on the real D3D12 adapter. The flag reaches only QtWebEngine's Chromium, not
+> Qt Quick, so the dashboard keeps the hardware path — the scene graph moves off llvmpipe onto the
+> real adapter, so the maps and graphs get *faster*, not slower.
+>
+> **Reading the log:** two lines persist in the healthy state and are not failure signals — the
+> `libEGL warning: failed to get driver name` block (the Qt Quick window, not Chromium) and exactly
+> ONE `EGL: EGL_EXT_image_dma_buf_import extension is not supported` (Qt's `EGLHelper` always probes
+> for it). The discriminators are the **repeated** `Failed to get native pixmap due to dma_buf
+> acquisition failure` lines and `WebGL1 blocklisted`; both must be absent. Measured: broken config
+> = 1 EGL probe line + 3 native-pixmap failures; fixed = 1 EGL probe line + 0.
+>
+> Three switches that look plausible here are **no-ops**, so don't reach for them: `--in-process-gpu`
+> is already set unconditionally by QtWebEngine, `--disable-gpu-memory-buffer-compositor-resources`
+> is already false on Linux, and **SwiftShader is compiled out of the Qt binary build**
+> (`enable_swiftshader=false` in `qtwebengine/src/core/CMakeLists.txt`, no `libvk_swiftshader*`
+> shipped), so `--use-angle=swiftshader` silently falls through to ANGLE-on-llvmpipe.
 
 **Linux / WSL2 — the frozen `frontend/`** (rarely needed; `frontend_v2` is the live target):
 
@@ -201,7 +235,10 @@ See the **Agent validation policy** (§7.3) for what the agent does vs. defers t
 
 ### `.env` (repo root, gitignored)
 Required secrets/paths, loaded by `utils/config_parser.get_env`:
-- `CONFIG_PATH` — absolute path to `config.json`
+- `CONFIG_PATH` — absolute path to the backend's config JSON. **Optional since the
+  config relocation (issue #41)**: unset → `$XDG_CONFIG_HOME`(or `~/.config`)`/Tesla-Homedash/
+  `backend_config.json`, via `config_parser.default_config_path()`. Set it only when the
+  deployment keeps its config elsewhere.
 - `VIN` — Tesla vehicle identification number
 - `API_KEY` — Teslemetry access token
 - `INFLUX_TOKEN` — InfluxDB auth token
@@ -267,10 +304,19 @@ All optional; defaults match the embedded target.
 - `TESLA_HOMEDASH_WINDOW_WIDTH` / `_HEIGHT` (default `1280` / `800`)
 - `TESLA_HOMEDASH_FULLSCREEN` — `1`/`true`/`yes` for fullscreen (default off). Fullscreen
   skips the fixed-size lock; windowed mode locks to the configured size.
+  **In `frontend_v2` this is the `fullscreen` SETTING's env default**, not a variable
+  `AppConfig` reads — so a saved override in the Options view beats it, per the usual
+  `schema default < env/.env < saved override` precedence. It did nothing at all until the
+  setting existed: `Main.qml` was a hard-locked 1280×800 window and `scripts/build-frontend.sh
+  --fullscreen` exported the variable to a binary that ignored it.
 - `TESLA_HOMEDASH_LOG_LEVEL` — `debug`/`info`/`warning`/`error`/`critical` (default `info`;
   invalid → `info` + a startup warning).
 - `TESLA_HOMEDASH_SETTINGS_FILE` — override the path of the frontend's writable settings
-  file (default `<QStandardPaths::AppConfigLocation>/settings.json`).
+  file (default `<QStandardPaths::GenericConfigLocation>/Tesla-Homedash/frontend_config.json`
+  — i.e. beside the backend's `backend_config.json`). A file at the pre-move
+  `AppConfigLocation/settings.json` is copied over once on first run.
+- `TESLA_HOMEDASH_SCREENSAVER_DIR` — no longer read by `AppConfig`; it now supplies the
+  DEFAULT for the `screensaverDir` setting, which owns the value and can change it live.
 
 **Frontend settings file.** `frontend_v2/config/settings.json` is the *bundled schema*
 (defaults, types, bounds, Finnish labels) compiled into the binary; the user's overrides are
@@ -337,10 +383,19 @@ payload[1..N-1] = type-specific data
 | `0x87` | CHARGER_HISTORY | B→F | `id_len(2B)+id + status(1B) + count(4B)` + count×(`ts_ms(8B)+value(8B double)`) — reads `myenergi_data` |
 | `0x88` | SPOT_PRICE_STREAM | B→F | live spot price broadcast: `status(1B) + hour_start_ms(8B) + spot(8B double) + all_in(8B double)` (raw wholesale + VAT/margin all-in €/kWh; both NaN when status 0) |
 | `0x90` | CONFIG_GET_SCHEMA | F→B | (empty) — request the editable-settings schema + values |
-| `0x91` | CONFIG_SCHEMA | B→F | `status(1B) + len(4B) + UTF-8 JSON` — `{"groups":[{id,label,settings:[…]}]}` |
+| `0x91` | CONFIG_SCHEMA | B→F | `status(1B) + len(4B) + UTF-8 JSON` — `{"path":<config path>,"startedAt":<epoch-ms of this backend process>,"groups":[{id,label,icon,sections:[{id,label,status?,settings:[…]}]}]}` |
 | `0x92` | CONFIG_SET | F→B | `len(4B) + UTF-8 JSON` — `{"key": <dotted>, "value": <json>}` |
 | `0x93` | CONFIG_SET_RESULT | B→F | `status(1B) + len(4B) + UTF-8 JSON` — `{key, value, applied, message}` |
 | `0x94` | CONFIG_RESTART | F→B | (empty) — exit with code 42 so the service manager restarts |
+| `0xA0` | SPOTIFY_AUTH_STATUS | B→F | `status(1B) + len(4B) + JSON` — `{authorized, needsReauth, scope, expiresAt, redirectUri, cachePath, reason}`; snapshot on connect, broadcast after an exchange **and the moment the player is refused**. `needsReauth` = a new authorization is the fix (expired / revoked / never stored / scope short) — NOT merely `!authorized`, since an unreadable config is unauthorized too and re-authorizing would not help it |
+| `0xA1` | SPOTIFY_AUTH_GET_URL | F→B | (empty) — start a flow, replacing any pending one |
+| `0xA2` | SPOTIFY_AUTH_URL | B→F | `status(1B) + len(4B) + JSON` — `{url, redirectUri, state}` on OK (informational only; the backend has already opened the page), or `{message}` on error |
+| `0xA3` | *(retired)* | — | Carried the redirect URL back from the embedded WebView. The consent page now opens in the host's real browser and the backend catches the redirect on its own loopback listener, so nothing produces one |
+| `0xA4` | SPOTIFY_AUTH_RESULT | B→F | `status(1B) + len(4B) + JSON` — `{ok, message, scope, expiresAt}` |
+| `0xB0` | SYSTEM_GET_STATUS | F→B | (empty) — sample the host now |
+| `0xB1` | SYSTEM_STATUS | B→F | `status(1B) + len(4B) + JSON` — host/backend metrics, per-service health, error tallies |
+| `0xC0` | DISPLAY_SET_POWER | F→B | `on(1B)` — 1 wakes the panel, 0 powers it down |
+| `0xC1` | DISPLAY_POWER_STATE | B→F | `available(1B) + on(1B)`; `available=0` = no wlopm on the host |
 
 (Trip codes `0x74`–`0x7D` — the Trips view — are omitted from this table; they mirror the History
 request/response shape. See the `frontend_v2` memory.)
@@ -562,8 +617,13 @@ guards; they're the only thing preventing injection if non-config input ever rea
   (`LEVEL | YYYY-MM-DD | HH:MM:SS | name | message`) onto an allow-list of top-level loggers.
   **Every service's logger prefix must be in `_SERVICE_LOGGERS`** (`tesla_service`, `media_service`,
   `weather_service`, `influxdb_service`, `charging_service`, `myenergi_service`, `trip_service`,
-  `server`, `start_services`, `utils`) — an unlisted prefix propagates to a handler-less root and its
-  INFO/DEBUG logs silently vanish.
+  `config_service`, `audio_service`, `display_service`, `system_service`, `server`,
+  `start_services`, `utils`) — an unlisted prefix propagates to a handler-less root and its
+  INFO/DEBUG logs silently vanish. **`spotipy` gets the same handlers but a PINNED level**
+  (`max(level, INFO)`): its "Couldn't write token to cache" warning is the only evidence that a
+  re-authorisation silently lost the grant, but at DEBUG it prints the token POST body and the
+  base64 `Authorization` header carrying `SPOTIFY_CLIENT_ID:SPOTIFY_CLIENT_SECRET`, the
+  authorization code and the refresh token. Never add it to the tuple itself.
 
 #### 5.2.7 `myenergi_service/` + `charging_service/` — charger + charging stats
 - **`myenergi_service.py`** (`MyEnergiService`) polls a myenergi Zappi via `pymyenergi` (cloud
@@ -604,10 +664,166 @@ guards; they're the only thing preventing injection if non-config input ever rea
   constructed (works with no Zappi); `run()` no-ops when `spotPrice.enabled` is false. **Talks to:**
   sähkötin.fi (aiohttp), `InfluxDBHandler`, `Server`.
 
+#### 5.2.8a `audio_service/` — host audio (issue #37)
+`audio_backend.py` holds one abstract `AudioBackend` plus four implementations, and
+`detect_backend()` probes the host in the order **`pactl` → `wpctl` → `amixer`**, falling back to
+`NullAudioBackend`. `pactl` goes first because it covers real PulseAudio *and* pipewire-pulse with
+one adapter **and addresses sinks by a stable name** — `wpctl set-default` takes only a
+session-scoped numeric id, so that path resolves the stored `node.name` against `pw-dump` on every
+write. Bookworm ships PipeWire + WirePlumber + pipewire-pulse, but `pipewire-pulse` only *suggests*
+`pulseaudio-utils`, so `pactl` is not guaranteed and `wpctl` is the always-present fallback.
+Enumeration on that path uses `pw-dump`'s JSON, never `wpctl status`'s box-drawing tree.
+`AudioService` applies `audio.volumePercent` / `audio.outputDevice` and refreshes the device list
+every 15 s (HDMI and Bluetooth hotplug). Load-bearing details:
+- **Device first, volume second, always.** A sink carries its *own* volume, so switching output
+  without re-applying the volume makes the user's setting silently stop holding.
+- **`wpctl` does not clamp** — `set-volume 150%` is accepted and overdrives the sink — and
+  **`wpctl get-volume` exits 0 even for a missing node**, so the `Volume: ` prefix is the test, not rc.
+- The feature needed **no protocol code and no frontend change**: two `config.json` keys, one hook,
+  one schema subsection. Two generic additions to `ConfigService` carry it — `register_options(key,
+  provider)` (a service owns its own dynamic enum) and `register_guard(name, guard)` (a pre-write
+  veto that, unlike a hook, runs *before* anything is persisted and can honestly reject
+  "this host cannot do that").
+
+#### 5.2.8b `display_service/` — panel power (issue #35)
+Runs `wlopm --on/--off <output>` (`*` = every output). The **frontend decides when** (it is the only
+side that sees touch input) and **this side does the switching**, because system calls belong to the
+backend. Reports `available=0` when wlopm is absent so the dashboard never arms a timeout that could
+do nothing, and `run()` powers the panel on at startup so a backend restart cannot leave it dark.
+Needs the compositor socket: `XDG_RUNTIME_DIR` is already in a `systemd --user` unit's environment,
+`WAYLAND_DISPLAY` is not (the unit is wanted by `default.target`), so the README's unit sets it.
+
+#### 5.2.8c `system_service/` — the maintenance dashboard (issue #39)
+`system_metrics.py` is pure stdlib against `/proc` (no psutil: nothing here is worth an ARM build and
+a pin). `SystemStatusService` serves `SYSTEM_GET_STATUS` — **request/response, not a broadcast, and
+deliberately NOT `register_service`d**: the Options view is open a fraction of the time, and sampling
+`/proc` for every client to feed a screen nobody is looking at is pure waste. Details that matter:
+- `/proc/net/dev` is parsed with `partition(":")`, not `split()` — a counter wide enough to touch the
+  colon prints `eth0:1234567890` and shifts every column by one.
+- CPU is a **delta**, so a sample older than 30 s is discarded and a fresh 250 ms window taken; a
+  half-hour-old sample would report the average over that half hour.
+- Per-service health is duck-typed **`health()`**, the same pattern as `stream_everything()` and
+  `apply_config()`, so each service answers from state it already keeps. A probe that raises or hangs
+  is reported as one broken service, never as a failed request.
+- Error tallies come from **`ErrorCounter`**, a `logging.Handler` attached to the same
+  `_SERVICE_LOGGERS` allow-list as the stdout handler (those loggers set `propagate = False`, which
+  is what rules out double counting).
+
+#### 5.2.8d `media_service/spotify_auth_service.py` — re-authorisation (issue #38)
+Serves `0xA0`–`0xA4` so the OAuth grant can be refreshed from the dashboard instead of by SSHing in
+to run `setup/spotify_setup.py`. **Only the authorization code crosses the wire** — single-use,
+~10-minute, and worthless without `SPOTIFY_CLIENT_SECRET`, which never leaves the backend. The
+exchange passes `check_cache=False` (with the default `True` a stale-but-valid cache short-circuits
+and the new code is never redeemed) and runs in an executor, since spotipy is blocking `requests`.
+
+> **The consent page is opened in the HOST'S REAL BROWSER. There is no embedded
+> browser any more — Qt WebEngine was removed from the project entirely.** `handle_get_url`
+> stands up a one-shot `asyncio.start_server` on the redirect URI's own host/port
+> (`127.0.0.1:8080`), launches the page with `xdg-open`, and catches Spotify's redirect itself —
+> so nothing is pasted by hand and the authorization code never leaves loopback. This is RFC 8252
+> §7.3 (Loopback Interface Redirection), and it is also why the redirect URI is allowed to be plain
+> HTTP. The reason it is not embedded is RFC 8252 §8.12: native apps **MUST NOT** use an embedded
+> user-agent for authorization — an embedded view can read the user's password keystrokes and lift
+> session cookies, which is exactly why providers block it. Measured: with WebGL and rendering both
+> fixed, the embedded `WebEngineView` still could not get past the login gate.
+>
+> **This does NOT reintroduce the `NonInteractiveSpotifyOAuth` hazard below.** That one is spotipy's
+> loopback server blocking a worker thread forever on `handle_request()`. This is an asyncio server
+> on the main loop, bound to loopback only, torn down on the first hit or at `_FLOW_TTL_SECONDS` by
+> `__cancel_pending()` (which awaits `wait_closed()`, so a retry can rebind the port).
+>
+> **Two traps in the listener, both found the hard way, both silent:**
+> - **A browser opens more than one connection to that port** — a speculative preconnect, and a
+>   `/favicon.ico` fetch the moment the response page renders. Neither carries the redirect's
+>   parameters. Treating "no code" as fatal cancelled the flow *while the real exchange was still
+>   in flight*, so the dashboard reported a failure for an authorization that had already succeeded
+>   and written its token. Only a request actually carrying `code` or `error` may decide anything;
+>   everything else gets a `204` and is ignored. `pending["claimed"]` makes the first code win, so a
+>   reload of the redirect URL cannot re-enter the exchange with a spent code.
+> - **Never `await Server.wait_closed()` from inside the callback handler.** Since CPython 3.12.1 it
+>   waits for every active connection to drop too — and the handler IS one of those connections, so
+>   it deadlocks there. The exchange completes and the token lands on disk, but the success reply
+>   never reaches the frontend. `close()` alone releases the listening socket, which is all a retry
+>   needs.
+>
+> There is no fallback left to degrade to, so **either half failing is a hard error** replied as
+> `SPOTIFY_AUTH_URL` + `SPOTIFY_AUTH_ERROR`: without a listener the code cannot be caught, without a
+> browser the page cannot be reached, and a dialog waiting forever for a redirect nobody can produce
+> is worse than a message. The target supports this natively — README §Pi notes the dashboard runs *on top of* the full
+> Raspberry Pi OS desktop, not as a kiosk, and the pre-existing `spotify_setup.py` already told the
+> user to run it "from the Pi's desktop (it needs to open a browser window)".
+>
+> **The grant EXPIRES — 6 months, absolute.** Verified against
+> `developer.spotify.com/documentation/web-api/tutorials/refreshing-tokens`: *"Refresh tokens issued
+> to apps registered in the Developer Dashboard have a lifetime of 6 months … Refreshing an access
+> token does not extend the refresh token's lifetime."* Announced 2026-06-18, enforced for existing
+> apps **2026-07-20**, and it covers the authorization-code flow this app uses (PKCE or not). So
+> re-authorization is not an incident-recovery tool — it is **routine maintenance roughly twice a
+> year**, and the reason the Options view's card carries that warning in its `help`.
+>
+> Do not confuse the two expiries. The cache's `expires_in`/`expires_at` is the **access** token's
+> ~1 hour, refreshed silently by spotipy before every request; the status packet's `expiresAt`
+> carries that value and **must never be rendered as "authorization valid until"** — it would imply
+> the grant dies within the hour while hiding the only expiry the user ever needs. Spotify does not
+> expose the grant's issue date, so a real "valid until" would mean recording our own timestamp at
+> each successful exchange.
+>
+> When it does expire the token endpoint returns **HTTP 400 `{"error": "invalid_grant"}`**, raised by
+> spotipy as `SpotifyOauthError`. `SpotifyPlayer._call_spotify` catches that **before** the
+> `SpotifyBaseException` arm it is a subclass of — only there can "the grant is gone" be told apart
+> from "the API said no" — and `_note_auth_failure` latches the player off:
+> - **Only terminal codes latch** (`invalid_grant`, `invalid_client`, `unauthorized_client`,
+>   `invalid_scope`, plus `NonInteractiveSpotifyOAuth`'s message-only "No usable Spotify token
+>   cache"). A 5xx from the token endpoint or a network blip is logged and ignored, or one bad
+>   minute at Spotify would silence the dashboard until someone restarted it.
+> - **While latched, `_call_spotify` and `_update_state` return before touching the network.**
+>   spotipy does not clear its cache on rejection, so without this the poller retries a dead token
+>   every 10 s forever, for nothing. `refresh_auth()` clears the latch and resumes.
+> - `_auth_listener` (wired in `start_services` to `SpotifyAuthService.notify_auth_state_changed`)
+>   re-broadcasts the status the instant the verdict changes, so the dashboard's prompt appears then
+>   rather than at the next reconnect.
+>
+> **`build_status()` asks the player first.** A cached refresh token Spotify has stopped accepting
+> still sits happily on disk, so cache presence proves nothing; only the player has actually tried
+> to use it. Its verdict overrides, and sets `needsReauth`.
+>
+> **The gate on Spotify's login page is Google reCAPTCHA Enterprise, not Cloudflare.** Measured:
+> `accounts.spotify.com` answers `server: envoy` with no `cf-*` header, and its CSP whitelists
+> `google.com/recaptcha`. `challenge-orchestrator /v1/invoke-challenge-command` is Spotify's own
+> wrapper around it. This matters because it scores the *execution environment* — a Chromium with
+> no WebGL context cannot produce a solvable challenge, which is how the whole flow dead-ended on
+> a WSL2 dev box (see §7.7). Earlier comments in this repo blamed Cloudflare; they were wrong.
+
+`spotify_oauth.py` holds the **one canonical `SPOTIFY_SCOPE`** and `NonInteractiveSpotifyOAuth`.
+Both are fixes for real hazards found while building this:
+- The scope literal was **duplicated** between the player and the setup helper. spotipy stamps the
+  *issuing* manager's scope onto the cached token and then refuses the cache unless the *reading*
+  manager's scope is a subset, so a re-auth issued with a narrower scope silently kills playback with
+  no error anywhere.
+- Stock `SpotifyOAuth` falls back to an **interactive** handshake when the cache is unusable: for a
+  `127.0.0.1` redirect it starts a local HTTP server and blocks forever *inside the player's executor
+  thread*, after which APScheduler refuses every later poll. Exactly the failure shape §5.2.4 records
+  for the weather service. The subclass raises instead, turning a silent hang into a logged error.
+- **A successful exchange could leave nothing on disk and still report success.** spotipy's
+  `CacheFileHandler` swallows every `OSError` from the token write and **never creates parent
+  directories**, so a `spotifyCachePath` whose directory is missing loses the grant silently: a tick
+  in the Options view, `authorized=false` in the status broadcast a line later, and the single-use
+  code already spent. `build_oauth` now `makedirs` the parent (warn-only — it runs on every client
+  connect via `build_status()`, so it must never crash a status read), and `handle_code` **verifies
+  the cache afterwards** rather than assuming, replying with the path when it is empty.
+- **The CSRF state check was a no-op.** The frontend round-tripped the backend's own nonce and the
+  backend compared it with itself, because spotipy's `parse_response_code` discards the state
+  Spotify echoes. `handle_code` now uses **`parse_auth_response_url`**, which returns `(state, code)`,
+  and the comparison is **mandatory** — a missing state is a failed check, not a skipped one.
+
 #### 5.2.8 `config_service/config_service.py` — runtime configuration (the Options view)
 `ConfigService` serves `CONFIG_GET_SCHEMA` / `CONFIG_SET` / `CONFIG_RESTART` and snapshots the
 schema to every new client (`register_service`). `SETTINGS_SCHEMA` is a literal list of groups
-→ settings, each declaring `key` (dotted), `type` (`bool|int|float|string|enum`), Finnish
+→ **subsections** → settings (issue #30), each group declaring `id` / `label` / `icon` and each
+subsection `id` / `label` / optional `help`. **Group ids are shared with the frontend's own
+bundled schema and a group present in both halves MERGES into one sidebar section** — which is
+how `general` shows the frontend's screensaver card beside this file's location card. Every
+setting declares `key` (dotted), `type` (`bool|int|float|string|enum`), Finnish
 `label`/`help`, `unit`, numeric `min`/`max`/`step`, `nullable`, `options` (or the string
 `"dynamic"`, resolved at schema-build time — `defaultRadioStation`'s choices are the configured
 `radioMediaIds` keys), an optional `validator` name, and its **apply tier**. It is both the
@@ -735,14 +951,63 @@ initialiser is a *binding*, so all ~236 existing `Theme.x` call sites across 38 
 working unchanged and gain live updates for free. **Add a tunable = one schema entry + one
 Theme binding**, no call-site edits.
 
-**Layout — master/detail.** `views/SettingsView.qml` is a sidebar + pane split, not one long
-list: `items/settings/SettingsSidebar.qml` lists the sections (one per schema group) and
-`SettingsPane.qml` renders the selected section's settings at full width. Two details are
-load-bearing:
-- **Two independent restart tiers.** `restartPending` tracks restart-tier *backend* writes,
-  `appRestartPending` restart-tier *local* ones (`backendHost` / `backendPort`, consumed once
-  by `AppConfig` at startup). They are fixed by restarting different processes, so the banner
-  names which and shows a button per pending one.
+The view's footer names **both** files the screen writes: `Settings.storagePath` (the local
+override file) and `Settings.backendStoragePath` — the backend's `config.json`, taken from the
+top-level `path` in its `CONFIG_SCHEMA` document (`Config.path`). The paths are
+deployment-specific, so without them "where do I edit this by hand" is unanswerable from the
+device. `backendStoragePath` is empty until a schema arrives (rendered as "—") and is kept
+after a disconnect, like the backend groups themselves; a document without the key never
+blanks a path already shown, so an older backend degrades quietly.
+
+**Layout — master/detail, three levels deep.** `views/SettingsView.qml` is a sidebar + pane
+split: `items/settings/SettingsSidebar.qml` lists the sections (one per schema group, its row
+naming the subsections inside) and `SettingsPane.qml` renders the selected section as a stack
+of **one card per subsection** (issue #30) — the same card the sidebar itself carries. The pane
+is transparent; the cards are the containers, so nothing is nested inside a further border.
+Sections are general (Yleinen, Media, Datan visualisointi, Sähkö, Tesla, Ylläpito) and the
+subsections carry the detail.
+
+**The two schemas merge by group id.** `Settings::rebuildGroups()` no longer concatenates the
+local and backend halves — it indexes the backend's groups by id and folds each into the local
+group of the same id, so one sidebar section can hold subsections from both. Consequences worth
+knowing:
+- **`config/settings.json` is the canonical section list**: order, label and icon come from it,
+  which is why `media`, `electricity` and `tesla` appear there with an empty `sections` array.
+  Those placeholders exist only to place and name a backend-only section; a section that ends up
+  with no subsections at all is hidden, so they cost nothing while disconnected.
+- A backend group whose id the local schema does not know is **appended**, not dropped.
+- `origin` is per **subsection** now (the "sovellus"/"palvelin" badge sits on each card), because
+  a section can legitimately mix the two.
+- `sectionsOf()` tolerates the pre-#30 shape (a group with a bare `settings` array) by
+  synthesizing one subsection, so mismatched halves still render.
+
+Further schema keys the delegates understand: **`relevantWhen`** (`{key, equals|notEquals}` —
+`SettingRow` fades a row whose controlling setting makes it meaningless **and sets
+`enabled: false` on it**, since a control that changes a value with no effect is worse than one
+that visibly cannot be used; `enabled` propagates down the item tree, so no editor needs to know
+about relevance. A setting that is a *precondition* for its controller — the screensaver's photo
+folder, without which the screensaver cannot run at all — must NOT carry a rule, or it becomes
+unsettable exactly when it needs setting. Resolved through `Settings.valueOf()`, which reaches
+**both** halves, with `Settings.valuesRevision` read purely to make the binding live),
+**`maxLabel`** (`SettingSlider` shows this text
+instead of the number at the slider's top stop — the graph point cap uses it for *rajoittamaton*,
+which really does disable decimation) and **`warnBelow` / `warnAbove` + `warnMessage`** (issue
+#34: `SettingRow` shows an inline caution while the value crosses the threshold; advisory only,
+`min`/`max` remain the hard bounds — the myenergi idle poll interval is the first consumer).
+
+Two details are load-bearing:
+- **Two independent restart tiers, both DERIVED not latched.** `restartPending` tracks
+  restart-tier *backend* settings, `appRestartPending` restart-tier *local* ones (`backendHost` /
+  `backendPort`, consumed once by `AppConfig` at startup). They are fixed by restarting different
+  processes, so the banner names which and shows a button per pending one. Each flag is "the
+  current value differs from the **baseline** the running process consumed", so reverting a value
+  clears the banner instead of latching it forever. The backend baseline is seeded
+  **insert-if-absent** — the backend re-broadcasts its schema after every accepted write, and
+  taking the new value as the baseline would erase the very difference the banner exists to
+  report. It is dropped only when the schema's **`startedAt`** changes, which is what
+  distinguishes "the backend restarted, so these values *are* the new baseline" from "the socket
+  blipped and reconnected" — a distinction the schema's content cannot make, since it reports what
+  is in `config.json`, not what each service snapshotted at construction.
 - **Selection is a group ID, and it is sticky.** The section list grows from 3 entries to 8
   when the backend's schema arrives and shrinks again if the connection drops, so an index
   would silently select a different section. `currentSectionId` holds what the user *chose*
@@ -759,7 +1024,112 @@ load-bearing:
 `SettingSwitch` / `SettingNumber` / `SettingSlider` / `SettingText` / `SettingSelect` (the
 last subclasses `TripComboBox`, inheriting the dark styling and the #9/#19 dropdown fixes).
 
-> **Numeric settings default to `SettingNumber` — a `[−] [typed value] [+]` stepper — and
+> The **`screensaverDir`** setting (issue #33) is the pattern for a path: `string` + `nullable`,
+defaulting from `TESLA_HOMEDASH_SCREENSAVER_DIR` through the schema's `env` key. `AppConfig` no
+longer reads that variable at all — two readers would be two sources of truth, and the setting is
+live. `ScreenSaver.qml` binds `FolderListModel.folder` to `Settings.toFileUrl(Theme.screensaverDir)`
+(`QUrl::fromLocalFile`, empty in → empty out), and with no folder the model is empty, so the
+screensaver never activates however the toggle is set. `coerceLocal` gained the matching rule:
+an empty string is rejected unless the setting is `nullable`.
+
+**Backend reachability** (issue #36) is `core/connectionprobe.{hh,cpp}`, the QML singleton
+**`Probe`**, surfaced by `items/settings/BackendProbeStatus.qml`. It is deliberately NOT
+`ServerClient`: that one owns the live session and reconnects forever, which is the opposite of
+what a validation check may do. `Probe` opens a socket, waits 3 s, reports `reachable` /
+`unreachable` (with the socket's own error text — "Connection refused" and "Host not found" are
+different problems) and closes; a successful probe aborts the instant it connects, so the
+backend just sees a connection open and close.
+
+The hook is a **subsection-level `status` key**: a subsection may name a runtime status widget,
+which `SettingsPane` renders in the card via a `Loader` above the rows, resolving the name against
+a small component table (`backendProbe`, `systemStatus`, `spotifyAuth`). `active:` gates
+construction, which is what keeps the probe from firing — and Chromium from starting — for a card
+that did not ask for it. A subsection carrying a `status` but **no settings** is legitimate and is
+exempted from the empty-section filter: the system-status card is entirely a status widget. It exists because not every fact about a section fits in a
+setting row: *is that address reachable* belongs to the host and port **together**. The verdict
+follows the SAVED values (what startup will actually use), debounced 400 ms so editing host then
+port probes once against the final pair. Advisory only — the write is never blocked, since the
+backend legitimately may not be up yet.
+
+**Display power-down** (issue #35) is `core/screenpower.{hh,cpp}`, the QML singleton
+**`Display`** — a step BEYOND the screensaver: the screensaver keeps the backlight on to show
+photos, this cuts it. **It runs no process.** This side owns only the countdown, because it is
+the only side that sees touch input; the `wlopm` call lives in `display_service` (§5.2.8b),
+because talking to the system is the backend's job. `off` and `available` are *reported by* the
+backend over `DISPLAY_POWER_STATE`, never assumed here, so a host with no wlopm answers
+`available=false` and the toggle simply has nothing to drive. It hangs off the
+**`IdleWatcher::activity()`** signal rather than installing a second event filter, so both
+timeouts share one definition of "the user is here". Its settings are *pushed* from `Main.qml`
+(`Binding` on `Display.enabled` / `.timeoutMs`), the same pattern the screensaver timeout uses
+for `Idle`, which is what makes them live.
+
+**The maintenance dashboard** (issue #39) is `core/systemstatus.{hh,cpp}`, the QML singleton
+**`System`**, rendered by `items/settings/SystemStatusPanel.qml`. Pull, not push: it polls
+`SYSTEM_GET_STATUS` every 5 s **only while `active`**, which the panel binds to its own
+visibility — so a settings screen nobody has opened costs nothing on either side. The document is
+handled as an opaque `QVariantMap` on purpose: it is a dashboard, not a contract, and adding a
+metric on the backend should not need a C++ change to display it.
+
+**Fullscreen** is the local `fullscreen` setting (`general` → *Näyttö*), read straight from
+`Settings.values` by `Main.qml` rather than through `Theme` — it is a window mode, not a design
+token. Two things hang off it. The **size lock is released in fullscreen**
+(`minimumWidth == maximumWidth == 1280` otherwise): the compositor cannot size a surface whose
+min and max are pinned. And the window **steps back to windowed for the duration of a Spotify
+re-authorization** (`SpotifyAuth.phase !== "idle"`), because the consent page opens in the host's
+own browser and must be reachable above the dashboard — on labwc, Raspberry Pi OS Bookworm's
+compositor, squeekboard is hardcoded to the `top` layer and does not draw over a fullscreen
+surface (labwc#2926), so a fullscreen dashboard would leave the on-screen keyboard unreachable and
+the login untypeable on a keyboard-less panel.
+
+**Spotify re-authorisation** (issue #38) is `core/spotifyauth.{hh,cpp}`, the QML singleton
+**`SpotifyAuth`**, with `items/settings/SpotifyAuthPopup.qml` over the view and
+`SpotifyAuthStatus.qml` in the card. `phase` is a plain string state machine
+(`idle`/`requesting`/`consent`/`done`/`error`) so QML switches on it with no enum registration.
+
+**This side renders no browser and never touches a credential.** The backend opens the consent page
+in the host's real browser and catches the redirect on its own loopback listener (§5.2.8d); the
+singleton's whole job is `begin()`, `cancel()`, and turning `SPOTIFY_AUTH_URL` / `_RESULT` into a
+phase. It originally drove an embedded `WebEngineView` that aborted the redirect navigation to read
+the code out of the URL — that design is **gone**, and with it Qt WebEngine (see below).
+
+Two details are load-bearing:
+- **There is no browser on this side at all.** `SpotifyAuthPopup.qml` is a small progress dialog —
+  "Tunnistautuminen käynnissä…" → "Tunnistautuminen onnistui." with a close button — plus
+  `DialogButton.qml`. It renders no page, holds no profile, and learns only "started" and
+  "finished"; no code or token ever crosses the link. **`Qt::WebEngineQuick` is gone from
+  `CMakeLists.txt`, `QtWebEngineQuick::initialize()` from `main.cpp`, and `WebEngineQuick` from the
+  README's module list** — verified with `ldd`, the binary links no WebEngine library. A *Peruuta*
+  button stays available while the flow runs: a browser that never comes back would otherwise
+  strand the dialog on screen.
+- **The prompt and the progress dialog live in `Main.qml`, not in `SettingsView`.** The grant can
+  die while any view is on screen, so `SpotifyAuthAlert.qml` (z:250) has to be raised over whatever
+  that view is — and its button starts a flow whose progress dialog (z:260) would be invisible if it
+  still lived in a settings screen nobody was looking at. Both sit **below the screensaver** (z:300):
+  a dashboard that has gone to sleep should stay asleep for a prompt that will still be there on
+  waking. `alertVisible` is derived in C++ from three inputs — `needsReauth`, dismissed, and
+  `phase == "idle"` — so the prompt never stacks under the dialog. Dismissing is sticky until the
+  grant works again and then fails afresh (a dashboard nobody can re-authorize right now must stay
+  usable), and `begin()` counts as dismissing, so a failed flow does not re-raise the prompt the
+  moment its error is closed.
+- **`m_flowActive` fences late replies.** `cancel()` only set the phase, so a `SPOTIFY_AUTH_URL`
+  arriving afterwards flipped the phase back to `consent` and reopened the dialog for an abandoned
+  flow. The flag is set in `begin()`, cleared in `cancel()` and on `SPOTIFY_AUTH_RESULT`; the
+  `SPOTIFY_AUTH_STATUS` branch stays unfenced on purpose — that snapshot must always apply.
+
+> **Dead end, recorded so nobody repeats it.** Before the flow moved to the host browser, a lot of
+> work went into making the embedded `WebEngineView` look like a real browser: `GALLIUM_DRIVER`
+> for WebGL, `--disable-gpu-compositing` for rendering, and a `WebEngineProfile` whose UA and
+> `clientHints` were rewritten together (setting `httpUserAgent` alone leaves `Sec-CH-UA` reporting
+> Chromium's real version, so the old hardcoded `Chrome/131` against Chromium 140 advertised two
+> Chrome majors in one request — a *stronger* bot signal than not spoofing). All of it worked, and
+> **none of it got past Spotify's login gate.** The lesson is the RFC's, not a tuning one: an
+> embedded user-agent is not supposed to work, and no amount of fingerprint alignment changes that.
+
+An `action` row whose key `Settings::invokeAction` does not handle itself now emits
+**`actionRequested(key)`**, which `SettingsView` routes — that is how the backend owns the Spotify
+exchange while the consent UI stays a view concern, with `Settings` knowing nothing about either.
+
+**Numeric settings default to `SettingNumber` — a `[−] [typed value] [+]` stepper — and
 > sliders are OPT-IN** via the schema's `editor: "slider"`. A slider only works when the exact
 > number does not matter; most settings here are the opposite. Dispatching on `type` alone
 > gave `backendPort` (1–65535) a slider whose 320px track is ~205 ports per pixel, and 13 of
@@ -939,7 +1309,82 @@ a new/renamed service or widget, a protocol change, a build-command change, or a
 invariant. Treat the doc as part of the change, not an afterthought, and bump §7.7.
 
 ### 7.7 Documentation currency
-This guide is current as of the **WSL2 development-environment migration**. Development moved from
+This guide is current as of the **Options-view feature build-out** on
+`feature/settings-options-view`, tracked as issues **#30–#41** (all but **#40**, host reboot,
+which is deliberately deferred).
+
+Landed in the latest pass: the **Spotify re-authorisation debug pass**. The consent flow
+dead-ended on the WSL2 dev box: WSL2 exposes the GPU as `/dev/dxg` with **no `/dev/dri`**, Mesa
+falls back to llvmpipe, Chromium ≥120 refuses a WebGL context on software GL, and Spotify's login
+gate — **Google reCAPTCHA Enterprise, not Cloudflare**, as the original build assumed throughout —
+cannot build a solvable challenge without one, so `challenge-orchestrator` answered 400 forever.
+Measured both ways in a `WebEngineView`: `webgl1:false` + `WebGL1 blocklisted` by default,
+`webgl1/webgl2:true` on `ANGLE (… D3D12 …)` with `GALLIUM_DRIVER=d3d12`. That alone then broke
+rendering instead — no `EGL_EXT_image_dma_buf_import` on the d3d12 driver, so a black panel — and
+needed `--disable-gpu-compositing` beside it; a seven-configuration matrix scored on *both* "does a
+solid-colour page actually paint" and "does WebGL work" picked that pair as the only one winning
+both. `scripts/build-frontend.sh` exports them under `--run` when it sees that host shape (inert on
+the Pi, which has `/dev/dri`). **The dead-end itself is a dev-box artifact**; four defects found
+alongside it are not. Backend: a failed cache write reported success (spotipy swallows the `OSError`
+and never `makedirs`), and the CSRF state check compared our own nonce with itself — both fixed in
+§5.2.8d, with `spotipy` now logging through the shared handlers at a pinned INFO. Frontend
+(§5.3.6): `cancel()` did not fence late replies (now `m_flowActive`).
+
+**Then the embedded browser was removed outright.** With WebGL, compositing and the UA/client-hint
+mismatch all fixed, the `WebEngineView` still could not pass Spotify's reCAPTCHA gate — while the
+same flow in a real browser succeeded on the first try (verified end to end: browser history shows
+`authorize` → `login/otp` → the callback landing on the loopback listener, and a live API call
+against the resulting grant). So `handle_get_url` now opens the page with `xdg-open` and catches the
+redirect on a one-shot `asyncio.start_server` (RFC 8252 §7.3), `0xA3` is retired, and
+**`Qt::WebEngineQuick` is gone from the build** — `ldd` confirms the binary links no WebEngine
+library, which is also why `README.md` lists **Qt 5 Compatibility** but no longer WebEngine. The
+popup is now a small progress dialog plus `DialogButton.qml`.
+
+That raised a question with a surprising answer: **`frontend_v2` had no fullscreen support at
+all** — `Main.qml` was a hard-locked 1280×800 window, `TESLA_HOMEDASH_FULLSCREEN` was read only by
+the frozen Widgets `frontend/`, and `build-frontend.sh --fullscreen` exported it to a binary that
+ignored it. So fullscreen is now a real local setting (§5.3.6) that releases the size lock, makes
+`--fullscreen` work, and steps back to windowed while a re-authorization runs so the browser and
+the on-screen keyboard stay reachable (labwc#2926). Deliberately deferred:
+`build_status()` still reports "authorized" from cache presence alone, so it stays green after the
+user revokes the app at spotify.com — that needs `SpotifyPlayer` to record its last auth failure.
+
+Landed in the preceding pass: **host audio** (#37 — `audio_service/`, auto-detecting
+`pactl`/`wpctl`/`amixer`, two `config.json` keys and no new protocol code, carried by two generic
+`ConfigService` additions, `register_options` and `register_guard`); **Spotify re-authorisation**
+(#38 — `0xA0`–`0xA4`, the backend holding the secret and the frontend showing the consent page in
+the project's only `WebEngineView`, which aborts the redirect navigation so no loopback server is
+needed; plus the two latent hazards that fixed — a duplicated OAuth scope literal, and spotipy's
+interactive fallback that blocks the player's executor thread forever); the **maintenance
+dashboard** (#39 — `system_service/`, stdlib `/proc` metrics, duck-typed `health()` probes and an
+`ErrorCounter` log handler, served request/response so it costs nothing while unopened); and four
+settings-UX changes — scroll bars removed, a real font ramp on the subsection cards, schema-driven
+**`relevantWhen`** fading, and a restart banner that is now **derived from a startup baseline**
+(with the new `startedAt` schema field distinguishing a backend restart from a reconnect) so
+reverting a value clears it.
+
+**#35 was rebuilt in the same pass to respect the service boundary**: `wlopm` no longer runs from
+the frontend at all. The UI owns the idle countdown; `display_service` owns the process.
+
+Predecessor work in this series — the **Options-view regrouping**. The settings schema gained a **subsection level** (#30): groups →
+sections → settings in both halves, one card per subsection in the pane, and — the load-bearing
+part — `Settings::rebuildGroups()` now **merges the local and backend schemas by group id** instead
+of concatenating them, so one sidebar section holds subsections from both. On that, the settings
+were regrouped into six general sections (#31: Yleinen, Media, Datan visualisointi, Sähkö, Tesla,
+Ylläpito), with `config/settings.json` as the canonical section list (empty-`sections` placeholders
+place the backend-only ones). Also landed: the graph tunables reworked (#32 — `tripMaxSpeedKmh` and
+`graphMinZoomSpanMs` back to Theme literals, `graphBucketsPerPx` → `graphMaxPoints` with a
+*rajoittamaton* top stop that really disables decimation, plus a new `graphSensitivity` multiplier
+on pinch/wheel/drag); the screensaver photo folder as a live nullable setting (#33) with
+`AppConfig` no longer reading `TESLA_HOMEDASH_SCREENSAVER_DIR`; advisory `warnBelow`/`warnAbove`
+thresholds on numeric rows (#34); display power-down via `wlopm` (#35); the backend-address
+reachability probe (#36, which added the subsection `status` hook); and **both config files
+moved to `~/.config/Tesla-Homedash/`**
+(#41 — `backend_config.json` + `frontend_config.json`, `CONFIG_PATH` demoted to an override, the
+frontend migrating its old file once). Still open from that set: #37 system audio, #38 Spotify re-auth,
+#39 system status, #40 host reboot.
+
+Predecessor work — the **WSL2 development-environment migration**. Development moved from
 native Windows to WSL2 (Ubuntu 24.04), and §3.2 + §8 now document **both** flows side by side rather
 than Windows only — the Windows box still builds, so neither replaces the other. New on the Linux
 side: `scripts/build-frontend.sh` (the counterpart of `build-frontend.ps1`; kit from `--qt-prefix`,

@@ -82,8 +82,11 @@ In the installer's **Additional Libraries** step, make sure the following module
 - **Qt Location**
 - **Qt Positioning**
 - **Qt Graphs**
+- **Qt 5 Compatibility Module** — `Qt5Compat.GraphicalEffects`, used by the icon tinting
 
-The other Qt modules the frontend links against — `Core`, `Gui`, `Widgets`, `Network`, `Quick`, `QuickWidgets`, `Svg`, and `Concurrent` — are part of the default Qt 6 install and don't need to be enabled separately.
+The other Qt modules the frontend links against — `Core`, `Gui`, `Widgets`, `Network`, `Quick`, `QuickControls2`, `QuickWidgets`, `Svg`, and `Concurrent` — are part of the default Qt 6 install and don't need to be enabled separately.
+
+All four of the modules above are `REQUIRED` in `frontend_v2/CMakeLists.txt`, so leaving one unchecked makes `cmake` fail at configure time rather than at build time.
 
 Take note of the install path the installer reports when it finishes (for example `~/Qt/6.8.0/gcc_arm64/` on the Pi). You'll pass it to CMake when building the frontend later.
 
@@ -122,6 +125,14 @@ sudo mv spotifyd /usr/local/bin/
 ```
 
 The `-full` variant includes both ALSA and PulseAudio audio backends; the `-default` variant is ALSA-only. Raspberry Pi OS Desktop runs PipeWire with a PulseAudio compatibility layer, so the PulseAudio backend works out of the box.
+
+> **Optional, for the Options view's audio settings:** `sudo apt install pulseaudio-utils`.
+> The backend controls the system volume and output device through whichever of
+> `pactl`, `wpctl` or `amixer` it finds, in that order. `wpctl` is always present on
+> Bookworm (WirePlumber ships it), so audio works without this — but `pactl` addresses
+> sinks by a stable *name* rather than a session-scoped numeric id, which makes a saved
+> output device survive reboots and hotplugs more reliably. `pipewire-pulse` only
+> *suggests* the package, so it is not installed by default.
 
 Create the config file at `~/.config/spotifyd/spotifyd.conf`:
 
@@ -244,6 +255,17 @@ uv run python -m src.media_service.setup.spotify_setup
 ```
 
 The helper opens the Spotify authorization page in your browser. After approving, paste the full redirect URL (`http://127.0.0.1:8080/callback?code=...`) back into the terminal — spotipy then writes the OAuth refresh token to `spotifyCachePath`.
+
+> **The authorization is not permanent.** Since Spotify's
+> [refresh-token expiration change](https://developer.spotify.com/blog/2026-06-18-refresh-token-expiration)
+> (new apps 2026-06-18, existing apps 2026-07-20), a refresh token
+> [lives 6 months](https://developer.spotify.com/documentation/web-api/tutorials/refreshing-tokens)
+> and **refreshing it does not extend that** — after six months the token endpoint answers
+> `invalid_grant` and Spotify playback stops until you re-authorize. You do not have to come back
+> to this helper: the dashboard's **Asetukset → Media → Spotify-tunnistautuminen** card renews it
+> on the device, and previously approved scopes carry over as long as the app asks for the same
+> ones. The 1-hour `expires_in` in the cache file is the *access* token and is refreshed
+> automatically — it is not the number that matters here.
 
 Next the helper prompts you to start playback on the Spotifyd device. Once Spotify is playing on it, press Enter and the helper prints the active device's name and ID. Copy that ID into `spotifyDeviceId` in `config.json`.
 
@@ -369,6 +391,12 @@ WorkingDirectory=%h/Tesla-Homedash/backend
 # too, but waiting avoids a degraded first boot.
 ExecStartPre=/bin/sh -c 'for i in $(seq 1 60); do curl -sf http://localhost:8086/health >/dev/null && exit 0; sleep 1; done; exit 1'
 ExecStart=%h/.local/bin/uv run python run.py
+# The backend switches the panel on and off for the Options view's screen-off
+# setting, which goes through wlopm and therefore needs the compositor's socket.
+# XDG_RUNTIME_DIR is already in a --user unit's environment; WAYLAND_DISPLAY is
+# not, because this unit is wanted by default.target rather than
+# graphical-session.target. Drop this line if you do not use that setting.
+Environment=WAYLAND_DISPLAY=wayland-1
 Restart=on-failure
 RestartSec=5
 
