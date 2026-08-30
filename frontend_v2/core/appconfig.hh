@@ -32,9 +32,11 @@ class Settings;
  *                                Sentinel-2 basemap. Kept in the environment so
  *                                the key never lives in the committed QML.
  *   TESLA_HOMEDASH_SCREENSAVER_DIR         (string)  optional — a folder of photos
- *                                the screensaver cycles through. Exposed to QML as
- *                                a file:// URL; empty (unset) → the screensaver has
- *                                nothing to show and stays off.
+ *                                the screensaver cycles through. NOT read here: it
+ *                                is the default for the Options-view setting of the
+ *                                same meaning, which owns the value and can change
+ *                                it live. Empty (unset) → nothing to show, and the
+ *                                screensaver stays off.
  *   TESLA_HOMEDASH_SCREENSAVER_TIMEOUT_MIN (int)     minutes of inactivity before
  *                                the screensaver appears (default 30). Read by
  *                                main() and pushed to the IdleWatcher. Also an
@@ -49,9 +51,6 @@ class AppConfig : public QObject {
     // host. Both are decided once at construction (CONSTANT — no NOTIFY needed).
     Q_PROPERTY(QString mapTilesUrl READ mapTilesUrl CONSTANT)
     Q_PROPERTY(QString mapAttribution READ mapAttribution CONSTANT)
-    // Screensaver photo folder as a file:// URL (empty when unset). Decided once
-    // at construction. Consumed by items/util/ScreenSaver.qml's FolderListModel.
-    Q_PROPERTY(QString screensaverDir READ screensaverDir CONSTANT)
 
 public:
     // `settings` is optional but normally supplied: main.cpp constructs Settings
@@ -68,7 +67,6 @@ public:
     // Exposed to QML via the Q_PROPERTYs above.
     const QString& mapTilesUrl() const { return m_mapTilesUrl; }
     const QString& mapAttribution() const { return m_mapAttribution; }
-    const QString& screensaverDir() const { return m_screensaverDir; }
 
 private:
     QString m_backendHost;
@@ -76,7 +74,6 @@ private:
     Logger::Level m_logLevel = Logger::Level::Info;
     QString m_mapTilesUrl;
     QString m_mapAttribution;
-    QString m_screensaverDir;
     int m_screensaverTimeoutMs = 30 * 60 * 1000;
 };
 

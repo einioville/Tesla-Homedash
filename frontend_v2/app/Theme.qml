@@ -19,18 +19,28 @@ import frontend_v2
 QtObject {
     // --- Feature flags ----------------------------------------------------
     // Luna — the dog-memorial overlay on the dashboard. Toggled from the Options
-    // view (Sovellus > Luna), off by default. She is gated by `visible`/`running`
+    // view (Yleinen > Lisäasetukset), off by default. She is gated by `visible`/`running`
     // rather than a Loader, so she is constructed either way; flipping this only
     // stops her painting and animating.
     readonly property bool lunaEnabled: Settings.values.lunaEnabled
 
     // Screensaver — after the configured idle timeout a black photo slideshow
     // takes over the screen; any tap dismisses it and returns to the last-used
-    // view. On/off, timeout, dwell and pile size are all Options-view settings;
-    // only the photo FOLDER stays in the environment (TESLA_HOMEDASH_SCREENSAVER_DIR),
-    // since it is a path rather than something to type on a touchscreen.
+    // view. On/off, timeout, dwell, pile size and the photo folder are all
+    // Options-view settings; the folder still DEFAULTS to
+    // TESLA_HOMEDASH_SCREENSAVER_DIR, so an existing deployment keeps working
+    // until it is changed on-device. With no folder there are no photos and the
+    // screensaver never activates.
     // Press F10 to toggle it on demand for testing.
     readonly property bool screensaverEnabled: Settings.values.screensaverEnabled
+    // Plain filesystem path; Settings.toFileUrl() turns it into a URL for QML.
+    readonly property string screensaverDir: Settings.values.screensaverDir
+
+    // Panel power-down — a step BEYOND the screensaver: the screensaver keeps the
+    // backlight on to show photos, this cuts it. Main.qml pushes both at the C++
+    // ScreenPower (`Display`), which shells out to wlopm.
+    readonly property bool screenOffEnabled: Settings.values.screenOffEnabled
+    readonly property int screenOffMin: Settings.values.screenOffMin
 
     // Surfaces
     readonly property color appBackground: "#0f1115"
@@ -60,6 +70,10 @@ QtObject {
     // Motion (ms)
     readonly property int dockDuration: 260
     readonly property int pressDuration: 90
+    // Opacity of a settings row that a toggle has made irrelevant. Faded, never
+    // disabled — the value stays editable so you can set it BEFORE turning the
+    // feature on.
+    readonly property real settingIrrelevantOpacity: 0.45
 
     // --- Dashboard (Widgets-frontend parity) -----------------------------
     readonly property string fontFamily: "Gotham Rounded Medium"
@@ -118,8 +132,9 @@ QtObject {
     // --- Trips view -------------------------------------------------------
     // Speed at which the route line reaches the top of the colour ramp (red).
     // The gradient runs dark green (0 km/h) → red / dark red (this value); speeds
-    // above it clamp to the top colour. TripMap.colorForSpeed reads this.
-    readonly property real tripMaxSpeedKmh: Settings.values.tripMaxSpeedKmh
+    // above it clamp to the top colour. TripMap.colorForSpeed reads this. Not a
+    // user setting: it is a colour-scale endpoint, not a preference.
+    readonly property real tripMaxSpeedKmh: 150.0
     // Coloured route line width (px) and its dark casing underneath (for legibility
     // over satellite imagery / bright tiles).
     readonly property real tripRouteWidth: 4
@@ -170,9 +185,16 @@ QtObject {
     // Viewport-decimation and zoom-debounce knobs shared by every HistoryGraph
     // instance (History, Trips and Charging all reuse it). Exposed in the Options
     // view because the right values depend on the target hardware: the Pi wants a
-    // coarser bucketsPerPx and a longer settle than a desktop does.
-    readonly property real graphBucketsPerPx: Settings.values.graphBucketsPerPx
+    // lower point cap and a longer settle than a desktop does.
+    // Cap on how many points a graph draws at once. The setting's TOP stop means
+    // no cap, so this sentinel must equal the schema's max for graphMaxPoints.
+    readonly property int graphMaxPointsUnlimited: 5000
+    readonly property int graphMaxPoints: Settings.values.graphMaxPoints
+    // Multiplier on pan/zoom response — the 10" panel wants more than a desktop.
+    readonly property real graphSensitivity: Settings.values.graphSensitivity
     readonly property int graphSettleMs: Settings.values.graphSettleMs
     readonly property real graphRenderMarginFrac: Settings.values.graphRenderMarginFrac
-    readonly property int graphMinZoomSpanMs: Settings.values.graphMinZoomSpanMs
+    // Tightest zoom window. Fixed: a minute is short enough for any range the
+    // History view loads, and nothing is gained by exposing it.
+    readonly property int graphMinZoomSpanMs: 60000
 }

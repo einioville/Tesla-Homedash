@@ -67,9 +67,12 @@ Item {
         const rounded = control.isInt
                         ? Math.round(clamped)
                         : Number(clamped.toFixed(control.decimals))
+        // BEFORE the write, not after: Settings.setValue() rebuilds
+        // Settings.groups, which destroys and rebuilds this very delegate,
+        // so any statement after it evaluates in a dead context and throws.
+        field.text = control.formatted(rounded)
         if (rounded !== control.setting.value)
             Settings.setValue(control.setting.key, rounded)
-        field.text = control.formatted(rounded)
     }
 
     function nudge(direction) {

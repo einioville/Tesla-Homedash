@@ -9,6 +9,8 @@
 #include <QJsonValue>
 #include <QSaveFile>
 #include <QStandardPaths>
+#include <QUrl>
+#include <QStringList>
 #include <QtEndian>
 #include <QtGlobal>
 #include <utility>
@@ -25,10 +27,25 @@ const Logger logger = Logger::get("settings");
 // Compiled into the binary, never written to.
 const QString kSchemaResource = QStringLiteral(":/config/settings.json");
 
-// Where the user's overrides are persisted. AppConfigLocation because it is
-// writable on every target and survives redeploying the binary; overridable so a
-// deployment can point it somewhere else (a tmpfs-backed image, say).
+// Where the user's overrides are persisted. Overridable so a deployment can point
+// it somewhere else (a tmpfs-backed image, say).
 const char *kStorageEnv = "TESLA_HOMEDASH_SETTINGS_FILE";
+
+// GenericConfigLocation + the project's own directory, so this file lands beside
+// the BACKEND's backend_config.json in ~/.config/Tesla-Homedash/ rather than in an
+// app-name directory nobody can guess. Resolves per-platform (%APPDATA% on
+// Windows), so it stays correct off Linux.
+QString defaultStoragePath() {
+    return QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation) +
+           QStringLiteral("/Tesla-Homedash/frontend_config.json");
+}
+
+// The pre-move location: AppConfigLocation/settings.json, which with no
+// organisation or application name set resolves to ~/.config/appfrontend_v2/.
+QString legacyStoragePath() {
+    return QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation) +
+           QStringLiteral("/settings.json");
+}
 
 // Exit code used when the user asks the app to restart itself. Deliberately
 // NON-ZERO so the README's `Restart=on-failure` frontend unit brings it back —
@@ -79,6 +96,25 @@ QVariant envFromString(const QJsonObject &setting, const QString &raw) {
     return raw;
 }
 
+// A group's subsections. Tolerates the pre-subsection schema shape (a bare
+// `settings` array) by synthesizing one section from it, so a frontend and a
+// backend that disagree about the schema version still render.
+QVariantList sectionsOf(const QVariantMap &group) {
+    const QVariantList sections = group.value(QStringLiteral("sections")).toList();
+    if (!sections.isEmpty()) {
+        return sections;
+    }
+    const QVariantList settings = group.value(QStringLiteral("settings")).toList();
+    if (settings.isEmpty()) {
+        return {};
+    }
+    QVariantMap synthetic;
+    synthetic.insert(QStringLiteral("id"), group.value(QStringLiteral("id")));
+    synthetic.insert(QStringLiteral("label"), group.value(QStringLiteral("label")));
+    synthetic.insert(QStringLiteral("settings"), settings);
+    return {synthetic};
+}
+
 // Frames a JSON request body as len(4B) + UTF-8, the CONFIG_* payload shape.
 QByteArray jsonRequestBody(const QJsonObject &object) {
     const QByteArray json = QJsonDocument(object).toJson(QJsonDocument::Compact);
@@ -95,13 +131,34 @@ Settings::Settings(QObject *parent) : QObject(parent) {
     if (!override.isEmpty()) {
         m_storagePath = override;
     } else {
-        const QString dir = QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation);
-        m_storagePath = dir + QStringLiteral("/settings.json");
+        m_storagePath = defaultStoragePath();
+        migrateLegacyStorage();
     }
 
     loadLocalSchema();
     loadSavedValues();
+    captureLocalRestartBaseline();
     rebuildGroups();
+}
+
+// Carries an existing settings file over from the pre-move location, once. Copies
+// rather than moves: if anything about the new path is wrong the user's overrides
+// are still where they were. A failed copy is not fatal — it just means starting
+// from defaults, which is what would have happened anyway.
+void Settings::migrateLegacyStorage() {
+    if (QFile::exists(m_storagePath)) {
+        return;
+    }
+    const QString legacy = legacyStoragePath();
+    if (legacy == m_storagePath || !QFile::exists(legacy)) {
+        return;
+    }
+    const QFileInfo info(m_storagePath);
+    if (!QDir().mkpath(info.absolutePath()) || !QFile::copy(legacy, m_storagePath)) {
+        logger.warning(QStringLiteral("Could not migrate settings from %1").arg(legacy));
+        return;
+    }
+    logger.info(QStringLiteral("Migrated settings from %1").arg(legacy));
 }
 
 // ── Local schema + persistence ───────────────────────────────────────────────
@@ -122,53 +179,67 @@ void Settings::loadLocalSchema() {
     const QJsonArray groups = doc.object().value(QStringLiteral("groups")).toArray();
     for (const QJsonValue &groupValue : groups) {
         const QJsonObject group = groupValue.toObject();
-        QVariantList settings;
-        const QJsonArray entries = group.value(QStringLiteral("settings")).toArray();
-        for (const QJsonValue &entryValue : entries) {
-            const QJsonObject entry = entryValue.toObject();
-            const QString key = entry.value(QStringLiteral("key")).toString();
-            if (key.isEmpty()) {
-                continue;
-            }
-            // A setting may name an environment variable that supplies its
-            // DEFAULT, so an existing deployment's .env keeps working until the
-            // user overrides it here. Full precedence:
-            //   schema default  <  env / .env  <  saved user override
-            QJsonObject resolved = entry;
-            const QString envKey = entry.value(QStringLiteral("env")).toString();
-            if (!envKey.isEmpty()) {
-                const QString fromEnv = dotenv::valueOr(envKey.toLatin1().constData());
-                if (!fromEnv.isEmpty()) {
-                    QString envError;
-                    const QVariant coerced = coerceLocal(entry, envFromString(entry, fromEnv),
-                                                         &envError);
-                    if (envError.isEmpty()) {
-                        resolved.insert(QStringLiteral("default"),
-                                        QJsonValue::fromVariant(coerced));
-                    } else {
-                        logger.warning(QStringLiteral("Ignoring %1=%2 for %3: %4")
-                                           .arg(envKey, fromEnv, key, envError));
+        QVariantList sections;
+
+        for (const QJsonValue &sectionValue : group.value(QStringLiteral("sections")).toArray()) {
+            const QJsonObject section = sectionValue.toObject();
+            QVariantList settings;
+
+            for (const QJsonValue &entryValue : section.value(QStringLiteral("settings")).toArray()) {
+                const QJsonObject entry = entryValue.toObject();
+                const QString key = entry.value(QStringLiteral("key")).toString();
+                if (key.isEmpty()) {
+                    continue;
+                }
+                // A setting may name an environment variable that supplies its
+                // DEFAULT, so an existing deployment's .env keeps working until
+                // the user overrides it here. Full precedence:
+                //   schema default  <  env / .env  <  saved user override
+                QJsonObject resolved = entry;
+                const QString envKey = entry.value(QStringLiteral("env")).toString();
+                if (!envKey.isEmpty()) {
+                    const QString fromEnv = dotenv::valueOr(envKey.toLatin1().constData());
+                    if (!fromEnv.isEmpty()) {
+                        QString envError;
+                        const QVariant coerced = coerceLocal(entry, envFromString(entry, fromEnv),
+                                                             &envError);
+                        if (envError.isEmpty()) {
+                            resolved.insert(QStringLiteral("default"),
+                                            QJsonValue::fromVariant(coerced));
+                        } else {
+                            logger.warning(QStringLiteral("Ignoring %1=%2 for %3: %4")
+                                               .arg(envKey, fromEnv, key, envError));
+                        }
                     }
                 }
+
+                m_localSchema.insert(key, resolved);
+                // Seed the property map with the default so a Theme binding to
+                // any schema key resolves from the very first frame — an absent
+                // key would read as `undefined` and silently break that binding.
+                // `action` entries are buttons, not values, so they get no map
+                // entry (and are never persisted or restored).
+                if (entry.value(QStringLiteral("type")).toString() != QLatin1String("action")) {
+                    m_values.insert(key, resolved.value(QStringLiteral("default")).toVariant());
+                }
+                settings.append(resolved.toVariantMap());
             }
 
-            m_localSchema.insert(key, resolved);
-            // Seed the property map with the default so a Theme binding to any
-            // schema key resolves from the very first frame — an absent key would
-            // read as `undefined` and silently break that binding. `action`
-            // entries are buttons, not values, so they get no map entry (and are
-            // never persisted or restored).
-            if (entry.value(QStringLiteral("type")).toString() != QLatin1String("action")) {
-                m_values.insert(key,
-                                resolved.value(QStringLiteral("default")).toVariant());
-            }
-            settings.append(resolved.toVariantMap());
+            // Carry every subsection-level key except "settings" (rebuilt above)
+            // rather than naming them one by one, for the same reason as the
+            // group level below.
+            QVariantMap sectionMap = section.toVariantMap();
+            sectionMap.insert(QStringLiteral("settings"), settings);
+            sections.append(sectionMap);
         }
-        // Carry every group-level key except "settings" (which was rebuilt
-        // above) rather than naming them one by one — the sidebar icon was the
-        // first extra field, and the next one should not need a code change.
+
+        // Carry every group-level key except "sections" (rebuilt above) rather
+        // than naming them one by one — the sidebar icon was the first extra
+        // field, and the next one should not need a code change. A group with no
+        // subsections at all is kept: it is the placeholder that fixes a
+        // backend-only section's position, label and icon.
         QVariantMap groupMap = group.toVariantMap();
-        groupMap.insert(QStringLiteral("settings"), settings);
+        groupMap.insert(QStringLiteral("sections"), sections);
         m_localGroups.append(groupMap);
     }
     logger.info(QStringLiteral("Local settings schema: %1 settings in %2 groups")
@@ -301,7 +372,10 @@ QVariant Settings::coerceLocal(const QJsonObject &setting, const QVariant &value
             return {};
         }
         const QString text = value.toString().trimmed();
-        if (text.isEmpty()) {
+        // A nullable string may be cleared back to "not configured" — for the
+        // screensaver folder that is the difference between "no photos" and a
+        // directory literally named "".
+        if (text.isEmpty() && !setting.value(QStringLiteral("nullable")).toBool()) {
             *error = QStringLiteral("arvo ei voi olla tyhjä");
             return {};
         }
@@ -314,44 +388,191 @@ QVariant Settings::coerceLocal(const QJsonObject &setting, const QVariant &value
 
 // ── Groups (the UI description) ──────────────────────────────────────────────
 
-void Settings::rebuildGroups() {
-    QVariantList groups;
+QVariant Settings::valueOf(const QString &key) const {
+    if (m_localSchema.contains(key)) {
+        return m_values.value(key);
+    }
+    return m_backendValues.value(key);
+}
 
-    // Local groups, with the live value folded into each setting.
-    for (const QVariant &groupValue : std::as_const(m_localGroups)) {
-        QVariantMap group = groupValue.toMap();
+// Flattens the last CONFIG_SCHEMA into key -> value, and seeds the restart
+// baseline from it. The seeding is INSERT-IF-ABSENT, and that is the
+// load-bearing part: the backend re-broadcasts its schema after every accepted
+// write, so taking the new value as the baseline would erase the very
+// difference the banner exists to report. The baseline is dropped only when the
+// process identity changes — see parseBackendSchema.
+void Settings::rebuildBackendValueIndex() {
+    m_backendValues.clear();
+    QSet<QString> restartTier;
+    for (const QVariant &groupValue : std::as_const(m_backendGroups)) {
+        const QVariantList sections = sectionsOf(groupValue.toMap());
+        for (const QVariant &sectionValue : sections) {
+            const QVariantList entries =
+                sectionValue.toMap().value(QStringLiteral("settings")).toList();
+            for (const QVariant &entryValue : entries) {
+                const QVariantMap entry = entryValue.toMap();
+                const QString key = entry.value(QStringLiteral("key")).toString();
+                if (key.isEmpty()) {
+                    continue;
+                }
+                const QVariant value = entry.value(QStringLiteral("value"));
+                m_backendValues.insert(key, value);
+                if (entry.value(QStringLiteral("apply")).toString() !=
+                    QLatin1String("restart")) {
+                    continue;
+                }
+                restartTier.insert(key);
+                if (!m_backendRestartBaseline.contains(key)) {
+                    m_backendRestartBaseline.insert(key, value);
+                }
+            }
+        }
+    }
+    // A setting can STOP being restart-tier between schemas: the backend
+    // downgrades a hook setting to restart only while its service is absent, so
+    // a Zappi coming back makes myenergi.* hook-tier again. Stop diffing those.
+    for (auto it = m_backendRestartBaseline.begin(); it != m_backendRestartBaseline.end();) {
+        if (restartTier.contains(it.key())) {
+            ++it;
+        } else {
+            it = m_backendRestartBaseline.erase(it);
+        }
+    }
+}
+
+// Snapshots the restart-tier local settings as they stand at startup — which is
+// exactly what AppConfig reads a moment later (main.cpp builds Settings first
+// for that reason), so "differs from this" means "differs from what the running
+// app is using", not merely "differs from the schema default".
+void Settings::captureLocalRestartBaseline() {
+    m_localRestartBaseline.clear();
+    for (auto it = m_localSchema.constBegin(); it != m_localSchema.constEnd(); ++it) {
+        if (it.value().value(QStringLiteral("apply")).toString() == QLatin1String("restart")) {
+            m_localRestartBaseline.insert(it.key(), m_values.value(it.key()));
+        }
+    }
+}
+
+void Settings::refreshAppRestartPending() {
+    bool pending = false;
+    for (auto it = m_localRestartBaseline.constBegin();
+         it != m_localRestartBaseline.constEnd(); ++it) {
+        if (m_values.value(it.key()) != it.value()) {
+            pending = true;
+            break;
+        }
+    }
+    if (pending == m_appRestartPending) {
+        return;
+    }
+    m_appRestartPending = pending;
+    emit appRestartPendingChanged();
+}
+
+void Settings::refreshBackendRestartPending() {
+    bool pending = false;
+    for (auto it = m_backendRestartBaseline.constBegin();
+         it != m_backendRestartBaseline.constEnd(); ++it) {
+        if (m_backendValues.value(it.key()) != it.value()) {
+            pending = true;
+            break;
+        }
+    }
+    if (pending == m_restartPending) {
+        return;
+    }
+    m_restartPending = pending;
+    emit restartPendingChanged();
+}
+
+QVariantList Settings::decorateSections(const QVariantList &sections, bool local) const {
+    const QString origin = local ? QStringLiteral("local") : QStringLiteral("backend");
+    QVariantList out;
+    for (const QVariant &sectionValue : sections) {
+        QVariantMap section = sectionValue.toMap();
         QVariantList settings;
-        const QVariantList entries = group.value(QStringLiteral("settings")).toList();
+        const QVariantList entries = section.value(QStringLiteral("settings")).toList();
         for (const QVariant &entryValue : entries) {
             QVariantMap entry = entryValue.toMap();
-            const QString key = entry.value(QStringLiteral("key")).toString();
-            entry.insert(QStringLiteral("value"), m_values.value(key));
-            entry.insert(QStringLiteral("origin"), QStringLiteral("local"));
-            entry.insert(QStringLiteral("modified"), m_overridden.contains(key));
+            entry.insert(QStringLiteral("origin"), origin);
+            // The backend folds its own current value and effective apply tier
+            // into the schema it sends, so only the local half needs them here.
+            if (local) {
+                const QString key = entry.value(QStringLiteral("key")).toString();
+                entry.insert(QStringLiteral("value"), m_values.value(key));
+                entry.insert(QStringLiteral("modified"), m_overridden.contains(key));
+            }
             settings.append(entry);
         }
-        group.insert(QStringLiteral("settings"), settings);
-        group.insert(QStringLiteral("origin"), QStringLiteral("local"));
+        // A subsection with no rows is normally a mistake, but not when it names
+        // a runtime status widget: the system-status card is entirely a status
+        // widget and has no settings at all.
+        if (settings.isEmpty() &&
+            section.value(QStringLiteral("status")).toString().isEmpty()) {
+            continue;
+        }
+        section.insert(QStringLiteral("settings"), settings);
+        section.insert(QStringLiteral("origin"), origin);
+        out.append(section);
+    }
+    return out;
+}
+
+void Settings::rebuildGroups() {
+    // Index the backend's groups by id: a group defined in BOTH halves merges
+    // into one sidebar section holding both sets of subsections, rather than
+    // appearing twice. That is what puts the local screensaver card and the
+    // backend's location card together under "Yleinen".
+    QHash<QString, QVariantMap> backendById;
+    QStringList backendOrder;
+    for (const QVariant &groupValue : std::as_const(m_backendGroups)) {
+        const QVariantMap group = groupValue.toMap();
+        const QString id = group.value(QStringLiteral("id")).toString();
+        backendById.insert(id, group);
+        backendOrder.append(id);
+    }
+
+    QVariantList groups;
+    // The local schema is canonical for a section's order, label and icon.
+    for (const QVariant &groupValue : std::as_const(m_localGroups)) {
+        QVariantMap group = groupValue.toMap();
+        const QString id = group.value(QStringLiteral("id")).toString();
+        QVariantList sections = decorateSections(sectionsOf(group), true);
+        if (backendById.contains(id)) {
+            sections.append(decorateSections(sectionsOf(backendById.take(id)), false));
+        }
+        // Empty means a placeholder that exists only to fix this group's
+        // position and name (media / tesla hold no local settings of their own),
+        // and its backend half has not arrived — hide it rather than show an
+        // empty section.
+        if (sections.isEmpty()) {
+            continue;
+        }
+        group.insert(QStringLiteral("sections"), sections);
+        group.remove(QStringLiteral("settings"));
         groups.append(group);
     }
 
-    // Backend groups verbatim — the backend already folds in current values and
-    // its own effective apply tier, so nothing is recomputed here.
-    for (const QVariant &groupValue : std::as_const(m_backendGroups)) {
-        QVariantMap group = groupValue.toMap();
-        QVariantList settings;
-        const QVariantList entries = group.value(QStringLiteral("settings")).toList();
-        for (const QVariant &entryValue : entries) {
-            QVariantMap entry = entryValue.toMap();
-            entry.insert(QStringLiteral("origin"), QStringLiteral("backend"));
-            settings.append(entry);
+    // Then anything the local schema does not know about, in the backend's own
+    // order, so a section added there still reaches the view unchanged.
+    for (const QString &id : std::as_const(backendOrder)) {
+        if (!backendById.contains(id)) {
+            continue;
         }
-        group.insert(QStringLiteral("settings"), settings);
-        group.insert(QStringLiteral("origin"), QStringLiteral("backend"));
+        QVariantMap group = backendById.take(id);
+        const QVariantList sections = decorateSections(sectionsOf(group), false);
+        if (sections.isEmpty()) {
+            continue;
+        }
+        group.insert(QStringLiteral("sections"), sections);
+        group.remove(QStringLiteral("settings"));
         groups.append(group);
     }
 
     m_groups = groups;
+    // Every value change in either half funnels through here, so one counter is
+    // enough to make every valueOf() binding live.
+    ++m_valuesRevision;
     emit groupsChanged();
 }
 
@@ -362,6 +583,7 @@ void Settings::setLocal(const QString &key, const QVariant &value) {
     m_overridden.insert(key);
     saveLocalValues();
     rebuildGroups();
+    refreshAppRestartPending();
 }
 
 void Settings::setValue(const QString &key, const QVariant &value) {
@@ -378,10 +600,6 @@ void Settings::setValue(const QString &key, const QVariant &value) {
         const QString applied = schemaIt.value().value(QStringLiteral("apply")).toString();
         logger.info(QStringLiteral("Setting %1 = %2 (%3)")
                         .arg(key, coerced.toString(), applied));
-        if (applied == QLatin1String("restart") && !m_appRestartPending) {
-            m_appRestartPending = true;
-            emit appRestartPendingChanged();
-        }
         emit writeSucceeded(key, applied);
         return;
     }
@@ -409,6 +627,9 @@ void Settings::resetToDefault(const QString &key) {
     m_overridden.remove(key);
     saveLocalValues();
     rebuildGroups();
+    // resetToDefault bypasses setLocal, and resetting backendPort to its default
+    // is itself a revert that must clear the banner.
+    refreshAppRestartPending();
     logger.info(QStringLiteral("Setting %1 reset to default").arg(key));
     emit writeSucceeded(key, schemaIt.value().value(QStringLiteral("apply")).toString());
 }
@@ -421,13 +642,31 @@ void Settings::restartApp() {
     QCoreApplication::exit(kRestartExitCode);
 }
 
+QString Settings::toFileUrl(const QString &path) const {
+    const QString trimmed = path.trimmed();
+    if (trimmed.isEmpty()) {
+        return {};
+    }
+    // Already a URL (a saved value copied from elsewhere) passes through; a bare
+    // path goes through QUrl so it is escaped and prefixed correctly rather than
+    // by string concatenation, which gets Windows drive letters wrong.
+    if (trimmed.startsWith(QLatin1String("file:"))) {
+        return trimmed;
+    }
+    return QUrl::fromLocalFile(trimmed).toString();
+}
+
 void Settings::invokeAction(const QString &key) {
     if (key == QLatin1String("restartApp")) {
         restartApp();
     } else if (key == QLatin1String("restartBackend")) {
         requestBackendRestart();
     } else {
-        logger.warning(QStringLiteral("Unknown settings action: %1").arg(key));
+        // Not ours: something in QML owns this one. Nothing warns here — a key
+        // with no listener at all is a schema mistake, not a runtime error, and
+        // the row simply does nothing.
+        logger.info(QStringLiteral("Settings action delegated to the view: %1").arg(key));
+        emit actionRequested(key);
     }
 }
 
@@ -438,9 +677,14 @@ void Settings::requestBackendRestart() {
     }
     logger.info(QStringLiteral("Requesting backend restart"));
     m_server->sendPacket(protocol::frame(protocol::CONFIG_RESTART));
-    if (m_restartPending) {
-        m_restartPending = false;
-        emit restartPendingChanged();
+    // A current backend stamps every schema with startedAt, so the banner clears
+    // by itself when the RESTARTED process's schema arrives — strictly more
+    // honest than clearing here, which would hide the change if the restart never
+    // happened. Only an older backend that sends no stamp needs the optimistic
+    // clear this used to do unconditionally.
+    if (m_backendStartedAt == 0 && !m_backendRestartBaseline.isEmpty()) {
+        m_backendRestartBaseline.clear();
+        refreshBackendRestartPending();
     }
 }
 
@@ -488,7 +732,33 @@ void Settings::parseBackendSchema(const QByteArray &payload) {
         groups.append(group.toObject().toVariantMap());
     }
     m_backendGroups = groups;
-    logger.info(QStringLiteral("Backend settings schema: %1 groups").arg(groups.size()));
+
+    // A DIFFERENT process is running: whatever it reports is by definition what
+    // it consumed at startup, so the old baseline is stale. The same value (a
+    // reconnect, or the re-broadcast after a write) keeps the baseline —
+    // otherwise a still-pending change would go quiet the moment the socket
+    // flapped.
+    const qint64 startedAt =
+        static_cast<qint64>(doc.object().value(QStringLiteral("startedAt")).toDouble());
+    if (startedAt != 0 && startedAt != m_backendStartedAt) {
+        m_backendStartedAt = startedAt;
+        m_backendRestartBaseline.clear();
+    }
+    rebuildBackendValueIndex();
+    refreshBackendRestartPending();
+
+    // Optional: an older backend sends no path. Only overwrite when one is
+    // present, so a malformed or partial document cannot blank a path the view
+    // is already showing.
+    const QString path = doc.object().value(QStringLiteral("path")).toString();
+    if (!path.isEmpty()) {
+        m_backendStoragePath = path;
+    }
+    logger.info(QStringLiteral("Backend settings schema: %1 groups (%2)")
+                    .arg(QString::number(groups.size()),
+                         m_backendStoragePath.isEmpty() ? QStringLiteral("path unknown")
+                                                        : m_backendStoragePath));
+    // rebuildGroups() emits groupsChanged, which also notifies backendStoragePath.
     rebuildGroups();
 }
 
@@ -511,10 +781,8 @@ void Settings::parseSetResult(const QByteArray &payload) {
         return;
     }
 
+    // No latch here: every accepted, value-changing write is followed by a
+    // schema broadcast, and parseBackendSchema re-derives the flag from it.
     logger.info(QStringLiteral("Backend applied %1 (%2)").arg(key, applied));
-    if (applied == QLatin1String("restart") && !m_restartPending) {
-        m_restartPending = true;
-        emit restartPendingChanged();
-    }
     emit writeSucceeded(key, applied);
 }

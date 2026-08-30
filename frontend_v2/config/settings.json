@@ -5,20 +5,32 @@
         "remote settings through one delegate family and adding a setting is one entry",
         "here plus one binding in app/Theme.qml.",
         "",
+        "TWO LEVELS: groups render as sidebar sections, and each group holds SUBSECTIONS",
+        "that render as one card each in the detail pane.",
+        "",
+        "THIS FILE IS THE CANONICAL SECTION LIST. A group id present here and in the",
+        "backend's schema MERGES - 'general' shows the screensaver card below plus the",
+        "backend's location card - and this file decides the order, label and icon. That",
+        "is why 'media' and 'tesla' appear with no subsections of their own: they hold no",
+        "frontend settings, and the entries exist only to place and name them. A backend",
+        "group whose id is unknown here is appended rather than dropped, and a section",
+        "that ends up with no subsections at all is hidden.",
+        "",
         "Per-group keys: id, label, icon (a semantic name mapped to a resource by",
-        "SettingsSidebar, not a file path), settings.",
+        "SettingsSidebar, not a file path), sections.",
+        "",
+        "Per-subsection keys: id, label, help (optional, under the card title),\nstatus (optional: names a runtime status widget rendered in the card -\n'backendProbe' is the reachability check), settings.",
         "",
         "Per-setting keys: key, type (bool|int|float|string|enum|action), label, help,",
-        "unit,",
-        "min/max/step (numeric), options (enum), default, apply, editor.",
+        "unit, min/max/step (numeric), maxLabel (slider top-stop text), options\n(enum), default, apply, editor,\nwarnBelow/warnAbove + warnMessage (advisory caution, never blocks a write),\nrelevantWhen {key, equals|notEquals} (fades the row while another setting\nmakes it meaningless - faded, never disabled, so it stays editable).",
         "editor: numeric settings get a [-] value [+] stepper by default; set",
         "        'slider' only for coarse dials where the exact number does not",
+        "        matter (a 65534-step slider is unusable, see SettingNumber).",
         "",
         "type 'action' is a BUTTON, not a value: nothing is stored or persisted.",
         "It carries actionLabel and optionally requiresConnection, and its key names",
         "a handler in Settings::invokeAction.",
-        "        matter (a 65534-step slider is unusable, see SettingNumber).",
-        "min/max/step (numeric), options (enum), default, apply.",
+        "",
         "apply: 'live'    - a QML binding through Theme picks it up immediately;",
         "       'restart' - consumed once at startup (AppConfig), so it needs an app",
         "                   restart. The view badges these rows.",
@@ -28,186 +40,307 @@
         "working until the user overrides it here. Precedence: schema default <",
         "env/.env < saved user override.",
         "",
-        "Values the user changes are written to settings.json under the platform's",
-        "AppConfigLocation (see core/settings.cpp) - never back into this bundled file,",
-        "which is compiled into the binary and supplies only the defaults."
+        "Values the user changes are written to frontend_config.json under",
+        "~/.config/Tesla-Homedash/ (see core/settings.cpp) - never back into this bundled",
+        "file, which is compiled into the binary and supplies only the defaults."
     ],
     "groups": [
         {
-            "id": "app",
+            "id": "general",
             "icon": "app",
-            "label": "Sovellus",
-            "settings": [
+            "label": "Yleinen",
+            "sections": [
                 {
-                    "key": "lunaEnabled",
-                    "type": "bool",
-                    "label": "Luna",
-                    "help": "Koiramuistomerkki kulkee työpöydän alalaidassa.",
-                    "default": false,
-                    "apply": "live"
+                    "id": "display",
+                    "label": "Näyttö",
+                    "settings": [
+                        {
+                            "key": "fullscreen",
+                            "type": "bool",
+                            "env": "TESLA_HOMEDASH_FULLSCREEN",
+                            "label": "Koko näyttö",
+                            "help": "Piilottaa ikkunan kehykset. Kokoluku 1280×800 vapautetaan, jotta paneeli täyttää ruudun.",
+                            "default": false,
+                            "apply": "live"
+                        }
+                    ]
                 },
                 {
-                    "key": "screensaverEnabled",
-                    "type": "bool",
+                    "id": "screensaver",
                     "label": "Näytönsäästäjä",
-                    "help": "Kuvaesitys, kun näyttöä ei ole koskettu hetkeen.",
-                    "default": true,
-                    "apply": "live"
+                    "help": "Kuvaesitys, kun näyttöä ei ole koskettu hetkeen. Ilman kuvakansiota näytönsäästäjä ei käynnisty.",
+                    "settings": [
+                        {
+                            "key": "screensaverEnabled",
+                            "type": "bool",
+                            "label": "Näytönsäästäjä",
+                            "help": "Vaatii alla määritellyn kuvakansion.",
+                            "default": true,
+                            "apply": "live"
+                        },
+                        {
+                            "key": "screensaverTimeoutMin",
+                            "type": "int",
+                            "env": "TESLA_HOMEDASH_SCREENSAVER_TIMEOUT_MIN",
+                            "label": "Käynnistysviive",
+                            "help": "Kuinka kauan kosketuksetta ennen näytönsäästäjää.",
+                            "unit": "min",
+                            "min": 1,
+                            "max": 240,
+                            "step": 1,
+                            "default": 30,
+                            "apply": "live",
+                            "relevantWhen": {
+                                "key": "screensaverEnabled",
+                                "equals": true
+                            }
+                        },
+                        {
+                            "key": "screensaverAdvanceSec",
+                            "type": "int",
+                            "label": "Kuvan vaihtoväli",
+                            "unit": "s",
+                            "min": 2,
+                            "max": 120,
+                            "step": 1,
+                            "default": 8,
+                            "apply": "live",
+                            "relevantWhen": {
+                                "key": "screensaverEnabled",
+                                "equals": true
+                            }
+                        },
+                        {
+                            "key": "screensaverStackCount",
+                            "editor": "slider",
+                            "type": "int",
+                            "label": "Kuvapinon koko",
+                            "help": "Montako kuvaa pinossa näkyy kerrallaan.",
+                            "min": 3,
+                            "max": 30,
+                            "step": 1,
+                            "default": 10,
+                            "apply": "live",
+                            "relevantWhen": {
+                                "key": "screensaverEnabled",
+                                "equals": true
+                            }
+                        },
+                        {
+                            "key": "screensaverDir",
+                            "type": "string",
+                            "env": "TESLA_HOMEDASH_SCREENSAVER_DIR",
+                            "label": "Kuvakansio",
+                            "help": "Polku kansioon, jonka kuvat näytönsäästäjä näyttää. Tyhjä = näytönsäästäjä ei käynnisty.",
+                            "nullable": true,
+                            "default": "",
+                            "apply": "live"
+                        },
+                        {
+                            "key": "screenOffEnabled",
+                            "type": "bool",
+                            "label": "Näytön sammutus",
+                            "help": "Sammuttaa taustavalon kokonaan wlopm:llä. Kosketus herättää näytön, eikä kosketus lakkaa toimimasta pimeänäkään.",
+                            "default": false,
+                            "apply": "live"
+                        },
+                        {
+                            "key": "screenOffMin",
+                            "type": "int",
+                            "label": "Sammutusviive",
+                            "help": "Käyttämättömyysaika ennen sammutusta. Aseta pidemmäksi kuin näytönsäästäjän käynnistysviive, muuten kuvaesitys jää pimeään.",
+                            "unit": "min",
+                            "min": 1,
+                            "max": 240,
+                            "step": 1,
+                            "default": 60,
+                            "apply": "live",
+                            "relevantWhen": {
+                                "key": "screenOffEnabled",
+                                "equals": true
+                            }
+                        }
+                    ]
                 },
                 {
-                    "key": "screensaverTimeoutMin",
-                    "type": "int",
-                    "env": "TESLA_HOMEDASH_SCREENSAVER_TIMEOUT_MIN",
-                    "label": "Käynnistysviive",
-                    "help": "Kuinka kauan kosketuksetta ennen näytönsäästäjää.",
-                    "unit": "min",
-                    "min": 1,
-                    "max": 240,
-                    "step": 1,
-                    "default": 30,
-                    "apply": "live"
-                },
-                {
-                    "key": "screensaverAdvanceSec",
-                    "type": "int",
-                    "label": "Kuvan vaihtoväli",
-                    "unit": "s",
-                    "min": 2,
-                    "max": 120,
-                    "step": 1,
-                    "default": 8,
-                    "apply": "live"
-                },
-                {
-                    "key": "screensaverStackCount",
-                    "editor": "slider",
-                    "type": "int",
-                    "label": "Kuvapinon koko",
-                    "help": "Montako kuvaa pinossa näkyy kerrallaan.",
-                    "min": 3,
-                    "max": 30,
-                    "step": 1,
-                    "default": 10,
-                    "apply": "live"
+                    "id": "extras",
+                    "label": "Lisäasetukset",
+                    "settings": [
+                        {
+                            "key": "lunaEnabled",
+                            "type": "bool",
+                            "label": "Luna",
+                            "help": "Koiramuistomerkki kulkee työpöydän alalaidassa.",
+                            "default": false,
+                            "apply": "live"
+                        }
+                    ]
                 }
             ]
         },
         {
-            "id": "graphs",
+            "id": "media",
+            "icon": "media",
+            "label": "Media",
+            "sections": [
+                {
+                    "id": "spotifyAuth",
+                    "label": "Spotify-tunnistautuminen",
+                    "help": "Valtuutus vanhenee 6 kuukauden kuluttua, minkä jälkeen se on uusittava tästä. Katkeaa myös, jos poistat sovelluksen oikeudet Spotify-tilisi asetuksista.",
+                    "status": "spotifyAuth",
+                    "settings": [
+                        {
+                            "key": "spotifyReauth",
+                            "type": "action",
+                            "label": "Tunnistaudu uudelleen",
+                            "help": "Avaa Spotifyn kirjautumissivun selaimeen ja tallentaa uuden käyttöoikeuden. Uusiminen aloittaa uuden 6 kuukauden jakson.",
+                            "actionLabel": "Kirjaudu",
+                            "requiresConnection": true,
+                            "apply": "live"
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "id": "visualization",
             "icon": "chart",
-            "label": "Graafit",
-            "settings": [
+            "label": "Datan visualisointi",
+            "sections": [
                 {
-                    "key": "tripMaxSpeedKmh",
-                    "editor": "slider",
-                    "type": "float",
-                    "label": "Reittivärin huippunopeus",
-                    "help": "Nopeus, jolla matkan reittiviiva on täysin punainen.",
-                    "unit": "km/h",
-                    "min": 50.0,
-                    "max": 250.0,
-                    "step": 5.0,
-                    "default": 150.0,
-                    "apply": "live"
-                },
-                {
-                    "key": "graphBucketsPerPx",
-                    "editor": "slider",
-                    "type": "float",
-                    "label": "Piirtotarkkuus",
-                    "help": "Pisteitä kuvapistettä kohden. Pienempi = kevyempi, karkeampi.",
-                    "min": 0.25,
-                    "max": 3.0,
-                    "step": 0.25,
-                    "default": 1.0,
-                    "apply": "live"
-                },
-                {
-                    "key": "graphSettleMs",
-                    "type": "int",
-                    "label": "Zoomauksen viive",
-                    "help": "Odotus zoomauksen jälkeen ennen tarkkaa uudelleenpiirtoa.",
-                    "unit": "ms",
-                    "min": 0,
-                    "max": 1000,
-                    "step": 10,
-                    "default": 120,
-                    "apply": "live"
-                },
-                {
-                    "key": "graphRenderMarginFrac",
-                    "editor": "slider",
-                    "type": "float",
-                    "label": "Esipiirron marginaali",
-                    "help": "Kuinka pitkälle näkyvän ikkunan ulkopuolelle piirretään valmiiksi.",
-                    "min": 0.0,
-                    "max": 2.0,
-                    "step": 0.1,
-                    "default": 0.5,
-                    "apply": "live"
-                },
-                {
-                    "key": "graphMinZoomSpanMs",
-                    "type": "int",
-                    "label": "Pienin zoomausikkuna",
-                    "unit": "ms",
-                    "min": 1000,
-                    "max": 3600000,
-                    "step": 1000,
-                    "default": 60000,
-                    "apply": "live"
+                    "id": "graphs",
+                    "label": "Graafit",
+                    "help": "Historia- ja matkagraafien piirto ja vuorovaikutus.",
+                    "settings": [
+                        {
+                            "key": "graphMaxPoints",
+                            "editor": "slider",
+                            "type": "int",
+                            "label": "Pisteitä graafissa",
+                            "help": "Enintään näin monta pistettä piirretään kerralla. Pienempi = kevyempi, karkeampi.",
+                            "min": 200,
+                            "max": 5000,
+                            "step": 100,
+                            "maxLabel": "rajoittamaton",
+                            "default": 1200,
+                            "apply": "live"
+                        },
+                        {
+                            "key": "graphSensitivity",
+                            "editor": "slider",
+                            "type": "float",
+                            "label": "Eleherkkyys",
+                            "help": "Kuinka nopeasti graafi liikkuu ja zoomaa sormella.",
+                            "min": 0.5,
+                            "max": 3.0,
+                            "step": 0.1,
+                            "default": 1.0,
+                            "apply": "live"
+                        },
+                        {
+                            "key": "graphSettleMs",
+                            "type": "int",
+                            "label": "Zoomauksen viive",
+                            "help": "Odotus zoomauksen jälkeen ennen tarkkaa uudelleenpiirtoa.",
+                            "unit": "ms",
+                            "min": 0,
+                            "max": 1000,
+                            "step": 10,
+                            "default": 120,
+                            "apply": "live"
+                        },
+                        {
+                            "key": "graphRenderMarginFrac",
+                            "editor": "slider",
+                            "type": "float",
+                            "label": "Esipiirron marginaali",
+                            "help": "Kuinka pitkälle näkyvän ikkunan ulkopuolelle piirretään valmiiksi.",
+                            "min": 0.0,
+                            "max": 2.0,
+                            "step": 0.1,
+                            "default": 0.5,
+                            "apply": "live"
+                        }
+                    ]
                 }
             ]
         },
         {
-            "id": "connection",
-            "icon": "link",
-            "label": "Yhteys",
-            "settings": [
-                {
-                    "key": "backendHost",
-                    "type": "string",
-                    "env": "TESLA_HOMEDASH_BACKEND_HOST",
-                    "label": "Palvelimen osoite",
-                    "help": "Vaatii sovelluksen uudelleenkäynnistyksen.",
-                    "default": "127.0.0.1",
-                    "apply": "restart"
-                },
-                {
-                    "key": "backendPort",
-                    "type": "int",
-                    "env": "TESLA_HOMEDASH_BACKEND_PORT",
-                    "label": "Portti",
-                    "help": "Vaatii sovelluksen uudelleenkäynnistyksen.",
-                    "min": 1,
-                    "max": 65535,
-                    "step": 1,
-                    "default": 6969,
-                    "apply": "restart"
-                }
-            ]
+            "id": "electricity",
+            "icon": "price",
+            "label": "Sähkö",
+            "sections": []
         },
         {
-            "id": "system",
-            "icon": "restart",
+            "id": "tesla",
+            "icon": "trip",
+            "label": "Tesla",
+            "sections": []
+        },
+        {
+            "id": "maintenance",
+            "icon": "system",
             "label": "Ylläpito",
-            "settings": [
+            "sections": [
                 {
-                    "key": "restartApp",
-                    "type": "action",
-                    "label": "Käynnistä sovellus uudelleen",
-                    "help": "Ottaa käyttöön yhteysasetukset. Palvelunhallinta käynnistää näytön heti uudelleen.",
-                    "actionLabel": "Käynnistä",
-                    "apply": "live"
+                    "id": "connection",
+                    "label": "Yhteydet",
+                    "help": "Mihin taustapalveluun tämä näyttö yhdistää.",
+                    "status": "backendProbe",
+                    "settings": [
+                        {
+                            "key": "backendHost",
+                            "type": "string",
+                            "env": "TESLA_HOMEDASH_BACKEND_HOST",
+                            "label": "Palvelimen osoite",
+                            "help": "Vaatii sovelluksen uudelleenkäynnistyksen.",
+                            "default": "127.0.0.1",
+                            "apply": "restart"
+                        },
+                        {
+                            "key": "backendPort",
+                            "type": "int",
+                            "env": "TESLA_HOMEDASH_BACKEND_PORT",
+                            "label": "Portti",
+                            "help": "Vaatii sovelluksen uudelleenkäynnistyksen.",
+                            "min": 1,
+                            "max": 65535,
+                            "step": 1,
+                            "default": 6969,
+                            "apply": "restart"
+                        }
+                    ]
                 },
                 {
-                    "key": "restartBackend",
-                    "type": "action",
-                    "label": "Käynnistä palvelin uudelleen",
-                    "help": "Ottaa käyttöön palvelimen uudelleenkäynnistystä vaativat asetukset.",
-                    "actionLabel": "Käynnistä",
-                    "requiresConnection": true,
-                    "apply": "live"
+                    "id": "restart",
+                    "label": "Uudelleenkäynnistys",
+                    "help": "Vahvistus toisella painalluksella.",
+                    "settings": [
+                        {
+                            "key": "restartApp",
+                            "type": "action",
+                            "label": "Käynnistä sovellus uudelleen",
+                            "help": "Ottaa käyttöön yhteysasetukset. Palvelunhallinta käynnistää näytön heti uudelleen.",
+                            "actionLabel": "Käynnistä",
+                            "apply": "live"
+                        },
+                        {
+                            "key": "restartBackend",
+                            "type": "action",
+                            "label": "Käynnistä palvelin uudelleen",
+                            "help": "Ottaa käyttöön palvelimen uudelleenkäynnistystä vaativat asetukset.",
+                            "actionLabel": "Käynnistä",
+                            "requiresConnection": true,
+                            "apply": "live"
+                        }
+                    ]
+                },
+                {
+                    "id": "status",
+                    "label": "Järjestelmän tila",
+                    "help": "Päivittyy viiden sekunnin välein vain tämän osion ollessa auki.",
+                    "status": "systemStatus",
+                    "settings": []
                 }
             ]
         }

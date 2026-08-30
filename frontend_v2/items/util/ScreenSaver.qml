@@ -4,7 +4,8 @@ import Qt.labs.folderlistmodel
 import frontend_v2
 
 // Full-screen idle screensaver. After the inactivity timeout (or F10 for testing)
-// the screen fades to black and photos from App.screensaverDir are tossed onto a
+// the screen fades to black and photos from the configured folder (Yleinen >
+// Näytönsäästäjä > Kuvakansio) are tossed onto a
 // pile — the newest lands on top in a white frame at a random tilt/offset, the
 // earlier ones peeking out underneath (up to Theme.screensaverStackCount kept),
 // like printed photos thrown on a table; the oldest fades out as a new one lands.
@@ -108,7 +109,11 @@ Item {
 
     FolderListModel {
         id: folderModel
-        folder: App.screensaverDir
+        // Live: changing the folder in the Options view refills the model without a
+        // restart. An unset folder yields an empty URL, so count stays 0 and
+        // `active` above never becomes true — which is exactly the documented
+        // "no folder, no screensaver" behaviour.
+        folder: Settings.toFileUrl(Theme.screensaverDir)
         showDirs: false
         sortField: FolderListModel.Name
         nameFilters: ["*.jpg", "*.jpeg", "*.png", "*.bmp", "*.webp", "*.gif"]

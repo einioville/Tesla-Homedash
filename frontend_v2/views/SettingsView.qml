@@ -63,6 +63,14 @@ Rectangle {
     Connections {
         target: Settings
 
+        // Actions Settings does not handle itself belong to a view. The Spotify
+        // re-authorization is one: the backend owns the exchange, but the consent
+        // page is a UI concern and lives here.
+        function onActionRequested(key) {
+            if (key === "spotifyReauth")
+                SpotifyAuth.begin()
+        }
+
         function onWriteFailed(key, message) {
             view.showToast(key.length > 0 ? key + ": " + message : message, true)
         }
@@ -233,7 +241,9 @@ Rectangle {
         anchors.right: parent.right
         anchors.top: sidebar.top
         anchors.bottom: sidebar.bottom
-        anchors.leftMargin: 18
+        // Same gutter as the margin between the cards and the screen edge, so the
+        // two panels read as one grid rather than a pair with a wider seam.
+        anchors.leftMargin: Theme.gridMargin
         anchors.rightMargin: Theme.gridMargin
 
         groupData: view.currentGroup
@@ -249,17 +259,40 @@ Rectangle {
         anchors.bottomMargin: Theme.gridMargin + 28
         anchors.leftMargin: Theme.gridMargin
         anchors.rightMargin: Theme.gridMargin
-        height: 18
+        height: 30
 
-        Text {
+        // Which files these settings actually live in — one per half of the
+        // view. Worth the two lines: the paths are deployment-specific (a
+        // worktree copy on the dev box, /home/pi on the device), so "where do I
+        // edit this by hand" is otherwise unanswerable from the screen. Labelled
+        // with the same two words the restart buttons use.
+        Column {
             anchors.left: parent.left
             anchors.verticalCenter: parent.verticalCenter
             width: parent.width * 0.6
-            text: Settings.storagePath
-            font.family: Theme.fontFamily
-            font.pixelSize: 10
-            color: Theme.dataLabelTitle
-            elide: Text.ElideMiddle
+            spacing: 2
+
+            Text {
+                width: parent.width
+                text: qsTr("Sovellus") + " · " + Settings.storagePath
+                font.family: Theme.fontFamily
+                font.pixelSize: 10
+                color: Theme.dataLabelTitle
+                elide: Text.ElideMiddle
+            }
+
+            // Empty until a CONFIG_SCHEMA has arrived. Kept visible with a dash
+            // rather than hidden, so the footer does not reflow on connect.
+            Text {
+                width: parent.width
+                text: qsTr("Palvelin") + " · " +
+                      (Settings.backendStoragePath.length > 0
+                          ? Settings.backendStoragePath : "—")
+                font.family: Theme.fontFamily
+                font.pixelSize: 10
+                color: Theme.dataLabelTitle
+                elide: Text.ElideMiddle
+            }
         }
 
         // Transient write result, right-aligned so it never reflows the list.

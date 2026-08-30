@@ -1,7 +1,6 @@
 #include "appconfig.hh"
 
 #include <QStringList>
-#include <QUrl>
 #include <QVariant>
 #include <QtGlobal>
 
@@ -91,19 +90,10 @@ AppConfig::AppConfig(const Settings* settings, QObject* parent) : QObject(parent
     }
 
     // Screensaver: after `screensaverTimeoutMs` of no input the frontend fades to a
-    // photo slideshow read from `screensaverDir`. The folder comes from the
-    // environment so the photos live outside the committed tree; it is handed to
-    // QML as a file:// URL. Empty when unset → the screensaver stays off.
-    const QString screensaverPath =
-        dotenv::valueOr("TESLA_HOMEDASH_SCREENSAVER_DIR", QString()).trimmed();
-    if (!screensaverPath.isEmpty()) {
-        m_screensaverDir = QUrl::fromLocalFile(screensaverPath).toString();
-        logger.info(QStringLiteral("Screensaver photos: %1").arg(screensaverPath));
-    } else {
-        logger.info(QStringLiteral("Screensaver folder unset; set TESLA_HOMEDASH_SCREENSAVER_DIR "
-                                   "to enable the screensaver"));
-    }
-
+    // photo slideshow. The photo FOLDER is not read here — it is a live setting
+    // (Settings/Theme.screensaverDir) that merely defaults to
+    // TESLA_HOMEDASH_SCREENSAVER_DIR, so reading it here too would be a second
+    // source of truth that goes stale the moment the user changes it on-device.
     bool minsOk = false;
     const QVariant savedTimeout = saved("screensaverTimeoutMin");
     const int mins =

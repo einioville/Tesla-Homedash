@@ -25,6 +25,51 @@ Item {
     readonly property bool needsRestart: setting.apply === "restart"
     readonly property bool isLocal: setting.origin === "local"
 
+    // A setting can declare that it only MATTERS while another setting holds a
+    // particular value — the screensaver's dwell time means nothing with the
+    // screensaver off. Such a row is faded AND inert — see `enabled` below.
+    //
+    // The rule may name a setting in EITHER half, so the value is resolved via
+    // Settings.valueOf rather than Settings.values, which knows only local keys.
+    // valuesRevision is read purely to make this binding re-evaluate: an
+    // invokable call captures no property to depend on.
+    readonly property bool relevant: {
+        const revision = Settings.valuesRevision
+        const dep = row.setting.relevantWhen
+        if (dep === undefined || dep === null || dep.key === undefined)
+            return true
+        const current = Settings.valueOf(dep.key)
+        if (dep.equals !== undefined)
+            return current === dep.equals
+        if (dep.notEquals !== undefined)
+            return current !== dep.notEquals
+        return true
+    }
+
+    opacity: relevant ? 1.0 : Theme.settingIrrelevantOpacity
+    // Blocks every editor in the row at once: `enabled` propagates down the
+    // item tree, so no MouseArea, TextField, Slider or ComboBox below needs
+    // to know about relevance. A control that changes a value with no effect
+    // is worse than one that visibly cannot be used.
+    enabled: relevant
+
+    Behavior on opacity {
+        NumberAnimation { duration: Theme.pressDuration }
+    }
+
+    // Advisory bounds: a value that is VALID but unwise. min/max still bound what
+    // can be entered — this only warns, and never blocks a write, because the
+    // user may well have a reason (see the myenergi poll interval, where too
+    // frequent a poll earns 429s from the cloud and a deepening backoff).
+    readonly property bool warned: {
+        const v = setting.value
+        if (typeof v !== "number")
+            return false
+        if (setting.warnBelow !== undefined && v < setting.warnBelow)
+            return true
+        return setting.warnAbove !== undefined && v > setting.warnAbove
+    }
+
     implicitHeight: Math.max(56, labelColumn.implicitHeight + 20)
 
     // --- Left: label, help text, restart badge ---------------------------
@@ -90,6 +135,29 @@ Item {
             font.pixelSize: 12
             color: Theme.dataLabelTitle
             wrapMode: Text.WordWrap
+        }
+
+        // Only while the threshold is actually crossed, so it reads as a
+        // consequence of the current value rather than as permanent small print.
+        Row {
+            visible: row.warned
+            spacing: 6
+
+            Text {
+                anchors.verticalCenter: parent.verticalCenter
+                text: "⚠"
+                font.pixelSize: 12
+                color: "#ffb020"
+            }
+
+            Text {
+                width: labelColumn.width - 18
+                text: row.setting.warnMessage !== undefined ? row.setting.warnMessage : ""
+                font.family: Theme.fontFamily
+                font.pixelSize: 12
+                color: "#ffd48a"
+                wrapMode: Text.WordWrap
+            }
         }
     }
 

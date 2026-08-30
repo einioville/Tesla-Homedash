@@ -42,6 +42,10 @@ public:
 signals:
     void idleChanged();
     void timeoutMsChanged();
+    // Every input event, not just the idle→active edge. ScreenPower hangs its own
+    // (longer) countdown off this so both timeouts share one definition of
+    // activity instead of installing a second event filter.
+    void activity();
 
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override;

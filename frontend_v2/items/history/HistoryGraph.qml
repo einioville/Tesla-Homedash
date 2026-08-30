@@ -109,13 +109,17 @@ Item {
     //    of the visible span. 0.5 → a half-screen pan or a ~2x zoom-out shows no empty edge
     //    before the settle rebuild catches up.
     //  settleMs — debounce after the last zoom/pan step before the detailed rebuild fires.
-    //  bucketsPerPx — target render density: buckets per plot pixel (≈ points per pixel).
+    //  maxPoints — the most points drawn at once. Theme.graphMaxPointsUnlimited (the
+    //    setting's top stop) or anything <= 0 disables decimation entirely.
+    //  sensitivity — multiplier on pan/zoom response. The 10" touch panel needs more
+    //    travel per gesture than a mouse does; 1.0 is the pre-setting behaviour.
     // Defaults come from Theme, which binds them to the Options view's settings —
-    // the right values are hardware-dependent (the Pi wants coarser buckets and a
+    // the right values are hardware-dependent (the Pi wants a lower cap and a
     // longer settle than a desktop). An instance can still override them locally.
     property real renderMarginFrac: Theme.graphRenderMarginFrac
     property int settleMs: Theme.graphSettleMs
-    property real bucketsPerPx: Theme.graphBucketsPerPx
+    property int maxPoints: Theme.graphMaxPoints
+    property real sensitivity: Theme.graphSensitivity
 
     // Tightest allowed zoom: the visible window can never be narrower than this (ms). A flat
     // 1-minute floor (capped at the loaded span for a shorter range) — stops zooming into
@@ -552,7 +556,8 @@ Item {
             target: null
             acceptedDevices: PointerDevice.Mouse
             onWheel: (event) => {
-                const factor = event.angleDelta.y > 0 ? (1 / 1.2) : 1.2
+                const step = 1 + 0.2 * root.sensitivity
+                const factor = event.angleDelta.y > 0 ? (1 / step) : step
                 root.zoomAround(wheelH.point.position.x, factor)
             }
         }
@@ -576,7 +581,7 @@ Item {
             onActiveTranslationChanged: {
                 const dx = activeTranslation.x - lastTx
                 lastTx = activeTranslation.x
-                root.panByPixels(dx)
+                root.panByPixels(dx * root.sensitivity)
             }
         }
 
@@ -794,7 +799,9 @@ Item {
         const a = graph.plotArea
         if (a.width <= 0) return
         const startWidth = p.startMaxX - p.startMinX
-        const newWidth = clampWidth(startWidth / p.activeScale)
+        // Sensitivity exponentiates the gesture's own scale, so 1.0 is exactly the
+        // finger-follows-the-data behaviour and higher values zoom further per pinch.
+        const newWidth = clampWidth(startWidth / Math.pow(p.activeScale, root.sensitivity))
         const curFrac = (clampToPlot(p.centroid.position.x) - a.x) / a.width
         const newMin = p.startFocalT - curFrac * newWidth
         setView(newMin, newMin + newWidth)
@@ -849,15 +856,17 @@ Item {
             }
             R = lo
         }
-        // Early-out: a small visible set renders exactly (no decimation), keeping the small
-        // Trips / Charging graphs pixel-identical to the pre-LOD behaviour. Decimation only
-        // engages for the heavy History 1W / 1M case.
+        // Early-out: a visible set already under the cap renders exactly (no decimation),
+        // keeping the small Trips / Charging graphs pixel-identical to the pre-LOD
+        // behaviour. Decimation only engages for the heavy History 1W / 1M case — and
+        // not at all at the setting's top stop, which means "no cap".
         const plotW = Math.max(1, graph.plotArea.width)
         const startIdx = L < 0 ? 0 : L
-        if (R - startIdx <= 2 * plotW)
+        const cap = root.maxPoints >= Theme.graphMaxPointsUnlimited ? 0 : root.maxPoints
+        if (cap <= 0 || R - startIdx <= cap)
             return S.slice(startIdx, Math.min(R + 1, N))
 
-        const bucketDx = (windowEnd - windowStart) / (plotW * root.bucketsPerPx)
+        const bucketDx = (windowEnd - windowStart) / cap
         // Degenerate zero/negative-span window: bucketDx would be 0 and the advance loop below
         // would never progress. Can't normally happen (clampWidth floors the span), but guard
         // the hang and just return the raw slice.

@@ -1,5 +1,4 @@
 import QtQuick
-import QtQuick.Controls
 import frontend_v2
 
 // Section list for the Options view — the "master" half of a master/detail
@@ -7,9 +6,10 @@ import frontend_v2
 // the right.
 //
 // Selection is tracked by group ID rather than index on purpose: the group list
-// grows when the backend's schema arrives (three local sections at startup, eight
-// once connected) and shrinks again if the backend goes away, so an index would
-// silently point at a different section. `currentId` survives both.
+// grows when the backend's schema arrives (three sections at startup, six once
+// connected — Media, Sähkö and Tesla hold no local settings, so they stay hidden
+// until their backend half lands) and shrinks again if the backend goes away, so
+// an index would silently point at a different section. `currentId` survives both.
 //
 // Icons are named SEMANTICALLY in the schema ("charger", "media", …) and mapped
 // to resources here, so the backend never has to know about frontend assets.
@@ -37,7 +37,7 @@ Rectangle {
         "charger": "qrc:/resources/icons/charger.svg",
         "price": "qrc:/resources/icons/price.svg",
         "trip": "qrc:/resources/icons/trip.svg",
-        "restart": "qrc:/resources/icons/restart.svg"
+        "system": "qrc:/resources/icons/terminal.svg"
     })
 
     function iconFor(name) {
@@ -51,12 +51,9 @@ Rectangle {
         clip: true
         spacing: 2
         model: sidebar.groups
+        // No ScrollBar — see SettingsPane. A ListView is a Flickable, so the
+        // section list still flicks.
         boundsBehavior: Flickable.StopAtBounds
-
-        ScrollBar.vertical: ScrollBar {
-            policy: list.contentHeight > list.height ? ScrollBar.AsNeeded
-                                                     : ScrollBar.AlwaysOff
-        }
 
         delegate: Rectangle {
             id: row
@@ -64,7 +61,17 @@ Rectangle {
             required property var modelData
 
             readonly property bool current: modelData.id === sidebar.currentId
-            readonly property bool isBackend: modelData.origin === "backend"
+
+            // What this section actually contains. A section can now hold both
+            // local and backend subsections, so the row names them instead of
+            // claiming a single origin — origin is shown per card in the pane.
+            readonly property string sectionNames: {
+                const list = modelData.sections !== undefined ? modelData.sections : []
+                const names = []
+                for (let i = 0; i < list.length; ++i)
+                    names.push(list[i].label !== undefined ? list[i].label : list[i].id)
+                return names.join(" · ")
+            }
 
             width: ListView.view.width
             height: 52
@@ -117,16 +124,13 @@ Rectangle {
                     width: parent.width
                 }
 
-                // Where this section's values actually live. Worth stating: the
-                // two halves fail differently — a backend section can reject a
-                // value or be unreachable entirely.
                 Text {
-                    text: row.isBackend
-                          ? qsTr("palvelin") + " · " + row.modelData.settings.length
-                          : qsTr("sovellus") + " · " + row.modelData.settings.length
+                    text: row.sectionNames
+                    width: parent.width
+                    elide: Text.ElideRight
                     font.family: Theme.fontFamily
                     font.pixelSize: 10
-                    color: row.isBackend ? "#9ecbf0" : Theme.dataLabelTitle
+                    color: Theme.dataLabelTitle
                 }
             }
 

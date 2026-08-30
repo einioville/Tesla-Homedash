@@ -21,6 +21,12 @@ Item {
     readonly property real maximum: setting.max !== undefined ? setting.max : 100
     readonly property real stepSize: setting.step !== undefined ? setting.step : (isInt ? 1 : 0.1)
 
+    // Optional text shown INSTEAD of the number at the slider's top stop, for a
+    // maximum that means something other than its numeric value — "rajoittamaton"
+    // for the graph point cap, where the top stop disables the cap entirely.
+    readonly property string maxLabel: setting.maxLabel !== undefined ? setting.maxLabel : ""
+    readonly property bool atMaxLabel: maxLabel.length > 0 && displayValue >= maximum
+
     // A nullable setting that is currently null means "not configured", which is
     // NOT the same as its minimum — the flat electricity tariff falling back to
     // null makes the Charging view show "—" rather than pricing energy at zero.
@@ -71,9 +77,11 @@ Item {
             anchors.verticalCenter: parent.verticalCenter
             text: control.isUnset
                   ? "—"
-                  : (control.isInt ? Math.round(control.displayValue)
-                                   : control.displayValue.toFixed(control.stepSize < 0.1 ? 3 : 2))
-                    + (control.setting.unit !== undefined ? " " + control.setting.unit : "")
+                  : control.atMaxLabel
+                    ? control.maxLabel
+                    : (control.isInt ? Math.round(control.displayValue)
+                                     : control.displayValue.toFixed(control.stepSize < 0.1 ? 3 : 2))
+                      + (control.setting.unit !== undefined ? " " + control.setting.unit : "")
             font.family: Theme.fontFamily
             font.pixelSize: 13
             color: control.isUnset ? Theme.dataLabelTitle : Theme.accent
