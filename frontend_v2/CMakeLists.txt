@@ -55,6 +55,14 @@ qt_add_executable(appfrontend_v2
     core/settings.cpp
     core/idlewatcher.hh
     core/idlewatcher.cpp
+    core/screenpower.hh
+    core/screenpower.cpp
+    core/connectionprobe.hh
+    core/connectionprobe.cpp
+    core/systemstatus.hh
+    core/systemstatus.cpp
+    core/spotifyauth.hh
+    core/spotifyauth.cpp
     core/tesla/tesladata_gen.hh
     core/tesla/tesladata_gen.cpp
     core/tesla/tesladata.hh
@@ -104,6 +112,12 @@ qt_add_qml_module(appfrontend_v2
         items/settings/SettingSelect.qml
         items/settings/SettingsSidebar.qml
         items/settings/SettingsPane.qml
+        items/settings/BackendProbeStatus.qml
+        items/settings/SystemStatusPanel.qml
+        items/settings/SpotifyAuthStatus.qml
+        items/settings/SpotifyAuthPopup.qml
+        items/settings/DialogButton.qml
+        items/settings/SpotifyAuthAlert.qml
         items/trip/TripMap.qml
         items/trip/TripComboBox.qml
         items/trip/WeekSelector.qml
@@ -207,13 +221,13 @@ qt_add_resources(appfrontend_v2 "app_resources"
         resources/icons/power_on.svg
         resources/icons/power_pending.svg
         resources/icons/redshadow.png
-        resources/icons/restart.svg
         resources/icons/screensaver.png
         resources/icons/seat.svg
         resources/icons/settings.svg
         resources/icons/skip_backward.svg
         resources/icons/skip_forward.svg
         resources/icons/steering.svg
+        resources/icons/terminal.svg
         resources/icons/trip.svg
         resources/icons/yellowshadow.png
         resources/icons/weather/clouds.svg

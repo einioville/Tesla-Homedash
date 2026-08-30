@@ -5,13 +5,27 @@ Window {
     id: window
     width: 1280
     height: 800
+
     // Embedded dashboard: the target is a fixed 1280×800 panel and every card is
-    // hand-tuned for exactly that size, so the window is LOCKED — no resizing and
-    // no content scaling. min == max == the design size.
-    minimumWidth: 1280
-    maximumWidth: 1280
-    minimumHeight: 800
-    maximumHeight: 800
+    // hand-tuned for exactly that size, so in a window it is LOCKED — no resizing
+    // and no content scaling, min == max == the design size. Fullscreen has to
+    // release that lock or the compositor cannot size the surface at all; on the
+    // target the panel IS 1280×800, so nothing stretches there.
+    readonly property bool locked: visibility !== Window.FullScreen
+    minimumWidth: locked ? 1280 : 0
+    maximumWidth: locked ? 1280 : 16777215
+    minimumHeight: locked ? 800 : 0
+    maximumHeight: locked ? 800 : 16777215
+
+    // Fullscreen is a user setting (defaulting from TESLA_HOMEDASH_FULLSCREEN),
+    // with one override: while a Spotify re-authorization is running the window
+    // steps back to windowed, because the consent page opens in the host's own
+    // browser and has to be reachable on top of us. On labwc — Raspberry Pi OS
+    // Bookworm's compositor — squeekboard is hardcoded to the `top` layer and does
+    // not draw over a fullscreen surface (labwc#2926), so a fullscreen dashboard
+    // would leave the on-screen keyboard unreachable and the login untypeable.
+    visibility: Settings.values.fullscreen === true &&
+                SpotifyAuth.phase === "idle" ? Window.FullScreen : Window.Windowed
     visible: true
     title: qsTr("Tesla Homedash v2")
     color: Theme.appBackground
@@ -181,9 +195,26 @@ Window {
         frostedBackdrop: true
     }
 
+    // Spotify re-authorization, at APP level rather than inside the Options view.
+    // Both have to be here: the grant can die while any view is on screen (Spotify's
+    // refresh tokens last 6 months), the prompt has to be raised over whatever that
+    // view is, and pressing its button must show the progress dialog — which would
+    // be invisible if it still lived in a settings screen nobody was looking at.
+    // Below the screensaver (z:300): a dashboard that has gone to sleep should stay
+    // asleep rather than light up for a prompt that will still be there on waking.
+    SpotifyAuthAlert {
+        anchors.fill: parent
+        z: 250
+    }
+    SpotifyAuthPopup {
+        anchors.fill: parent
+        z: 260
+    }
+
     // Idle screensaver: after the inactivity timeout (or F10 for testing) it fades
     // in a black photo pile and dismisses on tap, revealing the last-used view.
-    // Sits above every other layer (dock z:default, notifications z:200).
+    // Sits above every other layer (dock z:default, notifications z:200,
+    // Spotify prompt/dialog z:250/260).
     ScreenSaver {
         id: screenSaver
         anchors.fill: parent
@@ -198,6 +229,21 @@ Window {
         target: Idle
         property: "timeoutMs"
         value: Settings.values.screensaverTimeoutMin * 60000
+    }
+
+    // Panel power-down: a longer step past the screensaver that cuts the backlight
+    // via wlopm, waking on the next touch. Pushed rather than read so the Options
+    // view applies it live; ScreenPower starts disarmed, so with the setting off
+    // nothing ever runs.
+    Binding {
+        target: Display
+        property: "enabled"
+        value: Settings.values.screenOffEnabled
+    }
+    Binding {
+        target: Display
+        property: "timeoutMs"
+        value: Settings.values.screenOffMin * 60000
     }
 
     Component.onCompleted: hideTimer.start()

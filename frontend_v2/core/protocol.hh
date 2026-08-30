@@ -159,6 +159,28 @@ inline constexpr quint8 VALUE_TYPE_STRING = 1;  // length(2B) + UTF-8
 inline constexpr quint8 VALUE_TYPE_BOOL = 2;    // uint8 (1B)
 inline constexpr quint8 VALUE_TYPE_DICT = 3;    // sequence of double(8B) — Location = lat, lon
 
+// ── Spotify re-authorisation ───────────────────────────────────────────────
+// The frontend shows the page and posts back the code; the client secret and the
+// token exchange stay in the backend.
+inline constexpr quint8 SPOTIFY_AUTH_STATUS = 0xA0;
+inline constexpr quint8 SPOTIFY_AUTH_GET_URL = 0xA1;
+inline constexpr quint8 SPOTIFY_AUTH_URL = 0xA2;
+inline constexpr quint8 SPOTIFY_AUTH_RESULT = 0xA4;
+
+// Leading status byte on the three B->F packets above.
+inline constexpr quint8 SPOTIFY_AUTH_ERROR = 0;
+inline constexpr quint8 SPOTIFY_AUTH_OK = 1;
+
+// ── System status (the maintenance dashboard) ──────────────────────────────
+inline constexpr quint8 SYSTEM_GET_STATUS = 0xB0;
+inline constexpr quint8 SYSTEM_STATUS = 0xB1;
+
+// ── Display power ──────────────────────────────────────────────────────────
+// This side decides WHEN (it sees the touch events); the backend does the actual
+// switching, because system calls belong to the backend.
+inline constexpr quint8 DISPLAY_SET_POWER = 0xC0;
+inline constexpr quint8 DISPLAY_POWER_STATE = 0xC1;
+
 // Receive-side defensive cap. NOTE the deliberate asymmetry: the backend caps a
 // single message at 1 MB (MAX_MSG_SIZE in protocol.py), but this client tolerates
 // up to 16 MB before treating the length prefix as corrupt and resetting the

@@ -3,18 +3,22 @@
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QQuickStyle>
-#include <QtQml>  // qmlRegisterSingletonInstance + QQmlEngine
+#include <QtQml>
 #include <memory>
 
 #include "core/appconfig.hh"
 #include "core/charging/chargingdata.hh"
 #include "core/idlewatcher.hh"
+#include "core/connectionprobe.hh"
+#include "core/screenpower.hh"
 #include "core/logger.hh"
 #include "core/media/mediadata.hh"
 #include "core/media/mediaimageprovider.hh"
 #include "core/notification/notificationhandler.hh"
 #include "core/serverclient.hh"
 #include "core/settings.hh"
+#include "core/spotifyauth.hh"
+#include "core/systemstatus.hh"
 #include "core/tesla/tesladata.hh"
 #include "core/tesla/teslahistory.hh"
 #include "core/trip/tripsdata.hh"
@@ -81,6 +85,26 @@ int main(int argc, char* argv[]) {
     // Inactivity watcher driving the screensaver: installs an app-wide event
     // filter (needs qApp, already constructed above). Timeout from AppConfig.
     IdleWatcher idleWatcher(config.screensaverTimeoutMs());
+    // Panel power-down, a longer step beyond the screensaver. Driven by the same
+    // activity stream; its settings are bound from Theme in Main.qml, so it stays
+    // disarmed until the user enables it. It only DECIDES — backend/display_service
+    // does the switching, because system calls belong to the backend.
+    ScreenPower screenPower;
+    screenPower.attachServer(&serverClient);
+    // One-shot reachability check for the backend address settings. Independent of
+    // serverClient, which owns the live session and must keep reconnecting.
+    ConnectionProbe connectionProbe;
+    // The Options view's maintenance dashboard. Polls only while its panel is on
+    // screen, so a settings screen nobody opened costs nothing.
+    SystemStatus systemStatus;
+    systemStatus.attachServer(&serverClient);
+    // Spotify re-authorization. Entirely the backend's job — it opens the consent
+    // page in the host browser and catches the redirect — so this side only tracks
+    // progress for the dialog.
+    SpotifyAuth spotifyAuth;
+    spotifyAuth.attachServer(&serverClient);
+    QObject::connect(&idleWatcher, &IdleWatcher::activity, &screenPower,
+                     &ScreenPower::onActivity);
 
     // Pin the Qt Quick Controls style to Basic — the style the custom control
     // styling (e.g. TripComboBox's themed field / popup / delegate) is written for.
@@ -105,6 +129,10 @@ int main(int argc, char* argv[]) {
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "Weather", &weatherData);
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "Notifications", &notificationHandler);
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "Idle", &idleWatcher);
+    qmlRegisterSingletonInstance("frontend_v2", 1, 0, "Display", &screenPower);
+    qmlRegisterSingletonInstance("frontend_v2", 1, 0, "Probe", &connectionProbe);
+    qmlRegisterSingletonInstance("frontend_v2", 1, 0, "System", &systemStatus);
+    qmlRegisterSingletonInstance("frontend_v2", 1, 0, "SpotifyAuth", &spotifyAuth);
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "Settings", &settings);
 
     QObject::connect(
