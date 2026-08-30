@@ -82,5 +82,31 @@ if (( RUN )); then
     if (( FULLSCREEN )); then
         export TESLA_HOMEDASH_FULLSCREEN=1
     fi
+    # WSL2 exposes the GPU as /dev/dxg, not a DRM render node, so Mesa cannot probe
+    # a driver and silently lands on llvmpipe. Chromium >= 120 then refuses to
+    # create a WebGL context on software GL ("WebGL1 blocklisted"), and Spotify's
+    # login page runs reCAPTCHA Enterprise, which scores WebGL while building its
+    # challenge — so the Options view's consent page loads but the challenge never
+    # solves and the re-authorization dead-ends. The d3d12 gallium driver reaches
+    # the real adapter.
+    #
+    # The second half is not optional. Once Chromium HAS a GPU, QtWebEngine tries
+    # to import its frames as dma_buf native pixmaps, and Mesa's d3d12 EGL driver
+    # does not expose EGL_EXT_image_dma_buf_import — so the GPU fix on its own
+    # turns "renders, no WebGL" into "WebGL, renders nothing", a black panel with
+    # "Failed to get native pixmap due to dma_buf acquisition failure" on repeat.
+    # --disable-gpu-compositing keeps the GPU process (and WebGL with it) while
+    # delivering frames through shared memory instead. Measured, 600x400 grab of a
+    # solid-colour page: plain d3d12 = 0 % of the expected colour; with this flag
+    # = 100 %, WebGL still reporting the real D3D12 adapter. It reaches only
+    # QtWebEngine's Chromium, never Qt Quick, so the dashboard's own maps and
+    # graphs keep the hardware path GALLIUM_DRIVER just gave them.
+    #
+    # Both are guarded on the WSL2 shape, so they are inert on the Pi, which has
+    # /dev/dri and needs neither.
+    if [[ -e /dev/dxg && ! -d /dev/dri ]]; then
+        export GALLIUM_DRIVER="${GALLIUM_DRIVER:-d3d12}"
+        export QTWEBENGINE_CHROMIUM_FLAGS="${QTWEBENGINE_CHROMIUM_FLAGS:-} --disable-gpu-compositing"
+    fi
     exec "$EXE"
 fi
