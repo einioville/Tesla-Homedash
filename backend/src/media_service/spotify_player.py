@@ -5,18 +5,27 @@ import struct
 import aiohttp
 import requests
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from spotipy import Spotify, SpotifyException
-from spotipy.oauth2 import SpotifyOAuth
+from spotipy import Spotify, SpotifyBaseException, SpotifyException
+from spotipy.oauth2 import SpotifyOauthError
 
 from ..utils import protocol
 from ..utils.config_parser import Config, get_env
 from .base_media_player import BaseMediaPlayer
 from .media_manager import MediaManager
+from .spotify_oauth import build_oauth
 
 logger = logging.getLogger("media_service.spotify_player")
 
 _FAILED = object()
 _IMAGE_FETCH_TIMEOUT = aiohttp.ClientTimeout(total=10)
+
+# OAuth errors that mean the GRANT ITSELF is gone and only a new authorization can
+# bring it back. Everything else a token endpoint can raise — a 5xx, a malformed
+# body — is transient and must NOT latch the player off, or one bad minute at
+# Spotify would silence the dashboard until someone restarted it.
+_TERMINAL_OAUTH_ERRORS = frozenset({
+    "invalid_grant", "invalid_client", "unauthorized_client", "invalid_scope",
+})
 
 
 class SpotifyPlayer(BaseMediaPlayer):
@@ -26,17 +35,11 @@ class SpotifyPlayer(BaseMediaPlayer):
     def __init__(self, media_manager: MediaManager, config: Config):
         super().__init__(media_manager=media_manager)
 
-        self._auth_manager = SpotifyOAuth(
-            client_id=get_env("SPOTIFY_CLIENT_ID"),
-            client_secret=get_env("SPOTIFY_CLIENT_SECRET"),
-            redirect_uri=config.spotify_redirect_uri,
-            cache_path=config.spotify_cache_path,
-            scope=(
-                "user-read-playback-state,"
-                "user-modify-playback-state,"
-                "user-read-currently-playing"
-            ),
-        )
+        # NON-interactive on purpose. A missing or scope-mismatched cache used to
+        # send spotipy into its browser/local-server handshake inside this
+        # player's executor thread, where it blocks forever and silently kills
+        # every later poll; build_oauth raises instead. See spotify_oauth.py.
+        self._auth_manager = build_oauth(config)
 
         self._spotify = Spotify(auth_manager=self._auth_manager)
         # Retained so apply_config() can re-read the market at runtime.
@@ -57,7 +60,53 @@ class SpotifyPlayer(BaseMediaPlayer):
         # could interleave and double-fire claim/release.
         self._state_lock = asyncio.Lock()
 
+        # Set when Spotify rejects the grant outright — most commonly the refresh
+        # token's 6-month expiry, which is now a scheduled certainty rather than an
+        # incident. While it is set this player makes NO network calls at all:
+        # spotipy does not clear its cache on rejection, so an unguarded poller
+        # would retry a dead token every 10 s forever, for nothing.
+        self._auth_error: str | None = None
+        self._auth_error_code: str | None = None
+        # Awaited when _auth_error changes, so the dashboard hears about it at once
+        # rather than at the next client reconnect.
+        self._auth_listener = None
+
         self._scheduler = AsyncIOScheduler(timezone=config.zone_info)
+
+    def set_auth_listener(self, listener) -> None:
+        '''
+        Registers the coroutine to await when the grant's validity changes.
+        Arguments:
+            listener (callable): Zero-argument coroutine function.
+        '''
+        self._auth_listener = listener
+
+    def spotify_auth_error_reason(self) -> str | None:
+        '''
+        The Finnish reason the grant is unusable, or None while it works.  Read by
+        SpotifyAuthService.build_status() so the Options view reports what the
+        player actually experiences rather than merely that a cache file exists.
+        '''
+        return self._auth_error
+
+    async def refresh_auth(self) -> None:
+        '''
+        Picks up a grant the Options view just wrote.  spotipy's cache handler
+        re-reads the cache file on every API call, so neither the auth manager nor
+        the client needs rebuilding — this only forces an immediate poll so the
+        dashboard reflects the new grant without waiting out the interval.
+        '''
+        resumed = self._auth_error is not None
+        self._auth_error = None
+        self._auth_error_code = None
+        if resumed:
+            logger.info("Spotify grant replaced — resuming polling")
+            await self._notify_auth_change()
+        # Requests a poll rather than guaranteeing one: _update_state returns
+        # immediately if a refresh is already in flight, in which case that run
+        # already picks up the new grant.
+        logger.info("Spotify grant refreshed — requesting a state poll")
+        await self._update_state()
 
     def apply_config(self) -> None:
         '''
@@ -96,16 +145,77 @@ class SpotifyPlayer(BaseMediaPlayer):
         Arguments:
             func (callable): The spotipy method to call
         '''
+        if self._auth_error is not None:
+            # The grant is dead. Nothing can succeed until it is replaced, so do
+            # not spend a request finding that out again.
+            return _FAILED
         try:
             return await self._loop.run_in_executor(
                 None, lambda: func(*args, **kwargs)
             )
-        except (SpotifyException, requests.exceptions.RequestException, OSError) as e:
-            # SpotifyException → API errors (4xx/5xx, auth), RequestException →
+        except SpotifyOauthError as e:
+            # Caught BEFORE SpotifyBaseException, of which it is a subclass: only
+            # this branch can tell "the grant is gone" from "the API said no".
+            await self._note_auth_failure(e)
+            return _FAILED
+        except (SpotifyBaseException, requests.exceptions.RequestException, OSError) as e:
+            # SpotifyBaseException covers both SpotifyException (API 4xx/5xx) and
+            # SpotifyOauthError, which is NOT a SpotifyException and would
+            # otherwise escape into the caller. RequestException →
             # connection/timeout from the underlying requests client, OSError →
             # low-level socket errors that sometimes escape requests.
             logger.error("Spotify API call failed: %s — %s: %s", func.__name__, type(e).__name__, e)
             return _FAILED
+
+    async def _note_auth_failure(self, error: SpotifyOauthError) -> None:
+        '''
+        Decides whether an OAuth error is terminal and, if so, latches this player
+        off and tells the dashboard.
+        Arguments:
+            error (SpotifyOauthError): The exception spotipy raised.
+        '''
+        code = getattr(error, "error", None) or ""
+        message = str(error)
+        # NonInteractiveSpotifyOAuth raises with no `error` code, so match it by
+        # message: an unusable cache is exactly as terminal as invalid_grant.
+        terminal = (code in _TERMINAL_OAUTH_ERRORS
+                    or "No usable Spotify token cache" in message)
+        if not terminal:
+            logger.error("Spotify OAuth error, treated as transient: %s: %s",
+                         code or "?", message)
+            return
+
+        if code == "invalid_grant":
+            reason = "Valtuutus on vanhentunut tai peruttu — tunnistaudu uudelleen"
+        elif code in ("invalid_client", "unauthorized_client"):
+            reason = "Sovelluksen tunnukset eivät kelpaa (SPOTIFY_CLIENT_ID / _SECRET)"
+        elif code == "invalid_scope":
+            reason = "Valtuutuksen oikeudet eivät riitä — tunnistaudu uudelleen"
+        else:
+            reason = "Tallennettua valtuutusta ei voi käyttää — tunnistaudu uudelleen"
+
+        if self._auth_error == reason:
+            return
+        self._auth_error = reason
+        self._auth_error_code = code
+        logger.error(
+            "Spotify authorization is no longer valid (%s): %s — polling stopped "
+            "until it is renewed", code or "?", message,
+        )
+        await self._notify_auth_change()
+
+    async def _notify_auth_change(self) -> None:
+        '''
+        Tells the registered listener the grant's validity changed.  A failure here
+        must never propagate: the player's own state is already correct, and the
+        broadcast is only how the dashboard finds out sooner.
+        '''
+        if self._auth_listener is None:
+            return
+        try:
+            await self._auth_listener()
+        except Exception as e:
+            logger.warning("Could not broadcast the Spotify auth state: %s", e)
 
     async def _cooldown(self) -> None:
         await asyncio.sleep(1)
@@ -204,6 +314,10 @@ class SpotifyPlayer(BaseMediaPlayer):
         plain lock would deadlock and an unguarded body would race.  The
         in-progress run (or the next tick) reflects the latest state.
         '''
+        if self._auth_error is not None:
+            # Latched off by a terminal OAuth failure. The scheduler keeps firing;
+            # this is where the poll stops costing anything.
+            return
         if self._state_lock.locked():
             return
         async with self._state_lock:

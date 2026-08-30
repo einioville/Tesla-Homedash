@@ -35,6 +35,7 @@ import json
 import logging
 import os
 import struct
+import time
 from typing import Any, Callable
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -123,14 +124,23 @@ _VALIDATORS: dict[str, Callable[[str], str]] = {
 
 
 # ── The schema ────────────────────────────────────────────────────────────────
-# Groups render as SECTIONS in the Options view's left sidebar, in this order —
-# one sidebar entry per group, its settings filling the detail pane. Labels are
-# Finnish per the project's UI-language convention.
+# Two levels. GROUPS render as sections in the Options view's left sidebar, in
+# this order; each group holds SUBSECTIONS, and each subsection is one card in the
+# detail pane. Labels are Finnish per the project's UI-language convention.
 #
-# Per-group keys: id, label, icon, settings.
+# Group ids are shared with the frontend's own bundled schema and a group present
+# in both halves MERGES: "general" shows the frontend's screensaver card and this
+# file's location card in one section. The frontend's schema is canonical for a
+# group's order, label and icon; a group id it does not know is appended rather
+# than dropped, so a new section here needs no frontend change.
+#
+# Per-group keys: id, label, icon, sections.
 #   icon  a SEMANTIC name ("charger", "media", "price", …), not a file path — the
 #         frontend maps it to one of its own resources. The backend must not name
 #         a frontend asset; an unknown name falls back to the generic gear.
+#
+# Per-subsection keys: id, label, help (optional, shown under the card title),
+#   settings.
 #
 # Per-setting keys:
 #   key       dotted path into config.json ("myenergi.pollIntervalIdleSeconds")
@@ -139,6 +149,14 @@ _VALIDATORS: dict[str, Callable[[str], str]] = {
 #   help      Finnish one-liner shown under the row (optional)
 #   unit      suffix rendered after the value (optional)
 #   min/max/step   numeric bounds (int/float only)
+#   relevantWhen
+#             {"key": <other setting>, "equals": <value>} (or "notEquals") — the
+#             row is FADED, not disabled, while the rule does not hold, so a
+#             setting the current toggle state makes meaningless still reads as
+#             editable. May name a setting in either half. Advisory only.
+#   warnBelow / warnAbove / warnMessage
+#             advisory threshold: the row shows a caution when the current value
+#             crosses it. Never blocks the write — min/max are the hard bounds.
 #   nullable  True if the setting may be cleared to null
 #   options   enum choices; "dynamic" instead means built at schema time
 #   validator name in _VALIDATORS (string only)
@@ -147,32 +165,41 @@ _VALIDATORS: dict[str, Callable[[str], str]] = {
 #             the exact number does not matter (a range spanning thousands of
 #             steps is undraggable). None of the settings below want one — a port,
 #             a tariff and a poll interval are all values you need to hit exactly.
+#   guard     name of a register_guard() callable run before the write is
+#             persisted; raising ValueError rejects it with a message shown to
+#             the user (an audio stack that cannot switch outputs, say)
 #   apply     "hook" | "restart"
 #   hooks     names of apply_config() hooks to run; see ConfigService.register_hook
 
 SETTINGS_SCHEMA: list[dict] = [
     {
         "id": "general",
-        "icon": "gear",
-        "label": "Yleiset",
-        "settings": [
+        "icon": "app",
+        "label": "Yleinen",
+        "sections": [
             {
-                "key": "weatherPlace",
-                "type": "string",
-                "label": "Sääpaikkakunta",
-                "help": "Ilmatieteen laitoksen havainto- ja ennustepaikka.",
-                "validator": "place",
-                "apply": "hook",
-                "hooks": ["weather"],
-            },
-            {
-                "key": "timeZone",
-                "type": "string",
-                "label": "Aikavyöhyke",
-                "help": "IANA-tunnus, esim. Europe/Helsinki.",
-                "validator": "timezone",
-                "apply": "restart",
-                "hooks": [],
+                "id": "location",
+                "label": "Sijainti ja aika",
+                "settings": [
+                    {
+                        "key": "weatherPlace",
+                        "type": "string",
+                        "label": "Sääpaikkakunta",
+                        "help": "Ilmatieteen laitoksen havainto- ja ennustepaikka.",
+                        "validator": "place",
+                        "apply": "hook",
+                        "hooks": ["weather"],
+                    },
+                    {
+                        "key": "timeZone",
+                        "type": "string",
+                        "label": "Aikavyöhyke",
+                        "help": "IANA-tunnus, esim. Europe/Helsinki.",
+                        "validator": "timezone",
+                        "apply": "restart",
+                        "hooks": [],
+                    },
+                ],
             },
         ],
     },
@@ -180,177 +207,243 @@ SETTINGS_SCHEMA: list[dict] = [
         "id": "media",
         "icon": "media",
         "label": "Media",
-        "settings": [
+        "sections": [
             {
-                "key": "defaultRadioStation",
-                "type": "enum",
-                "label": "Oletusradiokanava",
-                "help": "Kanava, jolle radio palaa Spotifyn lopetettua.",
-                "options": "dynamic",
-                "apply": "hook",
-                "hooks": ["radio"],
+                "id": "radio",
+                "label": "Radio",
+                "settings": [
+                    {
+                        "key": "defaultRadioStation",
+                        "type": "enum",
+                        "label": "Oletusradiokanava",
+                        "help": "Kanava, jolle radio palaa Spotifyn lopetettua.",
+                        "options": "dynamic",
+                        "apply": "hook",
+                        "hooks": ["radio"],
+                    },
+                ],
             },
             {
-                "key": "spotifyMarket",
-                "type": "string",
-                "label": "Spotify-markkina",
-                "help": "ISO-maakoodi, vaikuttaa kappaleiden saatavuuteen.",
-                "validator": "market",
-                "apply": "hook",
-                "hooks": ["spotify"],
-            },
-        ],
-    },
-    {
-        "id": "charger",
-        "icon": "charger",
-        "label": "Laturi",
-        "settings": [
-            {
-                "key": "myenergi.pollIntervalIdleSeconds",
-                "type": "int",
-                "label": "Kyselyväli, lepotila",
-                "help": "Alle 20 s ruuhkauttaa myenergi-pilven (429).",
-                "unit": "s",
-                "min": 20,
-                "max": 900,
-                "step": 5,
-                "apply": "hook",
-                "hooks": ["myenergi"],
+                "id": "spotify",
+                "label": "Spotify",
+                "settings": [
+                    {
+                        "key": "spotifyMarket",
+                        "type": "string",
+                        "label": "Spotify-markkina",
+                        "help": "ISO-maakoodi, vaikuttaa kappaleiden saatavuuteen.",
+                        "validator": "market",
+                        "apply": "hook",
+                        "hooks": ["spotify"],
+                    },
+                ],
             },
             {
-                "key": "myenergi.pollIntervalActiveSeconds",
-                "type": "int",
-                "label": "Kyselyväli, lataus käynnissä",
-                "unit": "s",
-                "min": 10,
-                "max": 600,
-                "step": 5,
-                "apply": "hook",
-                "hooks": ["myenergi"],
-            },
-            {
-                "key": "myenergi.minSessionEnergyKwh",
-                "type": "float",
-                "label": "Latauksen vähimmäisenergia",
-                "help": "Tätä pienemmät latausistunnot jätetään listalta pois.",
-                "unit": "kWh",
-                "min": 0.0,
-                "max": 20.0,
-                "step": 0.1,
-                "apply": "hook",
-                "hooks": ["charging"],
-            },
-            {
-                "key": "myenergi.sessionMergeMinutes",
-                "type": "int",
-                "label": "Istuntojen yhdistysväli",
-                "help": "Tätä lyhyempi tauko ei katkaise latausistuntoa.",
-                "unit": "min",
-                "min": 0,
-                "max": 120,
-                "step": 1,
-                "apply": "hook",
-                "hooks": ["charging"],
-            },
-            {
-                "key": "myenergi.zappiSerial",
-                "type": "string",
-                "label": "Zappin sarjanumero",
-                "help": "Tyhjä = valitse tilin ensimmäinen Zappi.",
-                "apply": "restart",
-                "hooks": [],
+                "id": "audio",
+                "label": "Ääni",
+                "help": "Järjestelmän äänentoisto — koskee sekä radiota että Spotifyta.",
+                "settings": [
+                    {
+                        "key": "audio.volumePercent",
+                        "type": "int",
+                        "label": "Äänenvoimakkuus",
+                        "help": "Järjestelmän oletuslaitteen voimakkuus.",
+                        "unit": "%",
+                        "min": 0,
+                        "max": 100,
+                        "step": 5,
+                        # The exception that proves the no-sliders rule: volume is
+                        # the canonical case where the exact number does not matter.
+                        "editor": "slider",
+                        "apply": "hook",
+                        "hooks": ["audio"],
+                        "guard": "audio",
+                    },
+                    {
+                        "key": "audio.outputDevice",
+                        "type": "enum",
+                        "label": "Toistolaite",
+                        "help": "Tyhjä = järjestelmän oma oletus. ALSA-järjestelmässä "
+                                "laitetta ei voi vaihtaa ajon aikana.",
+                        "options": "dynamic",
+                        "apply": "hook",
+                        "hooks": ["audio"],
+                        "guard": "audio",
+                    },
+                ],
             },
         ],
     },
     {
-        "id": "pricing",
+        "id": "electricity",
         "icon": "price",
-        "label": "Sähkön hinta",
-        "settings": [
+        "label": "Sähkö",
+        "sections": [
             {
-                "key": "spotPrice.enabled",
-                "type": "bool",
-                "label": "Pörssisähkön hinnoittelu",
-                "help": "Pois päältä = kiinteä hinta alla.",
-                "apply": "restart",
-                "hooks": [],
+                "id": "pricing",
+                "label": "Hinnoittelu",
+                "help": "Kumpi hinnoittelu on käytössä ja millä lisillä.",
+                "settings": [
+                    {
+                        "key": "spotPrice.enabled",
+                        "type": "bool",
+                        "label": "Pörssisähkön hinnoittelu",
+                        "help": "Pois päältä = kiinteä hinta alla.",
+                        "apply": "restart",
+                        "hooks": [],
+                    },
+                    {
+                        "key": "spotPrice.vatPercent",
+                        "relevantWhen": {"key": "spotPrice.enabled", "equals": True},
+                        "type": "float",
+                        "label": "Arvonlisävero",
+                        "unit": "%",
+                        "min": 0.0,
+                        "max": 100.0,
+                        "step": 0.5,
+                        "apply": "hook",
+                        "hooks": ["spot_price"],
+                    },
+                    {
+                        "key": "spotPrice.marginCentsPerKwh",
+                        "relevantWhen": {"key": "spotPrice.enabled", "equals": True},
+                        "type": "float",
+                        "label": "Myyjän marginaali",
+                        "help": "Lisätään pörssihintaan ennen alv:tä.",
+                        "unit": "c/kWh",
+                        "min": 0.0,
+                        "max": 20.0,
+                        "step": 0.05,
+                        "apply": "hook",
+                        "hooks": ["spot_price"],
+                    },
+                    {
+                        "key": "spotPrice.baseUrl",
+                        "relevantWhen": {"key": "spotPrice.enabled", "equals": True},
+                        "type": "string",
+                        "label": "Hintalähde",
+                        "help": "sähkötin.fi-yhteensopiva rajapinta.",
+                        "validator": "url",
+                        "apply": "hook",
+                        "hooks": ["spot_price"],
+                    },
+                    {
+                        "key": "electricityPriceEurPerKwh",
+                        "type": "float",
+                        "label": "Kiinteä sähkön hinta",
+                        "help": "Varahinta tunneille, joille ei saada pörssihintaa.",
+                        "unit": "€/kWh",
+                        "min": 0.0,
+                        "max": 2.0,
+                        "step": 0.001,
+                        "nullable": True,
+                        "apply": "hook",
+                        "hooks": ["charging"],
+                    },
+                ],
             },
             {
-                "key": "spotPrice.vatPercent",
-                "type": "float",
-                "label": "Arvonlisävero",
-                "unit": "%",
-                "min": 0.0,
-                "max": 100.0,
-                "step": 0.5,
-                "apply": "hook",
-                "hooks": ["spot_price"],
-            },
-            {
-                "key": "spotPrice.marginCentsPerKwh",
-                "type": "float",
-                "label": "Myyjän marginaali",
-                "help": "Lisätään pörssihintaan ennen alv:tä.",
-                "unit": "c/kWh",
-                "min": 0.0,
-                "max": 20.0,
-                "step": 0.05,
-                "apply": "hook",
-                "hooks": ["spot_price"],
-            },
-            {
-                "key": "spotPrice.baseUrl",
-                "type": "string",
-                "label": "Hintalähde",
-                "help": "sähkötin.fi-yhteensopiva rajapinta.",
-                "validator": "url",
-                "apply": "hook",
-                "hooks": ["spot_price"],
-            },
-            {
-                "key": "electricityPriceEurPerKwh",
-                "type": "float",
-                "label": "Kiinteä sähkön hinta",
-                "help": "Varahinta tunneille, joille ei saada pörssihintaa.",
-                "unit": "€/kWh",
-                "min": 0.0,
-                "max": 2.0,
-                "step": 0.001,
-                "nullable": True,
-                "apply": "hook",
-                "hooks": ["charging"],
+                "id": "charger",
+                "label": "Laturi",
+                "help": "myenergi Zappin kyselyväli ja latausistuntojen tunnistus.",
+                "settings": [
+                    {
+                        "key": "myenergi.pollIntervalIdleSeconds",
+                        "type": "int",
+                        "label": "Kyselyväli, lepotila",
+                        "help": "Kuinka usein Zappin tilaa kysytään lepotilassa.",
+                        "unit": "s",
+                        "min": 20,
+                        "max": 900,
+                        "step": 5,
+                        "warnBelow": 60,
+                        "warnMessage": ("Alle minuutin kyselyväli ruuhkauttaa myenergi-pilven: "
+                                        "429-vastaukset kasvattavat odotusta entisestään."),
+                        "apply": "hook",
+                        "hooks": ["myenergi"],
+                    },
+                    {
+                        "key": "myenergi.pollIntervalActiveSeconds",
+                        "type": "int",
+                        "label": "Kyselyväli, lataus käynnissä",
+                        "unit": "s",
+                        "min": 10,
+                        "max": 600,
+                        "step": 5,
+                        "apply": "hook",
+                        "hooks": ["myenergi"],
+                    },
+                    {
+                        "key": "myenergi.minSessionEnergyKwh",
+                        "type": "float",
+                        "label": "Latauksen vähimmäisenergia",
+                        "help": "Tätä pienemmät latausistunnot jätetään listalta pois.",
+                        "unit": "kWh",
+                        "min": 0.0,
+                        "max": 20.0,
+                        "step": 0.1,
+                        "apply": "hook",
+                        "hooks": ["charging"],
+                    },
+                    {
+                        "key": "myenergi.sessionMergeMinutes",
+                        "type": "int",
+                        "label": "Istuntojen yhdistysväli",
+                        "help": "Tätä lyhyempi tauko ei katkaise latausistuntoa.",
+                        "unit": "min",
+                        "min": 0,
+                        "max": 120,
+                        "step": 1,
+                        "apply": "hook",
+                        "hooks": ["charging"],
+                    },
+                    {
+                        "key": "myenergi.zappiSerial",
+                        "type": "string",
+                        "label": "Zappin sarjanumero",
+                        "help": "Tyhjä = valitse tilin ensimmäinen Zappi.",
+                        "apply": "restart",
+                        "hooks": [],
+                    },
+                ],
             },
         ],
     },
     {
-        "id": "trips",
+        "id": "tesla",
         "icon": "trip",
-        "label": "Matkat",
-        "settings": [
+        "label": "Tesla",
+        "sections": [
             {
-                "key": "trip.min_stop_minutes",
-                "type": "int",
-                "label": "Pysähdyksen vähimmäiskesto",
-                "help": "Tätä lyhyempi pysäköinti ei katkaise matkaa.",
-                "unit": "min",
-                "min": 1,
-                "max": 180,
-                "step": 1,
-                "apply": "hook",
-                "hooks": ["trip"],
-            },
-            {
-                "key": "trip.min_trip_distance_km",
-                "type": "float",
-                "label": "Matkan vähimmäispituus",
-                "help": "Tätä lyhyemmät ajot jätetään listalta pois.",
-                "unit": "km",
-                "min": 0.0,
-                "max": 50.0,
-                "step": 0.1,
-                "apply": "hook",
-                "hooks": ["trip"],
+                "id": "trips",
+                "label": "Matkojen tunnistus",
+                "help": "Milloin ajo lasketaan omaksi matkakseen.",
+                "settings": [
+                    {
+                        "key": "trip.min_stop_minutes",
+                        "type": "int",
+                        "label": "Pysähdyksen vähimmäiskesto",
+                        "help": "Tätä lyhyempi pysäköinti ei katkaise matkaa.",
+                        "unit": "min",
+                        "min": 1,
+                        "max": 180,
+                        "step": 1,
+                        "apply": "hook",
+                        "hooks": ["trip"],
+                    },
+                    {
+                        "key": "trip.min_trip_distance_km",
+                        "type": "float",
+                        "label": "Matkan vähimmäispituus",
+                        "help": "Tätä lyhyemmät ajot jätetään listalta pois.",
+                        "unit": "km",
+                        "min": 0.0,
+                        "max": 50.0,
+                        "step": 0.1,
+                        "apply": "hook",
+                        "hooks": ["trip"],
+                    },
+                ],
             },
         ],
     },
@@ -363,14 +456,17 @@ _MERGED_BLOCKS = {
     "trip": "trip_config",
     "myenergi": "myenergi_config",
     "spotPrice": "spot_price_config",
+    "audio": "audio_config",
 }
 
 
 def _iter_settings():
-    '''Yields every setting dict in the schema, flattened across groups.'''
+    '''Yields every setting dict in the schema, flattened across groups and
+    their subsections.'''
     for group in SETTINGS_SCHEMA:
-        for setting in group["settings"]:
-            yield setting
+        for section in group["sections"]:
+            for setting in section["settings"]:
+                yield setting
 
 
 class ConfigService:
@@ -394,11 +490,48 @@ class ConfigService:
         # exists; a name with no registration downgrades its settings to
         # "restart" in both the schema and the write result.
         self.__hooks: dict[str, Callable[[], Any]] = {}
+        # key -> zero-arg callable returning [{"value", "label"}].  Lets a service
+        # own its own dynamic enum instead of __dynamic_options growing a
+        # hardcoded branch per key (defaultRadioStation predates this and stays
+        # as the built-in fallback).
+        self.__options_providers: dict[str, Callable[[], list[dict]]] = {}
+        # guard name -> callable(key, value), raising ValueError to REJECT a write
+        # that could not take effect.  Distinct from a hook: a hook runs after the
+        # value is already on disk and its failure is swallowed, so a guard is the
+        # only place an honest "this cannot work here" reaches the user.
+        self.__guards: dict[str, Callable[[str, Any], None]] = {}
         # Set by the CONFIG_RESTART handler and awaited by run(), which turns it
         # into a process exit for the service manager to restart.
         self.__restart_requested = asyncio.Event()
+        # Identifies THIS process in every schema it sends.  The frontend uses it
+        # to tell "the backend restarted, so the values it now reports are the new
+        # baseline" from "the socket blipped and reconnected" — a distinction the
+        # schema's content cannot make, since __current_value reports what is in
+        # config.json, not what each service snapshotted at construction.
+        self.__started_at_ms = int(time.time() * 1000)
 
     # ── Wiring ────────────────────────────────────────────────────
+
+    def register_options(self, key: str, provider: Callable[[], list[dict]]) -> None:
+        '''
+        Registers the enum-choice provider for one `"options": "dynamic"` setting.
+        Arguments:
+            key (str): Dotted setting key, e.g. "audio.outputDevice".
+            provider (Callable): Returns [{"value", "label"}]; must be synchronous
+                because build_schema() is.
+        '''
+        self.__options_providers[key] = provider
+
+    def register_guard(self, name: str, guard: Callable[[str, Any], None]) -> None:
+        '''
+        Registers a pre-write guard, run after coercion and before anything is
+        persisted.  Raising ValueError rejects the write and the message is shown
+        to the user verbatim.
+        Arguments:
+            name (str): Name a setting's "guard" key refers to.
+            guard (Callable): guard(key, coerced_value) -> None, raises ValueError.
+        '''
+        self.__guards[name] = guard
 
     def register_hook(self, name: str, hook: Callable[[], Any]) -> None:
         '''
@@ -448,29 +581,45 @@ class ConfigService:
         '''
         Builds the JSON document sent as CONFIG_SCHEMA: the static schema with
         each setting's current value, its effective apply tier, and any dynamic
-        enum options resolved.
+        enum options resolved, plus the path of the config.json being edited and
+        the identity of this backend process (see __started_at_ms).
         '''
         groups = []
         for group in SETTINGS_SCHEMA:
-            settings = []
-            for setting in group["settings"]:
-                entry = {k: v for k, v in setting.items() if k != "options"}
-                entry["apply"] = self.__effective_apply(setting)
-                entry["value"] = self.__current_value(setting["key"])
+            sections = []
+            for section in group["sections"]:
+                settings = []
+                for setting in section["settings"]:
+                    entry = {k: v for k, v in setting.items() if k != "options"}
+                    entry["apply"] = self.__effective_apply(setting)
+                    entry["value"] = self.__current_value(setting["key"])
 
-                options = setting.get("options")
-                if options == "dynamic":
-                    entry["options"] = self.__dynamic_options(setting["key"])
-                elif options is not None:
-                    entry["options"] = options
-                settings.append(entry)
-            # Copy every group-level key except "settings" rather than naming
+                    options = setting.get("options")
+                    if options == "dynamic":
+                        entry["options"] = self.__dynamic_options(setting["key"])
+                    elif options is not None:
+                        entry["options"] = options
+                    settings.append(entry)
+                # Copy every subsection-level key except "settings", for the same
+                # reason as the group level below.
+                section_entry = {k: v for k, v in section.items() if k != "settings"}
+                section_entry["settings"] = settings
+                sections.append(section_entry)
+            # Copy every group-level key except "sections" rather than naming
             # them one by one: a new group field (the sidebar icon was the first)
             # then reaches the frontend without touching this function.
-            entry = {k: v for k, v in group.items() if k != "settings"}
-            entry["settings"] = settings
+            entry = {k: v for k, v in group.items() if k != "sections"}
+            entry["sections"] = sections
             groups.append(entry)
-        return {"groups": groups}
+        # The path lets the Options view name the file its remote half writes,
+        # alongside the frontend's own settings file.  Top-level rather than
+        # per-group: it describes the whole document, and an older frontend that
+        # does not read it simply ignores the extra key.
+        return {
+            "path": self.__config.path,
+            "startedAt": self.__started_at_ms,
+            "groups": groups,
+        }
 
     def __dynamic_options(self, key: str) -> list[dict]:
         '''
@@ -480,6 +629,9 @@ class ConfigService:
         Arguments:
             key (str): The setting key whose options are being built.
         '''
+        provider = self.__options_providers.get(key)
+        if provider is not None:
+            return provider()
         if key == "defaultRadioStation":
             return [
                 {"value": name, "label": name}
@@ -586,6 +738,11 @@ class ConfigService:
                 allowed = [o["value"] for o in self.__dynamic_options(key)]
                 if coerced not in allowed:
                     raise ValueError(f"Tuntematon valinta: {coerced}")
+            # Last check before anything is persisted: a guard knows whether the
+            # host can actually honour this value at all.
+            guard = self.__guards.get(setting.get("guard", ""))
+            if guard is not None:
+                guard(key, coerced)
         except ValueError as e:
             logger.info("CONFIG_SET rejected for %s: %s", key, e)
             await self.__reply_error(writer, key, value, str(e))

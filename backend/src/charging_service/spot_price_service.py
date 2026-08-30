@@ -90,6 +90,14 @@ class SpotPriceService:
             trigger=CronTrigger(minute=0, timezone=self.__zone_info),
         )
 
+    def health(self) -> dict:
+        '''Reports spot-price availability, or that pricing is switched off.'''
+        if not self.__provider.enabled:
+            return {"state": "off", "detail": "Pörssihinnoittelu pois käytöstä"}
+        if self.__last_frame is None:
+            return {"state": "warn", "detail": "Ei hintaa"}
+        return {"state": "ok", "detail": "Hinta haettu"}
+
     def get_run_task(self) -> asyncio.Task:
         '''Returns an asyncio Task that starts the spot price service.'''
         return asyncio.create_task(self.run())

@@ -20,13 +20,13 @@ import requests
 from spotipy import Spotify, SpotifyException
 from spotipy.oauth2 import SpotifyOAuth
 
-from ...utils.config_parser import Config, get_env
+from ...utils.config_parser import Config, default_config_path, get_env
+from ..spotify_oauth import SPOTIFY_SCOPE
 
-SCOPE = (
-    "user-read-playback-state,"
-    "user-modify-playback-state,"
-    "user-read-currently-playing"
-)
+# Re-exported so this script keeps its old name for the value, while the one
+# authoritative definition lives beside the player that depends on it. A scope
+# that disagrees between issuer and reader silently invalidates the grant.
+SCOPE = SPOTIFY_SCOPE
 
 MAX_ATTEMPTS = 3
 
@@ -140,10 +140,7 @@ def main() -> None:
     Entry point. Loads `.env` + `config.json`, then runs the OAuth handshake
     followed by the device-ID lookup.
     '''
-    config_path = get_env("CONFIG_PATH")
-    if not config_path:
-        _fail("CONFIG_PATH is not set. Make sure `.env` is in the project "
-              "root and points CONFIG_PATH at your config.json.")
+    config_path = get_env("CONFIG_PATH") or default_config_path()
 
     try:
         config = Config(config_path)

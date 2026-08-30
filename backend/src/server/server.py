@@ -76,6 +76,11 @@ class Server:
 
     # ── Outgoing ──────────────────────────────────────────────────────
 
+    @property
+    def client_count(self) -> int:
+        '''Number of currently connected frontends (the status view reports it).'''
+        return len(self.__active_connections)
+
     async def broadcast(self, packet: bytes) -> None:
         '''
         Sends a pre-framed packet (or a concatenation of framed packets) to

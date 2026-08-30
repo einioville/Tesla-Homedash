@@ -25,6 +25,21 @@ logger = logging.getLogger("utils.config_parser")
 _env_loaded: bool = False
 
 
+def default_config_path() -> str:
+    '''
+    Where the backend's config.json lives when CONFIG_PATH is not set:
+    $XDG_CONFIG_HOME (or ~/.config) / Tesla-Homedash / backend_config.json.
+
+    Deliberately the SAME directory the frontend writes its own
+    frontend_config.json into, so both halves of the configuration sit together
+    rather than in the repo root and an app-name directory nobody can guess.
+    CONFIG_PATH still wins when set, so existing deployments are untouched.
+    '''
+    base = os.environ.get("XDG_CONFIG_HOME") or os.path.join(
+        os.path.expanduser("~"), ".config")
+    return os.path.join(base, "Tesla-Homedash", "backend_config.json")
+
+
 def _ensure_env() -> None:
     global _env_loaded
     if not _env_loaded:
@@ -105,6 +120,15 @@ class Config:
     # here — the sähkötin.fi source needs no API key. When "enabled" is false (or the
     # block is absent) the Charging view falls back to the flat electricityPriceEurPerKwh
     # tariff. All-in €/kWh for an hour = (spot + marginCentsPerKwh/100) * (1 + vatPercent/100).
+    # Host audio tunables.  Like the trip block this is NOT a required key: an
+    # existing config.json will not have it and the stack must still start.
+    # outputDevice "" means "leave the host's own default alone", which is not
+    # the same as a device literally named "".
+    _AUDIO_DEFAULTS = {
+        "volumePercent": 60,
+        "outputDevice": "",
+    }
+
     _SPOT_PRICE_DEFAULTS = {
         "enabled": True,
         "vatPercent": 25.5,
@@ -153,6 +177,17 @@ class Config:
 
     def get(self, key: str, default: Any = None) -> Any:
         return self.__data.get(key, default)
+
+    @property
+    def path(self) -> str:
+        '''
+        Absolute path of the live config.json, as resolved from CONFIG_PATH at
+        construction.  Reported to the frontend in the CONFIG_SCHEMA document so
+        the Options view can show WHICH file its remote half is editing — the
+        path is deployment-specific (a worktree copy, the Pi's own), and without
+        it the user has no way to tell from the screen.
+        '''
+        return self.__path
 
     # ── Typed accessors ────────────────────────────────────────────
 
@@ -252,6 +287,14 @@ class Config:
         - baseUrl: the sähkötin.fi range endpoint; config-driven so an alternate
           no-key source (e.g. sahkonhintatanaan.fi) can be swapped in without code.'''
         return {**self._SPOT_PRICE_DEFAULTS, **self.__data.get("spotPrice", {})}
+
+    @property
+    def audio_config(self) -> dict:
+        '''
+        Audio block merged over _AUDIO_DEFAULTS, so an omitted or partial "audio"
+        block still reports the values actually in effect.
+        '''
+        return {**self._AUDIO_DEFAULTS, **self.__data.get("audio", {})}
 
     # ── Loading / validation ───────────────────────────────────────
 

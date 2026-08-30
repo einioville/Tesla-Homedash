@@ -162,6 +162,40 @@ class MediaManager:
         await self.__spotify_player.run()
         await self.load_default_media_player()
 
+    def set_spotify_auth_listener(self, listener) -> None:
+        '''
+        Registers the coroutine the Spotify player awaits when its grant's validity
+        changes, so SpotifyAuthService can re-broadcast the status immediately.
+        Arguments:
+            listener (callable): Zero-argument coroutine function.
+        '''
+        self.__spotify_player.set_auth_listener(listener)
+
+    def spotify_auth_error(self) -> str | None:
+        '''
+        The Finnish reason the Spotify grant is unusable, or None while it works.
+        Reported by the player, which is the only part that actually talks to
+        Spotify — a cache file on disk proves nothing about whether it is accepted.
+        '''
+        return self.__spotify_player.spotify_auth_error_reason()
+
+    async def refresh_spotify_auth(self) -> None:
+        '''
+        Forwards a completed re-authorization to the Spotify player.  Separate
+        from apply_config_spotify(), which only re-reads the market: a new grant
+        is not a config change, and the player has to ACT on it (poll now) rather
+        than re-snapshot a value.
+        '''
+        await self.__spotify_player.refresh_auth()
+
+    def health(self) -> dict:
+        '''Reports which player currently owns playback.'''
+        if self.__active_player is self.__spotify_player:
+            return {"state": "ok", "detail": "Spotify"}
+        if self.__active_player is self.__radio_player:
+            return {"state": "ok", "detail": "Radio"}
+        return {"state": "warn", "detail": "Ei aktiivista soitinta"}
+
     def get_run_task(self) -> asyncio.Task:
         '''
         Returns an asyncio Task that starts the media manager.

@@ -208,6 +208,16 @@ class WeatherService:
         logger.info("Performing initial weather fetch")
         await self.__update_forecast()
 
+    def health(self) -> dict:
+        '''
+        Reports forecast health for the status view.  A cached frame is the
+        honest signal: this service once deadlocked on the Pi for sixteen days
+        (CLAUDE.md 5.2.4) while looking perfectly alive from the outside.
+        '''
+        if self.__last_forecast is None:
+            return {"state": "warn", "detail": f"{self.__place} · ei ennustetta"}
+        return {"state": "ok", "detail": self.__place}
+
     def get_run_task(self) -> asyncio.Task:
         '''
         Returns an asyncio Task that starts the weather service.

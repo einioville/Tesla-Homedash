@@ -203,6 +203,51 @@ CONFIG_RESTART = 0x94       # F->B: (empty) — exit the process so systemd rest
 CONFIG_STATUS_ERROR = 0
 CONFIG_STATUS_OK = 1
 
+# ── Spotify re-authorisation (the Options view's "refresh token" action) ────
+# Request/response like CONFIG_*: the backend replies to the requesting client
+# only. The frontend never holds the client secret — it only shows the page the
+# backend hands it and posts back the authorisation code it intercepted.
+# Only the short-lived AUTHORIZATION CODE ever crosses the wire — never a token.
+# The code is useless without SPOTIFY_CLIENT_SECRET, which stays in the backend's
+# .env, and Spotify invalidates it on first use (and after ~10 minutes).
+#
+# The frontend opens the authorize URL in an embedded WebEngineView and ABORTS the
+# redirect navigation, so nothing ever listens on the redirect URI's port: it only
+# has to be registered byte-identically in the Spotify Developer app, because the
+# token POST echoes it.
+SPOTIFY_AUTH_STATUS = 0xA0    # B->F: status(1B) + len(4B) + UTF-8 JSON — grant state.
+                              #   Snapshot on connect + broadcast after a successful
+                              #   exchange. {"authorized", "scope", "expiresAt",
+                              #   "redirectUri", "cachePath", "reason"}
+SPOTIFY_AUTH_GET_URL = 0xA1   # F->B: (empty) — start a flow, replacing any pending one
+SPOTIFY_AUTH_URL = 0xA2       # B->F: status(1B) + len(4B) + UTF-8 JSON
+                              #   ok:    {"url", "redirectUri", "state"}
+                              #   error: {"message"}
+# 0xA3 is retired. It carried the redirect URL back from the embedded WebView;
+# the consent page now opens in the host's real browser and the backend catches
+# the redirect on its own loopback listener, so nothing produces one.
+SPOTIFY_AUTH_RESULT = 0xA4    # B->F: status(1B) + len(4B) + UTF-8 JSON, requester only
+                              #   {"ok", "message", "scope", "expiresAt"}
+
+# Leading status byte for the three B->F packets above. Same convention as
+# CONFIG_STATUS_*, named separately so the two families stay independent.
+SPOTIFY_AUTH_ERROR = 0
+SPOTIFY_AUTH_OK = 1
+
+# ── System status (the Options view's maintenance dashboard) ────────────────
+# Request/response rather than a broadcast: the Options view is open a fraction
+# of the time, and sampling /proc for every client every few seconds to feed a
+# screen nobody is looking at is pure waste.
+SYSTEM_GET_STATUS = 0xB0      # F->B: (empty)
+SYSTEM_STATUS = 0xB1          # B->F: status(1B) + len(4B) + UTF-8 JSON
+
+# ── Display power (the panel the dashboard runs on) ─────────────────────────
+# The FRONTEND decides WHEN (it is the only side that sees touch input); the
+# BACKEND does the switching, because talking to the system is the backend's job.
+DISPLAY_SET_POWER = 0xC0      # F->B: on(1B) — 1 = wake the panel, 0 = power it down
+DISPLAY_POWER_STATE = 0xC1    # B->F: available(1B) + on(1B) — available=0 means the
+                              #       host has no wlopm, so the feature is inert
+
 # Maximum accepted size of a single incoming message (defensive cap)
 MAX_MSG_SIZE = 1024 * 1024  # 1 MB
 

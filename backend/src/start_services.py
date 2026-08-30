@@ -4,20 +4,24 @@ import os
 import struct
 from datetime import datetime, timezone
 
+from .audio_service.audio_service import AudioService
 from .charging_service.charging_loader import ChargingLoader
 from .config_service.config_service import ConfigService
+from .display_service.display_service import DisplayService
 from .charging_service.spot_price import SpotPriceProvider
 from .charging_service.spot_price_service import SpotPriceService
 from .influxdb_service.influxdb_handler import InfluxDBHandler
 from .media_service.media_manager import MediaManager
+from .media_service.spotify_auth_service import SpotifyAuthService
 from .myenergi_service.myenergi_service import MyEnergiService
 from .server.server import Server
+from .system_service.system_status_service import SystemStatusService
 from .tesla_service.telemetry import TelemetryHandler
 from .tesla_service.vehicle import Vehicle
 from .trip_service.trip_loader import TripLoader
 from .utils import protocol
-from .utils.config_parser import Config, get_env
-from .utils.logger_configurator import configure_logging
+from .utils.config_parser import Config, default_config_path, get_env
+from .utils.logger_configurator import configure_logging, error_counter
 from .weather_service.weather_service import WeatherService
 
 logger = logging.getLogger("start_services")
@@ -25,8 +29,9 @@ logger = logging.getLogger("start_services")
 # Env vars required before any service is constructed.  Missing any of these
 # produces surprising mid-startup failures (spotipy NoneType errors, Influx
 # auth 401s), so we fail fast with one clear message instead.
+# CONFIG_PATH is NOT here: it now defaults to default_config_path(), so only a
+# deployment that keeps its config.json elsewhere needs to set it.
 REQUIRED_ENV_VARS = (
-    "CONFIG_PATH",
     "VIN",
     "API_KEY",
     "INFLUX_TOKEN",
@@ -722,7 +727,7 @@ async def main():
         )
 
     # Load and validate config.json once; every service receives this instance.
-    config = Config(get_env("CONFIG_PATH"))
+    config = Config(get_env("CONFIG_PATH") or default_config_path())
 
     vin = get_env("VIN")
     api_key = get_env("API_KEY")
@@ -799,6 +804,60 @@ async def main():
             "charger streaming + logging disabled"
         )
 
+    # Spotify re-authorization from the Options view. The client secret stays
+    # here; the frontend only renders the page and reports back the one-shot
+    # authorization code.
+    spotify_auth = SpotifyAuthService(config=config, server=server, media_manager=mm)
+    # Let the player announce a dead or renewed grant immediately, instead of the
+    # dashboard finding out at its next reconnect.
+    mm.set_spotify_auth_listener(spotify_auth.notify_auth_state_changed)
+    logger.debug("Spotify auth service initialized")
+
+    # Host audio (system volume + output device). Always constructed: detection is
+    # two cheap subprocess probes and needs no credentials, and a host with no
+    # controllable audio stack must be able to SAY so rather than silently accept
+    # writes that do nothing.
+    audio = AudioService(config=config)
+    logger.debug("Audio service initialized")
+
+    # Panel power. The frontend decides WHEN (it is the only side that sees touch
+    # input); this side does the switching, because system calls belong here.
+    display = DisplayService(server=server)
+    logger.debug("Display service initialized")
+
+    # The Options view's maintenance dashboard. Request/response and registered
+    # with no snapshot: a status page nobody has opened is not worth sampling
+    # /proc for on every connect.
+    system_status = SystemStatusService(
+        server=server, config=config, error_counter=error_counter()
+    )
+    system_status.register_probe("clients", "Yhteydet", lambda: {
+        "state": "ok" if server.client_count else "warn",
+        "detail": f"{server.client_count} näyttöä",
+    })
+    async def _influx_health() -> dict:
+        '''Pings InfluxDB. Async, so the probe registry awaits it under a timeout
+        rather than letting a wedged database hang the whole status reply.'''
+        ok = await influx_handler.connected()
+        return {"state": "ok" if ok else "error",
+                "detail": "" if ok else "Ei yhteyttä tietokantaan"}
+
+    system_status.register_probe("influx", "InfluxDB", _influx_health)
+    system_status.register_probe("media", "Media", mm.health)
+    def _spotify_health() -> dict:
+        '''Reports whether a usable Spotify grant is on disk.'''
+        status = spotify_auth.build_status()
+        if status["authorized"]:
+            return {"state": "ok", "detail": "Tunnistautunut"}
+        return {"state": "warn", "detail": status["reason"]}
+
+    system_status.register_probe("spotify", "Spotify", _spotify_health)
+    system_status.register_probe("weather", "Sää", weather.health)
+    system_status.register_probe("spot_price", "Pörssihinta", spot_price_service.health)
+    if myenergi is not None:
+        system_status.register_probe("myenergi", "Laturi", myenergi.health)
+    logger.debug("System status service initialized")
+
     # Runtime configuration (the Options view). Every service snapshots its
     # config at construction and never re-reads it, so applying a change means
     # calling that service's apply_config(); a setting whose hook is missing
@@ -811,6 +870,11 @@ async def main():
     config_service.register_hook("spot_price", spot_provider.apply_config)
     config_service.register_hook("radio", mm.apply_config_radio)
     config_service.register_hook("spotify", mm.apply_config_spotify)
+    config_service.register_hook("audio", audio.apply_config)
+    # The audio stack owns its own enum choices and its own "this host cannot do
+    # that" veto, so config_service needs to know nothing about audio.
+    config_service.register_options("audio.outputDevice", audio.device_options)
+    config_service.register_guard("audio", audio.guard_write)
     if myenergi is not None:
         config_service.register_hook("myenergi", myenergi.apply_config)
     logger.debug("Config service initialized")
@@ -819,7 +883,11 @@ async def main():
     _register_handlers(
         server, mm, vehicle, trip_loader, charging_loader, config, config_service
     )
-    services = [vehicle, mm, weather, spot_price_service, config_service]
+    server.register_handler(protocol.DISPLAY_SET_POWER, display.handle_set_power)
+    server.register_handler(protocol.SPOTIFY_AUTH_GET_URL, spotify_auth.handle_get_url)
+    server.register_handler(protocol.SYSTEM_GET_STATUS, system_status.handle_get_status)
+    services = [vehicle, mm, weather, spot_price_service, config_service, display,
+                spotify_auth]
     if myenergi is not None:
         services.append(myenergi)
     for service in services:
@@ -842,7 +910,9 @@ async def main():
     # request it never returns, so gathering it unconditionally is harmless.
     t6 = config_service.get_run_task()
 
-    tasks = [t1, t2, t3, t4, t5, t6]
+    # Audio detects its stack then refreshes the device list forever; display
+    # makes its assumed-on state true and returns.
+    tasks = [t1, t2, t3, t4, t5, t6, audio.get_run_task(), display.get_run_task()]
     if myenergi is not None:
         tasks.append(myenergi.get_run_task())
 

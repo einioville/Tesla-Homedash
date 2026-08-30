@@ -166,6 +166,25 @@ class MyEnergiService:
         )
         self.__current_interval = self.__idle_interval
 
+    def health(self) -> dict:
+        '''
+        Reports charger-poll health.  Needs no new state: the consecutive-failure
+        count already drives the backoff, and the interval in force is already
+        tracked for the same reason.
+        '''
+        if self.__consecutive_failures >= 3:
+            state = "error"
+        elif self.__consecutive_failures or self.__last_frame is None:
+            state = "warn"
+        else:
+            state = "ok"
+        detail = f"{self.__current_interval} s" if self.__current_interval else ""
+        if self.__consecutive_failures:
+            detail += f" · {self.__consecutive_failures} epäonnistunutta kyselyä"
+        elif self.__is_charging:
+            detail += " · lataa"
+        return {"state": state, "detail": detail}
+
     def get_run_task(self) -> asyncio.Task:
         '''Returns an asyncio Task that starts the MyEnergi service.'''
         return asyncio.create_task(self.run())

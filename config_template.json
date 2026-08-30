@@ -407,5 +407,9 @@
         "vatPercent": 25.5,
         "marginCentsPerKwh": 0.0,
         "baseUrl": "https://sahkotin.fi/prices"
+    },
+    "audio": {
+        "volumePercent": 60,
+        "outputDevice": ""
     }
 }
