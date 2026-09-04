@@ -12,7 +12,7 @@ import frontend_v2
 //
 // `setting` is one entry from Settings.groups: key, type, label, help, unit,
 // min/max/step, options, value, apply ("live"/"hook"/"restart"), origin
-// ("local"/"backend"), an optional editor hint, and for local ones, modified.
+// ("local"/"backend") and an optional editor hint.
 Item {
     id: row
 
@@ -23,7 +23,6 @@ Item {
     property int editorWidth: 240
 
     readonly property bool needsRestart: setting.apply === "restart"
-    readonly property bool isLocal: setting.origin === "local"
 
     // A setting can declare that it only MATTERS while another setting holds a
     // particular value — the screensaver's dwell time means nothing with the
@@ -114,16 +113,6 @@ Item {
                     font.pixelSize: 10
                     color: "#ffd48a"
                 }
-            }
-
-            // Marks a local setting the user has changed away from its default,
-            // so "what have I touched?" is answerable at a glance.
-            Text {
-                visible: row.isLocal && row.setting.modified === true
-                anchors.verticalCenter: parent.verticalCenter
-                text: "•"
-                font.pixelSize: 16
-                color: Theme.accent
             }
         }
 

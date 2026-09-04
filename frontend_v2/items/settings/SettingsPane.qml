@@ -10,11 +10,6 @@ import frontend_v2
 //
 // The pane itself is transparent: the cards are the containers, and nesting them
 // inside a further card would just draw a border around borders.
-//
-// A section can mix origins — Settings merges the local and backend schemas by
-// group id — so the "sovelluksen/palvelimen asetukset" badge belongs to each
-// CARD, not to the pane. The two halves fail differently (a backend card can
-// reject a value or be unreachable), which is why the distinction is drawn at all.
 Item {
     id: pane
 
@@ -73,14 +68,20 @@ Item {
 
                     required property var modelData
 
-                    readonly property bool isBackend: modelData.origin === "backend"
                     readonly property var entries: modelData.settings !== undefined
                                                    ? modelData.settings : []
+
+                    // The header band is a translucent BLACK wash rather than a
+                    // fixed colour: the card itself is translucent over the
+                    // dashboard background, so darkening has to compose with
+                    // whatever is behind it.
+                    readonly property color headerBg: "#33000000"
+                    readonly property color headerRule: "#38ffffff"
 
                     width: cards.width
                     // Sized by content: the Flickable scrolls the stack, so a
                     // card is never itself scrollable or clipped.
-                    height: cardBody.implicitHeight + 24
+                    height: cardBody.implicitHeight
                     color: Theme.tripCardBg
                     radius: Theme.tripCardRadius
                     border.width: 1
@@ -91,113 +92,146 @@ Item {
                         anchors.left: parent.left
                         anchors.right: parent.right
                         anchors.top: parent.top
-                        anchors.leftMargin: 14
-                        anchors.rightMargin: 14
-                        anchors.topMargin: 12
-                        spacing: 2
+                        spacing: 0
 
-                        // Card title + which half owns these values.
+                        // --- Header band ---------------------------------
+                        // Spans the full card, so the rule under the title
+                        // meets both borders instead of floating inside a
+                        // padded column.
                         Item {
+                            id: cardHeader
                             width: parent.width
-                            height: cardTitle.implicitHeight
+                            height: cardTitle.implicitHeight + 20
+
+                            // Rounded at the TOP only, via the per-corner radii
+                            // (Qt 6.7+). Squaring the bottom with a second
+                            // rectangle would NOT work: the wash is translucent,
+                            // so the overlap composites twice and paints a
+                            // visibly darker strip under the title. Inset by one
+                            // pixel so the card's border stays visible.
+                            Rectangle {
+                                anchors.fill: parent
+                                anchors.leftMargin: card.border.width
+                                anchors.rightMargin: card.border.width
+                                anchors.topMargin: card.border.width
+                                topLeftRadius: card.radius - card.border.width
+                                topRightRadius: card.radius - card.border.width
+                                bottomLeftRadius: 0
+                                bottomRightRadius: 0
+                                color: card.headerBg
+                            }
 
                             Text {
                                 id: cardTitle
                                 anchors.left: parent.left
+                                anchors.right: parent.right
+                                anchors.leftMargin: 14
+                                anchors.rightMargin: 14
+                                anchors.verticalCenter: parent.verticalCenter
                                 text: card.modelData.label !== undefined
                                       ? card.modelData.label : card.modelData.id
-                                // Deliberately well clear of the 15px row
-                                // labels below it: the font has a single weight,
-                                // so size is the only hierarchy lever there is.
+                                // Deliberately well clear of the 15px row labels
+                                // below it. The bundled font ships a single
+                                // weight, so `bold` is Qt's synthesized embolden
+                                // — enough to separate the band from the rows.
                                 font.family: Theme.fontFamily
                                 font.pixelSize: 19
+                                font.bold: true
                                 color: Theme.dataLabelValue
+                                elide: Text.ElideRight
                             }
 
+                            // Edge to edge: inset only by the border it meets.
                             Rectangle {
-                                anchors.left: cardTitle.right
-                                anchors.leftMargin: 10
-                                anchors.verticalCenter: cardTitle.verticalCenter
-                                width: originLabel.implicitWidth + 14
-                                height: originLabel.implicitHeight + 5
-                                radius: 4
-                                color: card.isBackend ? "#332f81c4" : "#33ffffff"
-                                border.width: 1
-                                border.color: card.isBackend ? "#802f81c4" : "#44ffffff"
-
-                                Text {
-                                    id: originLabel
-                                    anchors.centerIn: parent
-                                    text: card.isBackend ? qsTr("palvelin") : qsTr("sovellus")
-                                    font.family: Theme.fontFamily
-                                    font.pixelSize: 10
-                                    color: card.isBackend ? "#9ecbf0" : Theme.dataLabelTitle
-                                }
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                anchors.bottom: parent.bottom
+                                anchors.leftMargin: card.border.width
+                                anchors.rightMargin: card.border.width
+                                height: 1
+                                color: card.headerRule
                             }
                         }
 
-                        // Optional one-liner under the card title.
-                        Text {
+                        // --- Card body -----------------------------------
+                        Item {
                             width: parent.width
-                            // No explicit height: binding it to
-                            // implicitHeight feeds a wrapped Text back into
-                            // its own layout, and a Column already skips
-                            // invisible children.
-                            visible: card.modelData.help !== undefined
-                                     && card.modelData.help.length > 0
-                            text: card.modelData.help !== undefined ? card.modelData.help : ""
-                            font.family: Theme.fontFamily
-                            font.pixelSize: 12
-                            color: Theme.dataLabelTitle
-                            wrapMode: Text.WordWrap
-                        }
-
-                        // A subsection may declare a runtime status widget with
-                        // `status: "<id>"`. Not every fact about a section fits in
-                        // a setting row — "is that address reachable?" belongs to
-                        // the host and port TOGETHER, not to either one.
-                        Loader {
-                            width: parent.width
-                            active: sourceComponent !== null
-                            visible: active
-                            height: active && item !== null ? item.implicitHeight : 0
-                            // Named in the schema, resolved here. `active` gates
-                            // construction, which is what keeps the probe from
-                            // firing — and Chromium from starting — for a card
-                            // that did not ask for it.
-                            sourceComponent: {
-                                switch (card.modelData.status) {
-                                case "backendProbe": return probeComponent
-                                case "systemStatus": return systemComponent
-                                case "spotifyAuth": return spotifyComponent
-                                default: return null
-                                }
-                            }
-                        }
-
-                        Repeater {
-                            model: card.entries
+                            height: cardContent.implicitHeight + 24
 
                             Column {
-                                required property int index
-                                required property var modelData
+                                id: cardContent
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                anchors.top: parent.top
+                                anchors.leftMargin: 14
+                                anchors.rightMargin: 14
+                                anchors.topMargin: 12
+                                spacing: 2
 
-                                width: cardBody.width
-
-                                SettingRow {
+                                // Optional one-liner under the card title.
+                                Text {
                                     width: parent.width
-                                    // Wider than the old two-column layout
-                                    // allowed; a slider this size is comfortable
-                                    // to drag with a fingertip.
-                                    editorWidth: 320
-                                    setting: modelData
+                                    // No explicit height: binding it to
+                                    // implicitHeight feeds a wrapped Text back into
+                                    // its own layout, and a Column already skips
+                                    // invisible children.
+                                    visible: card.modelData.help !== undefined
+                                             && card.modelData.help.length > 0
+                                    text: card.modelData.help !== undefined ? card.modelData.help : ""
+                                    font.family: Theme.fontFamily
+                                    font.pixelSize: 12
+                                    color: Theme.dataLabelTitle
+                                    wrapMode: Text.WordWrap
                                 }
 
-                                Rectangle {
-                                    visible: index < card.entries.length - 1
+                                // A subsection may declare a runtime status widget with
+                                // `status: "<id>"`. Not every fact about a section fits in
+                                // a setting row — "is that address reachable?" belongs to
+                                // the host and port TOGETHER, not to either one.
+                                Loader {
                                     width: parent.width
-                                    height: 1
-                                    color: "#1affffff"
+                                    active: sourceComponent !== null
+                                    visible: active
+                                    height: active && item !== null ? item.implicitHeight : 0
+                                    // Named in the schema, resolved here. `active` gates
+                                    // construction, which is what keeps the probe from
+                                    // firing — and Chromium from starting — for a card
+                                    // that did not ask for it.
+                                    sourceComponent: {
+                                        switch (card.modelData.status) {
+                                        case "backendProbe": return probeComponent
+                                        case "systemStatus": return systemComponent
+                                        case "spotifyAuth": return spotifyComponent
+                                        default: return null
+                                        }
+                                    }
+                                }
+
+                                Repeater {
+                                    model: card.entries
+
+                                    Column {
+                                        required property int index
+                                        required property var modelData
+
+                                        width: cardContent.width
+
+                                        SettingRow {
+                                            width: parent.width
+                                            // Wider than the old two-column layout
+                                            // allowed; a slider this size is comfortable
+                                            // to drag with a fingertip.
+                                            editorWidth: 320
+                                            setting: modelData
+                                        }
+
+                                        Rectangle {
+                                            visible: index < card.entries.length - 1
+                                            width: parent.width
+                                            height: 1
+                                            color: "#1affffff"
+                                        }
+                                    }
                                 }
                             }
                         }
