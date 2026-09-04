@@ -55,6 +55,12 @@ class SpotifyPlayer(BaseMediaPlayer):
         self._claimed: bool = False
         self._poll_interval: int = self._POLL_IDLE
 
+        # Strong references to fire-and-forget tasks.  The event loop keeps only
+        # a WEAK one, so an unreferenced task can be garbage-collected mid-flight
+        # and its exception never retrieved — the same pattern Server uses for
+        # its handler tasks.
+        self._background_tasks: set[asyncio.Task] = set()
+
         # Serialises state updates. _update_state runs both on the poll timer
         # and inline after every control command, so without this two runs
         # could interleave and double-fire claim/release.
@@ -110,18 +116,156 @@ class SpotifyPlayer(BaseMediaPlayer):
 
     def apply_config(self) -> None:
         '''
-        Re-reads the Spotify market after the Options view writes it.  The market
-        is passed per API call, so the next poll already uses the new value.
+        Re-reads the runtime-editable Spotify settings after the Options view
+        writes them.  The market is passed per API call, so the next poll already
+        uses the new value.
 
-        spotifyDeviceId is NOT re-read here: it is produced by the one-off setup
-        helper rather than typed on a touchscreen, and is not exposed in the
-        Options view at all.
+        spotifyDeviceId IS re-read here.  It used not to be — it was produced by
+        the one-off setup helper and was not exposed in the Options view at all —
+        but the view's "Tunnista laite" scan now writes it, and it is the value
+        that decides which Connect device this player claims playback from.  A
+        stale one makes every transport control silently no-op, which is exactly
+        the failure the scan exists to fix, so the change is re-evaluated at once
+        rather than at the next poll: the claim (or release) then happens while
+        the user is still looking at the screen that caused it.
+
+        Stays synchronous because ConfigService calls it as a plain hook.
         '''
         new_market = self._config.spotify_market
-        if new_market == self._market:
+        if new_market != self._market:
+            logger.info("Spotify market changed: %s -> %s", self._market, new_market)
+            self._market = new_market
+
+        new_device_id = self._config.spotify_device_id
+        if new_device_id != self._target_device_id:
+            logger.info(
+                "Spotify target device changed: %s -> %s",
+                self._target_device_id or "(none)", new_device_id or "(none)",
+            )
+            self._target_device_id = new_device_id
+            try:
+                asyncio.get_running_loop()
+            except RuntimeError:
+                # Called off the event loop (a test, or a future sync caller).
+                # Nothing is lost: the poll timer re-evaluates within seconds.
+                logger.debug("No running loop; the next poll applies the new device")
+            else:
+                self._spawn(self._update_state())
+
+    def _spawn(self, coro) -> None:
+        '''
+        Runs a coroutine detached from the caller while keeping it alive and its
+        failures visible.  Without the retained reference the loop's weak one
+        lets the task be collected mid-run; without the done callback an
+        exception inside it (an odd playback payload, a raise out of
+        claim_media_control) is never retrieved and vanishes with no log line —
+        so the user would be told the device was saved while the claim it
+        promises silently never happened.
+        Arguments:
+            coro (Coroutine): The coroutine to run as an independent task.
+        '''
+        task = asyncio.ensure_future(coro)
+        self._background_tasks.add(task)
+        task.add_done_callback(self._on_background_task_done)
+
+    def _on_background_task_done(self, task: asyncio.Task) -> None:
+        '''
+        Drops the reference to a finished background task and logs whatever it
+        raised.  Cancellation is routine (shutdown) and is not an error.
+        Arguments:
+            task (asyncio.Task): The task that just finished.
+        '''
+        self._background_tasks.discard(task)
+        if task.cancelled():
             return
-        logger.info("Spotify market changed: %s -> %s", self._market, new_market)
-        self._market = new_market
+        error = task.exception()
+        if error is not None:
+            logger.error("Background Spotify task failed: %s: %s",
+                         type(error).__name__, error)
+
+    def target_device_id(self) -> str:
+        '''
+        The Connect device id this player claims playback from.  Read by the
+        Options view's device scan so it can show which device is configured
+        right now, and whether the one currently playing is already it.
+        '''
+        return self._target_device_id
+
+    async def probe_playback(self) -> dict | None:
+        '''
+        Reads what Spotify is playing on ANY device, for the Options view's
+        device scan.  Returns {"device": {...} | None, "track": {...} | None} in
+        the SPOTIFY_DEVICE_STATE shape, or None when nothing is playing anywhere
+        (or the call failed — the scan treats both as "keep waiting").
+
+        Deliberately does NOT take _state_lock.  This is an independent read that
+        changes no player state, and _update_state()'s guard already returns early
+        while the lock is held, so a scan can never stall the normal poll.
+        '''
+        playback = await self._call_spotify(
+            self._spotify.current_playback,
+            market=self._market,
+            additional_types="episode",
+        )
+        if playback is _FAILED or not playback:
+            return None
+
+        raw_device = playback.get("device") or {}
+        item = playback.get("item")
+        if not raw_device and item is None:
+            return None
+
+        device = None
+        if raw_device:
+            device_id = raw_device.get("id")
+            device = {
+                "id": device_id,
+                "name": raw_device.get("name") or "",
+                "type": raw_device.get("type") or "",
+                "volumePercent": raw_device.get("volume_percent"),
+                "isActive": bool(raw_device.get("is_active")),
+                "isRestricted": bool(raw_device.get("is_restricted")),
+                # Absent on older payloads; assume the common case rather than
+                # reporting a speaker as volume-less.
+                "supportsVolume": bool(raw_device.get("supports_volume", True)),
+                "isPrivateSession": bool(raw_device.get("is_private_session")),
+                # A restricted device reports no id, and an id is the only thing
+                # spotifyDeviceId can hold — so it cannot be selected.
+                "selectable": bool(device_id),
+            }
+
+        track = None
+        if item is not None:
+            item_type = item.get("type", "track")
+            if item_type == "episode":
+                show = item.get("show") or {}
+                album = show.get("name", "")
+            else:
+                album = (item.get("album") or {}).get("name", "")
+            track = {
+                "name": item.get("name", ""),
+                "artists": self._artist_text(item),
+                "album": album,
+                "imageUrl": self._image_url(item) or "",
+                "isPlaying": bool(playback.get("is_playing")),
+                "progressMs": playback.get("progress_ms") or 0,
+                "durationMs": item.get("duration_ms") or 0,
+                "type": item_type,
+            }
+
+        return {"device": device, "track": track}
+
+    async def list_devices(self) -> list | None:
+        '''
+        Lists the user's available Spotify Connect devices, or None when the call
+        failed.  Used to resolve the configured device id to a name; the scan
+        itself works off probe_playback, because a device merely being available
+        says nothing about which one the user wants.
+        '''
+        result = await self._call_spotify(self._spotify.devices)
+        if result is _FAILED or not isinstance(result, dict):
+            return None
+        return result.get("devices") or []
 
     async def run(self) -> None:
         '''
@@ -406,16 +550,51 @@ class SpotifyPlayer(BaseMediaPlayer):
         packet = protocol.frame(protocol.MEDIA_STREAM_NAME, body)
         await self._media_manager.stream_data(data=packet, player=self, client=client)
 
-    async def _stream_artists(self, client=None) -> None:
-        item_type = self._song_details.get("type", "track")
-        if item_type == "episode":
-            show = self._song_details.get("show") or {}
-            artist_text = show.get("name", "")
-        else:
-            artists = self._song_details.get("artists") or []
-            artist_text = ", ".join(a.get("name", "") for a in artists)
+    @staticmethod
+    def _artist_text(item: dict) -> str:
+        '''
+        Builds the artist line for one playback item: the joined artist names, or
+        the show name for a podcast episode (which carries no artists at all).
+        Shared by the media stream and the Options view's device scan so both
+        describe the same item identically.
+        Arguments:
+            item (dict): A Spotify track or episode object.
+        '''
+        if item.get("type", "track") == "episode":
+            show = item.get("show") or {}
+            return show.get("name", "")
+        artists = item.get("artists") or []
+        return ", ".join(a.get("name", "") for a in artists)
 
-        payload = artist_text.encode("utf-8")
+    @staticmethod
+    def _image_url(item: dict) -> str | None:
+        '''
+        Picks the highest-resolution cover image for one playback item, or None
+        when it has none.  Spotify orders images widest-first, so images[0] is
+        normally the largest; choosing by pixel area is robust to any ordering or
+        size quirks and falls back to the first when the sizes are null.
+        Arguments:
+            item (dict): A Spotify track or episode object.
+        '''
+        if item.get("type", "track") == "episode":
+            images = item.get("images") or []
+            if not images:
+                show = item.get("show") or {}
+                images = show.get("images") or []
+        else:
+            album = item.get("album") or {}
+            images = album.get("images") or []
+
+        if not images:
+            return None
+        best = max(
+            images,
+            key=lambda image: (image.get("width") or 0) * (image.get("height") or 0),
+        )
+        return best.get("url") or images[0].get("url") or None
+
+    async def _stream_artists(self, client=None) -> None:
+        payload = self._artist_text(self._song_details).encode("utf-8")
         body = struct.pack("!H", len(payload)) + payload
         packet = protocol.frame(protocol.MEDIA_STREAM_ARTISTS, body)
         await self._media_manager.stream_data(data=packet, player=self, client=client)
@@ -428,28 +607,7 @@ class SpotifyPlayer(BaseMediaPlayer):
         await self._media_manager.stream_data(data=packet, player=self, client=client)
 
     async def _download_image(self) -> bytes | None:
-        item_type = self._song_details.get("type", "track")
-
-        if item_type == "episode":
-            images = self._song_details.get("images") or []
-            if not images:
-                show = self._song_details.get("show") or {}
-                images = show.get("images") or []
-        else:
-            album = self._song_details.get("album") or {}
-            images = album.get("images") or []
-
-        if not images:
-            return None
-
-        # Use the highest-resolution image. Spotify orders them widest-first, so
-        # images[0] is normally the largest; picking by pixel area is robust to any
-        # ordering/size quirks and falls back to the first when sizes are null.
-        best = max(
-            images,
-            key=lambda image: (image.get("width") or 0) * (image.get("height") or 0),
-        )
-        url = best.get("url") or images[0].get("url")
+        url = self._image_url(self._song_details)
         if not url:
             return None
 

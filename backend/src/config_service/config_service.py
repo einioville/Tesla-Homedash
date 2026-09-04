@@ -115,11 +115,30 @@ def _validate_place(value: str) -> str:
     return place
 
 
+def _validate_spotify_device_id(value: str) -> str:
+    '''
+    Refuses an empty Spotify Connect device id.  Unlike myenergi.zappiSerial,
+    where "" legitimately means "auto-select the first device", an empty id here
+    has no meaning at all: _target_device_id never matches a playing device, so
+    Spotify never claims control and every transport button silently does
+    nothing — with a success toast and not one warning in the log.  That is
+    precisely the failure the device scan exists to remove, so clearing the
+    field (the obvious way to "reset before scanning") must not be accepted.
+    Arguments:
+        value (str): Candidate Spotify Connect device id.
+    '''
+    device_id = value.strip()
+    if not device_id:
+        raise ValueError("Laitetunnus ei voi olla tyhjä")
+    return device_id
+
+
 _VALIDATORS: dict[str, Callable[[str], str]] = {
     "timezone": _validate_timezone,
     "market": _validate_market,
     "url": _validate_url,
     "place": _validate_place,
+    "spotify_device_id": _validate_spotify_device_id,
 }
 
 
@@ -233,6 +252,23 @@ SETTINGS_SCHEMA: list[dict] = [
                         "label": "Spotify-markkina",
                         "help": "ISO-maakoodi, vaikuttaa kappaleiden saatavuuteen.",
                         "validator": "market",
+                        "apply": "hook",
+                        "hooks": ["spotify"],
+                    },
+                    {
+                        # Written by the Options view's "Tunnista laite" scan
+                        # (SpotifyDeviceService), which needs a legal key here to
+                        # write through — the schema is the allow-list. Listing it
+                        # also makes the configured id inspectable, which matters
+                        # because a wrong one fails completely silently.
+                        "key": "spotifyDeviceId",
+                        "type": "string",
+                        "label": "Spotify-laite",
+                        "validator": "spotify_device_id",
+                        "help": "Spotify Connect -laitteen tunnus, jolta soitto "
+                                "poimitaan. Asetetaan yleensä \"Tunnista laite\" "
+                                "-painikkeella; väärä tunnus ei anna virhettä vaan "
+                                "saa soittimen painikkeet toimimaan tyhjää.",
                         "apply": "hook",
                         "hooks": ["spotify"],
                     },
@@ -726,11 +762,59 @@ class ConfigService:
             await self.__reply_error(writer, "", None, str(e))
             return
 
+        result = await self.__write(key, value)
+        if not result["ok"]:
+            # The ORIGINAL value is echoed on failure, not the coerced one: the
+            # frontend uses it to put back what it tried to send.
+            await self.__reply_error(writer, key, value, result["message"])
+            return
+
+        await self.__reply_ok(writer, key, result["value"], result["applied"], "")
+        if result["applied"] != "unchanged":
+            # Tell every client (including this one) the new authoritative values.
+            await self.__server.broadcast(self.__schema_frame())
+
+    async def apply_write(self, key: str, value: Any) -> dict:
+        '''
+        Writes one setting exactly as a CONFIG_SET would, but on behalf of another
+        backend service rather than a client — so it replies to nobody and returns
+        the outcome instead.  SpotifyDeviceService uses it to store the device id
+        its scan found.
+
+        Going through here rather than touching Config directly is the point: a
+        service-initiated write gets the same schema coercion, the same guard, the
+        same atomic save with its .bak snapshot and rollback, the same apply hooks
+        and the same schema re-broadcast that keeps every open Options view showing
+        the truth.
+        Arguments:
+            key (str): Dotted config key; must be in SETTINGS_SCHEMA.
+            value (Any): The value to write, before coercion.
+        '''
+        result = await self.__write(key, value)
+        if result["ok"] and result["applied"] != "unchanged":
+            await self.__server.broadcast(self.__schema_frame())
+        return result
+
+    async def __write(self, key: str, value: Any) -> dict:
+        '''
+        Validates, persists and applies one setting write, replying to nobody.
+        The shared body of handle_set and apply_write; returns
+        {"ok", "applied", "message", "value"} so each caller can report the
+        outcome its own way.  Broadcasting the fresh schema is left to the caller,
+        which is what keeps handle_set's reply-then-broadcast order intact.
+
+        Nothing is written unless validation passes, and a failed save rolls the
+        in-memory value back — the running services must never disagree with what
+        is on disk.
+        Arguments:
+            key (str): Dotted config key; must be in SETTINGS_SCHEMA.
+            value (Any): The value to write, before coercion.
+        '''
         setting = next((s for s in _iter_settings() if s["key"] == key), None)
         if setting is None:
             logger.warning("CONFIG_SET for unknown key %s", key)
-            await self.__reply_error(writer, key, value, f"Tuntematon asetus: {key}")
-            return
+            return {"ok": False, "applied": "", "value": value,
+                    "message": f"Tuntematon asetus: {key}"}
 
         try:
             coerced = self.__coerce(setting, value)
@@ -745,13 +829,11 @@ class ConfigService:
                 guard(key, coerced)
         except ValueError as e:
             logger.info("CONFIG_SET rejected for %s: %s", key, e)
-            await self.__reply_error(writer, key, value, str(e))
-            return
+            return {"ok": False, "applied": "", "value": value, "message": str(e)}
 
         previous = self.__current_value(key)
         if coerced == previous:
-            await self.__reply_ok(writer, key, coerced, "unchanged", "")
-            return
+            return {"ok": True, "applied": "unchanged", "value": coerced, "message": ""}
 
         self.__config.set(key, coerced)
         try:
@@ -761,19 +843,15 @@ class ConfigService:
             # agreement, then report the failure.
             self.__config.set(key, previous)
             logger.error("Could not save config after setting %s: %s", key, e)
-            await self.__reply_error(
-                writer, key, value, "Asetuksen tallennus epäonnistui"
-            )
-            return
+            return {"ok": False, "applied": "", "value": previous,
+                    "message": "Asetuksen tallennus epäonnistui"}
 
         applied = self.__effective_apply(setting)
         if applied == "hook":
             await self.__run_hooks(setting)
 
         logger.info("Config set %s = %r (%s)", key, coerced, applied)
-        await self.__reply_ok(writer, key, coerced, applied, "")
-        # Tell every client (including this one) the new authoritative values.
-        await self.__server.broadcast(self.__schema_frame())
+        return {"ok": True, "applied": applied, "value": coerced, "message": ""}
 
     async def handle_restart(self, _payload: bytes, _writer) -> None:
         '''

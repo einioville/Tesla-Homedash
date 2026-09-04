@@ -53,6 +53,8 @@ backend/
       radio_player.py             # libVLC internet radio (Nelonen Media stations)
       setup/
         spotify_setup.py          # Standalone OAuth + Connect-device-ID helper (run once during setup)
+      spotify_auth_service.py     # Re-authorisation from the Options view (0xA0-0xA4)
+      spotify_device_service.py   # Device identification — scan playback, confirm, write spotifyDeviceId (0xA5-0xA9)
     weather_service/
       weather_service.py          # FMI WFS polling, forecast serialization, 15-min refresh
     trip_service/
@@ -270,7 +272,8 @@ Parsed once by `Config` and injected into every service. Keys:
 - `calculated tesla data` — derived fields (`DrivenToday`, `DrivenThisMonth`): adds
   `source_data_property_id`, `period` (`day`/`month`), `calculation_formula` (e.g. `y - x`).
 - `radioMediaIds` — station name → Nelonen Media id; `defaultRadioStation` — a key from it.
-- `spotifyDeviceId` — target Spotify Connect device id; `spotifyRedirectUri`
+- `spotifyDeviceId` — target Spotify Connect device id (**now runtime-editable**, both as a
+  text row and via the Options view's *Tunnista laite* flow — §5.2.8e); `spotifyRedirectUri`
   (default `http://127.0.0.1:8080/callback`, must match the Spotify app); `spotifyCachePath`
   — spotipy OAuth token cache; `spotifyMarket` — ISO-3166-1 alpha-2 (e.g. `FI`).
 - `weatherPlace` — FMI place (e.g. `Tampere`); `timeZone` — IANA zone (e.g. `Europe/Helsinki`).
@@ -392,6 +395,11 @@ payload[1..N-1] = type-specific data
 | `0xA2` | SPOTIFY_AUTH_URL | B→F | `status(1B) + len(4B) + JSON` — `{url, redirectUri, state}` on OK (informational only; the backend has already opened the page), or `{message}` on error |
 | `0xA3` | *(retired)* | — | Carried the redirect URL back from the embedded WebView. The consent page now opens in the host's real browser and the backend catches the redirect on its own loopback listener, so nothing produces one |
 | `0xA4` | SPOTIFY_AUTH_RESULT | B→F | `status(1B) + len(4B) + JSON` — `{ok, message, scope, expiresAt}` |
+| `0xA5` | SPOTIFY_DEVICE_SCAN_START | F→B | `len(4B) + UTF-8 JSON` — `{scanId}`; begins a device scan, replacing any live one |
+| `0xA6` | SPOTIFY_DEVICE_SCAN_STOP | F→B | (empty) — ends the requesting client's own scan |
+| `0xA7` | SPOTIFY_DEVICE_STATE | B→F | `status(1B) + len(4B) + JSON` — `{scanId, scanning, message, device, track, current}`; sent to the scanning client only |
+| `0xA8` | SPOTIFY_DEVICE_SELECT | F→B | `len(4B) + UTF-8 JSON` — `{deviceId, scanId}` |
+| `0xA9` | SPOTIFY_DEVICE_RESULT | B→F | `status(1B) + len(4B) + JSON` — `{ok, message, deviceId, deviceName, scanId}` |
 | `0xB0` | SYSTEM_GET_STATUS | F→B | (empty) — sample the host now |
 | `0xB1` | SYSTEM_STATUS | B→F | `status(1B) + len(4B) + JSON` — host/backend metrics, per-service health, error tallies |
 | `0xC0` | DISPLAY_SET_POWER | F→B | `on(1B)` — 1 wakes the panel, 0 powers it down |
@@ -816,6 +824,47 @@ Both are fixes for real hazards found while building this:
   Spotify echoes. `handle_code` now uses **`parse_auth_response_url`**, which returns `(state, code)`,
   and the comparison is **mandatory** — a missing state is a failed check, not a skipped one.
 
+#### 5.2.8e `media_service/spotify_device_service.py` — device identification
+Serves `0xA5`–`0xA9` so `spotifyDeviceId` can be discovered from the dashboard. It exists because
+a wrong value **fails silently**: `SpotifyPlayer` claims control only when
+`_current_device_id == _target_device_id`, so a stale id makes every transport control a no-op
+with nothing in the log — and until now the only fix was SSHing in to run `setup/spotify_setup.py`.
+The flow is "play something on the device you want, then confirm what the backend sees": the user
+starts playback, the service polls `current_playback()` every 2 s and streams back the **device**
+(name, type, volume, `is_restricted`) beside the **track** (name, artists, album, cover URL), so
+the device is confirmed against both what is on screen and what is audible.
+
+**All Spotify API access stays in `SpotifyPlayer`** (`probe_playback`, `list_devices`), behind its
+`_call_spotify` executor helper and its auth latch; the service reaches them through `MediaManager`,
+the same boundary `SpotifyAuthService` uses for `spotify_auth_error()`. A latched-off grant is
+reported once rather than polled against. Load-bearing details, most of them defects found in review:
+- **The write goes through `ConfigService.apply_write()`**, not around it — `handle_set`'s body was
+  extracted so both share one validated path (coerce → dynamic options → guard → unchanged
+  short-circuit → `set` → `save` → rollback on `OSError` → hooks → broadcast). That is why
+  `spotifyDeviceId` had to become a real `SETTINGS_SCHEMA` entry: the schema **is** the write
+  allow-list. It carries a `spotify_device_id` validator, because a `string` with no validator
+  accepts `""` — and an empty target reintroduces exactly the silent no-op this feature removes.
+- **`SpotifyPlayer.apply_config()` now re-reads `spotifyDeviceId`** and spawns an immediate
+  `_update_state()` so the claim happens while the user is still looking at the screen that caused
+  it. The task is **retained with a done-callback**: the loop holds only a weak reference, so a
+  bare `create_task` can be collected mid-flight and its exception never retrieved.
+- **A scan is owned by one client's `StreamWriter`.** `Server.__safe_write` *swallows*
+  `ConnectionError`, drops the client and returns normally, so a write to a dead peer never raises
+  — the poll loop therefore checks `writer.is_closing()` itself, or a killed dashboard would leave
+  it polling Spotify for the full `_SCAN_TTL_SECONDS` (300). `SCAN_STOP` and `SELECT` are
+  owner-gated too: with two panels open, one panel's *Peruuta* must not cancel the other's scan.
+- **The radio is stopped for the scan and put back afterwards.** `stop_other_playback()` returns
+  whether it silenced a genuinely *playing* non-Spotify player and re-streams the play state —
+  `RadioPlayer.stop()` emits no VLC event, so without that `MEDIA_IS_PLAYING` stays 1 and the media
+  card shows a pause icon over silence. Every scan-ending path resumes, except a successful select
+  on a device that was already playing, where `SpotifyPlayer` claims within one poll and resuming
+  would emit a second of radio for nothing. A *failed* select deliberately does NOT end the scan,
+  so the retry has something to retry against.
+- **`scanId` is a frontend-generated epoch**, echoed on every state and result and required on a
+  select. A single "is a flow running" bool cannot tell WHICH flow a packet belongs to: cancel a
+  scan, start another, and a state already in flight repopulates the dialog with the previous
+  device — which the user can then save. The two fences answer different questions and both stay.
+
 #### 5.2.8 `config_service/config_service.py` — runtime configuration (the Options view)
 `ConfigService` serves `CONFIG_GET_SCHEMA` / `CONFIG_SET` / `CONFIG_RESTART` and snapshots the
 schema to every new client (`register_service`). `SETTINGS_SCHEMA` is a literal list of groups
@@ -1125,6 +1174,25 @@ Two details are load-bearing:
 > **none of it got past Spotify's login gate.** The lesson is the RFC's, not a tuning one: an
 > embedded user-agent is not supposed to work, and no amount of fingerprint alignment changes that.
 
+**Spotify device identification** is `core/spotifydevice.{hh,cpp}`, the QML singleton
+**`SpotifyDevice`**, rendered by `items/settings/SpotifyDevicePopup.qml`. The *Tunnista laite*
+action row sits under *Tunnistaudu uudelleen* in the same card; the popup is a scrim + dialog
+**inside `SettingsView`**, not in `Main.qml` — unlike the re-auth prompt, which is app-level
+because a grant can die while any view is on screen, a device scan is only ever started from this
+screen. Three things are load-bearing:
+- **A scan costs a Spotify request every 2 s and silences the radio**, so it must not outlive the
+  screen. `SettingsView`'s `onIsCurrentChanged` cancels it when the view goes away, and
+  `connectedChanged` clears it (phase `error`) when the socket drops — otherwise the dialog spins
+  forever on a scan the backend destroyed with the old `StreamWriter`, with a stale device still
+  selectable.
+- **Two fences, not one.** `m_flowActive` answers "is a flow running at all"; the `scanId` epoch
+  (§5.2.8e) answers "does this packet belong to THIS flow". The epoch is incremented *before* the
+  first send, so a missing field parsing as 0 can never match a live scan.
+- **The button row's membership is constant** across a `hasDevice` transition, and the guide and
+  detail blocks share one container with a floor height. On a 10" touch panel a control that
+  changes position between reach and tap mis-routes the tap — here, onto *Peruuta*, which would
+  close the dialog and kill the scan. Same reasoning as `SettingAction.qml`'s arm-then-confirm.
+
 An `action` row whose key `Settings::invokeAction` does not handle itself now emits
 **`actionRequested(key)`**, which `SettingsView` routes — that is how the backend owns the Spotify
 exchange while the consent UI stays a view concern, with `Settings` knowing nothing about either.
@@ -1313,7 +1381,30 @@ This guide is current as of the **Options-view feature build-out** on
 `feature/settings-options-view`, tracked as issues **#30–#41** (all but **#40**, host reboot,
 which is deliberately deferred).
 
-Landed in the latest pass: the **Spotify re-authorisation debug pass**. The consent flow
+Landed in the latest pass: **Spotify device identification** — the Options view can now discover
+`spotifyDeviceId` instead of it being obtainable only by SSHing in to run `setup/spotify_setup.py`.
+A *Tunnista laite* row under the re-auth button opens a scrim dialog over the Options view; the
+user starts playback on the device they want, the backend polls `current_playback()` and shows the
+device (name, type, volume) beside the track (name, artists, album, cover), and *Valitse laite*
+writes the id. New protocol codes `0xA5`–`0xA9` (§5.1), new `media_service/spotify_device_service.py`
+(§5.2.8e) and `core/spotifydevice.{hh,cpp}` + `items/settings/SpotifyDevicePopup.qml` (§5.3.6).
+
+Two consequences worth knowing. **`spotifyDeviceId` is now a `SETTINGS_SCHEMA` entry** — the schema
+is the write allow-list, so there was no other legal way to persist it; that also makes it a visible
+(validated, non-empty) text row on the Spotify card, and it is why `handle_set`'s body was extracted
+into a shared `__write` behind the new public `ConfigService.apply_write()`. And
+**`SpotifyPlayer.apply_config()` now re-reads it**, contradicting the docstring that said it
+deliberately did not — without that the chosen device would only take effect after a restart.
+
+Four defects that adversarial review caught here are general lessons, not local ones: `Server`'s
+`__safe_write` **swallows** a dead-peer write, so a long-lived per-client task must check
+`writer.is_closing()` itself; `RadioPlayer.stop()` emits **no VLC event**, so any caller must
+re-stream the play state or the media card shows a pause icon over silence; a bare
+`asyncio.create_task` is held only **weakly** by the loop, so a fire-and-forget task needs a strong
+reference plus a done-callback or its exception vanishes; and a single boolean cannot fence *which*
+flow a late reply belongs to — hence the `scanId` epoch.
+
+Landed in the preceding pass: the **Spotify re-authorisation debug pass**. The consent flow
 dead-ended on the WSL2 dev box: WSL2 exposes the GPU as `/dev/dxg` with **no `/dev/dri`**, Mesa
 falls back to llvmpipe, Chromium ≥120 refuses a WebGL context on software GL, and Spotify's login
 gate — **Google reCAPTCHA Enterprise, not Cloudflare**, as the original build assumed throughout —
@@ -1349,7 +1440,7 @@ the on-screen keyboard stay reachable (labwc#2926). Deliberately deferred:
 `build_status()` still reports "authorized" from cache presence alone, so it stays green after the
 user revokes the app at spotify.com — that needs `SpotifyPlayer` to record its last auth failure.
 
-Landed in the preceding pass: **host audio** (#37 — `audio_service/`, auto-detecting
+Landed two passes back: **host audio** (#37 — `audio_service/`, auto-detecting
 `pactl`/`wpctl`/`amixer`, two `config.json` keys and no new protocol code, carried by two generic
 `ConfigService` additions, `register_options` and `register_guard`); **Spotify re-authorisation**
 (#38 — `0xA0`–`0xA4`, the backend holding the secret and the frontend showing the consent page in

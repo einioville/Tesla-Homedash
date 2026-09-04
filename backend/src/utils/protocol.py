@@ -234,6 +234,41 @@ SPOTIFY_AUTH_RESULT = 0xA4    # B->F: status(1B) + len(4B) + UTF-8 JSON, request
 SPOTIFY_AUTH_ERROR = 0
 SPOTIFY_AUTH_OK = 1
 
+# ── Spotify device detection (the Options view's "Tunnista laite" action) ───
+# Request/response like the auth codes above, and reusing their status byte: the
+# backend replies to the SCANNING client only (send_to), never a broadcast, so a
+# second dashboard is not fed a scan it did not ask for.
+#
+# The problem this solves: spotifyDeviceId decides which Spotify Connect device
+# this backend claims playback from, and a wrong value makes every transport
+# control silently do nothing. Until now the only fix was SSHing in and running
+# media_service/setup/spotify_setup.py. The scan asks the user to start playing
+# on the device they want, polls Spotify for what is playing anywhere, and shows
+# the device + track so the choice can be confirmed before it is written.
+#
+# Bodies are status(1B) + len(4B) + UTF-8 JSON (the CONFIG_* / SPOTIFY_AUTH_*
+# idiom): variable-shaped documents on a rare, user-initiated path.
+#
+# Every packet in this family carries a "scanId": an unsigned epoch the FRONTEND
+# generates (it is the side that knows when a new flow began) and the backend
+# stores on the scan and echoes on every reply. A single boolean fence cannot say
+# WHICH scan a late packet belongs to — cancel a scan, start another, and a state
+# from the old one still in flight would repopulate the dialog with the previous
+# device. Both halves drop anything whose scanId is not the current one, and a
+# missing/malformed field parses as 0 rather than raising.
+SPOTIFY_DEVICE_SCAN_START = 0xA5  # F->B: len(4B) + UTF-8 JSON {"scanId": <uint>}
+                                  #   — stop other playback and start scanning
+SPOTIFY_DEVICE_SCAN_STOP = 0xA6   # F->B: (empty) — stop the scan; nothing is replied
+SPOTIFY_DEVICE_STATE = 0xA7       # B->F: status(1B) + len(4B) + UTF-8 JSON, scanning client only
+                                  #   {"scanId", "scanning", "message", "device", "track", "current"}
+                                  #   device/track are null when nothing is playing anywhere;
+                                  #   "current" describes the configured spotifyDeviceId
+SPOTIFY_DEVICE_SELECT = 0xA8      # F->B: len(4B) + UTF-8 JSON
+                                  #   {"deviceId": "<id>", "scanId": <uint>};
+                                  #   a scanId that is not the live scan's is refused
+SPOTIFY_DEVICE_RESULT = 0xA9      # B->F: status(1B) + len(4B) + UTF-8 JSON, requester only
+                                  #   {"scanId", "ok", "message", "deviceId", "deviceName"}
+
 # ── System status (the Options view's maintenance dashboard) ────────────────
 # Request/response rather than a broadcast: the Options view is open a fraction
 # of the time, and sampling /proc for every client every few seconds to feed a

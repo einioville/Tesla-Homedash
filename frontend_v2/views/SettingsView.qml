@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Effects
 import frontend_v2
 
 // Options view ("Asetukset"): a master/detail settings screen — sections down the
@@ -30,6 +31,16 @@ Rectangle {
     // every list change would bounce the user to the first section and leave them
     // there after a reconnect. Only a tap changes it.
     property string currentSectionId: ""
+
+    // A device scan must not outlive the screen that started it: the popup is a
+    // child of this view, so leaving for the dashboard hides it while the backend
+    // keeps polling Spotify every 2 s — with the radio silenced — for the whole
+    // 300 s TTL, and coming back resurrects a stale dialog. Cancelling here is
+    // what sends SPOTIFY_DEVICE_SCAN_STOP.
+    onIsCurrentChanged: {
+        if (!isCurrent && SpotifyDevice.phase !== "idle")
+            SpotifyDevice.cancel()
+    }
 
     // Transient result banner (a rejected value, a confirmed write).
     property string toastText: ""
@@ -65,10 +76,13 @@ Rectangle {
 
         // Actions Settings does not handle itself belong to a view. The Spotify
         // re-authorization is one: the backend owns the exchange, but the consent
-        // page is a UI concern and lives here.
+        // page is a UI concern and lives here. Device identification is the same
+        // shape — the backend does the scanning, this side only shows it.
         function onActionRequested(key) {
             if (key === "spotifyReauth")
                 SpotifyAuth.begin()
+            else if (key === "spotifyIdentifyDevice")
+                SpotifyDevice.begin()
         }
 
         function onWriteFailed(key, message) {
@@ -83,230 +97,271 @@ Rectangle {
         }
     }
 
-    // --- Header -----------------------------------------------------------
+    // --- Screen content ---------------------------------------------------
+    // Everything the view normally shows, in one container purely so the device
+    // dialog can blur it. The blur is applied as a LAYER EFFECT on this item
+    // rather than as a sibling MultiEffect reading it as a source: a sibling
+    // would draw the blurred copy ON TOP of the still-crisp original, which
+    // shows through anywhere the content is not opaque. A layer replaces the
+    // item's own rendering, so there is exactly one image on screen.
+    //
+    // The layer (an offscreen FBO plus a blur shader every frame) exists only
+    // while the dialog is up; the rest of the time this is a plain Item and
+    // costs nothing. If it proves too heavy on the Pi, the lever is
+    // `layer.textureSize` at half resolution — a blur hides the downscale.
     Item {
-        id: header
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.top: parent.top
-        anchors.margins: Theme.gridMargin
-        height: 40
+        id: content
+        anchors.fill: parent
 
-        Text {
-            anchors.left: parent.left
-            anchors.verticalCenter: parent.verticalCenter
-            text: qsTr("Asetukset")
-            font.family: Theme.fontFamily
-            font.pixelSize: 24
-            color: Theme.dataLabelValue
+        layer.enabled: devicePopup.visible
+        layer.effect: MultiEffect {
+            blurEnabled: true
+            blur: 1.0
+            // Well below GlassPanel's 64: this covers the whole 1280x800 view
+            // rather than a dock-sized strip, and the extra passes buy nothing
+            // once the content is unreadable, which is the entire point.
+            blurMax: 32
+            // The blurred image must stay exactly the view's size; padding would
+            // grow the layer past the screen edges.
+            autoPaddingEnabled: false
         }
 
-        // Connection state: without it, a settings screen showing only the three
-        // local sections reads as a bug rather than "the backend isn't there".
-        Row {
+        // --- Header -----------------------------------------------------------
+        Item {
+            id: header
+            anchors.left: parent.left
             anchors.right: parent.right
-            anchors.verticalCenter: parent.verticalCenter
-            spacing: 8
-
-            Rectangle {
-                anchors.verticalCenter: parent.verticalCenter
-                width: 8
-                height: 8
-                radius: 4
-                color: Server.connected ? "#4ade80" : "#f87171"
-            }
+            anchors.top: parent.top
+            anchors.margins: Theme.gridMargin
+            height: 40
 
             Text {
+                anchors.left: parent.left
                 anchors.verticalCenter: parent.verticalCenter
-                text: Server.connected ? qsTr("Yhdistetty") : Server.stateText
+                text: qsTr("Asetukset")
                 font.family: Theme.fontFamily
-                font.pixelSize: 13
-                color: Theme.dataLabelTitle
+                font.pixelSize: 24
+                color: Theme.dataLabelValue
             }
-        }
-    }
 
-    // --- Restart banner ---------------------------------------------------
-    // Appears only once a restart-tier setting has actually been WRITTEN, so a
-    // restart is never suggested speculatively. The two halves are independent:
-    // backendHost/Port are consumed by AppConfig here, timeZone and friends are
-    // consumed by the backend's services, and each is fixed by restarting a
-    // different process. The Yllapito section carries the same two buttons
-    // permanently, for when something is wedged rather than pending.
-    Rectangle {
-        id: restartBanner
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.top: header.bottom
-        anchors.leftMargin: Theme.gridMargin
-        anchors.rightMargin: Theme.gridMargin
-        anchors.topMargin: visible ? 6 : 0
-        height: visible ? 46 : 0
-        visible: Settings.restartPending || Settings.appRestartPending
-        radius: Theme.tripCardRadius
-        color: "#33ffb020"
-        border.width: 1
-        border.color: "#80ffb020"
-
-        Text {
-            anchors.left: parent.left
-            anchors.leftMargin: 14
-            anchors.right: restartButtons.left
-            anchors.rightMargin: 10
-            anchors.verticalCenter: parent.verticalCenter
-            text: {
-                if (Settings.restartPending && Settings.appRestartPending)
-                    return qsTr("Muutokset vaativat sovelluksen ja palvelimen uudelleenkäynnistyksen")
-                if (Settings.appRestartPending)
-                    return qsTr("Muutokset vaativat sovelluksen uudelleenkäynnistyksen")
-                return qsTr("Muutokset vaativat palvelimen uudelleenkäynnistyksen")
-            }
-            font.family: Theme.fontFamily
-            font.pixelSize: 14
-            color: "#ffd48a"
-            elide: Text.ElideRight
-        }
-
-        Row {
-            id: restartButtons
-            anchors.right: parent.right
-            anchors.rightMargin: 10
-            anchors.verticalCenter: parent.verticalCenter
-            spacing: 8
-
-            // One button per pending restart, each labelled with WHAT it restarts
-            // — "Käynnistä uudelleen" alone would be ambiguous when both are up.
-            Repeater {
-                model: [
-                    { "label": qsTr("Sovellus"), "app": true,
-                      "shown": Settings.appRestartPending },
-                    { "label": qsTr("Palvelin"), "app": false,
-                      "shown": Settings.restartPending }
-                ]
+            // Connection state: without it, a settings screen showing only the three
+            // local sections reads as a bug rather than "the backend isn't there".
+            Row {
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: 8
 
                 Rectangle {
-                    required property var modelData
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 8
+                    height: 8
+                    radius: 4
+                    color: Server.connected ? "#4ade80" : "#f87171"
+                }
 
-                    visible: modelData.shown
-                    width: visible ? actionLabel.implicitWidth + 28 : 0
-                    height: 32
-                    radius: 8
-                    color: buttonArea.pressed ? "#ccffb020" : "#99ffb020"
+                Text {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: Server.connected ? qsTr("Yhdistetty") : Server.stateText
+                    font.family: Theme.fontFamily
+                    font.pixelSize: 13
+                    color: Theme.dataLabelTitle
+                }
+            }
+        }
 
-                    Text {
-                        id: actionLabel
-                        anchors.centerIn: parent
-                        text: qsTr("Käynnistä") + " · " + modelData.label
-                        font.family: Theme.fontFamily
-                        font.pixelSize: 13
-                        color: "#1a1206"
-                    }
+        // --- Restart banner ---------------------------------------------------
+        // Appears only once a restart-tier setting has actually been WRITTEN, so a
+        // restart is never suggested speculatively. The two halves are independent:
+        // backendHost/Port are consumed by AppConfig here, timeZone and friends are
+        // consumed by the backend's services, and each is fixed by restarting a
+        // different process. The Yllapito section carries the same two buttons
+        // permanently, for when something is wedged rather than pending.
+        Rectangle {
+            id: restartBanner
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.top: header.bottom
+            anchors.leftMargin: Theme.gridMargin
+            anchors.rightMargin: Theme.gridMargin
+            anchors.topMargin: visible ? 6 : 0
+            height: visible ? 46 : 0
+            visible: Settings.restartPending || Settings.appRestartPending
+            radius: Theme.tripCardRadius
+            color: "#33ffb020"
+            border.width: 1
+            border.color: "#80ffb020"
 
-                    MouseArea {
-                        id: buttonArea
-                        anchors.fill: parent
-                        onClicked: {
-                            if (modelData.app) {
-                                view.showToast(qsTr("Sovellus käynnistyy uudelleen…"), false)
-                                Settings.restartApp()
-                            } else {
-                                Settings.requestBackendRestart()
-                                view.showToast(qsTr("Palvelin käynnistyy uudelleen…"), false)
+            Text {
+                anchors.left: parent.left
+                anchors.leftMargin: 14
+                anchors.right: restartButtons.left
+                anchors.rightMargin: 10
+                anchors.verticalCenter: parent.verticalCenter
+                text: {
+                    if (Settings.restartPending && Settings.appRestartPending)
+                        return qsTr("Muutokset vaativat sovelluksen ja palvelimen uudelleenkäynnistyksen")
+                    if (Settings.appRestartPending)
+                        return qsTr("Muutokset vaativat sovelluksen uudelleenkäynnistyksen")
+                    return qsTr("Muutokset vaativat palvelimen uudelleenkäynnistyksen")
+                }
+                font.family: Theme.fontFamily
+                font.pixelSize: 14
+                color: "#ffd48a"
+                elide: Text.ElideRight
+            }
+
+            Row {
+                id: restartButtons
+                anchors.right: parent.right
+                anchors.rightMargin: 10
+                anchors.verticalCenter: parent.verticalCenter
+                spacing: 8
+
+                // One button per pending restart, each labelled with WHAT it restarts
+                // — "Käynnistä uudelleen" alone would be ambiguous when both are up.
+                Repeater {
+                    model: [
+                        { "label": qsTr("Sovellus"), "app": true,
+                          "shown": Settings.appRestartPending },
+                        { "label": qsTr("Palvelin"), "app": false,
+                          "shown": Settings.restartPending }
+                    ]
+
+                    Rectangle {
+                        required property var modelData
+
+                        visible: modelData.shown
+                        width: visible ? actionLabel.implicitWidth + 28 : 0
+                        height: 32
+                        radius: 8
+                        color: buttonArea.pressed ? "#ccffb020" : "#99ffb020"
+
+                        Text {
+                            id: actionLabel
+                            anchors.centerIn: parent
+                            text: qsTr("Käynnistä") + " · " + modelData.label
+                            font.family: Theme.fontFamily
+                            font.pixelSize: 13
+                            color: "#1a1206"
+                        }
+
+                        MouseArea {
+                            id: buttonArea
+                            anchors.fill: parent
+                            onClicked: {
+                                if (modelData.app) {
+                                    view.showToast(qsTr("Sovellus käynnistyy uudelleen…"), false)
+                                    Settings.restartApp()
+                                } else {
+                                    Settings.requestBackendRestart()
+                                    view.showToast(qsTr("Palvelin käynnistyy uudelleen…"), false)
+                                }
                             }
                         }
                     }
                 }
             }
         }
-    }
 
-    // --- Master / detail --------------------------------------------------
-    SettingsSidebar {
-        id: sidebar
-        anchors.left: parent.left
-        anchors.top: restartBanner.bottom
-        anchors.bottom: footer.top
-        anchors.leftMargin: Theme.gridMargin
-        anchors.topMargin: 8
-        anchors.bottomMargin: 6
-        width: 260
-
-        groups: view.allGroups
-        currentId: view.currentGroup !== undefined ? view.currentGroup.id : ""
-        onSectionSelected: (id) => view.currentSectionId = id
-    }
-
-    SettingsPane {
-        anchors.left: sidebar.right
-        anchors.right: parent.right
-        anchors.top: sidebar.top
-        anchors.bottom: sidebar.bottom
-        // Same gutter as the margin between the cards and the screen edge, so the
-        // two panels read as one grid rather than a pair with a wider seam.
-        anchors.leftMargin: Theme.gridMargin
-        anchors.rightMargin: Theme.gridMargin
-
-        groupData: view.currentGroup
-    }
-
-    // --- Footer -----------------------------------------------------------
-    Item {
-        id: footer
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.bottom: parent.bottom
-        // Clear of the dock's swipe zone and the home indicator.
-        anchors.bottomMargin: Theme.gridMargin + 28
-        anchors.leftMargin: Theme.gridMargin
-        anchors.rightMargin: Theme.gridMargin
-        height: 30
-
-        // Which files these settings actually live in — one per half of the
-        // view. Worth the two lines: the paths are deployment-specific (a
-        // worktree copy on the dev box, /home/pi on the device), so "where do I
-        // edit this by hand" is otherwise unanswerable from the screen. Labelled
-        // with the same two words the restart buttons use.
-        Column {
+        // --- Master / detail --------------------------------------------------
+        SettingsSidebar {
+            id: sidebar
             anchors.left: parent.left
-            anchors.verticalCenter: parent.verticalCenter
-            width: parent.width * 0.6
-            spacing: 2
+            anchors.top: restartBanner.bottom
+            anchors.bottom: footer.top
+            anchors.leftMargin: Theme.gridMargin
+            anchors.topMargin: 8
+            anchors.bottomMargin: 6
+            width: 260
 
-            Text {
-                width: parent.width
-                text: qsTr("Sovellus") + " · " + Settings.storagePath
-                font.family: Theme.fontFamily
-                font.pixelSize: 10
-                color: Theme.dataLabelTitle
-                elide: Text.ElideMiddle
-            }
-
-            // Empty until a CONFIG_SCHEMA has arrived. Kept visible with a dash
-            // rather than hidden, so the footer does not reflow on connect.
-            Text {
-                width: parent.width
-                text: qsTr("Palvelin") + " · " +
-                      (Settings.backendStoragePath.length > 0
-                          ? Settings.backendStoragePath : "—")
-                font.family: Theme.fontFamily
-                font.pixelSize: 10
-                color: Theme.dataLabelTitle
-                elide: Text.ElideMiddle
-            }
+            groups: view.allGroups
+            currentId: view.currentGroup !== undefined ? view.currentGroup.id : ""
+            onSectionSelected: (id) => view.currentSectionId = id
         }
 
-        // Transient write result, right-aligned so it never reflows the list.
-        Text {
+        SettingsPane {
+            anchors.left: sidebar.right
             anchors.right: parent.right
-            anchors.verticalCenter: parent.verticalCenter
-            width: parent.width * 0.4
-            horizontalAlignment: Text.AlignRight
-            text: view.toastText
-            visible: view.toastText.length > 0
-            font.family: Theme.fontFamily
-            font.pixelSize: 12
-            color: view.toastIsError ? "#f87171" : "#4ade80"
-            elide: Text.ElideLeft
+            anchors.top: sidebar.top
+            anchors.bottom: sidebar.bottom
+            // Same gutter as the margin between the cards and the screen edge, so the
+            // two panels read as one grid rather than a pair with a wider seam.
+            anchors.leftMargin: Theme.gridMargin
+            anchors.rightMargin: Theme.gridMargin
+
+            groupData: view.currentGroup
         }
+
+        // --- Footer -----------------------------------------------------------
+        Item {
+            id: footer
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            // Clear of the dock's swipe zone and the home indicator.
+            anchors.bottomMargin: Theme.gridMargin + 28
+            anchors.leftMargin: Theme.gridMargin
+            anchors.rightMargin: Theme.gridMargin
+            height: 30
+
+            // Which files these settings actually live in — one per half of the
+            // view. Worth the two lines: the paths are deployment-specific (a
+            // worktree copy on the dev box, /home/pi on the device), so "where do I
+            // edit this by hand" is otherwise unanswerable from the screen. Labelled
+            // with the same two words the restart buttons use.
+            Column {
+                anchors.left: parent.left
+                anchors.verticalCenter: parent.verticalCenter
+                width: parent.width * 0.6
+                spacing: 2
+
+                Text {
+                    width: parent.width
+                    text: qsTr("Sovellus") + " · " + Settings.storagePath
+                    font.family: Theme.fontFamily
+                    font.pixelSize: 10
+                    color: Theme.dataLabelTitle
+                    elide: Text.ElideMiddle
+                }
+
+                // Empty until a CONFIG_SCHEMA has arrived. Kept visible with a dash
+                // rather than hidden, so the footer does not reflow on connect.
+                Text {
+                    width: parent.width
+                    text: qsTr("Palvelin") + " · " +
+                          (Settings.backendStoragePath.length > 0
+                              ? Settings.backendStoragePath : "—")
+                    font.family: Theme.fontFamily
+                    font.pixelSize: 10
+                    color: Theme.dataLabelTitle
+                    elide: Text.ElideMiddle
+                }
+            }
+
+            // Transient write result, right-aligned so it never reflows the list.
+            Text {
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                width: parent.width * 0.4
+                horizontalAlignment: Text.AlignRight
+                text: view.toastText
+                visible: view.toastText.length > 0
+                font.family: Theme.fontFamily
+                font.pixelSize: 12
+                color: view.toastIsError ? "#f87171" : "#4ade80"
+                elide: Text.ElideLeft
+            }
+        }
+    }
+
+    // --- Device identification --------------------------------------------
+    // Deliberately a child of THIS view rather than of Main.qml, unlike the
+    // re-authorization prompt: a device scan can only ever be started from the
+    // Spotify card a few pixels above, so it belongs to this screen and darkens
+    // only this screen. Last child so it stacks over the sidebar and the pane,
+    // and OUTSIDE `content` so it is not swept into the blur it asks for.
+    SpotifyDevicePopup {
+        id: devicePopup
+        anchors.fill: parent
     }
 }

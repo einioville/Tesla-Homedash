@@ -197,6 +197,15 @@
                             "actionLabel": "Kirjaudu",
                             "requiresConnection": true,
                             "apply": "live"
+                        },
+                        {
+                            "key": "spotifyIdentifyDevice",
+                            "type": "action",
+                            "label": "Tunnista laite",
+                            "help": "Tunnistaa, millä Spotify-laitteella toisto on parhaillaan käynnissä, ja tallentaa sen kojelaudan kohdelaitteeksi. Aloita toisto haluamallasi laitteella ennen tunnistusta.",
+                            "actionLabel": "Tunnista",
+                            "requiresConnection": true,
+                            "apply": "live"
                         }
                     ]
                 }

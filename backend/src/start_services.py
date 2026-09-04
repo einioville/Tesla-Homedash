@@ -13,6 +13,7 @@ from .charging_service.spot_price_service import SpotPriceService
 from .influxdb_service.influxdb_handler import InfluxDBHandler
 from .media_service.media_manager import MediaManager
 from .media_service.spotify_auth_service import SpotifyAuthService
+from .media_service.spotify_device_service import SpotifyDeviceService
 from .myenergi_service.myenergi_service import MyEnergiService
 from .server.server import Server
 from .system_service.system_status_service import SystemStatusService
@@ -879,12 +880,26 @@ async def main():
         config_service.register_hook("myenergi", myenergi.apply_config)
     logger.debug("Config service initialized")
 
+    # The Options view's "Tunnista laite" scan. Constructed AFTER config_service
+    # because it writes spotifyDeviceId through it: the id is in SETTINGS_SCHEMA,
+    # so the scan's write gets the same validation, atomic save and apply hook a
+    # CONFIG_SET does. Not in the services list below — a scan is user-initiated,
+    # so there is nothing to snapshot to a connecting client.
+    spotify_devices = SpotifyDeviceService(
+        config=config, server=server, media_manager=mm,
+        config_service=config_service,
+    )
+    logger.debug("Spotify device service initialized")
+
     # Wire incoming-message dispatch and on-connect snapshot before start().
     _register_handlers(
         server, mm, vehicle, trip_loader, charging_loader, config, config_service
     )
     server.register_handler(protocol.DISPLAY_SET_POWER, display.handle_set_power)
     server.register_handler(protocol.SPOTIFY_AUTH_GET_URL, spotify_auth.handle_get_url)
+    server.register_handler(protocol.SPOTIFY_DEVICE_SCAN_START, spotify_devices.handle_scan_start)
+    server.register_handler(protocol.SPOTIFY_DEVICE_SCAN_STOP, spotify_devices.handle_scan_stop)
+    server.register_handler(protocol.SPOTIFY_DEVICE_SELECT, spotify_devices.handle_select)
     server.register_handler(protocol.SYSTEM_GET_STATUS, system_status.handle_get_status)
     services = [vehicle, mm, weather, spot_price_service, config_service, display,
                 spotify_auth]

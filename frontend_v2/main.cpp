@@ -18,6 +18,7 @@
 #include "core/serverclient.hh"
 #include "core/settings.hh"
 #include "core/spotifyauth.hh"
+#include "core/spotifydevice.hh"
 #include "core/systemstatus.hh"
 #include "core/tesla/tesladata.hh"
 #include "core/tesla/teslahistory.hh"
@@ -103,6 +104,11 @@ int main(int argc, char* argv[]) {
     // progress for the dialog.
     SpotifyAuth spotifyAuth;
     spotifyAuth.attachServer(&serverClient);
+    // Spotify device identification, the sibling of the above: the backend scans
+    // for the device that is actually playing so spotifyDeviceId can be fixed
+    // from the dashboard instead of over SSH.
+    SpotifyDevice spotifyDevice;
+    spotifyDevice.attachServer(&serverClient);
     QObject::connect(&idleWatcher, &IdleWatcher::activity, &screenPower,
                      &ScreenPower::onActivity);
 
@@ -133,6 +139,7 @@ int main(int argc, char* argv[]) {
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "Probe", &connectionProbe);
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "System", &systemStatus);
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "SpotifyAuth", &spotifyAuth);
+    qmlRegisterSingletonInstance("frontend_v2", 1, 0, "SpotifyDevice", &spotifyDevice);
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "Settings", &settings);
 
     QObject::connect(

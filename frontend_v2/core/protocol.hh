@@ -167,7 +167,27 @@ inline constexpr quint8 SPOTIFY_AUTH_GET_URL = 0xA1;
 inline constexpr quint8 SPOTIFY_AUTH_URL = 0xA2;
 inline constexpr quint8 SPOTIFY_AUTH_RESULT = 0xA4;
 
-// Leading status byte on the three B->F packets above.
+// ── Spotify device identification (the "Tunnista laite" flow) ──────────────
+// Writes config.json's spotifyDeviceId from the dashboard: the backend stops any
+// other playback, polls Spotify for what is playing on ANY device and streams the
+// hit back, and this side posts the id the user confirmed. SPOTIFY_DEVICE_STATE is
+// sent to the SCANNING CLIENT ONLY (send_to), not broadcast. Both JSON bodies use
+// the len(4B) + UTF-8 shape CONFIG_* / SPOTIFY_AUTH_* already use.
+//
+// Every packet in this group carries a "scanId" — a monotonic epoch the FRONTEND
+// generates per scan (it is the side that knows when a new flow began) and the
+// backend stores on the scan and echoes back. Without it a reply already in
+// flight from a cancelled scan repopulates the dialog of the scan that replaced
+// it, and the user saves the previous device. A missing field parses as 0 on
+// both sides, which never matches a live scan; a SELECT whose epoch is stale is
+// refused rather than applied.
+inline constexpr quint8 SPOTIFY_DEVICE_SCAN_START = 0xA5;  // F->B: len(4B) + UTF-8 JSON {"scanId"}
+inline constexpr quint8 SPOTIFY_DEVICE_SCAN_STOP = 0xA6;   // F->B: (empty)
+inline constexpr quint8 SPOTIFY_DEVICE_STATE = 0xA7;       // B->F: status(1B) + len(4B) + UTF-8 JSON {scanId,scanning,message,device,track,current}
+inline constexpr quint8 SPOTIFY_DEVICE_SELECT = 0xA8;      // F->B: len(4B) + UTF-8 JSON {"deviceId","scanId"}
+inline constexpr quint8 SPOTIFY_DEVICE_RESULT = 0xA9;      // B->F: status(1B) + len(4B) + UTF-8 JSON {ok,message,deviceId,deviceName,scanId}
+
+// Leading status byte on every B->F packet above (auth and device alike).
 inline constexpr quint8 SPOTIFY_AUTH_ERROR = 0;
 inline constexpr quint8 SPOTIFY_AUTH_OK = 1;
 

@@ -99,6 +99,20 @@ QtObject {
     readonly property color weatherCardBg: "#325c5c5c"      // rgba(92, 92, 92, 50)
     readonly property color weatherCardBorder: "#78ffffff"  // rgba(255, 255, 255, 120)
 
+    // --- Spotify -----------------------------------------------------------
+    // Spotify's own surface and text ramp, used ONLY by the screen that talks
+    // about Spotify — the device-identification dialog — so it says whose
+    // device it is asking about without spelling it out again. These are their
+    // published tokens: --background-elevated-base is what their own modals sit
+    // on, --text-subdued is their secondary copy, and #727272 is the outline
+    // their secondary buttons carry.
+    readonly property color spotifyGreen: "#1db954"
+    readonly property color spotifySurface: "#242424"   // --background-elevated-base
+    readonly property color spotifyBase: "#121212"      // --background-base
+    readonly property color spotifySubdued: "#b3b3b3"   // --text-subdued
+    readonly property color spotifyOutline: "#727272"   // secondary button border
+    readonly property color spotifyRim: "#3a3a3a"       // hairline around a surface
+
     // Media card.
     readonly property color mediaFallbackColor: "#1e3a8a"
     readonly property color sliderGroove: "#66333333"       // rgba(51, 51, 51, 102)
@@ -165,6 +179,11 @@ QtObject {
     readonly property color tripCardBg: "#325c5c5c"      // rgba(92, 92, 92, 50)
     readonly property color tripCardBorder: "#78ffffff"  // rgba(255, 255, 255, 120)
     readonly property int tripCardRadius: 12
+
+    // Scrim behind a modal. Lighter than a plain blackout because the blur does
+    // most of the separating; at the old 0xcc the frosted backdrop was invisible
+    // and the effect was pure cost.
+    readonly property color dialogScrim: "#99000000"
 
     // --- Screensaver ------------------------------------------------------
     // Printed-photo pile on a black background: each photo sits in a white frame

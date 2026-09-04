@@ -63,6 +63,8 @@ qt_add_executable(appfrontend_v2
     core/systemstatus.cpp
     core/spotifyauth.hh
     core/spotifyauth.cpp
+    core/spotifydevice.hh
+    core/spotifydevice.cpp
     core/tesla/tesladata_gen.hh
     core/tesla/tesladata_gen.cpp
     core/tesla/tesladata.hh
@@ -116,6 +118,9 @@ qt_add_qml_module(appfrontend_v2
         items/settings/SystemStatusPanel.qml
         items/settings/SpotifyAuthStatus.qml
         items/settings/SpotifyAuthPopup.qml
+        items/settings/SpotifyDevicePopup.qml
+        items/settings/SpotifyGlowBorder.qml
+        items/settings/SpotifyButton.qml
         items/settings/DialogButton.qml
         items/settings/SpotifyAuthAlert.qml
         items/trip/TripMap.qml

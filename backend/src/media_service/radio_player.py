@@ -208,6 +208,17 @@ class RadioPlayer(BaseMediaPlayer):
         self.__intentional_stop = False
         logger.debug("Radio player stopped")
 
+    def is_playing(self) -> bool:
+        '''
+        Whether VLC is currently producing audio.
+
+        Needed by the Spotify device scan, which silences the radio while the
+        user picks a device and restores it afterwards: resuming must not START
+        audio that was not playing to begin with, and only VLC knows which it
+        was.  Stays synchronous — it reads a libVLC flag and awaits nothing.
+        '''
+        return bool(self.__vlc_player.is_playing())
+
     async def pause(self) -> None:
         self.__vlc_player.pause()
 
