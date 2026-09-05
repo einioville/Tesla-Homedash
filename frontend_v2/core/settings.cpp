@@ -494,6 +494,19 @@ QVariantList Settings::decorateSections(const QVariantList &sections, bool local
         const QVariantList entries = section.value(QStringLiteral("settings")).toList();
         for (const QVariant &entryValue : entries) {
             QVariantMap entry = entryValue.toMap();
+            // A "hidden" entry is stored, coerced, persisted and readable through
+            // values/valueOf exactly like any other — it is only kept out of the
+            // RENDERED list, because its editor lives inside the subsection's
+            // status widget rather than in a row of its own. The update channel
+            // is the case this exists for: it decides what that card reports, so
+            // it has to sit above the verdict rather than in a row underneath it,
+            // and a two-way choice on a touch panel is a segmented control, not a
+            // dropdown. Filtered HERE, at the rendering boundary, so the
+            // empty-subsection drop below still counts correctly and everything
+            // that persists a value (which walks m_localSchema) is untouched.
+            if (entry.value(QStringLiteral("hidden")).toBool()) {
+                continue;
+            }
             entry.insert(QStringLiteral("origin"), origin);
             // The backend folds its own current value and effective apply tier
             // into the schema it sends, so only the local half needs them here.

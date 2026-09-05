@@ -219,6 +219,18 @@ Window {
         id: screenSaver
         anchors.fill: parent
         z: 300
+        // An update takes minutes with no touch input; without this the photo
+        // pile covers it and the panel then goes dark mid-rebuild.
+        inhibited: Updater.busy
+    }
+
+    // "Do not cut the power" — above every view, below the screensaver it is
+    // already suppressing. See UpdateBanner.qml for why it is app-level.
+    UpdateBanner {
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: parent.top
+        z: 270
     }
 
     // The screensaver's inactivity timeout is an Options-view setting, so push it
@@ -238,12 +250,29 @@ Window {
     Binding {
         target: Display
         property: "enabled"
-        value: Settings.values.screenOffEnabled
+        // Disarmed outright while an update runs: the screensaver is inhibited
+        // above for the same reason, and a dark panel over a live rebuild is the
+        // shape that gets a device power-cycled mid-checkout.
+        value: Settings.values.screenOffEnabled && !Updater.busy
     }
     Binding {
         target: Display
         property: "timeoutMs"
         value: Settings.values.screenOffMin * 60000
+    }
+
+    // An update rewrote this binary while the app was running, so the file on
+    // disk is no longer the one this process is executing — only a restart picks
+    // it up. Routed here rather than inside the Options view for the same reason
+    // the Spotify prompt is: a rebuild takes minutes, and the user is free to
+    // walk away to the dashboard while it runs. Settings::restartApp() quits with
+    // exit code 42 so the service unit relaunches it.
+    Connections {
+        target: Updater
+
+        function onRestartRequested() {
+            Settings.restartApp()
+        }
     }
 
     Component.onCompleted: hideTimer.start()

@@ -17,6 +17,7 @@ from .media_service.spotify_device_service import SpotifyDeviceService
 from .myenergi_service.myenergi_service import MyEnergiService
 from .server.server import Server
 from .system_service.system_status_service import SystemStatusService
+from .update_service.update_service import UpdateService
 from .tesla_service.telemetry import TelemetryHandler
 from .tesla_service.vehicle import Vehicle
 from .trip_service.trip_loader import TripLoader
@@ -891,6 +892,14 @@ async def main():
     )
     logger.debug("Spotify device service initialized")
 
+    # In-place app updates (the Options view's "Päivitys" card). Constructed
+    # after config_service because that owns the only way out of this process:
+    # the updater rewrites the checkout underneath us and then has to come back
+    # on the new code, which is the same exit CONFIG_RESTART performs.
+    updater = UpdateService(server=server, config_service=config_service)
+    system_status.register_probe("update", "Versio", updater.health)
+    logger.debug("Update service initialized")
+
     # Wire incoming-message dispatch and on-connect snapshot before start().
     _register_handlers(
         server, mm, vehicle, trip_loader, charging_loader, config, config_service
@@ -901,8 +910,11 @@ async def main():
     server.register_handler(protocol.SPOTIFY_DEVICE_SCAN_STOP, spotify_devices.handle_scan_stop)
     server.register_handler(protocol.SPOTIFY_DEVICE_SELECT, spotify_devices.handle_select)
     server.register_handler(protocol.SYSTEM_GET_STATUS, system_status.handle_get_status)
+    server.register_handler(protocol.UPDATE_GET_STATE, updater.handle_get_state)
+    server.register_handler(protocol.UPDATE_APPLY, updater.handle_apply)
+    server.register_handler(protocol.UPDATE_CANCEL, updater.handle_cancel)
     services = [vehicle, mm, weather, spot_price_service, config_service, display,
-                spotify_auth]
+                spotify_auth, updater]
     if myenergi is not None:
         services.append(myenergi)
     for service in services:
@@ -927,7 +939,10 @@ async def main():
 
     # Audio detects its stack then refreshes the device list forever; display
     # makes its assumed-on state true and returns.
-    tasks = [t1, t2, t3, t4, t5, t6, audio.get_run_task(), display.get_run_task()]
+    # The updater's run task only locates the checkout and publishes the first
+    # state; the runs themselves are started by a client and own their own task.
+    tasks = [t1, t2, t3, t4, t5, t6, audio.get_run_task(), display.get_run_task(),
+             updater.get_run_task()]
     if myenergi is not None:
         tasks.append(myenergi.get_run_task())
 

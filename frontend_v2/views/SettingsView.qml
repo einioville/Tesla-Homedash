@@ -234,6 +234,13 @@ Rectangle {
                         width: visible ? actionLabel.implicitWidth + 28 : 0
                         height: 32
                         radius: 8
+                        // This is the SECOND way to reach the same two restarts —
+                        // SettingAction's rows in Ylläpito are the first — so it
+                        // carries the same gate. An update is minutes of checkout,
+                        // build and dependency sync, and the backend vetoes a
+                        // restart for the whole of it; a button that fires into a
+                        // veto is a button that does nothing.
+                        opacity: Updater.busy ? 0.4 : 1.0
                         color: buttonArea.pressed ? "#ccffb020" : "#99ffb020"
 
                         Text {
@@ -248,13 +255,20 @@ Rectangle {
                         MouseArea {
                             id: buttonArea
                             anchors.fill: parent
+                            enabled: !Updater.busy
                             onClicked: {
                                 if (modelData.app) {
                                     view.showToast(qsTr("Sovellus käynnistyy uudelleen…"), false)
                                     Settings.restartApp()
                                 } else {
+                                    // No optimistic toast here: the backend can
+                                    // REFUSE this one, and it answers with a
+                                    // CONFIG_SET_RESULT that lands in the same
+                                    // single toast slot. A cheerful "restarting…"
+                                    // would be overwritten by the refusal a few
+                                    // milliseconds later, or — worse — would be
+                                    // the last thing shown if the reply were lost.
                                     Settings.requestBackendRestart()
-                                    view.showToast(qsTr("Palvelin käynnistyy uudelleen…"), false)
                                 }
                             }
                         }

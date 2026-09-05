@@ -201,6 +201,23 @@ inline constexpr quint8 SYSTEM_STATUS = 0xB1;
 inline constexpr quint8 DISPLAY_SET_POWER = 0xC0;
 inline constexpr quint8 DISPLAY_POWER_STATE = 0xC1;
 
+// ── App update ─────────────────────────────────────────────────────────────
+// Updates the checkout both halves run from: fetch, move the working tree to a
+// target commit, re-sync the backend's dependencies, rebuild this binary, then
+// restart both. The BACKEND does all of it — every step is a system call — and
+// this side only picks a channel, shows progress and restarts itself when told.
+//
+// UPDATE_STATE is a BROADCAST and doubles as the progress channel: a run in
+// flight is the document's "job" object. That is deliberate. A Spotify device
+// scan belongs to the panel that started it, but an update rewrites the
+// installation every panel is running, so a second dashboard has to see it
+// happening rather than be free to start its own — and one that connects
+// mid-update gets the whole picture from its on-connect snapshot.
+inline constexpr quint8 UPDATE_GET_STATE = 0xD0;  // F->B: len(4B) + JSON {"fetch": bool}
+inline constexpr quint8 UPDATE_STATE = 0xD1;      // B->F: status(1B) + len(4B) + JSON, broadcast
+inline constexpr quint8 UPDATE_APPLY = 0xD2;      // F->B: len(4B) + JSON {"channel","commit"}
+inline constexpr quint8 UPDATE_CANCEL = 0xD3;     // F->B: (empty)
+
 // Receive-side defensive cap. NOTE the deliberate asymmetry: the backend caps a
 // single message at 1 MB (MAX_MSG_SIZE in protocol.py), but this client tolerates
 // up to 16 MB before treating the length prefix as corrupt and resetting the

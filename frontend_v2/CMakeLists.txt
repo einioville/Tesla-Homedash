@@ -61,6 +61,8 @@ qt_add_executable(appfrontend_v2
     core/connectionprobe.cpp
     core/systemstatus.hh
     core/systemstatus.cpp
+    core/appupdate.hh
+    core/appupdate.cpp
     core/spotifyauth.hh
     core/spotifyauth.cpp
     core/spotifydevice.hh
@@ -116,6 +118,8 @@ qt_add_qml_module(appfrontend_v2
         items/settings/SettingsPane.qml
         items/settings/BackendProbeStatus.qml
         items/settings/SystemStatusPanel.qml
+        items/settings/UpdatePanel.qml
+        items/settings/UpdateBanner.qml
         items/settings/SpotifyAuthStatus.qml
         items/settings/SpotifyAuthPopup.qml
         items/settings/SpotifyDevicePopup.qml
@@ -188,8 +192,35 @@ target_include_directories(appfrontend_v2 PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 # walk-up alone never reaches it. Used only to find .env; real environment
 # variables still take precedence, so this absolute dev path is harmless when the
 # directory no longer exists on a deployment target.
+# Stamp the commit this binary was BUILT from. The Options view's update card
+# otherwise has to report the repository's HEAD as "the running version", which
+# stops being true the moment an update checks out a new commit: between the
+# checkout and the app restarting, the repo is at the new version and this
+# process is still the old one. Resolved at configure time, and the build script
+# configures on every run, so it tracks. Empty when git is unavailable, which the
+# card renders as "unknown" rather than as a mismatch.
+set(FRONTEND_V2_BUILD_COMMIT "")
+find_package(Git QUIET)
+if(Git_FOUND)
+    execute_process(
+        COMMAND ${GIT_EXECUTABLE} rev-parse HEAD
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        OUTPUT_VARIABLE FRONTEND_V2_BUILD_COMMIT
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET)
+endif()
+
 target_compile_definitions(appfrontend_v2 PRIVATE
     FRONTEND_V2_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+
+# Scoped to the ONE file that reads it, not to the target. As a target-wide
+# definition it lands on every translation unit's command line, and its value
+# changes with every commit — so each in-app update would recompile the entire
+# C++ frontend on the Pi even for a one-line QML change, turning a sub-minute
+# build into tens of minutes with the backend already running on a freshly
+# synced virtualenv.
+set_source_files_properties(core/appupdate.cpp PROPERTIES
+    COMPILE_DEFINITIONS "FRONTEND_V2_BUILD_COMMIT=\"${FRONTEND_V2_BUILD_COMMIT}\"")
 
 target_link_libraries(appfrontend_v2
     PRIVATE Qt6::Quick Qt6::Network Qt6::Concurrent Qt6::Svg Qt6::Location Qt6::Positioning

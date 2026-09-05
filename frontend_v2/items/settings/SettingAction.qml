@@ -22,7 +22,12 @@ Item {
     readonly property int confirmMs: 4000
     // Whether the action needs a live backend (the backend restart does).
     readonly property bool needsConnection: setting.requiresConnection === true
-    readonly property bool available: !needsConnection || Server.connected
+    // Nothing in this family may fire during an update. Two of them restart a
+    // process, and doing that mid-checkout or mid-dependency-sync is how a device
+    // is left half-updated — the backend refuses the restart anyway, but a button
+    // that silently does nothing is worse than one that visibly cannot be used.
+    readonly property bool available: (!needsConnection || Server.connected)
+                                      && !Updater.busy
 
     property bool armed: false
 

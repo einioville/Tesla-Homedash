@@ -22,7 +22,14 @@ Item {
     // off Idle.idle would immediately cancel itself. forceShow sidesteps that.
     property bool forceShow: false
 
-    readonly property bool active: Theme.screensaverEnabled
+    // Set while something on screen must stay visible regardless of idleness. An
+    // app update is the case: it runs for minutes with nobody touching the panel,
+    // so the photo pile would fade in over a live rebuild and the backlight would
+    // follow it off — leaving a black screen mid-flash, which is exactly when a
+    // user reaches for the power.
+    property bool inhibited: false
+
+    readonly property bool active: Theme.screensaverEnabled && !root.inhibited
                                    && (Idle.idle || root.forceShow)
                                    && folderModel.count > 0
 

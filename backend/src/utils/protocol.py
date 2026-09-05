@@ -283,6 +283,33 @@ DISPLAY_SET_POWER = 0xC0      # F->B: on(1B) — 1 = wake the panel, 0 = power i
 DISPLAY_POWER_STATE = 0xC1    # B->F: available(1B) + on(1B) — available=0 means the
                               #       host has no wlopm, so the feature is inert
 
+# ── App update (the Options view's "Päivitys" card) ─────────────────────────
+# Updates the checkout this backend and the dashboard are running FROM, in place:
+# fetch, move the working tree to a target commit, re-sync the backend's deps,
+# rebuild the frontend, then restart both halves.  Two channels the frontend
+# picks between: "development" tracks origin/main, "releases" tracks the newest
+# v* tag.  The verdict is a COMMIT COMPARISON, not a version-string compare, so
+# switching channels in either direction — including back to an older release —
+# is an ordinary outcome rather than a special case.
+#
+# UPDATE_STATE is a BROADCAST, unlike the Spotify device scan's per-client
+# stream.  A scan is one user's dialog; an update rewrites the installation both
+# dashboards are running, so a second panel must see it happening rather than be
+# free to start its own.  It is also the progress channel: the state document
+# carries a "job" object while a run is in flight, so there is one B->F code
+# instead of a separate progress packet that a late client would never see.
+UPDATE_GET_STATE = 0xD0   # F->B: len(4B) + UTF-8 JSON {"fetch": <bool>}
+                          #   fetch=true contacts origin first (seconds, network);
+                          #   fetch=false answers from the local repository only
+UPDATE_STATE = 0xD1       # B->F: status(1B) + len(4B) + UTF-8 JSON, BROADCAST
+                          #   {available, reason, repoPath, remoteUrl, branch, dirty,
+                          #    current{...}, channels{development{...}, releases{...}},
+                          #    job: null | {steps, log, ok, finished, restartFrontend, ...}}
+UPDATE_APPLY = 0xD2       # F->B: len(4B) + UTF-8 JSON {"channel": <str>, "commit": <sha>}
+                          #   the commit FENCES the request: if the channel no longer
+                          #   resolves to what the user was shown, the run is refused
+UPDATE_CANCEL = 0xD3      # F->B: (empty) — kill the running step's process group
+
 # Maximum accepted size of a single incoming message (defensive cap)
 MAX_MSG_SIZE = 1024 * 1024  # 1 MB
 

@@ -36,7 +36,7 @@ Tesla-Homedash is a desktop dashboard that brings live vehicle telemetry, music,
 - [teslemetry-stream](https://pypi.org/project/teslemetry-stream/) — Teslemetry WebSocket client.
 
 ### C++
-- [Qt 6](https://www.qt.io/) — the frontend is built on Qt 6 Widgets, using the `Core`, `Gui`, `Widgets`, `Network`, `QuickWidgets`, `Location`, `Positioning`, `Quick`, `Svg`, `Graphs`, and `Concurrent` modules.
+- [Qt 6](https://www.qt.io/) — the frontend is a Qt 6 Quick (QML) application, using the `Quick`, `QuickControls2`, `Network`, `Concurrent`, `Svg`, `Location`, `Positioning`, `Graphs`, `Core5Compat` and `LabsFolderListModel` modules.
 - [CMake](https://cmake.org/) 3.16 or newer — the frontend's build system.
 - A C++20-capable compiler (MSVC 2019 16.10+, GCC 10+, or Clang 12+).
 
@@ -84,7 +84,7 @@ In the installer's **Additional Libraries** step, make sure the following module
 - **Qt Graphs**
 - **Qt 5 Compatibility Module** — `Qt5Compat.GraphicalEffects`, used by the icon tinting
 
-The other Qt modules the frontend links against — `Core`, `Gui`, `Widgets`, `Network`, `Quick`, `QuickControls2`, `QuickWidgets`, `Svg`, and `Concurrent` — are part of the default Qt 6 install and don't need to be enabled separately.
+The other Qt modules the frontend links against — `Core`, `Gui`, `Network`, `Quick`, `QuickControls2`, `Svg`, `Concurrent` and `LabsFolderListModel` — are part of the default Qt 6 install and don't need to be enabled separately.
 
 All four of the modules above are `REQUIRED` in `frontend_v2/CMakeLists.txt`, so leaving one unchecked makes `cmake` fail at configure time rather than at build time.
 
@@ -279,41 +279,47 @@ It should now connect to Teslemetry, InfluxDB, and Spotify without further promp
 
 ### Frontend
 
-The frontend is a Qt 6 Widgets application built with CMake.
+The frontend is a Qt 6 Quick (QML) application built with CMake. `scripts/build-frontend.sh` does
+the configure and the build in one command — it finds the Qt kit, picks Ninja when it is installed
+(and CMake's default generator otherwise), and reuses object files through `ccache`/`sccache` if
+either is present.
 
-**1. Configure the build**, pointing CMake at the Qt 6 install path you noted from the Qt 6 subsection above:
-
-```bash
-cmake -S frontend -B frontend/builddir \
-    -DCMAKE_PREFIX_PATH=~/Qt/6.8.0/gcc_arm64 \
-    -DCMAKE_BUILD_TYPE=Release
-```
-
-Adjust `CMAKE_PREFIX_PATH` to wherever your Qt installer placed the toolchain folder.
-
-**2. Build:**
+**1. Build:**
 
 ```bash
-cmake --build frontend/builddir -j
+./scripts/build-frontend.sh --config Release
 ```
 
-This produces the `gui` binary at `frontend/builddir/gui`.
+It looks for a Qt kit in `$QTDIR`, then in `~/Qt/*/gcc_64` and `~/Qt/*/gcc_arm64`. If your
+installer put it somewhere else, point at it explicitly:
 
-**3. Run:**
+```bash
+./scripts/build-frontend.sh --config Release --qt-prefix ~/Qt/6.8.0/gcc_arm64
+```
+
+This produces the `appfrontend_v2` binary at `frontend_v2/build/appfrontend_v2`. (The equivalent
+raw CMake invocation is `cmake -S frontend_v2 -B frontend_v2/build -DCMAKE_PREFIX_PATH=<kit>
+-DCMAKE_BUILD_TYPE=Release && cmake --build frontend_v2/build --target appfrontend_v2`.)
+
+**2. Run:**
 
 The frontend reads a few optional environment variables — the defaults already match a 1280×800 embedded display on the same Pi as the backend:
 
+Most of these only supply a *default* for the matching setting in the dashboard's own **Asetukset**
+view — a value saved there wins, so they matter on a fresh install and stop mattering afterwards.
+
 - `TESLA_HOMEDASH_BACKEND_HOST` — backend TCP host (default `127.0.0.1`). Set this if the backend runs on a different machine.
 - `TESLA_HOMEDASH_BACKEND_PORT` — backend TCP port (default `6969`).
-- `TESLA_HOMEDASH_WINDOW_WIDTH` — window width in pixels (default `1280`).
-- `TESLA_HOMEDASH_WINDOW_HEIGHT` — window height in pixels (default `800`).
 - `TESLA_HOMEDASH_FULLSCREEN` — set to `1` to open fullscreen on the touchscreen.
+- `TESLA_HOMEDASH_SCREENSAVER_TIMEOUT_MIN` — idle minutes before the screensaver (default `30`).
+- `TESLA_HOMEDASH_SCREENSAVER_DIR` — folder of photos for the screensaver.
+- `TESLA_HOMEDASH_SETTINGS_FILE` — override where the dashboard's own settings are written (default `~/.config/Tesla-Homedash/frontend_config.json`).
 - `TESLA_HOMEDASH_LOG_LEVEL` — `debug` / `info` / `warning` / `error` / `critical` (default `info`).
 
 Make sure the backend is already running (`cd backend && uv run python run.py`), then launch the frontend:
 
 ```bash
-TESLA_HOMEDASH_FULLSCREEN=1 ./frontend/builddir/gui
+TESLA_HOMEDASH_FULLSCREEN=1 ./frontend_v2/build/appfrontend_v2
 ```
 
 If everything is wired up correctly, the dashboard appears and starts streaming telemetry, weather, and media data from the backend.
@@ -397,6 +403,11 @@ ExecStart=%h/.local/bin/uv run python run.py
 # not, because this unit is wanted by default.target rather than
 # graphical-session.target. Drop this line if you do not use that setting.
 Environment=WAYLAND_DISPLAY=wayland-1
+# The Options view's update card rebuilds the dashboard from source, and this
+# unit is what runs that build. A --user unit inherits none of your login shell's
+# environment, so point it at the Qt kit you installed. Drop this line only if
+# the kit is in ~/Qt/<version>/gcc_arm64, which is found automatically.
+Environment=QTDIR=%h/Qt/6.8.0/gcc_arm64
 Restart=on-failure
 RestartSec=5
 
@@ -414,6 +425,12 @@ WantedBy=default.target
 > A bad value cannot restart-loop the unit: settings are validated against the schema
 > before being written, and `config.json` is snapshotted to `config.json.bak` before every
 > write — a config that fails to load rolls back to the backup on the next start.
+>
+> **`RestartSec=5` is load-bearing — do not remove it.** systemd gives up on a unit that
+> starts more than `StartLimitBurst=5` times in `StartLimitIntervalSec=10s` and leaves it
+> `failed`, recoverable only with `systemctl --user reset-failed`. At the default
+> `RestartSec` of 100 ms a crash-looping process trips that in about two seconds; at 5 s it
+> never can, so the unit keeps retrying and heals itself once the cause is fixed.
 
 **3. Frontend** — `~/.config/systemd/user/tesla-homedash-frontend.service`. This one is
 tied to the graphical session (it needs the desktop's display), and it starts after the
@@ -427,7 +444,7 @@ PartOf=graphical-session.target
 
 [Service]
 Environment=TESLA_HOMEDASH_FULLSCREEN=1
-ExecStart=%h/Tesla-Homedash/frontend/builddir/gui
+ExecStart=%h/Tesla-Homedash/frontend_v2/build/appfrontend_v2
 Restart=on-failure
 RestartSec=5
 
@@ -441,6 +458,26 @@ WantedBy=graphical-session.target
 > connection settings (or recover a wedged UI) on the Pi, where the dashboard runs fullscreen
 > with no keyboard. The same section restarts the backend, and both buttons need a second
 > tap to confirm.
+
+### Updating from the dashboard
+
+Once both units are running, the **Asetukset → Ylläpito → Päivitys** card updates the
+installation in place, so a release does not need an SSH session. It has two channels:
+
+- **Kehitys** — track the tip of `origin/main`.
+- **Julkaisut** — track the newest `v*` release tag.
+
+Both resolve to a *commit*, and the card compares it against the one that is checked out —
+so moving between channels works in both directions, including back to an older release.
+Pressing the button (twice, to confirm) fetches, checks the target out detached, rebuilds the
+frontend, runs `uv sync --locked` and restarts both units. It refuses to start if
+the working tree has modified tracked files, if the host is missing `uv`, a Qt kit or disk
+space, or if the target version does not itself contain the update card — that last one
+would be a one-way trip on a panel with no keyboard. Anything that fails after the checkout
+puts the working tree back where it started.
+
+`config.json`, `.env` and the dashboard's own settings file are all outside the repository
+or gitignored, so an update never touches them.
 
 Reload the unit files, then enable and start everything:
 
@@ -469,7 +506,7 @@ reachable underneath it.
 > [Desktop Entry]
 > Type=Application
 > Name=Tesla-Homedash
-> Exec=env TESLA_HOMEDASH_FULLSCREEN=1 /home/youruser/Tesla-Homedash/frontend/builddir/gui
+> Exec=env TESLA_HOMEDASH_FULLSCREEN=1 /home/youruser/Tesla-Homedash/frontend_v2/build/appfrontend_v2
 > ```
 >
 > (Replace `youruser` with your username.) The desktop session runs it on login, which

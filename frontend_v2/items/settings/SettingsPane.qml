@@ -202,6 +202,7 @@ Item {
                                         case "backendProbe": return probeComponent
                                         case "systemStatus": return systemComponent
                                         case "spotifyAuth": return spotifyComponent
+                                        case "appUpdate": return updateComponent
                                         default: return null
                                         }
                                     }
@@ -246,6 +247,7 @@ Item {
     Component { id: probeComponent; BackendProbeStatus {} }
     Component { id: systemComponent; SystemStatusPanel {} }
     Component { id: spotifyComponent; SpotifyAuthStatus {} }
+    Component { id: updateComponent; UpdatePanel {} }
 
     // Shown before the first schema arrives (and if one never does).
     Text {

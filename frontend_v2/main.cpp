@@ -7,6 +7,7 @@
 #include <memory>
 
 #include "core/appconfig.hh"
+#include "core/appupdate.hh"
 #include "core/charging/chargingdata.hh"
 #include "core/idlewatcher.hh"
 #include "core/connectionprobe.hh"
@@ -109,6 +110,11 @@ int main(int argc, char* argv[]) {
     // from the dashboard instead of over SSH.
     SpotifyDevice spotifyDevice;
     spotifyDevice.attachServer(&serverClient);
+    // In-place app updates. The backend does the git work, the dependency sync
+    // and the rebuild; this side picks a channel, shows progress, and restarts
+    // itself when told so the binary that was just replaced is the one running.
+    AppUpdate appUpdate;
+    appUpdate.attachServer(&serverClient);
     QObject::connect(&idleWatcher, &IdleWatcher::activity, &screenPower,
                      &ScreenPower::onActivity);
 
@@ -140,6 +146,7 @@ int main(int argc, char* argv[]) {
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "System", &systemStatus);
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "SpotifyAuth", &spotifyAuth);
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "SpotifyDevice", &spotifyDevice);
+    qmlRegisterSingletonInstance("frontend_v2", 1, 0, "Updater", &appUpdate);
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "Settings", &settings);
 
     QObject::connect(

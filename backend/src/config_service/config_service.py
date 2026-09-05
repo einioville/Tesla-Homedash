@@ -538,6 +538,10 @@ class ConfigService:
         self.__guards: dict[str, Callable[[str, Any], None]] = {}
         # Set by the CONFIG_RESTART handler and awaited by run(), which turns it
         # into a process exit for the service manager to restart.
+        # name -> callable returning a refusal reason, or "" to allow. See
+        # register_restart_veto: some restarts can only be refused honestly by
+        # the service that knows what is in flight.
+        self.__restart_vetoes: dict[str, Callable[[], str]] = {}
         self.__restart_requested = asyncio.Event()
         # Identifies THIS process in every schema it sends.  The frontend uses it
         # to tell "the backend restarted, so the values it now reports are the new
@@ -853,17 +857,65 @@ class ConfigService:
         logger.info("Config set %s = %r (%s)", key, coerced, applied)
         return {"ok": True, "applied": applied, "value": coerced, "message": ""}
 
-    async def handle_restart(self, _payload: bytes, _writer) -> None:
+    async def handle_restart(self, _payload: bytes, writer) -> None:
         '''
         CONFIG_RESTART handler: arms the restart, which run() turns into a
-        process exit.  Fire-and-forget — the client's socket is about to close,
-        so there is nothing useful to reply.
+        process exit.  An armed restart replies nothing — the client's socket is
+        about to close, so there is nothing useful to say — but a REFUSED one
+        must, or the user completes a deliberate two-tap confirmation and sees
+        absolutely nothing happen, which is worse than a button that visibly
+        cannot be used.  The refusal is sent in the CONFIG_SET_RESULT shape, so
+        the Options view renders it as an ordinary failed-write toast with no new
+        parsing on that side.
         Arguments:
             _payload (bytes): Unused; the command carries no payload.
-            _writer (StreamWriter): Unused.
+            writer (StreamWriter): The requesting client, told when it is refused.
         '''
         logger.warning("Restart requested by a client")
+        refusal = self.request_restart()
+        if refusal:
+            logger.warning("Restart refused: %s", refusal)
+            await self.__reply_error(writer, "", None, refusal)
+
+    def register_restart_veto(self, name: str, veto: Callable[[], str]) -> None:
+        '''
+        Registers a pre-restart veto: a callable returning a non-empty reason to
+        refuse the restart, or "" to allow it.
+
+        The sibling of register_guard, and for the same reason — some things can
+        only be refused honestly by the service that owns them.  The one that
+        matters is an update in flight: this button sits three rows below the
+        update card, and pressing it mid-checkout would kill the process while
+        the working tree is half-moved.
+        Arguments:
+            name (str): Identifier for the log line.
+            veto (Callable): Returns a Finnish refusal reason, or "" to allow.
+        '''
+        self.__restart_vetoes[name] = veto
+
+    def request_restart(self, force: bool = False) -> str:
+        '''
+        Arms the restart CONFIG_RESTART arms, for a service that needs the
+        backend to come back on new code — the updater, after it has rewritten
+        the checkout this process is running from.  Public so there is exactly
+        one way out of the process rather than a second os._exit somewhere else.
+
+        Returns the refusal reason when a veto objected and nothing was armed.
+        Arguments:
+            force (bool): Skip the vetoes. For the updater's own final restart,
+                which IS the thing the vetoes exist to protect.
+        '''
+        if not force:
+            for name, veto in self.__restart_vetoes.items():
+                try:
+                    refusal = veto()
+                except Exception as e:  # noqa: BLE001 - a broken veto must not block
+                    logger.warning("Restart veto %s failed: %s", name, e)
+                    continue
+                if refusal:
+                    return refusal
         self.__restart_requested.set()
+        return ""
 
     # ── Snapshot + run task ───────────────────────────────────────
 

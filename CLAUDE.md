@@ -77,6 +77,9 @@ backend/
     config_service/
       config_service.py           # ConfigService — the Options view's backend half: SETTINGS_SCHEMA (the allow-list of
                                   #   runtime-editable config.json keys), validation, persistence, apply hooks, restart
+    update_service/
+      update_service.py           # UpdateService — in-place app updates (0xD0-0xD3): git fetch/checkout, uv sync,
+                                  #   frontend rebuild, restart of both halves; two channels (main tip / newest v* tag)
     influxdb_service/
       influxdb_handler.py         # Async InfluxDB client — telemetry write + Flux history reads
     utils/
@@ -404,6 +407,10 @@ payload[1..N-1] = type-specific data
 | `0xB1` | SYSTEM_STATUS | B→F | `status(1B) + len(4B) + JSON` — host/backend metrics, per-service health, error tallies |
 | `0xC0` | DISPLAY_SET_POWER | F→B | `on(1B)` — 1 wakes the panel, 0 powers it down |
 | `0xC1` | DISPLAY_POWER_STATE | B→F | `available(1B) + on(1B)`; `available=0` = no wlopm on the host |
+| `0xD0` | UPDATE_GET_STATE | F→B | `len(4B) + UTF-8 JSON` — `{"fetch": <bool>}`; `fetch` contacts the remote (backend-throttled to one per 2 min) |
+| `0xD1` | UPDATE_STATE | B→F | `status(1B) + len(4B) + JSON`, **broadcast** — `{available, reason, repoPath, remoteUrl, branch, dirty, dirtyFiles, fetchedMs, current{…}, channels{development{…},releases{…}}, tools{…}, job}`. `job` is `null` when idle and the whole progress report while a run is in flight, so there is no second progress code and a client connecting mid-update sees it in its snapshot |
+| `0xD2` | UPDATE_APPLY | F→B | `len(4B) + UTF-8 JSON` — `{"channel": "development"\|"releases", "commit": <40-hex>}`; the commit **fences** the request (a target that moved since the check is refused) |
+| `0xD3` | UPDATE_CANCEL | F→B | (empty) — kill the running step's process group; honoured only during fetch/deps/build (`job.cancellable`) |
 
 (Trip codes `0x74`–`0x7D` — the Trips view — are omitted from this table; they mirror the History
 request/response shape. See the `frontend_v2` memory.)
@@ -912,6 +919,119 @@ disk never disagree. A hook that raises is logged and swallowed: the value is al
 so failing the write there would leave the reply and the disk disagreeing.
 **Talks to:** `Config` (set/save), `Server` (send_to/broadcast), every hooked service.
 
+**Restart vetoes.** `register_restart_veto(name, callable)` is the sibling of `register_guard`:
+a callable returning a non-empty Finnish reason refuses a `CONFIG_RESTART` before it is armed.
+`UpdateService` registers one, because the restart buttons sit three rows below the update card
+and killing the backend mid-checkout is exactly what everything else there exists to prevent.
+`request_restart(force=True)` skips the vetoes — the updater's own final restart IS the thing
+they protect.
+
+#### 5.2.9 `update_service/update_service.py` — in-place app updates
+Serves `UPDATE_GET_STATE` / `UPDATE_APPLY` / `UPDATE_CANCEL` (`0xD0`–`0xD3`) and broadcasts
+`UPDATE_STATE`; registered with `register_service`, so a connecting dashboard gets the state —
+including a run already in flight — without asking. The dashboard runs from a git checkout, so
+"update the app" is `git fetch` → `checkout --detach <sha>` → rebuild the frontend →
+`uv sync --locked` → restart both halves, and every one of those is a system call, which is why
+the whole thing lives here rather than in the UI. (The sync comes after the build on purpose —
+see the step-order note below.)
+
+**Two channels, one comparison.** `development` targets the tip of `origin/main`; `releases`
+targets the newest `v*` tag (`--sort=-v:refname`, git's own version order, dereferenced with
+`^{commit}` — a bare `rev-parse` on an annotated tag yields the TAG object and finds no ancestry
+at all). Both resolve to a COMMIT and the verdict is a commit comparison, never a version-string
+compare: `up_to_date` / `update` (target descends from HEAD) / `downgrade` (target is an ancestor)
+/ `switch` (divergent), from two `merge-base --is-ancestor` calls (exit 0 = yes, 1 = no, anything
+else = unknown, never guessed). That is what makes switching channels work in **both** directions;
+development → releases normally reads `downgrade`, which is an ordinary outcome here.
+
+Load-bearing details, most of them measured:
+- **The trapdoor rule.** A target that does not itself contain `update_service.py` +
+  `UpdatePanel.qml` (checked with `git cat-file -e <sha>:<path>`) is **refused whatever the
+  verdict says**. Move a keyboard-less panel onto a commit with no updater and the only way back
+  is SSH — and this project's only release tag is exactly such a commit. Downgrading between two
+  versions that both carry the feature is the case the feature is for, and works.
+- **`GIT_ASKPASS` set to the EMPTY STRING is what stops a fetch hanging forever.**
+  `GIT_TERMINAL_PROMPT=0` alone only suppresses git's own tty prompt; git then falls through to an
+  askpass helper — measured parking until the step timeout. Setting the variable at all (even
+  empty) also suppresses the `SSH_ASKPASS` fallback, which matters because the Pi runs a full
+  desktop, so `DISPLAY` is set. Also `GIT_CONFIG_NOSYSTEM`, `GIT_SSH_COMMAND` with `BatchMode` +
+  `ConnectTimeout`, `GIT_OPTIONAL_LOCKS=0` and `LC_ALL=C`; `GIT_DIR`/`GIT_WORK_TREE` are scrubbed
+  from every child, since an inherited value would silently redirect the checkout elsewhere.
+- **git 2.43 has no `http.connectTimeout`** and the low-speed knobs do not cover the connect phase
+  (measured against a black-holed address), so `asyncio.wait_for` around the subprocess is the ONLY
+  bound — the same shape §5.2.4 mandates for the FMI fetch.
+- **Every child gets `start_new_session=True` and is killed by PROCESS GROUP.** git forks
+  `git-remote-https`, and the build is a shell → cmake → ninja → one compiler per file; measured,
+  killing the parent alone leaves the tree running AND leaves the inherited stdout pipe open, so
+  the reader never sees EOF.
+- **Output is read in CHUNKS, not with `readline()`.** `StreamReader.readline` raises past its
+  64 KiB buffer and a deep C++ template diagnostic exceeds that; the exception would leave the job
+  "running" forever, refusing every later request.
+- **`uv sync --locked`, never a bare `uv sync`.** A bare sync silently re-resolves and rewrites
+  `uv.lock` — a TRACKED file — so the write would make the tree dirty and permanently wedge this
+  service's own dirty-tree refusal, pointing at a file the user never touched. (`--frozen` avoids
+  the rewrite too but installs a stale lock silently.)
+- **Nothing renames the frontend binary out of the way, and that is correct.** ld UNLINKS its
+  output before creating it rather than truncating in place, so relinking a *running* executable
+  succeeds and the live process keeps its old inode — measured, including that not-yet-paged-in
+  code still faults in correctly afterwards. (`cp` and shell redirection DO fail with ETXTBSY,
+  because they truncate; the linker is the exception.) A rename dance would only add a
+  half-moved-binary failure mode.
+- **The artifact is verified before anything is told to restart**: exists, executable, newer than
+  the run, not implausibly smaller than before. A build killed mid-link can leave a truncated file,
+  and restarting a keyboard-less panel into a stub leaves no dashboard at all.
+- **Anything that fails AFTER the checkout rolls the tree back** (`checkout --detach <previous>` +
+  `uv sync --locked`). A new source tree beside an old virtualenv is the one genuinely
+  unrecoverable state this feature can produce: the backend's unit re-syncs on every start, so the
+  next restart fails, retries and fails again — with the Options view gone along with the backend.
+- **Checkout is always DETACHED**, uniform across both channels. A release is a tag and can only be
+  checked out detached anyway; detaching never discards a local branch; and — the case that decides
+  it — a linked worktree *refuses* `checkout main` when main is checked out elsewhere, while
+  `checkout --detach <sha>` always works. `advice.detachedHead=false` keeps the eight-line advice
+  block out of the journal. No `-f`: a checkout aborted by a colliding untracked file is a clean
+  refusal, and forcing past it would delete what the user put there.
+- **`--prune --tags --force` on fetch, but NOT `--prune-tags`.** `--tags` uses a non-forced
+  refspec, so a MOVED release tag is rejected with "would clobber existing tag" and the releases
+  channel silently sticks to the old commit; `--prune-tags` is left off because it deletes local
+  tags the remote lacks, which is right for a deployment and wrong for the maintainer's checkout.
+- **Preflight in `tools`**, reported before the button is live: `uv` (PATH, else `~/.local/bin/uv`
+  — a `systemd --user` unit's PATH has neither), the build script, a Qt kit (`$QTDIR` → newest
+  `~/Qt/*/gcc_64`|`gcc_arm64` → `CMAKE_PREFIX_PATH` from an existing `CMakeCache.txt`) and disk
+  headroom. The kit is passed to the script as `--qt-prefix` so the choice appears in the log.
+- **Cancel is step-aware.** Allowed during fetch/deps/build (and then rolled back like any other
+  failure); refused during the checkout, whose interruption is the half-written state everything
+  here avoids. `job.cancellable` tells the frontend, so the button hides rather than being ignored.
+- The state document is ~2 KB; the job log is capped at 80 lines × 240 chars and broadcasts are
+  coalesced to 2 Hz, so a build's hundreds of ninja lines never approach the 1 MB frame cap.
+- **The BUILD runs before the dependency sync**, which is not the obvious order. `uv sync`
+  rewrites the virtualenv this interpreter is running from, and a build that followed it takes
+  tens of minutes on a Pi — a lazily-imported submodule of a replaced package failing in that
+  window ends a process with no supervisor, and systemd would restart it mid-build, destroying
+  the run's own rollback. Syncing last shrinks that window to seconds.
+- **The job is claimed synchronously.** `self.__job` is built in the handler before the task is
+  created, because `Server` dispatches every packet as its own task and `handle_apply` awaits
+  ~10 git queries before the run exists — two applies would otherwise both pass a guard that
+  only looked at `__job`. A refusal likewise **never overwrites a live job**: it replaces the
+  whole document, which would erase the running progress, re-arm the restart button and hand the
+  step loop an empty `steps` list to index.
+- **The run task closes the job out in a `finally`.** Every gate in the service reads
+  `finished`, so an exception escaping the loop would leave the device unable to update, unable
+  to refresh the card, and — through the restart veto — unable to restart. That veto is itself
+  **bounded by a deadline**, so a wedged job can never trap a keyboard-less panel.
+- **The artifact check is an absolute floor, not a ratio** against the previous binary: the
+  first in-app update legitimately replaces the build script's default *Debug* binary with a
+  *Release* one several times smaller, and a ratio test would reject that good build and roll a
+  successful update back.
+- **The job's fetch goes through the streaming runner, not the `__git` helper.** Only the runner
+  registers the child on `self.__proc`, so only through it can a cancel or a timeout reach the
+  process group — otherwise *Peruuta* is a button that visibly does nothing for up to three
+  minutes. The read path's fetch keeps a much shorter timeout, since the card waits on its reply,
+  and the throttle keys on the fetch ATTEMPT: keying on success means an unreachable remote is
+  never throttled and every card open pays the full timeout again.
+
+**Talks to:** `git`/`uv`/`bash` (subprocesses), `ConfigService` (restart + veto), `Server`
+(broadcast/send_to), `SystemStatusService` (a `health()` probe).
+
 ### 5.3 Frontend
 
 The Widgets frontend uses a signal/slot routing pattern: `ServerClient` emits one signal per
@@ -1030,7 +1150,9 @@ knowing:
 - `sectionsOf()` tolerates the pre-#30 shape (a group with a bare `settings` array) by
   synthesizing one subsection, so mismatched halves still render.
 
-Further schema keys the delegates understand: **`relevantWhen`** (`{key, equals|notEquals}` —
+Further schema keys the delegates understand: **`hidden`** (kept out of the rendered rows
+while stored and persisted normally — for a setting whose editor lives in the subsection's status
+widget; see the update channel below), **`relevantWhen`** (`{key, equals|notEquals}` —
 `SettingRow` fades a row whose controlling setting makes it meaningless **and sets
 `enabled: false` on it**, since a control that changes a value with no effect is worse than one
 that visibly cannot be used; `enabled` propagates down the item tree, so no editor needs to know
@@ -1197,6 +1319,50 @@ An `action` row whose key `Settings::invokeAction` does not handle itself now em
 **`actionRequested(key)`**, which `SettingsView` routes — that is how the backend owns the Spotify
 exchange while the consent UI stays a view concern, with `Settings` knowing nothing about either.
 
+**In-place app updates** are `core/appupdate.{hh,cpp}`, the QML singleton **`Updater`**, rendered
+by `items/settings/UpdatePanel.qml` as the `status: "appUpdate"` widget of the *Päivitys*
+subsection — **first in the Ylläpito group**, which it gets for free because local subsections are
+folded in before backend ones. **This side runs no process**: the backend does the git work, the
+dependency sync and the rebuild (§5.2.9), and the singleton picks a channel, shows what comes back,
+and restarts the app when told. The whole `UPDATE_STATE` document is carried as an opaque
+`QVariantMap`, like `SystemStatus`'s, so a field added on the backend reaches the screen with no
+C++ change. Five things are load-bearing:
+- **`updateChannel` is a `hidden` schema entry** — a new per-setting key that keeps a setting out
+  of the RENDERED rows while it is stored, coerced, persisted and readable through
+  `Settings.values` / `valueOf()` exactly like any other. Filtered in `Settings::decorateSections`,
+  the rendering boundary, so the empty-subsection drop still counts correctly and nothing that
+  persists a value (all of which walks `m_localSchema`) is touched. It exists because the channel
+  decides what the verdict beneath it says — it has to come *first*, not in a row underneath — and
+  a two-way choice on a touch panel is a segmented control, not a dropdown.
+- **The restart is routed through a signal, not a call.** `restartRequested()` is connected in
+  `Main.qml` to `Settings.restartApp()` — the `actionRequested` idiom, and app-level for the
+  `SpotifyAuthAlert` reason: a rebuild takes minutes and the user is free to walk back to the
+  dashboard while it runs. It is fenced on the job's **`startedMs`**, because the job keeps being
+  broadcast after the flag is set and re-emitting would fire the restart repeatedly — and NOT on
+  the job id, which is a per-process counter that restarts at 1 with the backend and could
+  therefore repeat, silently swallowing a later job's restart.
+- **The screensaver and the panel blackout are both inhibited while `Updater.busy`**
+  (`ScreenSaver.inhibited`, and the `Display.enabled` Binding), and `items/settings/UpdateBanner.qml`
+  puts an *"Älä katkaise virtaa"* strip at z:270 over every view. An update runs for minutes with
+  nobody touching the panel, so without this the photo pile fades in over a live rebuild and the
+  backlight follows it off — a black screen mid-flash is precisely when a user reaches for the plug.
+- **`SettingAction` is disabled outright while a run is in flight.** Two of those buttons restart a
+  process; the backend vetoes that anyway, but a button that silently does nothing is worse than
+  one that visibly cannot be used.
+- **`UpdatePanel` indexes `Updater.state.channels` directly and there is no `channelInfo()`
+  invokable.** A `Q_INVOKABLE` registers no property dependency, so a binding built on one never
+  re-evaluates: the card froze on the state that existed when its Loader was constructed, while
+  the sibling bindings reading `Updater.state` kept refreshing — a live check time above a stale
+  version. The same trap as `Settings.valuesRevision`, solved by not reaching for an invokable.
+- **The build's commit is compiled in** (`FRONTEND_V2_BUILD_COMMIT`, resolved at CMake configure
+  time, which the build script runs every time — and scoped with
+  `set_source_files_properties` to the single file that reads it, because a target-wide
+  definition changes every translation unit's command line on every commit and would make each
+  update a full C++ rebuild on the Pi) and exposed as `Updater.buildCommit`. The
+  repository's HEAD and the running binary are different questions — between a checkout and the
+  app restarting they genuinely differ — so reporting HEAD as "the running version" would be a lie
+  exactly when it matters. `restartPending` derives the mismatch and the card says so.
+
 **Numeric settings default to `SettingNumber` — a `[−] [typed value] [+]` stepper — and
 > sliders are OPT-IN** via the schema's `editor: "slider"`. A slider only works when the exact
 > number does not matter; most settings here are the opposite. Dispatching on `type` alone
@@ -1274,6 +1440,22 @@ SettingRow delegate → Settings.setValue(key, value)
     → CONFIG_SET_RESULT → send_to(requesting client)   [+ CONFIG_SCHEMA broadcast to all]
     → Settings.parseSetResult → writeSucceeded/writeFailed → SettingsView toast
   apply tier "restart": banner → CONFIG_RESTART → ConfigService.run → os._exit(42) → systemd
+```
+
+**App update (the Options view's Päivitys card)**
+```
+UpdatePanel opens → Updater.active → UPDATE_GET_STATE{fetch:true}
+  → UpdateService.__refresh → git fetch (throttled) → resolve both channels
+  → verdict per channel (merge-base --is-ancestor ×2) + eligibility (cat-file -e)
+  → UPDATE_STATE broadcast → card renders current / target / verdict / blockers
+second tap on the button → UPDATE_APPLY{channel, commit}
+  → validate (channel enum, 40-hex sha, clean tree, tools, commit still current)
+  → fetch → checkout --detach → build-frontend.sh → verify artifact → uv sync --locked
+     (each step: own process group, streamed output, UPDATE_STATE broadcast ≤2 Hz)
+  → job.restartFrontend → Updater.restartRequested → Settings.restartApp() (exit 42)
+  → ConfigService.request_restart(force=True) → os._exit(42) → systemd restarts both
+  any failure after the checkout → git checkout --detach <previous> + uv sync --locked
+     (the job stays `running` across the rollback, so the banner and the restart veto hold)
 ```
 
 **Weather refresh**
@@ -1381,7 +1563,51 @@ This guide is current as of the **Options-view feature build-out** on
 `feature/settings-options-view`, tracked as issues **#30–#41** (all but **#40**, host reboot,
 which is deliberately deferred).
 
-Landed in the latest pass: **Spotify device identification** — the Options view can now discover
+Landed in the latest pass: **in-place app updates** — a *Päivitys* card at the top of the Options
+view's *Ylläpito* section that moves the installation between two channels, **Kehitys** (the tip of
+`origin/main`) and **Julkaisut** (the newest `v*` tag), and then does everything that has to follow:
+`uv sync --locked`, a frontend rebuild, and a restart of both halves. New protocol codes
+`0xD0`–`0xD3` (§5.1), new `update_service/update_service.py` (§5.2.9), new `core/appupdate.{hh,cpp}`
++ `items/settings/UpdatePanel.qml` + `UpdateBanner.qml` (§5.3.6).
+
+Two findings from reviewing it are worth carrying past this feature. **A `Q_INVOKABLE` registers
+no property dependency**, so a QML binding built on one never re-evaluates — the update card froze
+on the state its Loader was constructed with while every sibling binding around it refreshed. And
+**a guard checked before an `await` is not a guard**: `Server` dispatches each packet as its own
+task, so two taps inside the ~1 s of git queries `handle_apply` performs both passed the
+"already running" test until the job was claimed synchronously.
+
+The design choice that shapes it: **the verdict is a COMMIT comparison, not a version-string
+compare** (`merge-base --is-ancestor` in both directions → up_to_date / update / downgrade /
+switch), which is what makes moving between channels work in either direction — going from
+development to releases normally reads *downgrade*, and that is an ordinary outcome rather than a
+special case.
+
+Five findings from building it are general, not local. **ld unlinks its output rather than
+truncating it**, so relinking a *running* executable succeeds and the live process keeps its old
+inode — measured, including not-yet-paged-in code faulting in fine afterwards; the `mv`-aside dance
+this design started with was solving a problem that does not exist (`cp` and shell redirection DO
+hit ETXTBSY; the linker is the exception). **`GIT_TERMINAL_PROMPT=0` does not stop git blocking on
+credentials** — it falls through to an askpass helper, and `GIT_ASKPASS` set to the *empty string*
+is the load-bearing variable. **A bare `uv sync` rewrites the tracked `uv.lock`**, which would have
+permanently wedged this feature's own dirty-tree refusal; `--locked` turns that into a loud failure.
+**`scripts/build-frontend.sh` could never have worked on the Pi**: it globbed only `gcc_64` (the ARM
+kit is `gcc_arm64`) and hard-coded `-G Ninja`, which the Pi's setup does not install — both fixed,
+and the README's systemd unit still launched the *frozen* `frontend/builddir/gui`, which is fixed
+too. And **`RestartSec=5` in the README's units is load-bearing**: at the default 100 ms a crash
+loop trips systemd's `StartLimitBurst=5`/`10s` in about two seconds and leaves the unit permanently
+`failed`, recoverable only over SSH.
+
+Two safety rules worth carrying forward. A target that does not itself contain the updater is
+**refused whatever the verdict says** — the only release tag today is such a commit, and moving a
+keyboard-less panel onto it would be a one-way trip. And **anything that fails after the checkout
+rolls the working tree back**, because a new source tree beside an old virtualenv is the one
+genuinely unrecoverable state here: the backend's unit re-syncs on every start, so the next restart
+fails, retries and fails again — taking the Options view with it. Deliberately deferred: job state
+is not persisted across a backend restart, so an update interrupted by a power cut is reported only
+by the journal, not by the card.
+
+Landed in the preceding pass: **Spotify device identification** — the Options view can now discover
 `spotifyDeviceId` instead of it being obtainable only by SSHing in to run `setup/spotify_setup.py`.
 A *Tunnista laite* row under the re-auth button opens a scrim dialog over the Options view; the
 user starts playback on the device they want, the backend polls `current_playback()` and shows the

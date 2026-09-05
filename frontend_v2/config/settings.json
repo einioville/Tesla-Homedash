@@ -27,6 +27,12 @@
         "        'slider' only for coarse dials where the exact number does not",
         "        matter (a 65534-step slider is unusable, see SettingNumber).",
         "",
+        "hidden: true keeps a setting out of the rendered rows while still",
+        "        storing, coercing and persisting it normally. For a setting whose",
+        "        editor lives inside the subsection's status widget - the update",
+        "        channel belongs above the verdict it decides, not in a row under",
+        "        it - and readable as always through Settings.values / valueOf().",
+        "",
         "type 'action' is a BUTTON, not a value: nothing is stored or persisted.",
         "It carries actionLabel and optionally requiresConnection, and its key names",
         "a handler in Settings::invokeAction.",
@@ -291,6 +297,27 @@
             "icon": "system",
             "label": "Ylläpito",
             "sections": [
+                {
+                    "id": "update",
+                    "label": "Päivitys",
+                    "help": "Päivittää sovelluksen siitä git-varastosta, josta se on asennettu: hakee muutokset, vaihtaa version, päivittää riippuvuudet, kääntää käyttöliittymän ja käynnistää molemmat puolet uudelleen. Vie useita minuutteja.",
+                    "status": "appUpdate",
+                    "settings": [
+                        {
+                            "key": "updateChannel",
+                            "type": "enum",
+                            "hidden": true,
+                            "label": "Päivityskanava",
+                            "help": "Kehitys seuraa main-haaran uusinta tilaa, Julkaisut uusinta julkaisua.",
+                            "options": [
+                                {"value": "development", "label": "Kehitys"},
+                                {"value": "releases", "label": "Julkaisut"}
+                            ],
+                            "default": "development",
+                            "apply": "live"
+                        }
+                    ]
+                },
                 {
                     "id": "connection",
                     "label": "Yhteydet",

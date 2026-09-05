@@ -17,6 +17,7 @@ CONFIG_SERVICE = "config_service"
 AUDIO_SERVICE = "audio_service"
 DISPLAY_SERVICE = "display_service"
 SYSTEM_SERVICE = "system_service"
+UPDATE_SERVICE = "update_service"
 SERVER = "server"
 START_SERVICES = "start_services"
 UTILS = "utils"
@@ -38,6 +39,7 @@ _SERVICE_LOGGERS = (
     AUDIO_SERVICE,
     DISPLAY_SERVICE,
     SYSTEM_SERVICE,
+    UPDATE_SERVICE,
     SERVER,
     START_SERVICES,
     UTILS,
