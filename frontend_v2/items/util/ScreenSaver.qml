@@ -123,7 +123,11 @@ Item {
         folder: Settings.toFileUrl(Theme.screensaverDir)
         showDirs: false
         sortField: FolderListModel.Name
-        nameFilters: ["*.jpg", "*.jpeg", "*.png", "*.bmp", "*.webp", "*.gif"]
+        // From the Folders singleton rather than a literal here, because the
+        // Options view's folder picker counts images with the SAME filter to say
+        // "42 kuvaa". Two copies would drift, and the picker would then vouch for
+        // a folder this model renders as empty.
+        nameFilters: Folders.imageNameFilters
     }
 
     // Advance to the next photo while active; frozen (stopped) otherwise.

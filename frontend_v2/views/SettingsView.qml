@@ -40,6 +40,12 @@ Rectangle {
     onIsCurrentChanged: {
         if (!isCurrent && SpotifyDevice.phase !== "idle")
             SpotifyDevice.cancel()
+        // Same reasoning, cheaper stakes: ViewController keeps this view alive, so
+        // a browser left standing would still be there on return — a scrim over a
+        // stale listing of a stick that may since have been unplugged, with the
+        // settings underneath unreachable.
+        if (!isCurrent)
+            folderPopup.close()
     }
 
     // Transient result banner (a rejected value, a confirmed write).
@@ -85,6 +91,14 @@ Rectangle {
                 SpotifyDevice.begin()
         }
 
+        // Same idiom, different contract: a folder row edits a VALUE, so it comes
+        // through its own signal rather than through invokeAction (see
+        // Settings::requestFolderPick). The row that raises it sits four levels
+        // down inside a Repeater, which is exactly why the routing lives here.
+        function onFolderPickRequested(key, currentPath) {
+            folderPopup.open(key, currentPath)
+        }
+
         function onWriteFailed(key, message) {
             view.showToast(key.length > 0 ? key + ": " + message : message, true)
         }
@@ -113,7 +127,7 @@ Rectangle {
         id: content
         anchors.fill: parent
 
-        layer.enabled: devicePopup.visible
+        layer.enabled: devicePopup.visible || folderPopup.visible
         layer.effect: MultiEffect {
             blurEnabled: true
             blur: 1.0
@@ -376,6 +390,20 @@ Rectangle {
     // and OUTSIDE `content` so it is not swept into the blur it asks for.
     SpotifyDevicePopup {
         id: devicePopup
+        anchors.fill: parent
+    }
+
+    // --- Folder picker ------------------------------------------------------
+    // Same placement rule and the same reasons as the device dialog: a folder is
+    // only ever picked from a settings row on this screen. Outside `content` so it
+    // is not swept into the blur it asks for, and last so it stacks over
+    // everything else here.
+    //
+    // Instantiated permanently rather than behind a Loader — see the note in
+    // FolderPickerPopup.qml: destroying a FolderListModel mid-scan blocks the GUI
+    // thread until the directory walk finishes.
+    FolderPickerPopup {
+        id: folderPopup
         anchors.fill: parent
     }
 }

@@ -683,6 +683,13 @@ void Settings::invokeAction(const QString &key) {
     }
 }
 
+void Settings::requestFolderPick(const QString &key) {
+    // valueOf reaches BOTH halves, so this works for a backend folder setting as
+    // well as a local one — the write itself already routes correctly in setValue.
+    logger.info(QStringLiteral("Folder browser requested for %1").arg(key));
+    emit folderPickRequested(key, valueOf(key).toString());
+}
+
 void Settings::requestBackendRestart() {
     if (m_server == nullptr || !m_server->connected()) {
         emit writeFailed(QString(), QStringLiteral("Ei yhteyttä palvelimeen"));

@@ -11,6 +11,7 @@
 #include "core/charging/chargingdata.hh"
 #include "core/idlewatcher.hh"
 #include "core/connectionprobe.hh"
+#include "core/folderbrowser.hh"
 #include "core/screenpower.hh"
 #include "core/logger.hh"
 #include "core/media/mediadata.hh"
@@ -96,6 +97,9 @@ int main(int argc, char* argv[]) {
     // One-shot reachability check for the backend address settings. Independent of
     // serverClient, which owns the live session and must keep reconnecting.
     ConnectionProbe connectionProbe;
+    // Stateless filesystem queries for the Options view's folder picker; touches
+    // no socket, so there is nothing to attach.
+    FolderBrowser folderBrowser;
     // The Options view's maintenance dashboard. Polls only while its panel is on
     // screen, so a settings screen nobody opened costs nothing.
     SystemStatus systemStatus;
@@ -143,6 +147,7 @@ int main(int argc, char* argv[]) {
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "Idle", &idleWatcher);
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "Display", &screenPower);
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "Probe", &connectionProbe);
+    qmlRegisterSingletonInstance("frontend_v2", 1, 0, "Folders", &folderBrowser);
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "System", &systemStatus);
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "SpotifyAuth", &spotifyAuth);
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "SpotifyDevice", &spotifyDevice);

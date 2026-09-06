@@ -1160,6 +1160,10 @@ about relevance. A setting that is a *precondition* for its controller — the s
 folder, without which the screensaver cannot run at all — must NOT carry a rule, or it becomes
 unsettable exactly when it needs setting. Resolved through `Settings.valueOf()`, which reaches
 **both** halves, with `Settings.valuesRevision` read purely to make the binding live),
+**`editor: "folder"`** (opt-in on a `string`
+setting: the row becomes a tappable path that opens the folder browser instead of a text field,
+and honoured only for `origin === "local"` — the browser walks the FRONTEND's filesystem, so a
+backend key falls back to `SettingText` rather than silently browsing the wrong machine),
 **`maxLabel`** (`SettingSlider` shows this text
 instead of the number at the slider's top stop — the graph point cap uses it for *rajoittamaton*,
 which really does disable decimation) and **`warnBelow` / `warnAbove` + `warnMessage`** (issue
@@ -1193,7 +1197,8 @@ Two details are load-bearing:
 
 **Delegates** (`items/settings/`): `SettingRow` dispatches on `setting.type` to
 `SettingSwitch` / `SettingNumber` / `SettingSlider` / `SettingText` / `SettingSelect` (the
-last subclasses `TripComboBox`, inheriting the dark styling and the #9/#19 dropdown fixes).
+last subclasses `TripComboBox`, inheriting the dark styling and the #9/#19 dropdown fixes) /
+`SettingFolder`.
 
 > The **`screensaverDir`** setting (issue #33) is the pattern for a path: `string` + `nullable`,
 defaulting from `TESLA_HOMEDASH_SCREENSAVER_DIR` through the schema's `env` key. `AppConfig` no
@@ -1202,6 +1207,11 @@ live. `ScreenSaver.qml` binds `FolderListModel.folder` to `Settings.toFileUrl(Th
 (`QUrl::fromLocalFile`, empty in → empty out), and with no folder the model is empty, so the
 screensaver never activates however the toggle is set. `coerceLocal` gained the matching rule:
 an empty string is rejected unless the setting is `nullable`.
+>
+> It is now **picked, not typed** (`editor: "folder"` → `SettingFolder` → `FolderPickerPopup`). The
+> image-extension list moved to the `Folders` singleton in the same pass, because the picker counts
+> images with it to say "42 kuvaa" and a second copy would vouch for folders the screensaver plays
+> as empty.
 
 **Backend reachability** (issue #36) is `core/connectionprobe.{hh,cpp}`, the QML singleton
 **`Probe`**, surfaced by `items/settings/BackendProbeStatus.qml`. It is deliberately NOT
@@ -1221,6 +1231,52 @@ setting row: *is that address reachable* belongs to the host and port **together
 follows the SAVED values (what startup will actually use), debounced 400 ms so editing host then
 port probes once against the final pair. Advisory only — the write is never blocked, since the
 backend legitimately may not be up yet.
+
+**The folder browser** is `core/folderbrowser.{hh,cpp}`, the QML singleton **`Folders`**, with
+`items/settings/SettingFolder.qml` as the row editor and `items/settings/FolderPickerPopup.qml` as
+the dialog. It exists because `FolderListModel` is a fine lister and a poor navigator: it reports
+what is inside a directory it has already opened, and everything a picker needs *before* that —
+does this path still exist, may we read it, what is its parent, where do we open when nothing is
+configured, which removable volumes are mounted right now — has no QML type in this build at all
+(`Qt.labs.platform` is not linked, and `QStorageInfo` has no QML API in any build). Every method
+recomputes rather than caching: a stick can be plugged in while the Options view sits open.
+Load-bearing details, all measured against Qt 6.11.1:
+- **Navigation state is a plain path, never a URL.** `folder`, `parentFolder` and the `fileUrl`
+  role are URLs, and recovering a path from one by stripping `file://` yields the percent-encoded
+  form — `/media/pi/Kesäloma 2024` comes back mangled, `Settings.toFileUrl` then double-encodes it,
+  and the screensaver silently plays nothing. Rows navigate by the **`filePath`** role, which is
+  already an absolute decoded path, so no URL enters the state at all. It matters twice over that
+  `Settings::setValue` **rejects a QUrl outright** for a `string` setting ("odotettiin tekstiä"):
+  the most natural line to write fails at runtime with a toast and no folder saved.
+- **Never `parentFolder`.** It returns an EMPTY url at `/`, and feeding that back into `folder`
+  leaves the model pointing nowhere *and* computing every later parent from nothing — a permanently
+  blank dialog on a device with no keyboard. `Folders.parentOf()` returns `""` at the root and the
+  up button is simply inert there.
+- **A folder whose name contains `#`, `%` or `?` cannot be browsed or played.** `FolderListModel`
+  re-parses the decoded path as a URL internally, so `Loma#2024` truncates to `Loma` — status Null,
+  count 0, even from a correctly encoded URL. `Folders.isBrowsable()` mirrors that test
+  (`QUrl(path).path() == path`, a pure string parse, because the browser asks it once per visible
+  row) and such rows render dimmed and inert. This is also the reason the row's text field could be
+  removed with no loss: a hand-typed path to such a folder would not work either.
+- **The picker is instantiated permanently, not behind a `Loader`.** `~FileInfoThread` takes the
+  scan thread's mutex and `wait()`s for it while the scan holds that mutex for its whole directory
+  walk — so unloading mid-scan blocks the **GUI thread** until a stale mount or a spun-down disk
+  answers, and "Peruuta during a slow load" is exactly when a user taps. The cost is one listing of
+  the process's working directory at startup and one idle watcher.
+- **The image count is gated on `status`, not on `count` alone.** `count` is 0 while the background
+  walk runs, so a naive binding flashes the amber "no images here" warning on every descend,
+  including into folders that turn out to be full.
+- **The card reserves the DOCK's band, and this one generalises to every modal here.** A popup
+  inside a view cannot raise itself above the dock: the dock lives in `Main.qml` and is declared
+  *after* the view host, so it floats over the whole view whatever `z` the popup sets — `z` orders
+  siblings within `SettingsView` only — and the scrim's tap-swallowing `MouseArea` is equally
+  powerless against an item in a higher layer. The reveal handler sits above the views too, so the
+  dock can be swiped up at any moment, and it is briefly on screen at startup. Measured on the
+  1280×800 target: the dock occupies **y 684–780**, and a 690px card centred in the window puts its
+  button row at **y 681–725** — *Peruuta* and *Valitse tämä kansio* covered, with no way to reach
+  them. The card is therefore top-anchored and sized to end above that band (30px of clearance,
+  which still leaves ~8 directory rows). `SpotifyDevicePopup` escapes this only by being
+  content-sized and short; anything taller has to reserve the band deliberately.
 
 **Display power-down** (issue #35) is `core/screenpower.{hh,cpp}`, the QML singleton
 **`Display`** — a step BEYOND the screensaver: the screensaver keeps the backlight on to show
@@ -1371,6 +1427,8 @@ C++ change. Five things are load-bearing:
 > carry the hint: `tripMaxSpeedKmh`, `graphBucketsPerPx`, `graphRenderMarginFrac`,
 > `screensaverStackCount`. **Rule of thumb: if the user knows the number they want, it is not
 > a slider.** `SettingNumber`'s ± buttons hold-to-repeat, and it accepts typing for big jumps.
+> `editor` is the general per-type control HINT, not a numeric one — `slider` and `folder` are its
+> two consumers today.
 
 > **`type: "action"` is a button, not a value.** `SettingAction.qml` renders it and calls
 > `Settings::invokeAction(key)`; nothing is stored, persisted or sent as `CONFIG_SET`. Keeping
@@ -1563,7 +1621,34 @@ This guide is current as of the **Options-view feature build-out** on
 `feature/settings-options-view`, tracked as issues **#30–#41** (all but **#40**, host reboot,
 which is deliberately deferred).
 
-Landed in the latest pass: **in-place app updates** — a *Päivitys* card at the top of the Options
+Landed in the latest pass: the **screensaver folder browser** — the *Kuvakansio* row no longer
+asks the user to type an absolute path. It is now a tappable path that opens a modal browser over
+the Options view: shortcut column (home, Pictures, each mounted removable volume by its own label),
+a tappable breadcrumb, a 56px-row directory list, and a live count of the images in the folder you
+are standing in. New `core/folderbrowser.{hh,cpp}` (the `Folders` singleton),
+`items/settings/SettingFolder.qml`, `items/settings/FolderPickerPopup.qml`, and one new schema key,
+`editor: "folder"` (§5.3.6). No protocol change and no backend change.
+
+**The design point: tapping anything only changes WHERE YOU ARE; the button at the bottom writes.**
+Nothing is ever "selected", so there is no tap-to-select vs. double-tap-to-open overload, and a leaf
+folder with no subdirectories — `DCIM/100CANON`, the usual case — is selectable at all, which a
+select-the-row design cannot manage. The confirm button's label and width are fixed for the same
+reason `SpotifyDevicePopup`'s are: a label naming the current folder would resize as the user
+navigates and slide *Peruuta* under a finger already reaching for it.
+
+One finding here outlives the feature: **a modal inside a view cannot out-`z` the dock**, because
+the dock is declared after the view host in `Main.qml`. A centred 690px card put its buttons
+squarely inside the dock's band (measured: dock y 684–780 against a button row at y 681–725), so
+the picker's card is top-anchored and sized to stop above it.
+
+**Removing the text field is what the deployment actually required, not a simplification.** The Pi
+runs fullscreen, and squeekboard does not draw over a fullscreen surface (labwc#2926) — so the
+field it replaces could be focused on the device but never typed into. The obvious objection, that
+a field is the escape hatch for folders the browser cannot reach, does not survive measurement:
+the only such folders contain `#`, `%` or `?`, and `ScreenSaver.qml` uses the same
+`FolderListModel`, so it could not PLAY them however the path was entered.
+
+Landed in the preceding pass: **in-place app updates** — a *Päivitys* card at the top of the Options
 view's *Ylläpito* section that moves the installation between two channels, **Kehitys** (the tip of
 `origin/main`) and **Julkaisut** (the newest `v*` tag), and then does everything that has to follow:
 `uv sync --locked`, a frontend rebuild, and a restart of both halves. New protocol codes

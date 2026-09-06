@@ -173,7 +173,15 @@ Item {
             case "action":
                 return actionComponent
             default:
-                return textComponent
+                // Opt-in, exactly like editor: "slider" above, and gated to LOCAL
+                // settings: the browser walks THIS machine's filesystem, while a
+                // backend key's paths belong to the backend's host. They are the
+                // same host in this deployment, but backendHost is itself a
+                // user-editable setting, so a backend folder row falls back to the
+                // text field rather than silently browsing the wrong machine.
+                return row.setting.editor === "folder"
+                       && row.setting.origin === "local"
+                    ? folderComponent : textComponent
             }
         }
     }
@@ -197,6 +205,10 @@ Item {
     Component {
         id: textComponent
         SettingText { setting: row.setting }
+    }
+    Component {
+        id: folderComponent
+        SettingFolder { setting: row.setting }
     }
     Component {
         id: actionComponent

@@ -59,6 +59,8 @@ qt_add_executable(appfrontend_v2
     core/screenpower.cpp
     core/connectionprobe.hh
     core/connectionprobe.cpp
+    core/folderbrowser.hh
+    core/folderbrowser.cpp
     core/systemstatus.hh
     core/systemstatus.cpp
     core/appupdate.hh
@@ -114,6 +116,7 @@ qt_add_qml_module(appfrontend_v2
         items/settings/SettingAction.qml
         items/settings/SettingText.qml
         items/settings/SettingSelect.qml
+        items/settings/SettingFolder.qml
         items/settings/SettingsSidebar.qml
         items/settings/SettingsPane.qml
         items/settings/BackendProbeStatus.qml
@@ -123,6 +126,7 @@ qt_add_qml_module(appfrontend_v2
         items/settings/SpotifyAuthStatus.qml
         items/settings/SpotifyAuthPopup.qml
         items/settings/SpotifyDevicePopup.qml
+        items/settings/FolderPickerPopup.qml
         items/settings/SpotifyGlowBorder.qml
         items/settings/SpotifyButton.qml
         items/settings/DialogButton.qml
@@ -241,6 +245,7 @@ qt_add_resources(appfrontend_v2 "app_resources"
         resources/icons/arrow_right.svg
         resources/icons/charger.svg
         resources/icons/chart_line.svg
+        resources/icons/folder.svg
         resources/icons/cooling.png
         resources/icons/greenshadow.png
         resources/icons/heating.png

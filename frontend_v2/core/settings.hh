@@ -130,6 +130,15 @@ public:
     // in the schema is just what lets the same sidebar/pane render them.
     Q_INVOKABLE void invokeAction(const QString &key);
 
+    // Asks whoever is hosting the settings UI to open a folder browser for this
+    // key. The sibling of invokeAction, and a separate entry point rather than a
+    // reuse of it because a folder setting IS a value: it is stored, persisted and
+    // (for a backend key) sent as CONFIG_SET, all of which invokeAction's contract
+    // explicitly excludes. The editor row sits four levels deep in a Repeater, so
+    // it cannot reach the dialog by signal chaining; this is the same routing
+    // idiom, and it keeps Settings ignorant of what a folder browser looks like.
+    Q_INVOKABLE void requestFolderPick(const QString &key);
+
 signals:
     void groupsChanged();
     void restartPendingChanged();
@@ -143,6 +152,10 @@ signals:
     // view can own the UI half of an action (the Spotify popup) without Settings
     // having to know anything about it.
     void actionRequested(const QString &key);
+    // A folder-typed row was tapped. Carries the key's CURRENT value so the
+    // browser can open where the setting already points without resolving it
+    // again — and so the dialog needs no access to the schema at all.
+    void folderPickRequested(const QString &key, const QString &currentPath);
 
 private:
     void migrateLegacyStorage();
