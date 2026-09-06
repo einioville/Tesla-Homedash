@@ -1204,14 +1204,20 @@ last subclasses `TripComboBox`, inheriting the dark styling and the #9/#19 dropd
 defaulting from `TESLA_HOMEDASH_SCREENSAVER_DIR` through the schema's `env` key. `AppConfig` no
 longer reads that variable at all — two readers would be two sources of truth, and the setting is
 live. `ScreenSaver.qml` binds `FolderListModel.folder` to `Settings.toFileUrl(Theme.screensaverDir)`
-(`QUrl::fromLocalFile`, empty in → empty out), and with no folder the model is empty, so the
-screensaver never activates however the toggle is set. `coerceLocal` gained the matching rule:
-an empty string is rejected unless the setting is `nullable`.
+(`QUrl::fromLocalFile`, empty in → empty out). `coerceLocal` gained the matching rule: an empty
+string is rejected unless the setting is `nullable`.
 >
-> It is now **picked, not typed** (`editor: "folder"` → `SettingFolder` → `FolderPickerPopup`). The
-> image-extension list moved to the `Folders` singleton in the same pass, because the picker counts
-> images with it to say "42 kuvaa" and a second copy would vouch for folders the screensaver plays
-> as empty.
+> It is now **picked, not typed** (`editor: "folder"` → `SettingFolder` → `FolderPickerPopup`), and
+> two measured facts about `FolderListModel` were corrected in the same pass. **An empty `folder` at
+> component completion does NOT leave the model empty** — it falls back to its documented default,
+> *the application's working directory*, and lists whatever images sit there; the "no folder, no
+> screensaver" behaviour this section used to claim came for free is now actually delivered, by the
+> explicit `Theme.screensaverDir.length > 0` term in `ScreenSaver.active`. And **`nameFilters` match
+> case-sensitively by default**, so the original lowercase-only list silently skipped every
+> `DSC_0042.JPG` a camera writes (measured: 2 of 5 files matched, 4 with `caseSensitive: false`).
+> The extension list now lives once on the `Folders` singleton, because the picker counts images
+> with it to say "42 kuvaa" and a second copy would vouch for folders the screensaver plays as
+> empty.
 
 **Backend reachability** (issue #36) is `core/connectionprobe.{hh,cpp}`, the QML singleton
 **`Probe`**, surfaced by `items/settings/BackendProbeStatus.qml`. It is deliberately NOT
@@ -1647,6 +1653,14 @@ field it replaces could be focused on the device but never typed into. The obvio
 a field is the escape hatch for folders the browser cannot reach, does not survive measurement:
 the only such folders contain `#`, `%` or `?`, and `ScreenSaver.qml` uses the same
 `FolderListModel`, so it could not PLAY them however the path was entered.
+
+Two pre-existing defects in the same feature were found by measuring rather than reading, and both
+are fixed here. **An empty `screensaverDir` did not disable the screensaver** — a `FolderListModel`
+with an empty `folder` at component completion falls back to the process's working directory and
+lists the images there — and **the lowercase-only `nameFilters` skipped every `DSC_0042.JPG`**,
+because `nameFilters` are case-sensitive by default (measured: 2 of 5 files matched, 4 with
+`caseSensitive: false`). A folder of camera photos played nothing, with the toggle on and the path
+correct.
 
 Landed in the preceding pass: **in-place app updates** — a *Päivitys* card at the top of the Options
 view's *Ylläpito* section that moves the installation between two channels, **Kehitys** (the tip of

@@ -29,8 +29,17 @@ Item {
     // user reaches for the power.
     property bool inhibited: false
 
+    // The folder check is NOT redundant with `folderModel.count > 0`. Measured
+    // against Qt 6.11: a FolderListModel whose `folder` is EMPTY at component
+    // completion does not stay empty — it falls back to its documented default,
+    // "the application's working directory", and happily lists the images it
+    // finds there. So with no photo folder configured the pile would fill with
+    // whatever images happen to sit in the process's cwd. Gating on the setting
+    // itself is what actually delivers the documented "no folder, no
+    // screensaver" behaviour.
     readonly property bool active: Theme.screensaverEnabled && !root.inhibited
                                    && (Idle.idle || root.forceShow)
+                                   && Theme.screensaverDir.length > 0
                                    && folderModel.count > 0
 
     // Fade in/out rather than pop. Stay renderable through the fade-out (visible
@@ -123,6 +132,13 @@ Item {
         folder: Settings.toFileUrl(Theme.screensaverDir)
         showDirs: false
         sortField: FolderListModel.Name
+        // Case-INSENSITIVE, and that is load-bearing rather than tidy:
+        // nameFilters match case-sensitively by default, and essentially every
+        // camera and phone writes DSC_0042.JPG in capitals. Measured on a folder
+        // of five files, the default matched 2 and this matches 4 — a folder of
+        // camera photos would otherwise show nothing at all, with the toggle on
+        // and the folder correct.
+        caseSensitive: false
         // From the Folders singleton rather than a literal here, because the
         // Options view's folder picker counts images with the SAME filter to say
         // "42 kuvaa". Two copies would drift, and the picker would then vouch for
