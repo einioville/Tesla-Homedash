@@ -370,8 +370,10 @@ Byte-identical to the backend's format, stdout only — conventions in `frontend
   manually-verified changes (the agent builds, but *runtime* verification happens on the user's
   side). When the user confirms a feature works — i.e. they say a manual test passed — proactively
   prompt to commit it then, in focused commits per the above, rather than letting verified work pile
-  up. The agent still only commits/pushes when the user agrees; this is about offering at the right
+  up. The agent still only commits when the user agrees; this is about offering at the right
   moment, not committing unprompted.
+- **Push every commit as soon as it is made.** After each `git commit`, `git push` the branch right
+  away (`git push -u origin <branch>` the first time) rather than letting local commits pile up.
 - **When creating an issue, always add a label and assign it to the maintainer.** Work is tracked as
   GitHub issues on `einioville/Tesla-Homedash`. Every issue you open must carry at least one label
   (`gh issue create --label "<label>"`; pick or create the fitting one — `bug`, `enhancement`, etc.)
