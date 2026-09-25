@@ -28,6 +28,14 @@
 #include "core/weather/weatherdata.hh"
 
 int main(int argc, char* argv[]) {
+    // The in-app on-screen keyboard (the InputPanel in Main.qml). The panel has
+    // no physical keyboard, and the host's own squeekboard cannot help: on labwc
+    // it sits on the `top` layer and does not draw over a fullscreen surface
+    // (labwc#2926). Forced rather than defaulted, because an inherited
+    // QT_IM_MODULE would silently leave the text fields untypeable on the device.
+    // Read when the application is constructed, so it must be set before that.
+    qputenv("QT_IM_MODULE", QByteArrayLiteral("qtvirtualkeyboard"));
+
     QGuiApplication app(argc, argv);
 
     // Install the logger at INFO first so the AppConfig constructor's own startup

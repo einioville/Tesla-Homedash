@@ -81,7 +81,32 @@ And the window **steps back to windowed for the duration of a Spotify re-authori
 be reachable above the dashboard — on labwc, Raspberry Pi OS Bookworm's compositor, squeekboard is
 hardcoded to the `top` layer and does not draw over a fullscreen surface (labwc#2926), so a
 fullscreen dashboard would leave the on-screen keyboard unreachable and the login untypeable on a
-keyboard-less panel.
+keyboard-less panel. (The app's own keyboard, below, cannot help there: the browser is a separate
+window.)
+
+## On-screen keyboard
+
+Qt Virtual Keyboard, drawn **inside the app window** (`InputPanel` in `Main.qml`) rather than the
+host's squeekboard, which cannot draw over a fullscreen surface on labwc (above). `main.cpp` forces
+`QT_IM_MODULE=qtvirtualkeyboard` before the `QGuiApplication` is built — forced, not defaulted, so an
+inherited value can never leave the fields untypeable on the device. `VirtualKeyboard` is a
+`REQUIRED` CMake component, so every kit (Windows, WSL, the Pi's) needs the Qt Virtual Keyboard
+module installed. The only locale is `fi_FI`, which drops the language-switch key.
+
+- **It shows itself** whenever a text field takes focus; nothing opens it explicitly.
+- **Closing it commits.** `Main.qml`'s `dismissKeyboard()` moves focus off the field, which fires
+  its `editingFinished`; `Qt.inputMethod.hide()` alone would close the panel and strand the edit in
+  a field nobody can see. It runs on a press outside the field, on a view switch (the views stay
+  resident, so focus would too) and when the screensaver comes on.
+- **Outside-press detection is a `MouseArea` that never accepts the press**, ending at the
+  keyboard's top edge, so the press still reaches the button or field under it (and a drag still
+  scrolls — the keyboard just goes first). A passive-grab `TapHandler` would be the natural fit
+  (dismiss on tap, not press) but in Qt 6.11 it still accepts a *mouse* press and starves every item
+  beneath it (QTBUG-145896); the touch half of that fix may be missing from the Pi's 6.10.
+- **Enter closes it too, but keeps focus** (`onAccepted: Qt.inputMethod.hide()` in the field
+  delegates). Clearing focus there would emit `editingFinished` a second time and send the write
+  twice. Tapping the still-focused field reopens it.
+- The settings pane makes room and scrolls the focused field above it — `items/settings/CLAUDE.md`.
 
 ## Overlays, z-order and the dock
 
@@ -93,7 +118,8 @@ keyboard-less panel.
   to end above that band, or its buttons land under the dock (`items/settings/CLAUDE.md`, folder
   browser, is the measured case).
 - **App-level layers in `Main.qml`:** notifications z:200, the Spotify re-auth prompt z:250 and its
-  progress dialog z:260, the update banner z:270, the screensaver z:300. Something that must be seen
+  progress dialog z:260, the update banner z:270, the keyboard's outside-press catcher z:280 and the
+  keyboard itself z:290, the screensaver z:300. Something that must be seen
   whichever view is current belongs here, not inside a view.
 
 ## QML ↔ C++ traps

@@ -186,7 +186,7 @@ from the README's list, which describes the old Widgets frontend:
 ```cmake
 find_package(Qt6 REQUIRED COMPONENTS
     Quick Network Concurrent Svg Location Positioning
-    QuickControls2 Core5Compat Graphs LabsFolderListModel)
+    QuickControls2 Core5Compat Graphs LabsFolderListModel VirtualKeyboard)
 ```
 
 | CMake component | Comes from | Used by |
@@ -198,6 +198,7 @@ find_package(Qt6 REQUIRED COMPONENTS
 | `Location`, `Positioning` | `-m qtlocation qtpositioning` | `TeslaMap`, `TripMap` |
 | `Graphs` | `-m qtgraphs` | `HistoryGraph`, trip + charging graphs |
 | `Core5Compat` | `-m qt5compat` | retained Qt5 APIs in `core/` |
+| `VirtualKeyboard` | `-m qtvirtualkeyboard` | the in-app on-screen keyboard (`Main.qml`) |
 
 `Widgets` and `QuickWidgets` are **not** needed — those belong to the frozen
 `frontend/`. If you ever build that one too, add them.
@@ -207,7 +208,7 @@ find_package(Qt6 REQUIRED COMPONENTS
 ```bash
 python3 -m pip install --user aqtinstall     # or: pipx install aqtinstall
 python3 -m aqt install-qt linux desktop 6.11.1 linux_gcc_64 \
-    -m qtlocation qtpositioning qtgraphs qt5compat qtwayland \
+    -m qtlocation qtpositioning qtgraphs qt5compat qtvirtualkeyboard qtwayland \
     -O ~/Qt
 ```
 

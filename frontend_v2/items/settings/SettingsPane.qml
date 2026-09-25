@@ -21,6 +21,60 @@ Item {
     readonly property var sections: hasData && groupData.sections !== undefined
                                     ? groupData.sections : []
 
+    // --- On-screen keyboard -------------------------------------------------
+    // The keyboard (Main.qml) covers the bottom half of the screen, which is where
+    // most rows sit. How far it reaches up over the flickable, in the flickable's
+    // own coordinates; 0 while it is down. Qt.inputMethod.keyboardRectangle is in
+    // scene coordinates and only settles once the slide-in has finished.
+    readonly property real keyboardInset: {
+        const kb = Qt.inputMethod.keyboardRectangle
+        if (!Qt.inputMethod.visible || kb.height <= 0)
+            return 0
+        return Math.max(0, flick.height - flick.mapFromItem(null, 0, kb.y).y)
+    }
+    readonly property Item focusedItem: Window.activeFocusItem
+
+    // Either can come first: focus moves on the press, the inset once the panel
+    // has settled — and moving between fields changes only the focus.
+    onKeyboardInsetChanged: revealFocused()
+    onFocusedItemChanged: revealFocused()
+
+    // Scrolls the focused field into the strip left visible above the keyboard.
+    function revealFocused() {
+        const item = pane.focusedItem
+        if (pane.keyboardInset <= 0 || item === null || !pane.isInsideFlick(item))
+            return
+        const margin = 16
+        const top = item.mapToItem(flick.contentItem, 0, 0).y
+        const visibleHeight = flick.height - pane.keyboardInset
+        let target = flick.contentY
+        if (top + item.height + margin > flick.contentY + visibleHeight)
+            target = top + item.height + margin - visibleHeight
+        else if (top - margin < flick.contentY)
+            target = top - margin
+        target = Math.max(0, Math.min(target, flick.contentHeight + flick.bottomMargin - flick.height))
+        if (target !== flick.contentY) {
+            revealAnimation.to = target
+            revealAnimation.restart()
+        }
+    }
+
+    function isInsideFlick(item) {
+        for (let p = item.parent; p !== null; p = p.parent) {
+            if (p === flick.contentItem)
+                return true
+        }
+        return false
+    }
+
+    NumberAnimation {
+        id: revealAnimation
+        target: flick
+        property: "contentY"
+        duration: 200
+        easing.type: Easing.OutCubic
+    }
+
     // --- Section title ----------------------------------------------------
     // No card of its own: it names what the sidebar has selected, and the cards
     // below carry the structure.
@@ -49,6 +103,8 @@ Item {
         anchors.topMargin: 2
 
         contentHeight: cards.implicitHeight
+        // Room to scroll the last rows up above the keyboard while it is up.
+        bottomMargin: pane.keyboardInset
         clip: true
         // No ScrollBar: flicking is a Flickable behaviour, and a scroll bar is
         // mouse chrome on a device that only ever gets fingers. The clipped card

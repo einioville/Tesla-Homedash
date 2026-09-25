@@ -1,4 +1,6 @@
 import QtQuick
+import QtQuick.VirtualKeyboard
+import QtQuick.VirtualKeyboard.Settings
 import frontend_v2
 
 Window {
@@ -45,6 +47,22 @@ Window {
         { name: qsTr("Asetukset"), icon: "qrc:/resources/icons/settings.svg", component: settingsComponent }
     ]
     property int currentView: 0
+
+    // A keyboard left up over a view the user has switched to belongs to a field
+    // they can no longer see; the views stay resident, so focus would stay put.
+    onCurrentViewChanged: dismissKeyboard()
+
+    // Closes the on-screen keyboard by moving focus off the field, which also
+    // fires its editingFinished — so the typed value commits exactly as it
+    // would on a desktop focus change. Qt.inputMethod.hide() alone would close
+    // the panel and leave the edit pending in a field nobody is looking at.
+    function dismissKeyboard() {
+        if (!Qt.inputMethod.visible)
+            return
+        if (window.activeFocusItem !== null)
+            window.activeFocusItem.focus = false
+        Qt.inputMethod.hide()
+    }
 
     Component { id: dashboardComponent; DashboardView {} }
     Component { id: mapComponent; MapView {} }
@@ -222,6 +240,55 @@ Window {
         // An update takes minutes with no touch input; without this the photo
         // pile covers it and the panel then goes dark mid-rebuild.
         inhibited: Updater.busy
+        // Waking to a keyboard still up over a half-typed field is a trap.
+        onActiveChanged: if (active) window.dismissKeyboard()
+    }
+
+    // --- On-screen keyboard -----------------------------------------------
+    // Qt Virtual Keyboard, drawn INSIDE this window: the host's squeekboard does
+    // not draw over a fullscreen surface on labwc (labwc#2926), so it would stay
+    // hidden behind the dashboard. main.cpp selects the input method; the panel
+    // shows itself whenever a text field takes focus. Above every layer but the
+    // screensaver, which dismisses it on the way in.
+    //
+    // Press-outside-to-dismiss. The press is never consumed (accepted = false),
+    // so it carries on to whatever is under it: a button still fires, another
+    // field still takes focus and reopens the keyboard for itself, and a drag
+    // still scrolls — the keyboard just goes first. It stops at the keyboard's
+    // top edge so key presses never count as "outside".
+    //
+    // Not a passive-grab TapHandler, which would dismiss on the tap rather than
+    // the press: in Qt 6.11 such a handler still ACCEPTS a mouse press, so every
+    // item under it stops receiving presses (QTBUG-145896), and the touch half of
+    // that fix is new enough that the Pi's Qt 6.10 may block touches the same way.
+    MouseArea {
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: parent.top
+        anchors.bottom: keyboard.top
+        z: 280
+        enabled: keyboard.active
+
+        onPressed: (mouse) => {
+            mouse.accepted = false
+            // A press in the field being edited only moves its cursor.
+            const focused = window.activeFocusItem
+            if (focused !== null && focused.contains(mapToItem(focused, mouse.x, mouse.y)))
+                return
+            window.dismissKeyboard()
+        }
+    }
+
+    InputPanel {
+        id: keyboard
+        width: window.width
+        x: 0
+        y: active ? window.height - height : window.height
+        z: 290
+
+        Behavior on y {
+            NumberAnimation { duration: 220; easing.type: Easing.OutCubic }
+        }
     }
 
     // "Do not cut the power" — above every view, below the screensaver it is
@@ -275,5 +342,11 @@ Window {
         }
     }
 
-    Component.onCompleted: hideTimer.start()
+    Component.onCompleted: {
+        // Finnish only: the UI is Finnish, the layout carries å/ä/ö as plain
+        // keys, and a single locale drops the language-switch key.
+        VirtualKeyboardSettings.locale = "fi_FI"
+        VirtualKeyboardSettings.activeLocales = ["fi_FI"]
+        hideTimer.start()
+    }
 }

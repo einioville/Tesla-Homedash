@@ -48,6 +48,15 @@ Item {
             // The surrounding Rectangle is the visual field; the control's own
             // Basic-style background would paint a light box over the dark theme.
             background: null
+            // The values typed here are hosts, URLs, serial numbers and place
+            // names: the on-screen keyboard's sentence capitalisation would mangle
+            // most of them, and prediction holds text in pre-edit, off `text`.
+            inputMethodHints: Qt.ImhNoAutoUppercase | Qt.ImhNoPredictiveText
+
+            // Enter commits (editingFinished follows) and closes the keyboard,
+            // leaving focus where it is — clearing focus here would fire
+            // editingFinished a second time and send the same write twice.
+            onAccepted: Qt.inputMethod.hide()
 
             onEditingFinished: {
                 if (text !== control.currentText())

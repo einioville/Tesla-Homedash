@@ -157,6 +157,14 @@ Item {
                 validator: RegularExpressionValidator {
                     regularExpression: control.isInt ? /-?\d*/ : /-?\d*[.,]?\d*/
                 }
+                // The on-screen keyboard's number pad. The digits-only pad has no
+                // minus key, so a setting that may go negative gets the fuller one.
+                inputMethodHints: control.isInt && control.minimum >= 0
+                                  ? Qt.ImhDigitsOnly : Qt.ImhFormattedNumbersOnly
+
+                // Enter commits (editingFinished follows) and closes the keyboard;
+                // see SettingText for why focus stays put.
+                onAccepted: Qt.inputMethod.hide()
 
                 onEditingFinished: {
                     const raw = text.trim().replace(",", ".")

@@ -97,6 +97,17 @@ Three write-rate / semantics rules matter:
   can be cleared back to null. `electricityPriceEurPerKwh` null means "no flat tariff, show —"
   in the Charging view, which is not the same as pricing energy at 0.000 €/kWh.
 
+**Typing on the device** goes through the app's own on-screen keyboard (`frontend_v2/CLAUDE.md`).
+The field delegates only steer it: `SettingText` turns off auto-capitalisation and prediction (its
+values are hosts, URLs and serials, and prediction holds text in pre-edit, off `text`), and
+`SettingNumber` asks for the number pad — the digits-only one unless the setting can go negative,
+since that pad has no minus key. Both close the keyboard on Enter without dropping focus.
+`SettingsPane` handles the other half: the keyboard covers the bottom half of the screen, so while
+it is up the Flickable gets that much `bottomMargin` (otherwise the last rows could never scroll
+above it) and `revealFocused()` scrolls the focused field into the strip that stays visible. It
+runs on both a focus change and the inset change, because the inset only settles after the panel's
+slide-in, well after focus moved.
+
 ## Status widgets
 
 The hook is a **subsection-level `status` key**: a subsection may name a runtime status widget,
@@ -161,8 +172,7 @@ design cannot manage. The confirm button's label and width are fixed for the sam
 `SpotifyDevicePopup`'s are: a label naming the current folder would resize as the user navigates
 and slide *Peruuta* under a finger already reaching for it.
 
-**There is deliberately no text field.** The Pi runs fullscreen and squeekboard does not draw over a
-fullscreen surface (labwc#2926), so a field could be focused on the device but never typed into.
-Nor would it be an escape hatch: the only folders the browser cannot reach contain `#`, `%` or `?`,
-and `ScreenSaver.qml` uses the same `FolderListModel`, so it could not play them however the path
-was entered.
+**There is deliberately no text field.** It would not be an escape hatch: the only folders the
+browser cannot reach contain `#`, `%` or `?`, and `ScreenSaver.qml` uses the same `FolderListModel`,
+so it could not play them however the path was entered. (The in-app keyboard would make one
+typeable; it just has nothing to add.)

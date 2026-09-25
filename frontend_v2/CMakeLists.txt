@@ -10,7 +10,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # meta-object symbols. CMP0100 (CMake 3.18+) opts .hh/.h++ into AUTOMOC.
 cmake_policy(SET CMP0100 NEW)
 
-find_package(Qt6 REQUIRED COMPONENTS Quick Network Concurrent Svg Location Positioning QuickControls2 Core5Compat Graphs LabsFolderListModel)
+find_package(Qt6 REQUIRED COMPONENTS Quick Network Concurrent Svg Location Positioning QuickControls2 Core5Compat Graphs LabsFolderListModel VirtualKeyboard)
 
 qt_standard_project_setup(REQUIRES 6.11)
 
@@ -229,6 +229,7 @@ set_source_files_properties(core/appupdate.cpp PROPERTIES
 target_link_libraries(appfrontend_v2
     PRIVATE Qt6::Quick Qt6::Network Qt6::Concurrent Qt6::Svg Qt6::Location Qt6::Positioning
             Qt6::QuickControls2 Qt6::Core5Compat Qt6::Graphs Qt6::LabsFolderListModel
+            Qt6::VirtualKeyboard
 )
 
 # Static resources (font + icons) exposed at :/resources/... — the same paths
