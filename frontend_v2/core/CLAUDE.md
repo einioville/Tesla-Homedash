@@ -103,6 +103,13 @@ share one definition of "the user is here". Its settings are *pushed* from `Main
 `Display.enabled` / `.timeoutMs`), the same pattern the screensaver timeout uses for `Idle`, which
 is what makes them live.
 
+`DISPLAY_POWER_STATE`'s second byte is **`on`**, the opposite sense of `m_off` — read the other way
+round, a lit panel looked dark forever (#44). **Wakes from activity are throttled to one per
+`kWakeRetryMs` (2 s)** while the panel is reported off: activity fires per input event, touch moves
+included, so a wake that keeps failing (wlopm blocked by a VNC server, a failed startup power-on)
+would otherwise send a request — and spawn a `wlopm` — per event. A working wake is answered in
+milliseconds, so the throttle never delays one. `wake()` is deliberate and bypasses it.
+
 ## `System` — `systemstatus.{hh,cpp}`
 
 **The maintenance dashboard** (issue #39) is `core/systemstatus.{hh,cpp}`, the QML singleton

@@ -2,6 +2,7 @@
 #define FRONTEND_V2_SCREENPOWER_HH
 
 #include <QByteArray>
+#include <QElapsedTimer>
 #include <QObject>
 #include <QTimer>
 
@@ -81,6 +82,10 @@ private:
     void onPacket(quint8 type, const QByteArray &payload);
 
     QTimer m_timer;
+    // When onActivity() last asked for the panel back. Activity arrives per input
+    // event (every touch move), so while a wake is failing — wlopm blocked by a
+    // VNC server, say — an unthrottled retry would spawn a process per event.
+    QElapsedTimer m_lastWake;
     ServerClient *m_server = nullptr;
     int m_timeoutMs = 60 * 60 * 1000;
     bool m_enabled = false;

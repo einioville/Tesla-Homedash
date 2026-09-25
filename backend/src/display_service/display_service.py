@@ -123,12 +123,23 @@ class DisplayService:
         restarting while the panel is dark would leave it dark, with the frontend
         believing it is lit — and the panel only wakes on a touch nobody knows to
         make.
+
+        Records the outcome rather than the intent.  If the power-on fails the
+        panel is treated as OFF: set_power() skips a request for the state it
+        believes the panel is already in, so a wrongly assumed "on" would drop
+        every later wake silently, while a wrongly assumed "off" only costs one
+        redundant wlopm --on.  Clients already connected are told either way.
         '''
         if not self.__available:
             return
+        before = self.__state_frame()
         async with self.__lock:
-            await self.__run(True)
-            self.__on = True
+            self.__on = await self.__run(True)
+        if not self.__on and self.__available:
+            logger.warning("Startup display power-on failed; treating the panel as "
+                           "off so the next wake request runs %s again", _COMMAND)
+        if self.__state_frame() != before:
+            await self.__server.broadcast(self.__state_frame())
 
     def get_run_task(self):
         '''Returns the startup task for start_services to gather.'''
@@ -139,8 +150,7 @@ class DisplayService:
         Leaves the panel lit on the way out.  A backend restart must never come
         back to a screen that looks dead until it is touched.
         '''
-        if self.__available and not self.__on:
-            await self.__run(True)
+        if self.__available and not self.__on and await self.__run(True):
             self.__on = True
 
     # ── Internals ─────────────────────────────────────────────────

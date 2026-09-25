@@ -9,6 +9,11 @@ const Logger logger = Logger::get("display");
 
 // Never let the panel sleep faster than this, whatever the setting says.
 constexpr int kMinTimeoutMs = 30 * 1000;
+
+// Spacing between activity-driven wake requests while the panel is reported off.
+// A wake that works is answered in milliseconds and ends the retries, so this
+// only ever bites while waking keeps failing.
+constexpr int kWakeRetryMs = 2000;
 }  // namespace
 
 ScreenPower::ScreenPower(QObject *parent) : QObject(parent) {
@@ -56,11 +61,12 @@ void ScreenPower::setTimeoutMs(int timeoutMs) {
 }
 
 void ScreenPower::onActivity() {
-    if (m_off) {
+    if (m_off && (!m_lastWake.isValid() || m_lastWake.hasExpired(kWakeRetryMs))) {
         // The tap that wakes the panel is NOT swallowed — this is a passive
         // observer, like IdleWatcher. In the normal setup the screensaver overlay
         // is already up and consumes it as its dismiss tap; with the screensaver
         // off, the tap also lands on whatever is under the finger.
+        m_lastWake.start();
         request(false);
     }
     if (m_enabled) {
@@ -69,7 +75,13 @@ void ScreenPower::onActivity() {
 }
 
 void ScreenPower::wake() {
-    onActivity();
+    // Deliberate, so not subject to the activity throttle.
+    if (m_off) {
+        request(false);
+    }
+    if (m_enabled) {
+        m_timer.start(m_timeoutMs);
+    }
 }
 
 void ScreenPower::onTimeout() {
