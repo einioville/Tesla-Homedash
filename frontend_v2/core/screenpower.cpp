@@ -102,7 +102,10 @@ void ScreenPower::onPacket(quint8 type, const QByteArray &payload) {
         return;
     }
     const bool available = payload.at(0) != 0;
-    const bool off = payload.at(1) != 0;
+    // The wire byte is `on` (1 = lit), the opposite sense of m_off. Read as `off`
+    // it left a lit panel looking dark forever, and onActivity() then sent a
+    // wake request on every single input event (#44).
+    const bool off = payload.at(1) == 0;
     if (available == m_available && off == m_off) {
         return;
     }
