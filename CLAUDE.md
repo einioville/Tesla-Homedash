@@ -1,11 +1,12 @@
 # Tesla-Homedash — Project Guide
 
 > Guidance for working in this repository. These instructions override default behaviour;
-> follow them exactly. Keep this document up to date (see §7.6) and bump the currency
-> marker (§7.7) whenever you change behaviour the doc describes.
+> follow them exactly. **This root file is always loaded; detail specific to one area lives in a
+> nested `CLAUDE.md` beside the code** (★ in §2), which loads when you work in that directory —
+> read the nearest one before changing code there. Keep all of them current (§7.6).
 >
-> **At the start of a work session, follow the worktree ritual in §8** — ask what we're doing
-> and a name for it, then spin up an isolated worktree before changing any files.
+> **At the start of a work session, follow §8** — work in the main checkout by default, and set up
+> an isolated worktree only when a second session has to run in parallel.
 
 ## 1. What this project is
 
@@ -22,31 +23,34 @@ sources into one glanceable surface:
   Institute (FMI) open-data feed.
 - **HVAC** — start/stop climate and adjust the target (pre-conditioning) temperature.
 
-Architecture in one line: a **Python asyncio backend** streams data over a **custom binary
-TCP protocol** (port 6969) to a **Qt6 C++20 Widgets frontend**. The backend can fan out to
-several frontends at once.
+Architecture in one line: a **Python asyncio backend** streams data over a **custom binary TCP
+protocol** (port 6969) to a **Qt 6 frontend**. The backend can fan out to several frontends at
+once. Beyond the live dashboard there are History, Trips, Charging (myenergi Zappi + Nord Pool
+spot price) and Options (*Asetukset*) views.
 
-A second, exploratory **QML** frontend lives in `frontend_prototype/`. It is **out of scope
-for this document** — all feature work and everything below concerns the production **Qt
-Widgets** frontend in `frontend/`.
+There are two frontends. **`frontend_v2/`** (Qt Quick/QML over a C++20 core) is the live target and
+gets all feature work. **`frontend/`** (Qt Widgets) is the frozen predecessor — kept building,
+rarely changed.
 
 ## 2. Project structure
 
+★ = the directory has its own `CLAUDE.md`.
+
 ```
-backend/
+backend/                          # ★ orchestration, service contracts, .env + config.json keys
   run.py                          # Entry shim: asyncio.run(main())
   pyproject.toml                  # Package metadata + dependency pins
   uv.lock                         # Authoritative dependency lockfile (uv)
   requirements.txt                # Reference only; uv.lock is authoritative
   src/
     start_services.py             # Entrypoint / composition root — builds EVERY service (tesla, media, weather, trips, charging + myenergi), registers handlers, gathers the event loop. NOT tesla-specific despite the neighbours.
-    server/
+    server/                       # ★
       server.py                   # asyncio TCP server on 0.0.0.0:6969 — protocol-agnostic fan-out + handler routing
-    tesla_service/
+    tesla_service/                # ★
       telemetry.py                # Teslemetry stream client (teslemetry_stream) → Vehicle.on_telemetry_event
       vehicle.py                  # Vehicle state, telemetry handler, HVAC REST commands, rate limiting, snapshots
       vehicle_data_property.py    # VehicleDataProperty / CalculatedVehicleDataProperty — value store, formula eval, serialize
-    media_service/
+    media_service/                # ★
       base_media_player.py        # Abstract player interface
       media_manager.py            # Orchestrator — owns both players, routes controls, gates streaming to the active one
       spotify_player.py           # Spotify Web API polling + controls (spotipy); APScheduler poll loop
@@ -55,81 +59,60 @@ backend/
         spotify_setup.py          # Standalone OAuth + Connect-device-ID helper (run once during setup)
       spotify_auth_service.py     # Re-authorisation from the Options view (0xA0-0xA4)
       spotify_device_service.py   # Device identification — scan playback, confirm, write spotifyDeviceId (0xA5-0xA9)
-    weather_service/
+      spotify_oauth.py            # The one canonical SPOTIFY_SCOPE + NonInteractiveSpotifyOAuth
+    weather_service/              # ★
       weather_service.py          # FMI WFS polling, forecast serialization, 15-min refresh
     trip_service/
       trip.py, trip_loader.py     # On-demand trip detection from stored telemetry (the Trips view)
-    charging_service/
+    charging_service/             # ★
       charging_loader.py          # On-demand charging-session detection (DetailedChargeState segmentation)
       charging_session.py         # Per-session energy + loss breakdown (charger vs AC-in vs battery) + spot cost
       spot_price.py               # SpotPriceProvider — Nord Pool FI spot price fetch/cache/convert (sähkötin.fi) + pricing helpers
       spot_price_service.py       # SpotPriceService — hourly live spot-price broadcast (SPOT_PRICE_STREAM)
-    myenergi_service/
+    myenergi_service/             # ★
       myenergi_service.py         # myenergi Zappi cloud poll → CHARGER_STREAM broadcast + myenergi_data logging
-    audio_service/
+    audio_service/                # ★
       audio_backend.py            # AudioBackend adapters (pactl / wpctl / amixer) + detect_backend()
       audio_service.py            # AudioService — system volume + output device, applied from config.json
-    display_service/
+    display_service/              # ★
       display_service.py          # DisplayService — panel power via wlopm; the frontend decides when
-    system_service/
+    system_service/               # ★
       system_metrics.py           # Pure /proc readers (uptime, CPU, memory, network, disk, temp)
       system_status_service.py    # SystemStatusService — SYSTEM_GET_STATUS, per-service health probes
-    config_service/
+    config_service/               # ★
       config_service.py           # ConfigService — the Options view's backend half: SETTINGS_SCHEMA (the allow-list of
                                   #   runtime-editable config.json keys), validation, persistence, apply hooks, restart
-    update_service/
+    update_service/               # ★
       update_service.py           # UpdateService — in-place app updates (0xD0-0xD3): git fetch/checkout, uv sync,
                                   #   frontend rebuild, restart of both halves; two channels (main tip / newest v* tag)
-    influxdb_service/
+    influxdb_service/             # ★
       influxdb_handler.py         # Async InfluxDB client — telemetry write + Flux history reads
-    utils/
+    utils/                        # ★
       config_parser.py            # Config (config.json) + get_env (.env)
       protocol.py                 # Binary protocol constants + frame() — single source of truth
       logger_configurator.py      # Shared stdout logging setup
     ui/plot/
       dataplot.py                 # Optional standalone PySide6/pyqtgraph plot (not used at runtime)
 
-frontend/                         # Qt6 Widgets GUI (the production frontend)
-  CMakeLists.txt                  # Qt6 Core/Gui/Widgets/Network/QuickWidgets/Location/Positioning/Quick/Svg/Graphs/Concurrent
-  resources.qrc                   # Qt resource bundle manifest
-  resources/
-    fonts/                        # Gotham Rounded Medium OTF
-    icons/                        # SVG/PNG control + climate + weather icons
-    styles/                       # Per-widget QSS, selected by object name
-  src/
-    main.cpp                      # Entry — installs logger, global white-text default, loads font/AppConfig, builds MainWindow
-    mainwindow.{hh,cpp}           # 10×16 grid layout; constructs widgets, datahandlers, ServerClient
-    config/appconfig.{hh,cpp}     # AppConfig::load() — the one place that reads frontend env vars
-    utils/logger.{hh,cpp}         # Logger — stdout sink byte-identical to the backend format
-    server_client/serverclient.{hh,cpp}   # QTcpSocket client — frame reassembly, demux to per-type signals, reconnect
-    tesla/
-      vehicle.{hh,cpp}            # TeslaDataProperty registry (data_id ⇄ stream_id, unit, value_type)
-      datahandler/tesladatahandler.{hh,cpp}  # kRoutes table: deserialize stream packets → per-property signals; outbound HVAC commands
-      widgets/
-        tesladatawidget.{hh,cpp}            # Abstract TeslaDataWidget / TeslaDataMultiWidget
-        singletesladataentry.{hh,cpp}       # One labelled value
-        dataentrylist/tesladataentrylist.{hh,cpp}  # Grouped list of entries
-        map/teslamap.{hh,cpp} + map.qml     # QQuickView OSM map (location + heading)
-        climate/
-          climatecontrollercard.{hh,cpp}    # Climate panel container
-          temperaturecard.{hh,cpp}          # Inside/outside/target temp readout
-          teslaclimatestarter.{hh,cpp}      # HVAC on/off button + state glow
-          teslaseatwidget.{hh,cpp}          # Seat heater level indicator
-          teslasteeringwidget.{hh,cpp}      # Steering-wheel heater indicator
-    mediaplayer/
-      datahandler/mediaplayerdatahandler.{hh,cpp}  # Parse media packets (cover art decoded to QImage off-thread); outbound transport commands
-      widgets/mediaplayercard.{hh,cpp}      # Album art, k-means dominant colour, gradient bg, progress, transport
-    weather/
-      datahandler/weatherdatahandler.{hh,cpp}  # Parse forecast packets → MainWeather
-      widgets/
-        mainweather.{hh,cpp}                # Weather panel container
-        currentweathercard.{hh,cpp}         # Current-hour banner
-        weatherforecastcard.{hh,cpp}        # One forecast-hour card (×5)
+frontend_v2/                      # ★ Qt Quick/QML frontend — the live target (Main.qml, main.cpp)
+  app/                            # Theme.qml (design tokens + settings façade), ViewController.qml
+  config/                         # settings.json (bundled Options-view schema), notifications.json
+  core/                           # ★ C++: ServerClient, protocol.hh, Logger, AppConfig, Settings + QML singletons
+    tesla/ media/ weather/ charging/ trip/ notification/   # per-domain data models
+  items/                          # QML components by domain
+    settings/                     # ★ the Options view
+    tesla/                        # ★ Tesla cards + the map
+    util/                         # ★ dock, screensaver, shared widgets
+    charging/ history/ luna/ media/ trip/ weather/
+  views/                          # one screen per dock entry
+  resources/                      # fonts, icons, styles, Luna
 
-frontend_prototype/               # Exploratory QML rewrite — OUT OF SCOPE for this guide
+frontend/                         # ★ frozen Qt Widgets frontend (file layout in its CLAUDE.md)
+scripts/                          # ★ build-frontend.{sh,ps1,cmd}; Windows-only new-/finish-session
+docs/                             # wsl-dev-environment.md (WSL2 bootstrap), images/ (README screenshots)
+.claude/                          # settings.json (permissions + edit hook), hooks/check-edit.py (§7.3)
 config.json                       # Telemetry field metadata + radio/Spotify/weather/timezone config (gitignored; real values)
 config_template.json              # Copy to config.json and fill in
-docs/images/                      # README screenshots
 ```
 
 ## 3. Build, run & validation
@@ -158,72 +141,17 @@ The backend is an asyncio app managed with [uv](https://docs.astral.sh/uv/). Run
 | Compiler cache | `sccache` | `ccache` (CMakeLists probes for either) |
 | `frontend_v2` binary | `frontend_v2\build\appfrontend_v2.exe` | `frontend_v2/build/appfrontend_v2` |
 
-For the active **`frontend_v2`**, prefer the build script for your platform (see §8) — each
-finds the Qt kit and runs a Ninja configure + build in one command, with compiler-cache reuse.
-The rest of this section covers the **frozen Widgets `frontend/`**.
+For **`frontend_v2`**, use the build script for your platform (see §8) — each finds the Qt kit and
+runs the configure + build in one command (Ninja when installed), with compiler-cache reuse. The
+frozen `frontend/` has its own commands in `frontend/CLAUDE.md`.
 
 > **WSL2 setup** — a full bootstrap guide (system packages, Qt, InfluxDB, spotifyd, WSLg
 > troubleshooting) lives in **`docs/wsl-dev-environment.md`**. Two things bite hardest: Qt needs the
 > OpenGL **-dev** packages (`libgl1-mesa-dev`), not just `libgl1`, or `find_package` fails
 > misleadingly on the `Quick` component; and the repo must live on ext4, not `/mnt/`.
-> A third bite is subtler, and has **two halves that must land together**. WSL2 exposes the GPU as
-> `/dev/dxg` with **no `/dev/dri`**, so Mesa lands on llvmpipe and Chromium refuses every WebGL
-> context — which breaks the Spotify consent page specifically. `GALLIUM_DRIVER=d3d12` reaches the
-> real adapter. But once Chromium HAS a GPU it hands frames to Qt as **dma_buf native pixmaps**, and
-> Mesa's d3d12 EGL driver does not expose `EGL_EXT_image_dma_buf_import` — so that fix alone trades
-> "renders, no WebGL" for "WebGL, renders nothing": a black panel spamming *"Failed to get native
-> pixmap due to dma_buf acquisition failure"*. `QTWEBENGINE_CHROMIUM_FLAGS=--disable-gpu-compositing`
-> keeps the GPU process (and WebGL) while delivering frames through shared memory.
-> `scripts/build-frontend.sh` exports **both** under `--run` when it sees that host shape. Measured
-> on a 600×400 grab of a solid-colour page: plain d3d12 = 0 % of the expected colour, with the flag
-> = 100 %, WebGL still on the real D3D12 adapter. The flag reaches only QtWebEngine's Chromium, not
-> Qt Quick, so the dashboard keeps the hardware path — the scene graph moves off llvmpipe onto the
-> real adapter, so the maps and graphs get *faster*, not slower.
 >
-> **Reading the log:** two lines persist in the healthy state and are not failure signals — the
-> `libEGL warning: failed to get driver name` block (the Qt Quick window, not Chromium) and exactly
-> ONE `EGL: EGL_EXT_image_dma_buf_import extension is not supported` (Qt's `EGLHelper` always probes
-> for it). The discriminators are the **repeated** `Failed to get native pixmap due to dma_buf
-> acquisition failure` lines and `WebGL1 blocklisted`; both must be absent. Measured: broken config
-> = 1 EGL probe line + 3 native-pixmap failures; fixed = 1 EGL probe line + 0.
->
-> Three switches that look plausible here are **no-ops**, so don't reach for them: `--in-process-gpu`
-> is already set unconditionally by QtWebEngine, `--disable-gpu-memory-buffer-compositor-resources`
-> is already false on Linux, and **SwiftShader is compiled out of the Qt binary build**
-> (`enable_swiftshader=false` in `qtwebengine/src/core/CMakeLists.txt`, no `libvk_swiftshader*`
-> shipped), so `--use-angle=swiftshader` silently falls through to ANGLE-on-llvmpipe.
-
-**Linux / WSL2 — the frozen `frontend/`** (rarely needed; `frontend_v2` is the live target):
-
-```bash
-cmake -S frontend -B frontend/builddir -G Ninja -DCMAKE_PREFIX_PATH="$QTDIR"
-cmake --build frontend/builddir --target all
-./frontend/builddir/gui
-```
-
-**Windows — the frozen `frontend/`:**
-
-- **Configure** (required once before the first build, and after CMakeLists changes):
-
-  ```
-  D:\Qt\Tools\CMake_64\bin\cmake.exe -S frontend -B frontend/builddir -G Ninja -DCMAKE_PREFIX_PATH=D:/Qt/6.11.1/msvc2022_64
-  ```
-
-- **Build**:
-
-  ```
-  D:\Qt\Tools\CMake_64\bin\cmake.exe --build frontend/builddir --target all
-  ```
-
-- **Run**: `.\frontend\builddir\gui.exe`
-  (PowerShell with overrides: `$env:TESLA_HOMEDASH_FULLSCREEN=1; .\frontend\builddir\gui.exe`)
-
-**Important (Windows only):** the Ninja generator does **not** set up the MSVC toolchain itself
-(unlike the Visual Studio generator). Run the configure/build from an **"x64 Native Tools Command Prompt
-for VS 2022"** (so `cl.exe` is on PATH), or let Qt Creator's configured kit drive it.
-Single-config Ninja puts the binary directly at `frontend/builddir/gui.exe` (`gui` on Linux) —
-there is no `Debug/` or `Release/` subfolder. On Linux `g++` is already on `PATH`, so there is no
-environment to import.
+> A third, subtler WSL2 bite — the GPU environment `build-frontend.sh --run` exports — is
+> documented in `scripts/CLAUDE.md`.
 
 ### 3.3 Validation
 
@@ -238,100 +166,12 @@ See the **Agent validation policy** (§7.3) for what the agent does vs. defers t
 
 ## 4. Configuration files
 
-### `.env` (repo root, gitignored)
-Required secrets/paths, loaded by `utils/config_parser.get_env`:
-- `CONFIG_PATH` — absolute path to the backend's config JSON. **Optional since the
-  config relocation (issue #41)**: unset → `$XDG_CONFIG_HOME`(or `~/.config`)`/Tesla-Homedash/
-  `backend_config.json`, via `config_parser.default_config_path()`. Set it only when the
-  deployment keeps its config elsewhere.
-- `VIN` — Tesla vehicle identification number
-- `API_KEY` — Teslemetry access token
-- `INFLUX_TOKEN` — InfluxDB auth token
-- `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET` — from your Spotify Developer App
-
-`start_services.main()` fails fast if any of these are missing. **Optional:** `MYENERGI_HUB_SERIAL`
-/ `MYENERGI_API_KEY` (myenergi cloud digest-auth creds) — absent → the charger service is skipped
-and the rest of the stack still runs. Also optional: `TESLA_HOMEDASH_LOG_LEVEL` —
-`debug`/`info`/`warning`/`error`/`critical`, **default `info`** (invalid → `info` + a warning),
-mirroring the frontend variable of the same name. Read by `configure_logging()`, which calls
-`load_dotenv()` itself because `get_env`'s lazy load happens after logging is set up; a real
-environment variable (systemd `Environment=`) still wins over `.env`. **Keep the deployment at
-`info`** — `debug` logs a line per telemetry property and rotates the Pi's journal fast enough to
-destroy incident history.
-
-### `config.json` (copy from `config_template.json`)
-Parsed once by `Config` and injected into every service. Keys:
-- `tesla data` — per-field metadata map: `stream_id`, `category`, `unit`, `formula` (sympy
-  string or null), `log` (bool), and optional `sleep_default` — the value the field reverts to
-  when the vehicle goes to sleep (omit or `null` to leave it at its last reading; the default is
-  a final value, the `formula` is **not** re-applied to it). Optional `line_mode` (issue #20) —
-  the History-graph render mode for the field: `"step"` (hold the previous value, then jump — the
-  default when absent; right for sampled/held signals like `VehicleSpeed` or setpoints) or
-  `"linear"` (straight point-to-point line; right for accumulators / continuous quantities like
-  `Odometer`, the energy counters, `OutsideTemp`). Display-only hint handed to the frontend over
-  `TESLA_GRAPH_PROPERTIES`. A field is graphable (appears in the History dropdown) only if
-  `log: true` **and** numeric — set `log: false` to keep a numeric field off the graph (e.g.
-  `GpsHeading`, which wraps 0↔360 and isn't worth graphing).
-- `calculated tesla data` — derived fields (`DrivenToday`, `DrivenThisMonth`): adds
-  `source_data_property_id`, `period` (`day`/`month`), `calculation_formula` (e.g. `y - x`).
-- `radioMediaIds` — station name → Nelonen Media id; `defaultRadioStation` — a key from it.
-- `spotifyDeviceId` — target Spotify Connect device id (**now runtime-editable**, both as a
-  text row and via the Options view's *Tunnista laite* flow — §5.2.8e); `spotifyRedirectUri`
-  (default `http://127.0.0.1:8080/callback`, must match the Spotify app); `spotifyCachePath`
-  — spotipy OAuth token cache; `spotifyMarket` — ISO-3166-1 alpha-2 (e.g. `FI`).
-- `weatherPlace` — FMI place (e.g. `Tampere`); `timeZone` — IANA zone (e.g. `Europe/Helsinki`).
-- `myenergi` (optional) — Zappi tunables: `zappiSerial` (`""` = auto-select the first Zappi),
-  `pollIntervalIdleSeconds` / `pollIntervalActiveSeconds`, `minSessionEnergyKwh`, `sessionMergeMinutes`.
-- `trip` (optional) — trip-detection tunables: `min_stop_minutes`, `min_trip_distance_km`.
-- `electricityPriceEurPerKwh` (optional) — flat €/kWh tariff for the Charging view's cost tiles
-  (`Latauskulut` = charging cost, `Sähkölasku` = total home electricity cost); `null`/absent → "—".
-  Now a **fallback**: used per-hour when spot pricing is off or a given hour has no spot price.
-- `spotPrice` (optional, issue #12) — Nord Pool FI hourly spot pricing for the cost tiles + the live
-  price tile: `enabled` (master switch; `false` → flat-tariff pricing, no live service),
-  `vatPercent` (Finnish electricity VAT, default `25.5`), `marginCentsPerKwh` (seller margin c/kWh
-  added before VAT), `baseUrl` (the no-key sähkötin.fi range endpoint; swappable for another source).
-  All-in €/kWh for an hour = `(spot + marginCentsPerKwh/100) × (1 + vatPercent/100)`. Prices are
-  fetched on demand (no self-logging) — historical hours price past sessions retroactively.
-
-> **`config.json` is now written at runtime.** The frontend's Options view can change the
-> subset of keys listed in `config_service.SETTINGS_SCHEMA` (§5.2.8). `Config` gained
-> `set(dotted_key, value)` + `save()`: the save snapshots the previous file to
-> `config.json.bak`, then writes atomically (temp file in the same directory + `os.replace`,
-> with an `fsync` first). `Config.__init__` rolls back to that `.bak` if the live file fails
-> to parse or validate — which is what stops a restart-tier setting from restart-looping
-> systemd. The structural parts (`tesla data`, `calculated tesla data`, `radioMediaIds`) are
-> deliberately NOT in the schema: the frontend registry mirrors them, so editing them at
-> runtime would desync the two halves (that's issue #29).
-
-### Frontend environment variables (read only by `AppConfig::load()`)
-All optional; defaults match the embedded target.
-- `TESLA_HOMEDASH_BACKEND_HOST` (default `127.0.0.1`)
-- `TESLA_HOMEDASH_BACKEND_PORT` (default `6969`)
-- `TESLA_HOMEDASH_WINDOW_WIDTH` / `_HEIGHT` (default `1280` / `800`)
-- `TESLA_HOMEDASH_FULLSCREEN` — `1`/`true`/`yes` for fullscreen (default off). Fullscreen
-  skips the fixed-size lock; windowed mode locks to the configured size.
-  **In `frontend_v2` this is the `fullscreen` SETTING's env default**, not a variable
-  `AppConfig` reads — so a saved override in the Options view beats it, per the usual
-  `schema default < env/.env < saved override` precedence. It did nothing at all until the
-  setting existed: `Main.qml` was a hard-locked 1280×800 window and `scripts/build-frontend.sh
-  --fullscreen` exported the variable to a binary that ignored it.
-- `TESLA_HOMEDASH_LOG_LEVEL` — `debug`/`info`/`warning`/`error`/`critical` (default `info`;
-  invalid → `info` + a startup warning).
-- `TESLA_HOMEDASH_SETTINGS_FILE` — override the path of the frontend's writable settings
-  file (default `<QStandardPaths::GenericConfigLocation>/Tesla-Homedash/frontend_config.json`
-  — i.e. beside the backend's `backend_config.json`). A file at the pre-move
-  `AppConfigLocation/settings.json` is copied over once on first run.
-- `TESLA_HOMEDASH_SCREENSAVER_DIR` — no longer read by `AppConfig`; it now supplies the
-  DEFAULT for the `screensaverDir` setting, which owns the value and can change it live.
-
-**Frontend settings file.** `frontend_v2/config/settings.json` is the *bundled schema*
-(defaults, types, bounds, Finnish labels) compiled into the binary; the user's overrides are
-written to the writable file above via `QSaveFile`. A schema entry may name an `env` key,
-making that environment variable supply the setting's **default** — so the precedence is
-`schema default < env/.env < saved user override`, and an existing deployment's `.env` keeps
-working until the user changes the setting on-device. `TESLA_HOMEDASH_BACKEND_HOST`, `_PORT`
-and `_SCREENSAVER_TIMEOUT_MIN` are wired this way; `AppConfig` reads the resolved values from
-`Settings` rather than the environment directly.
+| File | Read by | Documented in |
+|---|---|---|
+| `.env` (repo root, gitignored) — secrets (`VIN`, `API_KEY`, `INFLUX_TOKEN`, Spotify, myenergi), `CONFIG_PATH`, log level | backend `get_env`; `frontend_v2`'s `core/dotenv` for env-backed setting defaults | `backend/CLAUDE.md` |
+| The backend config — called `config.json` throughout these docs; by default `~/.config/Tesla-Homedash/backend_config.json`, or `CONFIG_PATH`. Template: `config_template.json`. **Written at runtime** by the Options view | backend `Config` | `backend/CLAUDE.md`, `backend/src/config_service/CLAUDE.md` |
+| `frontend_config.json` beside it — the frontend's saved setting overrides over the bundled schema `frontend_v2/config/settings.json` | `frontend_v2` `Settings` | `frontend_v2/CLAUDE.md` |
+| `TESLA_HOMEDASH_*` environment variables | the frontend (`AppConfig`, setting defaults); `TESLA_HOMEDASH_LOG_LEVEL` in both halves | `frontend_v2/CLAUDE.md` |
 
 External services: InfluxDB at `http://localhost:8086` (org `Tesla-Homedash`, bucket `data`);
 Teslemetry stream at `eu.teslemetry.com`.
@@ -352,114 +192,21 @@ payload[0]      = message type byte
 payload[1..N-1] = type-specific data
 ```
 
-**Message types**
-
-| Byte | Name | Dir | Payload |
-|------|------|-----|---------|
-| `0x01` | MSG_JSON | F→B | JSON body |
-| `0x03` | MSG_TERMINATE | F→B | (empty) |
-| `0x04` | MSG_STREAM | B→F | `stream_id(2B) + value_type(1B) + value + timestamp(8B)` |
-| `0x14` | MEDIA_STREAM_IMAGE | B→F | Raw image bytes (JPEG/PNG) |
-| `0x15` | MEDIA_STREAM_NAME | B→F | `length(2B) + UTF-8` |
-| `0x16` | MEDIA_STREAM_PROGRESS | B→F | `progress_ms(4B)` |
-| `0x17` | MEDIA_STREAM_DURATION | B→F | `duration_ms(4B)` |
-| `0x18` | MEDIA_SKIP | F→B | (empty) |
-| `0x19` | MEDIA_SKIP_BACKWARD | F→B | (empty) |
-| `0x1A` | MEDIA_PAUSE_PLAY | F→B | (empty) |
-| `0x1B` | MEDIA_IS_PLAYING | B→F | `bool(1B)` |
-| `0x1C` | MEDIA_SET_PROGRESS | F→B | `progress_ms(4B)` |
-| `0x1D` | MEDIA_STREAM_ARTISTS | B→F | `length(2B) + UTF-8` |
-| `0x1E` | MEDIA_STREAM_TYPE | B→F | `media_type(1B)`: 0x01=radio, 0x02=spotify |
-| `0x30` | WEATHER_FORECAST | B→F | repeated `sub_id(1B) + value` |
-| `0x60` | TESLA_SWITCH_CLIMATE | F→B | (empty) |
-| `0x61` | TESLA_MINUS_TEMP | F→B | (empty) |
-| `0x62` | TESLA_PLUS_TEMP | F→B | (empty) |
-| `0x70` | TESLA_GET_GRAPH_PROPERTIES | F→B | (empty) |
-| `0x71` | TESLA_GRAPH_PROPERTIES | B→F | `count(2B)` + per property `id_len(2B)+id + unit_len(2B)+unit + cat_len(2B)+category + mode_len(2B)+line_mode` (UTF-8); `line_mode` = `step`/`linear` graph render hint |
-| `0x72` | TESLA_GET_HISTORY | F→B | `range_code(1B)` (0=1h,1=1d,2=1M,3=custom,4=1week) + `id_len(2B)+id` + `start_ms(8B)` + `end_ms(8B)` |
-| `0x73` | TESLA_HISTORY | B→F | `id_len(2B)+id` + `status(1B)` + `count(4B)` + count×(`ts_ms(8B)` + `value(8B double)`) |
-| `0x50` | CHARGER_STREAM | B→F | myenergi charger live state: repeated `sub_id(1B) + value` (see charger sub-ids below) |
-| `0x80` | CHARGING_GET_LIST | F→B | `start_ms(8B) + end_ms(8B)` |
-| `0x81` | CHARGING_LIST | B→F | `req_start(8B)+req_end(8B)+count(2B)` + count×(`start(8B)+end(8B)+charger_kwh(8B double)`) |
-| `0x82` | CHARGING_GET_SUMMARY | F→B | `start_ms(8B) + end_ms(8B)` |
-| `0x83` | CHARGING_SUMMARY | B→F | `session_id(8B)+status(1B)+start(8B)+end(8B)` + 11×`double` (per-session losses + `cost_eur` + `avg_price_eur_per_kwh`) |
-| `0x84` | CHARGING_GET_MONTH | F→B | (empty) |
-| `0x85` | CHARGING_MONTH | B→F | `status(1B)` + 13×`double` (month aggregate — see below) |
-| `0x86` | CHARGER_GET_HISTORY | F→B | `range_code(1B) + id_len(2B)+id + start_ms(8B) + end_ms(8B)` |
-| `0x87` | CHARGER_HISTORY | B→F | `id_len(2B)+id + status(1B) + count(4B)` + count×(`ts_ms(8B)+value(8B double)`) — reads `myenergi_data` |
-| `0x88` | SPOT_PRICE_STREAM | B→F | live spot price broadcast: `status(1B) + hour_start_ms(8B) + spot(8B double) + all_in(8B double)` (raw wholesale + VAT/margin all-in €/kWh; both NaN when status 0) |
-| `0x90` | CONFIG_GET_SCHEMA | F→B | (empty) — request the editable-settings schema + values |
-| `0x91` | CONFIG_SCHEMA | B→F | `status(1B) + len(4B) + UTF-8 JSON` — `{"path":<config path>,"startedAt":<epoch-ms of this backend process>,"groups":[{id,label,icon,sections:[{id,label,status?,settings:[…]}]}]}` |
-| `0x92` | CONFIG_SET | F→B | `len(4B) + UTF-8 JSON` — `{"key": <dotted>, "value": <json>}` |
-| `0x93` | CONFIG_SET_RESULT | B→F | `status(1B) + len(4B) + UTF-8 JSON` — `{key, value, applied, message}` |
-| `0x94` | CONFIG_RESTART | F→B | (empty) — exit with code 42 so the service manager restarts |
-| `0xA0` | SPOTIFY_AUTH_STATUS | B→F | `status(1B) + len(4B) + JSON` — `{authorized, needsReauth, scope, expiresAt, redirectUri, cachePath, reason}`; snapshot on connect, broadcast after an exchange **and the moment the player is refused**. `needsReauth` = a new authorization is the fix (expired / revoked / never stored / scope short) — NOT merely `!authorized`, since an unreadable config is unauthorized too and re-authorizing would not help it |
-| `0xA1` | SPOTIFY_AUTH_GET_URL | F→B | (empty) — start a flow, replacing any pending one |
-| `0xA2` | SPOTIFY_AUTH_URL | B→F | `status(1B) + len(4B) + JSON` — `{url, redirectUri, state}` on OK (informational only; the backend has already opened the page), or `{message}` on error |
-| `0xA3` | *(retired)* | — | Carried the redirect URL back from the embedded WebView. The consent page now opens in the host's real browser and the backend catches the redirect on its own loopback listener, so nothing produces one |
-| `0xA4` | SPOTIFY_AUTH_RESULT | B→F | `status(1B) + len(4B) + JSON` — `{ok, message, scope, expiresAt}` |
-| `0xA5` | SPOTIFY_DEVICE_SCAN_START | F→B | `len(4B) + UTF-8 JSON` — `{scanId}`; begins a device scan, replacing any live one |
-| `0xA6` | SPOTIFY_DEVICE_SCAN_STOP | F→B | (empty) — ends the requesting client's own scan |
-| `0xA7` | SPOTIFY_DEVICE_STATE | B→F | `status(1B) + len(4B) + JSON` — `{scanId, scanning, message, device, track, current}`; sent to the scanning client only |
-| `0xA8` | SPOTIFY_DEVICE_SELECT | F→B | `len(4B) + UTF-8 JSON` — `{deviceId, scanId}` |
-| `0xA9` | SPOTIFY_DEVICE_RESULT | B→F | `status(1B) + len(4B) + JSON` — `{ok, message, deviceId, deviceName, scanId}` |
-| `0xB0` | SYSTEM_GET_STATUS | F→B | (empty) — sample the host now |
-| `0xB1` | SYSTEM_STATUS | B→F | `status(1B) + len(4B) + JSON` — host/backend metrics, per-service health, error tallies |
-| `0xC0` | DISPLAY_SET_POWER | F→B | `on(1B)` — 1 wakes the panel, 0 powers it down |
-| `0xC1` | DISPLAY_POWER_STATE | B→F | `available(1B) + on(1B)`; `available=0` = no wlopm on the host |
-| `0xD0` | UPDATE_GET_STATE | F→B | `len(4B) + UTF-8 JSON` — `{"fetch": <bool>}`; `fetch` contacts the remote (backend-throttled to one per 2 min) |
-| `0xD1` | UPDATE_STATE | B→F | `status(1B) + len(4B) + JSON`, **broadcast** — `{available, reason, repoPath, remoteUrl, branch, dirty, dirtyFiles, fetchedMs, current{…}, channels{development{…},releases{…}}, tools{…}, job}`. `job` is `null` when idle and the whole progress report while a run is in flight, so there is no second progress code and a client connecting mid-update sees it in its snapshot |
-| `0xD2` | UPDATE_APPLY | F→B | `len(4B) + UTF-8 JSON` — `{"channel": "development"\|"releases", "commit": <40-hex>}`; the commit **fences** the request (a target that moved since the check is refused) |
-| `0xD3` | UPDATE_CANCEL | F→B | (empty) — kill the running step's process group; honoured only during fetch/deps/build (`job.cancellable`) |
-
-(Trip codes `0x74`–`0x7D` — the Trips view — are omitted from this table; they mirror the History
-request/response shape. See the `frontend_v2` memory.)
-
-The `0x70`–`0x73` pair is **request/response** (the History view): the backend replies to the
-requesting client only (`send_to`), never a broadcast, and `TESLA_HISTORY` echoes the requested id so
-a stale reply can be discarded. History values are returned **raw** (no downsampling); the frontend
-renders them as a **step line** (`StepLeft`) so a value held between records still displays as held.
-(`read_tesla_data_property` keeps an optional `aggregate_window` for capping very large ranges,
-currently unused.) When a window logged **nothing** (the value stayed constant, so no record falls
-inside it), the backend **boundary-fills**: it queries the last value before the window start and
-returns two synthetic points (window-start + window-end at that held value) so the graph draws a
-flat held line across the whole range instead of "no data". Only a genuinely absent prior value
-(or an InfluxDB outage, where the boundary query also yields nothing) replies `status=0`.
-
-**Config protocol (`0x90`–`0x94`)** — the Options view. Request/response like History/Trips
-(the backend replies to the requesting client via `send_to`), with one exception: a successful
-`CONFIG_SET` *also broadcasts* a fresh `CONFIG_SCHEMA` so a second frontend refreshes its
-displayed values. Bodies are `len(4B) + UTF-8 JSON` (the `CHARGER_RAW_JSON` idiom) rather than
-a packed layout — the schema is variable-shaped and these packets are rare. Keys are dotted
-paths into `config.json` (`myenergi.pollIntervalIdleSeconds`). `CONFIG_SET_RESULT.applied` is
-`hook` (a service re-snapshotted), `restart` (written but only live after a restart) or
-`unchanged` (the value already matched, so nothing was written or broadcast).
-
 **Tesla stream value types**: `0` float `double(8B)`; `1` string `length(2B)+UTF-8`;
 `2` bool `uint8(1B)`; `3` dict — sequence of `double(8B)` (Location = lat, lon).
 
-**Weather sub-IDs**: `0x31` temperature `int8` °C; `0x32` wind `uint8` m/s;
-`0x33` precipitation `uint8` mm; `0x34` cloud cover `uint8` %; `0x35` hour `uint8`.
-
-**Charger (myenergi) protocol** — the Charging view. `CHARGER_STREAM` (`0x50`) is a **broadcast** of
-the Zappi's live state, a weather-style sequence of `sub_id(1B) + value` pairs: `0x51` status `uint8`,
-`0x52` plug `uint8`, `0x53` mode `uint8`, `0x54` charge power `float64` W, `0x55` session energy
-`float64` kWh, `0x56` supply voltage `uint16` V, `0x57` grid power `float64` W (+import/−export),
-`0x58` generated power `float64` W, `0x59` frequency `float64` Hz, `0x5A` L1 phase `uint8`, and
-`0x5F` the full raw pymyenergi payload as `len(4B)+UTF-8 JSON` (every field, most unused — the one
-length-prefixed sub-id, so an unknown fixed-width sub-id can't be skipped and stops the parse). The
-`0x80`–`0x87` codes are **request/response** (reply to the requesting client only), served by
-`charging_service` from stored telemetry + `myenergi_data`; `0x88` (`SPOT_PRICE_STREAM`) is a
-**broadcast** of the live hourly spot price (see §5.2.7). `CHARGING_MONTH`'s 13 doubles, in order:
-charger_kwh, car_kwh, wasted_kwh, efficiency_pct, car_wh_per_km, charger_wh_per_km, driving_kwh,
-km_month, session_count, total_charge_s, charging_cost_eur, home_grid_kwh, home_cost_eur (any → NaN → "—").
-Both cost fields are now **spot-priced per hour** (flat-tariff fallback) — see §5.2.7.
+The full message-type table, sub-ids and per-feature conventions are in
+**`backend/src/utils/CLAUDE.md`**; `frontend_v2/core/protocol.hh` mirrors `protocol.py` and must
+change with it. A reply to a request goes to the requesting client only (`send_to`), live state is
+broadcast to every client, and a newly connected client receives each registered service's
+snapshot.
 
 **Adding a telemetry field** — update these in sync:
-1. `config.json` `tesla data` — new entry with a unique `stream_id`.
-2. `frontend/src/tesla/vehicle.cpp` — `properties[...]` with matching `data_stream_id` + `value_type`.
-3. `frontend/src/tesla/datahandler/tesladatahandler.{hh,cpp}` — a signal in the `.hh` and a row in
-   the `kRoutes` table (which both `processStreamData` and the `connectToDataUpdateSignal` overloads walk).
+1. `config.json` `tesla data` — new entry with a unique `stream_id` (keys: `backend/CLAUDE.md`).
+2. `frontend_v2/core/tesla/tesla_properties.json` — the matching registry entry, then regenerate
+   `tesladata_gen.{hh,cpp}` with the `regen_tesla_data` CMake target. The generated files are
+   committed; never edit them by hand.
+3. The frozen `frontend/` only if it should show the field too — steps in `frontend/CLAUDE.md`.
    `vehicle_data_property.py` needs no change unless a new value type is introduced.
 
 **Adding a command (F→B)**:
@@ -467,1001 +214,30 @@ Both cost fields are now **spot-priced per hour** (flat-tariff fallback) — see
 2. In `start_services._register_handlers`, `server.register_handler(protocol.<NAME>, <async callable>)`.
    The callable gets `(payload, writer)` — the raw payload (no length prefix / type byte) and the
    requesting client's `StreamWriter`. Fire-and-forget commands ignore the writer; request/response
-   handlers reply to just that client via `server.send_to(writer, …)`. The server routes by integer only.
-3. In the frontend, build + send the packet via `QDataStream` (see `TeslaDataHandler::switchClimateState`).
+   handlers reply to just that client via `server.send_to(writer, …)`. The server routes by integer
+   only.
+3. In `frontend_v2`, add the constant to `core/protocol.hh` and build the packet with
+   `protocol::frame()`.
 
 ### 5.2 Backend services
 
-The backend is entirely asyncio. `start_services.main()` constructs every service,
-calls `_register_handlers` and `register_service` on the `Server`, runs
-`vehicle.init_async_dependent()`, then **`asyncio.gather`s the run tasks**: telemetry, the TCP
-server, `MediaManager.get_run_task()`, `WeatherService.get_run_task()`,
-`ConfigService.get_run_task()` (the restart watch), and — when charger credentials are set —
-`MyEnergiService.get_run_task()`. (`trip_service` / `charging_service` are stateless
-request/response and have no run task.)
-
-> **Orchestration note.** The media and weather `run()` coroutines schedule APScheduler jobs
-> and then *return* — their ongoing work lives in those jobs, and APScheduler logs+swallows
-> per-job exceptions, so polling is self-healing per tick. Telemetry and the server run
-> forever. There is **no in-process supervisor**: an unhandled failure in either propagates
-> out of `gather` and ends the process. Resilience is delegated to **systemd
-> `Restart=on-failure`** in deployment (see README). Don't add a restart loop without a reason.
-
-#### 5.2.1 `server/server.py` — the TCP server
-`Server` owns the active-connection map and a `msg_type → handler` registry. Handlers are invoked
-as `handler(payload, writer)` — the writer lets request/response handlers reply to just the
-requesting client via `send_to`; passing it keeps the server protocol-agnostic (it still only moves
-bytes + the connection). `broadcast` sends a pre-framed packet to all clients in parallel (one task
-per client, gathered with `return_exceptions=True`); `send_to` targets one client.
-`__handle_connection` runs the on-connect **snapshot** (each registered service's
-`stream_everything(writer)`), then the read loop. **Communicates with:** every service, but only as
-a dumb byte pipe — it never imports protocol constants or calls concrete service methods.
-
-> **Load-bearing invariants — do not break:**
-> - **No recv/inactivity timeout.** The frontend only sends on user interaction; idle is
->   normal. Never wrap `__recv_message()` in `asyncio.wait_for`. Dead peers surface as
->   `IncompleteReadError`/`ConnectionError`; use TCP keepalive if you must detect them.
-> - **Broadcast never blocks on one slow client** — keep the per-client task fan-out.
-> - **Snapshot `__active_connections` keys before iterating** (`list(...)`) — concurrent
->   disconnects pop entries.
-> - **Enforce `MAX_MSG_SIZE`** (1 MB) in `__recv_message()`.
-> - **Server stays protocol-agnostic** — route via `register_handler`, snapshot via
->   `register_service` (duck-typed `stream_everything`). No `if msg_type == ...` in the server.
-
-#### 5.2.2 `tesla_service/` — telemetry & vehicle
-- **`telemetry.py`** (`TelemetryHandler`) wraps `teslemetry_stream.TeslemetryStream`, registers
-  `vehicle.on_telemetry_event` as the listener, and blocks on a close event. Reconnection is the
-  library's job (exponential backoff). **Talks to:** Teslemetry stream → `Vehicle`.
-- **`vehicle.py`** (`Vehicle`) loads a `VehicleDataProperty` per `config.json` field.
-  `init_async_dependent` starts the APScheduler, builds the `CalculatedVehicleDataProperty`s and
-  their period-reset jobs, and registers the **midnight snapshot** job (writes every logged
-  property at 00:00 so first-of-day/month baseline queries always find a record).
-  `on_telemetry_event → __update` applies formulas, broadcasts changed fields
-  (`protocol.frame(MSG_STREAM, …)`), and writes logged fields to InfluxDB (a failed write never
-  blocks the broadcast). Non-data **state** events carry `online`/`offline`/`asleep` (the car
-  reports a sleeping vehicle as `offline`, never `asleep`); `__update` writes the synthesized
-  `VehicleOnline` and nothing more. **Value-callbacks** (`add_callback`/`remove_callback`) drive
-  the rest: `add_callback(criteria, cb)` fires `cb(matches)` when every property in `criteria`
-  (`{id: target_value}`) simultaneously holds its target (edge-triggered, built on the per-property
-  callbacks; `matches` is a list of `(id, value, when)`). The **sleep reset** is registered this
-  way in `__init__` — `add_callback({"VehicleOnline": False}, __on_sleep)`; when the car goes
-  offline `__on_sleep` runs `__apply_sleep_defaults`, forcing every field with a configured
-  `sleep_default` to it and broadcasting only the ones that changed (never written to InfluxDB).
-  Edge-triggered, so it fires once per online→offline transition (lock ordering still lands it
-  after the reconnect burst).
-  HVAC: `switch_climate_state` toggles via the Teslemetry REST API behind
-  an in-memory **rate limiter** (reserve/refund/reset) and a **value lock** that pins the UI to
-  `HvacPowerStatePending` until the confirming telemetry arrives; `plus_temp`/`minus_temp` adjust
-  the local target and stream it (the **target temperature is a pre-conditioning setpoint** — it
-  is pushed to the car via `update_temperature` only when climate is next toggled, by design).
-  `stream_everything` snapshots all properties to a new client. History: `get_graphable_properties`
-  lists the logged numeric (value_float) properties for the History view's dropdown; `get_data_history`
-  reads one property's history and `get_value_before` reads the held value just before a window (the
-  empty-window boundary-fill) — all served by request/response handlers that reply
-  to the requesting client only. **Talks to:** `InfluxDBHandler`
-  (write/read), `Server` (broadcast/send_to), Teslemetry REST (aiohttp).
-- **`vehicle_data_property.py`**: `VehicleDataProperty` stores one field's value/timestamp,
-  evaluates its sympy `formula`, serializes to the wire format (`get_stream_data`), builds Influx
-  points, supports `lock_value_until` (the pending-state lock), `apply_sleep_default`
-  (force-reset to the field's configured asleep value, bypassing the formula and clearing any
-  active value-lock — a pending HVAC toggle can never confirm while asleep), and
-  `add_callback(target_value, cb)`/`remove_callback(handle)` — edge-triggered value-callbacks run
-  as independent tasks as `cb(data_id, value, when)` when the value transitions into `target_value`
-  (`when` is a tz-aware datetime), or on every value change if `target_value` is the
-  `VehicleDataProperty.ANY` sentinel; `Vehicle.add_callback` builds its combination callbacks on these.
-  `CalculatedVehicleDataProperty`
-  derives `calculation_formula(x=baseline, y=latest)`; the baseline is read from InfluxDB at period
-  start (falls back to the live value), reset by an APScheduler cron job. **Talks to:** `Vehicle`
-  (which owns Influx access).
-
-#### 5.2.3 `media_service/` — media manager & players
-- **`media_manager.py`** (`MediaManager`) constructs both players, holds the **active** one, and
-  routes controls to it. `claim_media_control` (Spotify took over) stops radio, switches active,
-  starts playback, streams media type + full state; `release_playback`/`load_default_media_player`
-  return to radio without auto-play. `stream_data` drops packets from the non-active player.
-  `get_run_task` starts Spotify polling then loads radio. **Talks to:** both players, `Server`.
-- **`base_media_player.py`**: the abstract control/stream interface both players implement.
-- **`spotify_player.py`** (`SpotifyPlayer`) polls the Spotify Web API via spotipy on an APScheduler
-  interval (10 s idle / 2 s active). `_update_state` is **serialised by `self._state_lock`**: it
-  runs both on the timer and inline after every control command, and `claim_media_control` re-enters
-  it via `play()`, so the guard (`if self._state_lock.locked(): return`) prevents both a deadlock and
-  double claim/release. On detecting playback on `spotifyDeviceId` it claims control and streams
-  name/artists/duration/image/progress/play-state; controls call `start/pause/next/previous/seek`.
-  **Talks to:** Spotify Web API (run in an executor), `MediaManager`. *(If `spotifyDeviceId` is
-  wrong, controls silently no-op — the `_current_device_id` vs `_target_device_id` comparison drives
-  claim/release.)*
-- **`radio_player.py`** (`RadioPlayer`) plays Nelonen Media HLS streams through libVLC, fetching the
-  stream + art URL per station, cycling stations on skip, and restarting on VLC error/end events
-  (guarded by `__intentional_stop`). **Talks to:** Nelonen API (aiohttp), libVLC, `MediaManager`.
-- **`setup/spotify_setup.py`**: a one-off helper (run during setup) that completes the OAuth
-  handshake and prints the active Connect device id for `config.json`. Not part of the runtime.
-
-#### 5.2.4 `weather_service/weather_service.py`
-`WeatherService` fetches the current-hour FMI observation + the next hours' harmonie forecast
-(`fmiopendata`, run in an executor), serialises them into a `WEATHER_FORECAST` frame, broadcasts,
-and caches the last frame to replay to new clients. Refreshes every 15 min via APScheduler.
-The current-hour **banner** takes temperature + wind from the real observation, but the observation
-station typically reports neither precipitation nor cloud cover — so those two are **backfilled from
-the harmonie forecast's current-hour row** (the model retains the current hour, so no caching is
-needed). `__fetch_observation` walks observation slots newest→oldest and uses the most recent one
-with a valid air-temperature reading (avoiding the all-NaN padding slots fmiopendata returns).
-**Talks to:** FMI open data, `Server`.
-
-> **Load-bearing invariants — do not break:**
-> - **Never call `fmiopendata.wfs.download_stored_query`.** Its fetch helper is `requests.get(url)`
->   with **no timeout** and no way to pass one. A stalled FMI response (connection accepted, partial
->   body, then silence — no FIN/RST) parks the caller in `read()` *forever*; in production that burned
->   an executor thread and killed weather for 16 days. `__download_stored_query` +
->   `__fetch_and_parse` replace it: the same URL (`STORED_QUERY_URL + query_id`, args as aiohttp
->   `params` so non-ASCII places like `Ryttylä` percent-encode) fetched with an explicit
->   `_FMI_TIMEOUT`, then handed to fmiopendata's own `MultiPoint` parser in an executor. Any failure
->   logs a WARNING and returns `None`. An `asyncio.wait_for(_FETCH_DEADLINE_SECONDS)` wraps both.
-> - **Keep `max_instances` ≥ 2 + a real `misfire_grace_time` on the refresh job.** APScheduler's
->   default `max_instances=1` turns one wedged run into a permanent outage — every later tick is
->   refused with *"skipped: maximum number of running instances reached (1)"*.
-> - **Schedule the job before the initial fetch** in `run()`, so a failed/slow first fetch can't
->   leave the service with no periodic refresh at all.
-> - **A cycle with no future forecast hours is a failed cycle** — return without broadcasting or
->   caching. The frontend replaces its whole forecast model per frame, so a banner-only frame blanks
->   all five cards *and* poisons `__last_forecast` for every later reconnect. Stale-but-complete
->   beats half-blank.
-
-#### 5.2.5 `influxdb_service/influxdb_handler.py`
-`InfluxDBHandler` wraps the async InfluxDB client: `write_tesla_data` (logged fields + midnight
-snapshot), `read_first_value_day`/`_month` (calculated-field baselines), `read_tesla_data_property`
-(history — the History path serves it **raw**; an optional `aggregate_window` arg can add
-`aggregateWindow(fn: mean) + fill(usePrevious)` to downsample + forward-fill onto a regular grid,
-dropping the leading null windows, but is currently unused), and `read_last_value_before` (a
-`last()` query bounded by `stop` — the held value before an empty window, used to boundary-fill the
-History graph with a flat line). For the myenergi charger it adds `write_charger_data` (the
-`myenergi_data` measurement), `read_charger_data_property` (raw charger history), and
-`read_grid_import_kwh_hourly` (reuses the raw `GridPower` read + the module-level pure
-`integrate_power_series_hourly` — a trapezoidal per-UTC-hour integral, export clamped to 0 → a
-`{utc_hour_ms: kwh}` map; the month home-import total is `sum(...)` and the spot-cost path dots it
-with hourly prices). Read failures degrade to `None` rather than crashing the app. **Talks to:** InfluxDB,
-`Vehicle`. *Flux queries interpolate `data_property_id` via f-strings gated by the `_SAFE_ID` regex
-`^[A-Za-z0-9_\-]+$`, and `aggregate_window` by `_SAFE_WINDOW` (`^[1-9][0-9]*[smhd]$`) — keep both
-guards; they're the only thing preventing injection if non-config input ever reaches these paths.*
-
-#### 5.2.6 `utils/`
-- **`config_parser.py`**: `Config` validates + exposes `config.json`; `get_env` loads `.env` once.
-- **`protocol.py`**: every message-type byte, weather sub-id, `MAX_MSG_SIZE`, and `frame()`. The
-  single source of truth — add new constants here, never on a class.
-- **`logger_configurator.py`**: `configure_logging(level=None)` resolves the level from
-  `TESLA_HOMEDASH_LOG_LEVEL` (default **INFO**, not DEBUG) and wires the shared stdout formatter
-  (`LEVEL | YYYY-MM-DD | HH:MM:SS | name | message`) onto an allow-list of top-level loggers.
-  **Every service's logger prefix must be in `_SERVICE_LOGGERS`** (`tesla_service`, `media_service`,
-  `weather_service`, `influxdb_service`, `charging_service`, `myenergi_service`, `trip_service`,
-  `config_service`, `audio_service`, `display_service`, `system_service`, `server`,
-  `start_services`, `utils`) — an unlisted prefix propagates to a handler-less root and its
-  INFO/DEBUG logs silently vanish. **`spotipy` gets the same handlers but a PINNED level**
-  (`max(level, INFO)`): its "Couldn't write token to cache" warning is the only evidence that a
-  re-authorisation silently lost the grant, but at DEBUG it prints the token POST body and the
-  base64 `Authorization` header carrying `SPOTIFY_CLIENT_ID:SPOTIFY_CLIENT_SECRET`, the
-  authorization code and the refresh token. Never add it to the tuple itself.
-
-#### 5.2.7 `myenergi_service/` + `charging_service/` — charger + charging stats
-- **`myenergi_service.py`** (`MyEnergiService`) polls a myenergi Zappi via `pymyenergi` (cloud
-  digest auth), broadcasts its live state as `CHARGER_STREAM`, and logs to the `myenergi_data`
-  measurement: `GridPower` + `ChargePower` **every poll** (gap-free for the past-hour graphs and the
-  month home-import integral) and `ChargeAdded` (the session accumulator) **while charging**. Mirrors
-  `WeatherService` (initial poll + APScheduler job, last frame cached for `stream_everything`), with
-  two poll cadences (idle/active, config-driven — default **60 s idle / 20 s active** to stay under
-  the myenergi cloud's rate limit; 10 s throttled us with 429s). `__apply_interval` is the single
-  place that reschedules the job: it picks the active/idle base then stretches it by a **capped
-  exponential backoff** (`2**consecutive_failures`, ≤ 5 min) whenever a poll fails, snapping back on
-  the first success. This matters because every failed request flips pymyenergi's `do_query_asn` back
-  on, so the next poll fires two requests (director + status) — polling a failing endpoint at full
-  cadence deepens a throttle. Refresh/resolve failures are logged via the module helper
-  `_describe_exception`, which surfaces the HTTP status a `MyenergiException` otherwise hides (its
-  ctor stores it in `.code`/`.message` but stringifies to `""`, so the old `str(e)` logged a blank
-  reason — issue #18). Optional — skipped when the `.env` creds are unset.
-- **`charging_service/`** (`ChargingLoader` + `ChargingSession`) derives charging sessions **on
-  demand** from stored `DetailedChargeState` history (segmentation like `trip_service`), joined to
-  the logged charger energy — no live tracking. Serves `CHARGING_GET_LIST`/`_SUMMARY`/`_MONTH` +
-  `CHARGER_GET_HISTORY`. **Per-session charger energy = the SUM OF POSITIVE `ChargeAdded` increments
-  in the window** (NOT the in-window max: the myenergi accumulator can carry a value in from charging
-  that predates the Tesla-detected session, so a max double-counts — this was a real bug). `month_summary`
-  sums the sessions' charger/battery energy + the tesla month-counter deltas (`LifetimeEnergyUsed`,
-  `Odometer`) for consumption/km. **Talks to:** `InfluxDBHandler`, `Server`.
-- **Spot pricing (issue #12).** **`spot_price.py`** (`SpotPriceProvider`) fetches Nord Pool FI hourly
-  spot prices from the no-key **sähkötin.fi** range endpoint (`?start&end`, raw €/MWh, UTC hours),
-  converts to an all-in `(spot + margin) × (1 + VAT)` €/kWh, and caches immutable past hours — so a
-  session from days ago is priced retroactively **without self-logging prices**. The module also holds
-  the pure pricing helper `price_hourly_energy` (dot energy-by-hour with price, flat-tariff fallback).
-  Cost now lives in the **loader/session** (not the month handler): `ChargingSession.summary()` buckets
-  its `ChargeAdded` increments by UTC hour (`bucket_positive_increments_by_hour`) and prices each →
-  `cost_eur`/`avg_price_eur_per_kwh`; `month_summary` sums session costs (`charging_cost_eur`) and
-  prices the hourly home import (`home_cost_eur`), each falling back per-hour to the flat
-  `electricityPriceEurPerKwh` tariff (→ NaN → "—" when neither is available). **`spot_price_service.py`**
-  (`SpotPriceService`) is a thin always-on `WeatherService`-style broadcaster: it re-broadcasts the
-  current hour's price as `SPOT_PRICE_STREAM` (`0x88`) hourly + snapshots it on connect. Always
-  constructed (works with no Zappi); `run()` no-ops when `spotPrice.enabled` is false. **Talks to:**
-  sähkötin.fi (aiohttp), `InfluxDBHandler`, `Server`.
-
-#### 5.2.8a `audio_service/` — host audio (issue #37)
-`audio_backend.py` holds one abstract `AudioBackend` plus four implementations, and
-`detect_backend()` probes the host in the order **`pactl` → `wpctl` → `amixer`**, falling back to
-`NullAudioBackend`. `pactl` goes first because it covers real PulseAudio *and* pipewire-pulse with
-one adapter **and addresses sinks by a stable name** — `wpctl set-default` takes only a
-session-scoped numeric id, so that path resolves the stored `node.name` against `pw-dump` on every
-write. Bookworm ships PipeWire + WirePlumber + pipewire-pulse, but `pipewire-pulse` only *suggests*
-`pulseaudio-utils`, so `pactl` is not guaranteed and `wpctl` is the always-present fallback.
-Enumeration on that path uses `pw-dump`'s JSON, never `wpctl status`'s box-drawing tree.
-`AudioService` applies `audio.volumePercent` / `audio.outputDevice` and refreshes the device list
-every 15 s (HDMI and Bluetooth hotplug). Load-bearing details:
-- **Device first, volume second, always.** A sink carries its *own* volume, so switching output
-  without re-applying the volume makes the user's setting silently stop holding.
-- **`wpctl` does not clamp** — `set-volume 150%` is accepted and overdrives the sink — and
-  **`wpctl get-volume` exits 0 even for a missing node**, so the `Volume: ` prefix is the test, not rc.
-- The feature needed **no protocol code and no frontend change**: two `config.json` keys, one hook,
-  one schema subsection. Two generic additions to `ConfigService` carry it — `register_options(key,
-  provider)` (a service owns its own dynamic enum) and `register_guard(name, guard)` (a pre-write
-  veto that, unlike a hook, runs *before* anything is persisted and can honestly reject
-  "this host cannot do that").
-
-#### 5.2.8b `display_service/` — panel power (issue #35)
-Runs `wlopm --on/--off <output>` (`*` = every output). The **frontend decides when** (it is the only
-side that sees touch input) and **this side does the switching**, because system calls belong to the
-backend. Reports `available=0` when wlopm is absent so the dashboard never arms a timeout that could
-do nothing, and `run()` powers the panel on at startup so a backend restart cannot leave it dark.
-Needs the compositor socket: `XDG_RUNTIME_DIR` is already in a `systemd --user` unit's environment,
-`WAYLAND_DISPLAY` is not (the unit is wanted by `default.target`), so the README's unit sets it.
-
-#### 5.2.8c `system_service/` — the maintenance dashboard (issue #39)
-`system_metrics.py` is pure stdlib against `/proc` (no psutil: nothing here is worth an ARM build and
-a pin). `SystemStatusService` serves `SYSTEM_GET_STATUS` — **request/response, not a broadcast, and
-deliberately NOT `register_service`d**: the Options view is open a fraction of the time, and sampling
-`/proc` for every client to feed a screen nobody is looking at is pure waste. Details that matter:
-- `/proc/net/dev` is parsed with `partition(":")`, not `split()` — a counter wide enough to touch the
-  colon prints `eth0:1234567890` and shifts every column by one.
-- CPU is a **delta**, so a sample older than 30 s is discarded and a fresh 250 ms window taken; a
-  half-hour-old sample would report the average over that half hour.
-- Per-service health is duck-typed **`health()`**, the same pattern as `stream_everything()` and
-  `apply_config()`, so each service answers from state it already keeps. A probe that raises or hangs
-  is reported as one broken service, never as a failed request.
-- Error tallies come from **`ErrorCounter`**, a `logging.Handler` attached to the same
-  `_SERVICE_LOGGERS` allow-list as the stdout handler (those loggers set `propagate = False`, which
-  is what rules out double counting).
-
-#### 5.2.8d `media_service/spotify_auth_service.py` — re-authorisation (issue #38)
-Serves `0xA0`–`0xA4` so the OAuth grant can be refreshed from the dashboard instead of by SSHing in
-to run `setup/spotify_setup.py`. **Only the authorization code crosses the wire** — single-use,
-~10-minute, and worthless without `SPOTIFY_CLIENT_SECRET`, which never leaves the backend. The
-exchange passes `check_cache=False` (with the default `True` a stale-but-valid cache short-circuits
-and the new code is never redeemed) and runs in an executor, since spotipy is blocking `requests`.
-
-> **The consent page is opened in the HOST'S REAL BROWSER. There is no embedded
-> browser any more — Qt WebEngine was removed from the project entirely.** `handle_get_url`
-> stands up a one-shot `asyncio.start_server` on the redirect URI's own host/port
-> (`127.0.0.1:8080`), launches the page with `xdg-open`, and catches Spotify's redirect itself —
-> so nothing is pasted by hand and the authorization code never leaves loopback. This is RFC 8252
-> §7.3 (Loopback Interface Redirection), and it is also why the redirect URI is allowed to be plain
-> HTTP. The reason it is not embedded is RFC 8252 §8.12: native apps **MUST NOT** use an embedded
-> user-agent for authorization — an embedded view can read the user's password keystrokes and lift
-> session cookies, which is exactly why providers block it. Measured: with WebGL and rendering both
-> fixed, the embedded `WebEngineView` still could not get past the login gate.
->
-> **This does NOT reintroduce the `NonInteractiveSpotifyOAuth` hazard below.** That one is spotipy's
-> loopback server blocking a worker thread forever on `handle_request()`. This is an asyncio server
-> on the main loop, bound to loopback only, torn down on the first hit or at `_FLOW_TTL_SECONDS` by
-> `__cancel_pending()` (which awaits `wait_closed()`, so a retry can rebind the port).
->
-> **Two traps in the listener, both found the hard way, both silent:**
-> - **A browser opens more than one connection to that port** — a speculative preconnect, and a
->   `/favicon.ico` fetch the moment the response page renders. Neither carries the redirect's
->   parameters. Treating "no code" as fatal cancelled the flow *while the real exchange was still
->   in flight*, so the dashboard reported a failure for an authorization that had already succeeded
->   and written its token. Only a request actually carrying `code` or `error` may decide anything;
->   everything else gets a `204` and is ignored. `pending["claimed"]` makes the first code win, so a
->   reload of the redirect URL cannot re-enter the exchange with a spent code.
-> - **Never `await Server.wait_closed()` from inside the callback handler.** Since CPython 3.12.1 it
->   waits for every active connection to drop too — and the handler IS one of those connections, so
->   it deadlocks there. The exchange completes and the token lands on disk, but the success reply
->   never reaches the frontend. `close()` alone releases the listening socket, which is all a retry
->   needs.
->
-> There is no fallback left to degrade to, so **either half failing is a hard error** replied as
-> `SPOTIFY_AUTH_URL` + `SPOTIFY_AUTH_ERROR`: without a listener the code cannot be caught, without a
-> browser the page cannot be reached, and a dialog waiting forever for a redirect nobody can produce
-> is worse than a message. The target supports this natively — README §Pi notes the dashboard runs *on top of* the full
-> Raspberry Pi OS desktop, not as a kiosk, and the pre-existing `spotify_setup.py` already told the
-> user to run it "from the Pi's desktop (it needs to open a browser window)".
->
-> **The grant EXPIRES — 6 months, absolute.** Verified against
-> `developer.spotify.com/documentation/web-api/tutorials/refreshing-tokens`: *"Refresh tokens issued
-> to apps registered in the Developer Dashboard have a lifetime of 6 months … Refreshing an access
-> token does not extend the refresh token's lifetime."* Announced 2026-06-18, enforced for existing
-> apps **2026-07-20**, and it covers the authorization-code flow this app uses (PKCE or not). So
-> re-authorization is not an incident-recovery tool — it is **routine maintenance roughly twice a
-> year**, and the reason the Options view's card carries that warning in its `help`.
->
-> Do not confuse the two expiries. The cache's `expires_in`/`expires_at` is the **access** token's
-> ~1 hour, refreshed silently by spotipy before every request; the status packet's `expiresAt`
-> carries that value and **must never be rendered as "authorization valid until"** — it would imply
-> the grant dies within the hour while hiding the only expiry the user ever needs. Spotify does not
-> expose the grant's issue date, so a real "valid until" would mean recording our own timestamp at
-> each successful exchange.
->
-> When it does expire the token endpoint returns **HTTP 400 `{"error": "invalid_grant"}`**, raised by
-> spotipy as `SpotifyOauthError`. `SpotifyPlayer._call_spotify` catches that **before** the
-> `SpotifyBaseException` arm it is a subclass of — only there can "the grant is gone" be told apart
-> from "the API said no" — and `_note_auth_failure` latches the player off:
-> - **Only terminal codes latch** (`invalid_grant`, `invalid_client`, `unauthorized_client`,
->   `invalid_scope`, plus `NonInteractiveSpotifyOAuth`'s message-only "No usable Spotify token
->   cache"). A 5xx from the token endpoint or a network blip is logged and ignored, or one bad
->   minute at Spotify would silence the dashboard until someone restarted it.
-> - **While latched, `_call_spotify` and `_update_state` return before touching the network.**
->   spotipy does not clear its cache on rejection, so without this the poller retries a dead token
->   every 10 s forever, for nothing. `refresh_auth()` clears the latch and resumes.
-> - `_auth_listener` (wired in `start_services` to `SpotifyAuthService.notify_auth_state_changed`)
->   re-broadcasts the status the instant the verdict changes, so the dashboard's prompt appears then
->   rather than at the next reconnect.
->
-> **`build_status()` asks the player first.** A cached refresh token Spotify has stopped accepting
-> still sits happily on disk, so cache presence proves nothing; only the player has actually tried
-> to use it. Its verdict overrides, and sets `needsReauth`.
->
-> **The gate on Spotify's login page is Google reCAPTCHA Enterprise, not Cloudflare.** Measured:
-> `accounts.spotify.com` answers `server: envoy` with no `cf-*` header, and its CSP whitelists
-> `google.com/recaptcha`. `challenge-orchestrator /v1/invoke-challenge-command` is Spotify's own
-> wrapper around it. This matters because it scores the *execution environment* — a Chromium with
-> no WebGL context cannot produce a solvable challenge, which is how the whole flow dead-ended on
-> a WSL2 dev box (see §7.7). Earlier comments in this repo blamed Cloudflare; they were wrong.
-
-`spotify_oauth.py` holds the **one canonical `SPOTIFY_SCOPE`** and `NonInteractiveSpotifyOAuth`.
-Both are fixes for real hazards found while building this:
-- The scope literal was **duplicated** between the player and the setup helper. spotipy stamps the
-  *issuing* manager's scope onto the cached token and then refuses the cache unless the *reading*
-  manager's scope is a subset, so a re-auth issued with a narrower scope silently kills playback with
-  no error anywhere.
-- Stock `SpotifyOAuth` falls back to an **interactive** handshake when the cache is unusable: for a
-  `127.0.0.1` redirect it starts a local HTTP server and blocks forever *inside the player's executor
-  thread*, after which APScheduler refuses every later poll. Exactly the failure shape §5.2.4 records
-  for the weather service. The subclass raises instead, turning a silent hang into a logged error.
-- **A successful exchange could leave nothing on disk and still report success.** spotipy's
-  `CacheFileHandler` swallows every `OSError` from the token write and **never creates parent
-  directories**, so a `spotifyCachePath` whose directory is missing loses the grant silently: a tick
-  in the Options view, `authorized=false` in the status broadcast a line later, and the single-use
-  code already spent. `build_oauth` now `makedirs` the parent (warn-only — it runs on every client
-  connect via `build_status()`, so it must never crash a status read), and `handle_code` **verifies
-  the cache afterwards** rather than assuming, replying with the path when it is empty.
-- **The CSRF state check was a no-op.** The frontend round-tripped the backend's own nonce and the
-  backend compared it with itself, because spotipy's `parse_response_code` discards the state
-  Spotify echoes. `handle_code` now uses **`parse_auth_response_url`**, which returns `(state, code)`,
-  and the comparison is **mandatory** — a missing state is a failed check, not a skipped one.
-
-#### 5.2.8e `media_service/spotify_device_service.py` — device identification
-Serves `0xA5`–`0xA9` so `spotifyDeviceId` can be discovered from the dashboard. It exists because
-a wrong value **fails silently**: `SpotifyPlayer` claims control only when
-`_current_device_id == _target_device_id`, so a stale id makes every transport control a no-op
-with nothing in the log — and until now the only fix was SSHing in to run `setup/spotify_setup.py`.
-The flow is "play something on the device you want, then confirm what the backend sees": the user
-starts playback, the service polls `current_playback()` every 2 s and streams back the **device**
-(name, type, volume, `is_restricted`) beside the **track** (name, artists, album, cover URL), so
-the device is confirmed against both what is on screen and what is audible.
-
-**All Spotify API access stays in `SpotifyPlayer`** (`probe_playback`, `list_devices`), behind its
-`_call_spotify` executor helper and its auth latch; the service reaches them through `MediaManager`,
-the same boundary `SpotifyAuthService` uses for `spotify_auth_error()`. A latched-off grant is
-reported once rather than polled against. Load-bearing details, most of them defects found in review:
-- **The write goes through `ConfigService.apply_write()`**, not around it — `handle_set`'s body was
-  extracted so both share one validated path (coerce → dynamic options → guard → unchanged
-  short-circuit → `set` → `save` → rollback on `OSError` → hooks → broadcast). That is why
-  `spotifyDeviceId` had to become a real `SETTINGS_SCHEMA` entry: the schema **is** the write
-  allow-list. It carries a `spotify_device_id` validator, because a `string` with no validator
-  accepts `""` — and an empty target reintroduces exactly the silent no-op this feature removes.
-- **`SpotifyPlayer.apply_config()` now re-reads `spotifyDeviceId`** and spawns an immediate
-  `_update_state()` so the claim happens while the user is still looking at the screen that caused
-  it. The task is **retained with a done-callback**: the loop holds only a weak reference, so a
-  bare `create_task` can be collected mid-flight and its exception never retrieved.
-- **A scan is owned by one client's `StreamWriter`.** `Server.__safe_write` *swallows*
-  `ConnectionError`, drops the client and returns normally, so a write to a dead peer never raises
-  — the poll loop therefore checks `writer.is_closing()` itself, or a killed dashboard would leave
-  it polling Spotify for the full `_SCAN_TTL_SECONDS` (300). `SCAN_STOP` and `SELECT` are
-  owner-gated too: with two panels open, one panel's *Peruuta* must not cancel the other's scan.
-- **The radio is stopped for the scan and put back afterwards.** `stop_other_playback()` returns
-  whether it silenced a genuinely *playing* non-Spotify player and re-streams the play state —
-  `RadioPlayer.stop()` emits no VLC event, so without that `MEDIA_IS_PLAYING` stays 1 and the media
-  card shows a pause icon over silence. Every scan-ending path resumes, except a successful select
-  on a device that was already playing, where `SpotifyPlayer` claims within one poll and resuming
-  would emit a second of radio for nothing. A *failed* select deliberately does NOT end the scan,
-  so the retry has something to retry against.
-- **`scanId` is a frontend-generated epoch**, echoed on every state and result and required on a
-  select. A single "is a flow running" bool cannot tell WHICH flow a packet belongs to: cancel a
-  scan, start another, and a state already in flight repopulates the dialog with the previous
-  device — which the user can then save. The two fences answer different questions and both stay.
-
-#### 5.2.8 `config_service/config_service.py` — runtime configuration (the Options view)
-`ConfigService` serves `CONFIG_GET_SCHEMA` / `CONFIG_SET` / `CONFIG_RESTART` and snapshots the
-schema to every new client (`register_service`). `SETTINGS_SCHEMA` is a literal list of groups
-→ **subsections** → settings (issue #30), each group declaring `id` / `label` / `icon` and each
-subsection `id` / `label` / optional `help`. **Group ids are shared with the frontend's own
-bundled schema and a group present in both halves MERGES into one sidebar section** — which is
-how `general` shows the frontend's screensaver card beside this file's location card. Every
-setting declares `key` (dotted), `type` (`bool|int|float|string|enum`), Finnish
-`label`/`help`, `unit`, numeric `min`/`max`/`step`, `nullable`, `options` (or the string
-`"dynamic"`, resolved at schema-build time — `defaultRadioStation`'s choices are the configured
-`radioMediaIds` keys), an optional `validator` name, and its **apply tier**. It is both the
-write allow-list and the frontend's UI description, so adding a tunable is one entry here and
-**no frontend change at all**.
-
-> **Apply tiers — the load-bearing design point.** Every service snapshots the values it needs
-> into instance attributes in its constructor and *never re-reads* `Config`, so mutating
-> `Config` alone changes nothing at runtime. There is therefore no "live" tier:
-> - **`hook`** — the owning service exposes **`apply_config()`**, which re-snapshots from
->   `Config` and does whatever else applying means (`MyEnergiService` reschedules through its
->   single `__apply_interval` point; `WeatherService` drops its cached frame and refetches).
->   Registered in `start_services` via `config_service.register_hook(name, svc.apply_config)`.
->   Implemented on: `WeatherService`, `MyEnergiService`, `TripLoader`, `ChargingLoader`,
->   `SpotPriceProvider`, and `MediaManager.apply_config_radio()` / `_spotify()` (which forward
->   to the two players). `SpotPriceProvider` needs no cache flush — it caches *raw* prices and
->   applies VAT/margin on read.
-> - **`restart`** — the value builds something that cannot be rebuilt in place: `timeZone`
->   (APScheduler cron jobs), `myenergi.zappiSerial` (the Zappi resolved at connect),
->   `spotPrice.enabled` (whether `SpotPriceService` has a run task at all).
->
-> A `hook` setting whose hooks are all **unregistered** (no Zappi → no `MyEnergiService`) is
-> reported to the frontend as `restart`, because that is what it truly is for that deployment.
-
-**Restart.** `CONFIG_RESTART` sets an `asyncio.Event`; `run()` awaits it, waits
-`_RESTART_DRAIN_SECONDS` so the preceding reply flushes, then flushes the log handlers and
-calls `os._exit(RESTART_EXIT_CODE)`. The code is **42 — deliberately non-zero**, so the
-README's `Restart=on-failure` unit restarts it without needing `Restart=always`. `os._exit`
-rather than `raise SystemExit`: asyncio does not store SystemExit on a task, it propagates it
-through the runner's teardown and prints a full traceback plus *"Task exception was never
-retrieved"* — misleading noise in the journal for an intentional restart.
-
-**Safety.** Validation happens before any write (`_validate_timezone` is the important one —
-an unresolvable zone makes `Config.__init__` raise, and since `timeZone` is restart-tier that
-would be a restart *loop*). A failed `save()` rolls the in-memory value back so services and
-disk never disagree. A hook that raises is logged and swallowed: the value is already saved,
-so failing the write there would leave the reply and the disk disagreeing.
-**Talks to:** `Config` (set/save), `Server` (send_to/broadcast), every hooked service.
-
-**Restart vetoes.** `register_restart_veto(name, callable)` is the sibling of `register_guard`:
-a callable returning a non-empty Finnish reason refuses a `CONFIG_RESTART` before it is armed.
-`UpdateService` registers one, because the restart buttons sit three rows below the update card
-and killing the backend mid-checkout is exactly what everything else there exists to prevent.
-`request_restart(force=True)` skips the vetoes — the updater's own final restart IS the thing
-they protect.
-
-#### 5.2.9 `update_service/update_service.py` — in-place app updates
-Serves `UPDATE_GET_STATE` / `UPDATE_APPLY` / `UPDATE_CANCEL` (`0xD0`–`0xD3`) and broadcasts
-`UPDATE_STATE`; registered with `register_service`, so a connecting dashboard gets the state —
-including a run already in flight — without asking. The dashboard runs from a git checkout, so
-"update the app" is `git fetch` → `checkout --detach <sha>` → rebuild the frontend →
-`uv sync --locked` → restart both halves, and every one of those is a system call, which is why
-the whole thing lives here rather than in the UI. (The sync comes after the build on purpose —
-see the step-order note below.)
-
-**Two channels, one comparison.** `development` targets the tip of `origin/main`; `releases`
-targets the newest `v*` tag (`--sort=-v:refname`, git's own version order, dereferenced with
-`^{commit}` — a bare `rev-parse` on an annotated tag yields the TAG object and finds no ancestry
-at all). Both resolve to a COMMIT and the verdict is a commit comparison, never a version-string
-compare: `up_to_date` / `update` (target descends from HEAD) / `downgrade` (target is an ancestor)
-/ `switch` (divergent), from two `merge-base --is-ancestor` calls (exit 0 = yes, 1 = no, anything
-else = unknown, never guessed). That is what makes switching channels work in **both** directions;
-development → releases normally reads `downgrade`, which is an ordinary outcome here.
-
-Load-bearing details, most of them measured:
-- **The trapdoor rule.** A target that does not itself contain `update_service.py` +
-  `UpdatePanel.qml` (checked with `git cat-file -e <sha>:<path>`) is **refused whatever the
-  verdict says**. Move a keyboard-less panel onto a commit with no updater and the only way back
-  is SSH — and this project's only release tag is exactly such a commit. Downgrading between two
-  versions that both carry the feature is the case the feature is for, and works.
-- **`GIT_ASKPASS` set to the EMPTY STRING is what stops a fetch hanging forever.**
-  `GIT_TERMINAL_PROMPT=0` alone only suppresses git's own tty prompt; git then falls through to an
-  askpass helper — measured parking until the step timeout. Setting the variable at all (even
-  empty) also suppresses the `SSH_ASKPASS` fallback, which matters because the Pi runs a full
-  desktop, so `DISPLAY` is set. Also `GIT_CONFIG_NOSYSTEM`, `GIT_SSH_COMMAND` with `BatchMode` +
-  `ConnectTimeout`, `GIT_OPTIONAL_LOCKS=0` and `LC_ALL=C`; `GIT_DIR`/`GIT_WORK_TREE` are scrubbed
-  from every child, since an inherited value would silently redirect the checkout elsewhere.
-- **git 2.43 has no `http.connectTimeout`** and the low-speed knobs do not cover the connect phase
-  (measured against a black-holed address), so `asyncio.wait_for` around the subprocess is the ONLY
-  bound — the same shape §5.2.4 mandates for the FMI fetch.
-- **Every child gets `start_new_session=True` and is killed by PROCESS GROUP.** git forks
-  `git-remote-https`, and the build is a shell → cmake → ninja → one compiler per file; measured,
-  killing the parent alone leaves the tree running AND leaves the inherited stdout pipe open, so
-  the reader never sees EOF.
-- **Output is read in CHUNKS, not with `readline()`.** `StreamReader.readline` raises past its
-  64 KiB buffer and a deep C++ template diagnostic exceeds that; the exception would leave the job
-  "running" forever, refusing every later request.
-- **`uv sync --locked`, never a bare `uv sync`.** A bare sync silently re-resolves and rewrites
-  `uv.lock` — a TRACKED file — so the write would make the tree dirty and permanently wedge this
-  service's own dirty-tree refusal, pointing at a file the user never touched. (`--frozen` avoids
-  the rewrite too but installs a stale lock silently.)
-- **Nothing renames the frontend binary out of the way, and that is correct.** ld UNLINKS its
-  output before creating it rather than truncating in place, so relinking a *running* executable
-  succeeds and the live process keeps its old inode — measured, including that not-yet-paged-in
-  code still faults in correctly afterwards. (`cp` and shell redirection DO fail with ETXTBSY,
-  because they truncate; the linker is the exception.) A rename dance would only add a
-  half-moved-binary failure mode.
-- **The artifact is verified before anything is told to restart**: exists, executable, newer than
-  the run, not implausibly smaller than before. A build killed mid-link can leave a truncated file,
-  and restarting a keyboard-less panel into a stub leaves no dashboard at all.
-- **Anything that fails AFTER the checkout rolls the tree back** (`checkout --detach <previous>` +
-  `uv sync --locked`). A new source tree beside an old virtualenv is the one genuinely
-  unrecoverable state this feature can produce: the backend's unit re-syncs on every start, so the
-  next restart fails, retries and fails again — with the Options view gone along with the backend.
-- **Checkout is always DETACHED**, uniform across both channels. A release is a tag and can only be
-  checked out detached anyway; detaching never discards a local branch; and — the case that decides
-  it — a linked worktree *refuses* `checkout main` when main is checked out elsewhere, while
-  `checkout --detach <sha>` always works. `advice.detachedHead=false` keeps the eight-line advice
-  block out of the journal. No `-f`: a checkout aborted by a colliding untracked file is a clean
-  refusal, and forcing past it would delete what the user put there.
-- **`--prune --tags --force` on fetch, but NOT `--prune-tags`.** `--tags` uses a non-forced
-  refspec, so a MOVED release tag is rejected with "would clobber existing tag" and the releases
-  channel silently sticks to the old commit; `--prune-tags` is left off because it deletes local
-  tags the remote lacks, which is right for a deployment and wrong for the maintainer's checkout.
-- **Preflight in `tools`**, reported before the button is live: `uv` (PATH, else `~/.local/bin/uv`
-  — a `systemd --user` unit's PATH has neither), the build script, a Qt kit (`$QTDIR` → newest
-  `~/Qt/*/gcc_64`|`gcc_arm64` → `CMAKE_PREFIX_PATH` from an existing `CMakeCache.txt`) and disk
-  headroom. The kit is passed to the script as `--qt-prefix` so the choice appears in the log.
-- **Cancel is step-aware.** Allowed during fetch/deps/build (and then rolled back like any other
-  failure); refused during the checkout, whose interruption is the half-written state everything
-  here avoids. `job.cancellable` tells the frontend, so the button hides rather than being ignored.
-- The state document is ~2 KB; the job log is capped at 80 lines × 240 chars and broadcasts are
-  coalesced to 2 Hz, so a build's hundreds of ninja lines never approach the 1 MB frame cap.
-- **The BUILD runs before the dependency sync**, which is not the obvious order. `uv sync`
-  rewrites the virtualenv this interpreter is running from, and a build that followed it takes
-  tens of minutes on a Pi — a lazily-imported submodule of a replaced package failing in that
-  window ends a process with no supervisor, and systemd would restart it mid-build, destroying
-  the run's own rollback. Syncing last shrinks that window to seconds.
-- **The job is claimed synchronously.** `self.__job` is built in the handler before the task is
-  created, because `Server` dispatches every packet as its own task and `handle_apply` awaits
-  ~10 git queries before the run exists — two applies would otherwise both pass a guard that
-  only looked at `__job`. A refusal likewise **never overwrites a live job**: it replaces the
-  whole document, which would erase the running progress, re-arm the restart button and hand the
-  step loop an empty `steps` list to index.
-- **The run task closes the job out in a `finally`.** Every gate in the service reads
-  `finished`, so an exception escaping the loop would leave the device unable to update, unable
-  to refresh the card, and — through the restart veto — unable to restart. That veto is itself
-  **bounded by a deadline**, so a wedged job can never trap a keyboard-less panel.
-- **The artifact check is an absolute floor, not a ratio** against the previous binary: the
-  first in-app update legitimately replaces the build script's default *Debug* binary with a
-  *Release* one several times smaller, and a ratio test would reject that good build and roll a
-  successful update back.
-- **The job's fetch goes through the streaming runner, not the `__git` helper.** Only the runner
-  registers the child on `self.__proc`, so only through it can a cancel or a timeout reach the
-  process group — otherwise *Peruuta* is a button that visibly does nothing for up to three
-  minutes. The read path's fetch keeps a much shorter timeout, since the card waits on its reply,
-  and the throttle keys on the fetch ATTEMPT: keying on success means an unreachable remote is
-  never throttled and every card open pays the full timeout again.
-
-**Talks to:** `git`/`uv`/`bash` (subprocesses), `ConfigService` (restart + veto), `Server`
-(broadcast/send_to), `SystemStatusService` (a `health()` probe).
+`backend/src/start_services.py` is the composition root: it constructs every service, registers
+their handlers and snapshot providers on the `Server`, and `asyncio.gather`s the long-running
+tasks. The server itself is a protocol-agnostic byte pipe. Orchestration, the duck-typed service
+contracts and the `.env` / `config.json` keys are in `backend/CLAUDE.md`; each service's own
+invariants are in its directory's `CLAUDE.md`.
 
 ### 5.3 Frontend
 
-The Widgets frontend uses a signal/slot routing pattern: `ServerClient` emits one signal per
-packet type → datahandlers deserialize → datahandlers emit per-field signals → widgets update.
-`MainWindow` builds the 10×16 grid and wires widgets to their datahandlers and to the `ServerClient`.
-
-#### 5.3.1 `server_client/serverclient.{hh,cpp}`
-`QTcpSocket` client. `onReadyRead` reassembles framed packets out of the TCP byte stream
-(4-byte length + 1-byte type + payload), **rejects implausible lengths** (16 MB cap, 64-bit-safe
-size math) and demuxes each packet to a typed signal. Reconnects 10 s after disconnect/error.
-Outbound control packets are written **non-blocking** — do not reintroduce
-`flush()`/`waitForBytesWritten(...)` (it caused visible click latency; control packets are ≤6 bytes).
-
-#### 5.3.2 `tesla/` — telemetry widgets + datahandler
-- **`vehicle.{hh,cpp}`**: the `TeslaDataProperty` registry (`data_id` → `data_stream_id`, `unit`,
-  `value_type`). Mirrors `config.json`.
-- **`datahandler/tesladatahandler.{hh,cpp}`**: the **table-driven** core. `kRoutes` maps each
-  `data_id` to its value type and Qt signal; `processStreamData` deserializes a `MSG_STREAM` packet
-  (bounds-checking string payloads) and emits the matching signal; the two `connectToDataUpdateSignal`
-  overloads wire widgets to signals by walking the same table. It also builds the outbound HVAC
-  command packets. **A signal in the `.hh` with no `kRoutes` row (or vice versa) silently breaks that
-  field** — keep them in sync with `vehicle.cpp` and `config.json`.
-- **Widgets**: `tesladatawidget` (abstract `TeslaDataWidget` / `TeslaDataMultiWidget` bases);
-  `singletesladataentry` + `dataentrylist` (the two stat lists); `map/teslamap` + `map.qml` (a
-  `QQuickView` OSM map in a window container, driven by Location + GpsHeading — note: **never apply a
-  `QGraphicsEffect` to the map**, it forces the whole QML scene through the software rasteriser);
-  `climate/` (`climatecontrollercard` container + `temperaturecard`, `teslaclimatestarter` with
-  on/off/pending glow, `teslaseatwidget`, `teslasteeringwidget` — per-state SVG pixmaps are rendered
-  once at construction, the per-update path is just `setPixmap`).
-
-#### 5.3.3 `mediaplayer/` — media widgets + datahandler
-- **`datahandler/mediaplayerdatahandler.{hh,cpp}`**: parses media packets and builds outbound
-  transport commands. Cover-art packets are deduped by content hash and **decoded to a `QImage` on a
-  worker thread** (never a `QPixmap` — `QPixmap` is GUI-thread-only); an in-flight decode is dropped
-  when a newer packet arrives.
-- **`widgets/mediaplayercard.{hh,cpp}`**: converts the decoded `QImage` to a `QPixmap` **on the GUI
-  thread**, then runs the **k-means dominant-colour** extraction on a worker (operating on the
-  `QImage`). The k-means algorithm, hue/value gating and RNG seed (`69420`) define the dashboard's
-  visual identity — move execution context freely but **do not change the inputs or scoring**. The
-  gradient background is cached as a `QPixmap` (`m_background_dirty` invalidates it on resize / colour
-  change). The "spotifyplayer" object name is kept for `mediaplayercard.qss` selector compatibility.
-
-#### 5.3.4 `weather/` — weather widgets + datahandler
-- **`datahandler/weatherdatahandler.{hh,cpp}`**: parses the repeated-sub-id `WEATHER_FORECAST` frame
-  (bounds-checked) into vectors and emits one update.
-- **`widgets/`**: `mainweather` (container; fans the update out to the banner + 5 cards by id),
-  `currentweathercard` (current-hour banner, consumes the sentinel id), `weatherforecastcard`
-  (one forecast hour ×5, each ignoring ids that aren't its own).
-
-#### 5.3.5 `config/appconfig` + `utils/logger`
-- **`AppConfig`** is the **only** place to read frontend env vars; `main.cpp` calls `AppConfig::load()`
-  once before building `MainWindow`. Reading env elsewhere is a smell — extend `AppConfig` instead.
-- **`Logger`** mirrors the backend format to stdout. Never call `qInfo/qWarning/qDebug/qCritical`
-  directly — `Logger::install()` funnels Qt's own messages through the same formatter under the source
-  `qt`. Worker-thread logs are serialised by a static mutex. Source names today: `app`, `config`,
-  `server_client`, `tesla.data`, `media.data`, `media.card`, `weather.data`, `settings`, `qt`.
-  `main.cpp` also sets a global `QLabel, QPushButton { color: #FFFFFF }` default so text stays white on
-  platforms (e.g. Raspberry Pi OS) whose default palette renders near-black on the dark background;
-  per-widget QSS still overrides it.
-
-#### 5.3.6 `frontend_v2` settings (the Options view) — `core/settings.{hh,cpp}`
-> Applies to **`frontend_v2`** (the active QML frontend), not the frozen Widgets `frontend/`.
-
-`Settings` is one QML singleton (`Settings`) fronting **both** halves of the Options view:
-
-- **Local settings** — schema from the bundled `:/config/settings.json`, user overrides
-  persisted with `QSaveFile` (atomic; the Pi loses power without a shutdown). Exposed as
-  `values`, a **`QQmlPropertyMap`** — that type is what makes `app/Theme.qml`'s bindings
-  re-evaluate, since it emits per-key change notification. Only *overridden* keys are written
-  to disk, so a default that changes in a later release still reaches existing installs.
-- **Backend settings** — the `CONFIG_SCHEMA` document, never edited optimistically: the
-  backend re-broadcasts the authoritative schema after each accepted write.
-
-`groups` concatenates both, tagging each entry `origin: "local" | "backend"`, so one delegate
-family renders everything. **Construction order in `main.cpp` matters**: `Settings` is built
-**before** `AppConfig`, which consults `savedValue()` for `backendHost` / `backendPort` /
-`screensaverTimeoutMin` — a user override must beat the environment. The socket does not exist
-yet at that point, so the `CONFIG_*` wiring is deferred to `attachServer()` after
-`ServerClient` is constructed. `core/dotenv.{hh,cpp}` holds the `.env` discovery/parsing that
-used to be private to `appconfig.cpp`, because both readers now need it.
-
-**`app/Theme.qml` is the façade.** Tokens that are user-tunable are bound
-(`readonly property bool lunaEnabled: Settings.values.lunaEnabled`) instead of being literals;
-everything else stays a `readonly` literal that qmlcachegen AOT-compiles. A property
-initialiser is a *binding*, so all ~236 existing `Theme.x` call sites across 38 files keep
-working unchanged and gain live updates for free. **Add a tunable = one schema entry + one
-Theme binding**, no call-site edits.
-
-The view's footer names **both** files the screen writes: `Settings.storagePath` (the local
-override file) and `Settings.backendStoragePath` — the backend's `config.json`, taken from the
-top-level `path` in its `CONFIG_SCHEMA` document (`Config.path`). The paths are
-deployment-specific, so without them "where do I edit this by hand" is unanswerable from the
-device. `backendStoragePath` is empty until a schema arrives (rendered as "—") and is kept
-after a disconnect, like the backend groups themselves; a document without the key never
-blanks a path already shown, so an older backend degrades quietly.
-
-**Layout — master/detail, three levels deep.** `views/SettingsView.qml` is a sidebar + pane
-split: `items/settings/SettingsSidebar.qml` lists the sections (one per schema group, its row
-naming the subsections inside) and `SettingsPane.qml` renders the selected section as a stack
-of **one card per subsection** (issue #30) — the same card the sidebar itself carries. The pane
-is transparent; the cards are the containers, so nothing is nested inside a further border.
-Sections are general (Yleinen, Media, Datan visualisointi, Sähkö, Tesla, Ylläpito) and the
-subsections carry the detail.
-
-**The two schemas merge by group id.** `Settings::rebuildGroups()` no longer concatenates the
-local and backend halves — it indexes the backend's groups by id and folds each into the local
-group of the same id, so one sidebar section can hold subsections from both. Consequences worth
-knowing:
-- **`config/settings.json` is the canonical section list**: order, label and icon come from it,
-  which is why `media`, `electricity` and `tesla` appear there with an empty `sections` array.
-  Those placeholders exist only to place and name a backend-only section; a section that ends up
-  with no subsections at all is hidden, so they cost nothing while disconnected.
-- A backend group whose id the local schema does not know is **appended**, not dropped.
-- `origin` is per **subsection** now (the "sovellus"/"palvelin" badge sits on each card), because
-  a section can legitimately mix the two.
-- `sectionsOf()` tolerates the pre-#30 shape (a group with a bare `settings` array) by
-  synthesizing one subsection, so mismatched halves still render.
-
-Further schema keys the delegates understand: **`hidden`** (kept out of the rendered rows
-while stored and persisted normally — for a setting whose editor lives in the subsection's status
-widget; see the update channel below), **`relevantWhen`** (`{key, equals|notEquals}` —
-`SettingRow` fades a row whose controlling setting makes it meaningless **and sets
-`enabled: false` on it**, since a control that changes a value with no effect is worse than one
-that visibly cannot be used; `enabled` propagates down the item tree, so no editor needs to know
-about relevance. A setting that is a *precondition* for its controller — the screensaver's photo
-folder, without which the screensaver cannot run at all — must NOT carry a rule, or it becomes
-unsettable exactly when it needs setting. Resolved through `Settings.valueOf()`, which reaches
-**both** halves, with `Settings.valuesRevision` read purely to make the binding live),
-**`editor: "folder"`** (opt-in on a `string`
-setting: the row becomes a tappable path that opens the folder browser instead of a text field,
-and honoured only for `origin === "local"` — the browser walks the FRONTEND's filesystem, so a
-backend key falls back to `SettingText` rather than silently browsing the wrong machine),
-**`maxLabel`** (`SettingSlider` shows this text
-instead of the number at the slider's top stop — the graph point cap uses it for *rajoittamaton*,
-which really does disable decimation) and **`warnBelow` / `warnAbove` + `warnMessage`** (issue
-#34: `SettingRow` shows an inline caution while the value crosses the threshold; advisory only,
-`min`/`max` remain the hard bounds — the myenergi idle poll interval is the first consumer).
-
-Two details are load-bearing:
-- **Two independent restart tiers, both DERIVED not latched.** `restartPending` tracks
-  restart-tier *backend* settings, `appRestartPending` restart-tier *local* ones (`backendHost` /
-  `backendPort`, consumed once by `AppConfig` at startup). They are fixed by restarting different
-  processes, so the banner names which and shows a button per pending one. Each flag is "the
-  current value differs from the **baseline** the running process consumed", so reverting a value
-  clears the banner instead of latching it forever. The backend baseline is seeded
-  **insert-if-absent** — the backend re-broadcasts its schema after every accepted write, and
-  taking the new value as the baseline would erase the very difference the banner exists to
-  report. It is dropped only when the schema's **`startedAt`** changes, which is what
-  distinguishes "the backend restarted, so these values *are* the new baseline" from "the socket
-  blipped and reconnected" — a distinction the schema's content cannot make, since it reports what
-  is in `config.json`, not what each service snapshotted at construction.
-- **Selection is a group ID, and it is sticky.** The section list grows from 3 entries to 8
-  when the backend's schema arrives and shrinks again if the connection drops, so an index
-  would silently select a different section. `currentSectionId` holds what the user *chose*
-  and is never overwritten by a list change; `currentGroup` resolves it on read, falling back
-  to the first section. That is what makes a backend section still be selected after a
-  reconnect instead of the user being bounced to the first one.
-- **Group `icon` is a SEMANTIC name** (`"charger"`, `"media"`, `"price"`, …), mapped to a
-  resource by `SettingsSidebar.iconFor()`. The backend names icons without knowing anything
-  about frontend assets; an unknown name falls back to the gear. Both schema builders copy
-  *every* group-level key rather than an allow-list, so the next group field needs no code
-  change (the icon was the first, and an allow-list is exactly what dropped it initially).
-
-**Delegates** (`items/settings/`): `SettingRow` dispatches on `setting.type` to
-`SettingSwitch` / `SettingNumber` / `SettingSlider` / `SettingText` / `SettingSelect` (the
-last subclasses `TripComboBox`, inheriting the dark styling and the #9/#19 dropdown fixes) /
-`SettingFolder`.
-
-> The **`screensaverDir`** setting (issue #33) is the pattern for a path: `string` + `nullable`,
-defaulting from `TESLA_HOMEDASH_SCREENSAVER_DIR` through the schema's `env` key. `AppConfig` no
-longer reads that variable at all — two readers would be two sources of truth, and the setting is
-live. `ScreenSaver.qml` binds `FolderListModel.folder` to `Settings.toFileUrl(Theme.screensaverDir)`
-(`QUrl::fromLocalFile`, empty in → empty out). `coerceLocal` gained the matching rule: an empty
-string is rejected unless the setting is `nullable`.
->
-> It is now **picked, not typed** (`editor: "folder"` → `SettingFolder` → `FolderPickerPopup`), and
-> two measured facts about `FolderListModel` were corrected in the same pass. **An empty `folder` at
-> component completion does NOT leave the model empty** — it falls back to its documented default,
-> *the application's working directory*, and lists whatever images sit there; the "no folder, no
-> screensaver" behaviour this section used to claim came for free is now actually delivered, by the
-> explicit `Theme.screensaverDir.length > 0` term in `ScreenSaver.active`. And **`nameFilters` match
-> case-sensitively by default**, so the original lowercase-only list silently skipped every
-> `DSC_0042.JPG` a camera writes (measured: 2 of 5 files matched, 4 with `caseSensitive: false`).
-> The extension list now lives once on the `Folders` singleton, because the picker counts images
-> with it to say "42 kuvaa" and a second copy would vouch for folders the screensaver plays as
-> empty.
-
-**Backend reachability** (issue #36) is `core/connectionprobe.{hh,cpp}`, the QML singleton
-**`Probe`**, surfaced by `items/settings/BackendProbeStatus.qml`. It is deliberately NOT
-`ServerClient`: that one owns the live session and reconnects forever, which is the opposite of
-what a validation check may do. `Probe` opens a socket, waits 3 s, reports `reachable` /
-`unreachable` (with the socket's own error text — "Connection refused" and "Host not found" are
-different problems) and closes; a successful probe aborts the instant it connects, so the
-backend just sees a connection open and close.
-
-The hook is a **subsection-level `status` key**: a subsection may name a runtime status widget,
-which `SettingsPane` renders in the card via a `Loader` above the rows, resolving the name against
-a small component table (`backendProbe`, `systemStatus`, `spotifyAuth`). `active:` gates
-construction, which is what keeps the probe from firing — and Chromium from starting — for a card
-that did not ask for it. A subsection carrying a `status` but **no settings** is legitimate and is
-exempted from the empty-section filter: the system-status card is entirely a status widget. It exists because not every fact about a section fits in a
-setting row: *is that address reachable* belongs to the host and port **together**. The verdict
-follows the SAVED values (what startup will actually use), debounced 400 ms so editing host then
-port probes once against the final pair. Advisory only — the write is never blocked, since the
-backend legitimately may not be up yet.
-
-**The folder browser** is `core/folderbrowser.{hh,cpp}`, the QML singleton **`Folders`**, with
-`items/settings/SettingFolder.qml` as the row editor and `items/settings/FolderPickerPopup.qml` as
-the dialog. It exists because `FolderListModel` is a fine lister and a poor navigator: it reports
-what is inside a directory it has already opened, and everything a picker needs *before* that —
-does this path still exist, may we read it, what is its parent, where do we open when nothing is
-configured, which removable volumes are mounted right now — has no QML type in this build at all
-(`Qt.labs.platform` is not linked, and `QStorageInfo` has no QML API in any build). Every method
-recomputes rather than caching: a stick can be plugged in while the Options view sits open.
-Load-bearing details, all measured against Qt 6.11.1:
-- **Navigation state is a plain path, never a URL.** `folder`, `parentFolder` and the `fileUrl`
-  role are URLs, and recovering a path from one by stripping `file://` yields the percent-encoded
-  form — `/media/pi/Kesäloma 2024` comes back mangled, `Settings.toFileUrl` then double-encodes it,
-  and the screensaver silently plays nothing. Rows navigate by the **`filePath`** role, which is
-  already an absolute decoded path, so no URL enters the state at all. It matters twice over that
-  `Settings::setValue` **rejects a QUrl outright** for a `string` setting ("odotettiin tekstiä"):
-  the most natural line to write fails at runtime with a toast and no folder saved.
-- **Never `parentFolder`.** It returns an EMPTY url at `/`, and feeding that back into `folder`
-  leaves the model pointing nowhere *and* computing every later parent from nothing — a permanently
-  blank dialog on a device with no keyboard. `Folders.parentOf()` returns `""` at the root and the
-  up button is simply inert there.
-- **A folder whose name contains `#`, `%` or `?` cannot be browsed or played.** `FolderListModel`
-  re-parses the decoded path as a URL internally, so `Loma#2024` truncates to `Loma` — status Null,
-  count 0, even from a correctly encoded URL. `Folders.isBrowsable()` mirrors that test
-  (`QUrl(path).path() == path`, a pure string parse, because the browser asks it once per visible
-  row) and such rows render dimmed and inert. This is also the reason the row's text field could be
-  removed with no loss: a hand-typed path to such a folder would not work either.
-- **The picker is instantiated permanently, not behind a `Loader`.** `~FileInfoThread` takes the
-  scan thread's mutex and `wait()`s for it while the scan holds that mutex for its whole directory
-  walk — so unloading mid-scan blocks the **GUI thread** until a stale mount or a spun-down disk
-  answers, and "Peruuta during a slow load" is exactly when a user taps. The cost is one listing of
-  the process's working directory at startup and one idle watcher.
-- **The image count is gated on `status`, not on `count` alone.** `count` is 0 while the background
-  walk runs, so a naive binding flashes the amber "no images here" warning on every descend,
-  including into folders that turn out to be full.
-- **The card reserves the DOCK's band, and this one generalises to every modal here.** A popup
-  inside a view cannot raise itself above the dock: the dock lives in `Main.qml` and is declared
-  *after* the view host, so it floats over the whole view whatever `z` the popup sets — `z` orders
-  siblings within `SettingsView` only — and the scrim's tap-swallowing `MouseArea` is equally
-  powerless against an item in a higher layer. The reveal handler sits above the views too, so the
-  dock can be swiped up at any moment, and it is briefly on screen at startup. Measured on the
-  1280×800 target: the dock occupies **y 684–780**, and a 690px card centred in the window puts its
-  button row at **y 681–725** — *Peruuta* and *Valitse tämä kansio* covered, with no way to reach
-  them. The card is therefore top-anchored and sized to end above that band (30px of clearance,
-  which still leaves ~8 directory rows). `SpotifyDevicePopup` escapes this only by being
-  content-sized and short; anything taller has to reserve the band deliberately.
-
-**Display power-down** (issue #35) is `core/screenpower.{hh,cpp}`, the QML singleton
-**`Display`** — a step BEYOND the screensaver: the screensaver keeps the backlight on to show
-photos, this cuts it. **It runs no process.** This side owns only the countdown, because it is
-the only side that sees touch input; the `wlopm` call lives in `display_service` (§5.2.8b),
-because talking to the system is the backend's job. `off` and `available` are *reported by* the
-backend over `DISPLAY_POWER_STATE`, never assumed here, so a host with no wlopm answers
-`available=false` and the toggle simply has nothing to drive. It hangs off the
-**`IdleWatcher::activity()`** signal rather than installing a second event filter, so both
-timeouts share one definition of "the user is here". Its settings are *pushed* from `Main.qml`
-(`Binding` on `Display.enabled` / `.timeoutMs`), the same pattern the screensaver timeout uses
-for `Idle`, which is what makes them live.
-
-**The maintenance dashboard** (issue #39) is `core/systemstatus.{hh,cpp}`, the QML singleton
-**`System`**, rendered by `items/settings/SystemStatusPanel.qml`. Pull, not push: it polls
-`SYSTEM_GET_STATUS` every 5 s **only while `active`**, which the panel binds to its own
-visibility — so a settings screen nobody has opened costs nothing on either side. The document is
-handled as an opaque `QVariantMap` on purpose: it is a dashboard, not a contract, and adding a
-metric on the backend should not need a C++ change to display it.
-
-**Fullscreen** is the local `fullscreen` setting (`general` → *Näyttö*), read straight from
-`Settings.values` by `Main.qml` rather than through `Theme` — it is a window mode, not a design
-token. Two things hang off it. The **size lock is released in fullscreen**
-(`minimumWidth == maximumWidth == 1280` otherwise): the compositor cannot size a surface whose
-min and max are pinned. And the window **steps back to windowed for the duration of a Spotify
-re-authorization** (`SpotifyAuth.phase !== "idle"`), because the consent page opens in the host's
-own browser and must be reachable above the dashboard — on labwc, Raspberry Pi OS Bookworm's
-compositor, squeekboard is hardcoded to the `top` layer and does not draw over a fullscreen
-surface (labwc#2926), so a fullscreen dashboard would leave the on-screen keyboard unreachable and
-the login untypeable on a keyboard-less panel.
-
-**Spotify re-authorisation** (issue #38) is `core/spotifyauth.{hh,cpp}`, the QML singleton
-**`SpotifyAuth`**, with `items/settings/SpotifyAuthPopup.qml` over the view and
-`SpotifyAuthStatus.qml` in the card. `phase` is a plain string state machine
-(`idle`/`requesting`/`consent`/`done`/`error`) so QML switches on it with no enum registration.
-
-**This side renders no browser and never touches a credential.** The backend opens the consent page
-in the host's real browser and catches the redirect on its own loopback listener (§5.2.8d); the
-singleton's whole job is `begin()`, `cancel()`, and turning `SPOTIFY_AUTH_URL` / `_RESULT` into a
-phase. It originally drove an embedded `WebEngineView` that aborted the redirect navigation to read
-the code out of the URL — that design is **gone**, and with it Qt WebEngine (see below).
-
-Two details are load-bearing:
-- **There is no browser on this side at all.** `SpotifyAuthPopup.qml` is a small progress dialog —
-  "Tunnistautuminen käynnissä…" → "Tunnistautuminen onnistui." with a close button — plus
-  `DialogButton.qml`. It renders no page, holds no profile, and learns only "started" and
-  "finished"; no code or token ever crosses the link. **`Qt::WebEngineQuick` is gone from
-  `CMakeLists.txt`, `QtWebEngineQuick::initialize()` from `main.cpp`, and `WebEngineQuick` from the
-  README's module list** — verified with `ldd`, the binary links no WebEngine library. A *Peruuta*
-  button stays available while the flow runs: a browser that never comes back would otherwise
-  strand the dialog on screen.
-- **The prompt and the progress dialog live in `Main.qml`, not in `SettingsView`.** The grant can
-  die while any view is on screen, so `SpotifyAuthAlert.qml` (z:250) has to be raised over whatever
-  that view is — and its button starts a flow whose progress dialog (z:260) would be invisible if it
-  still lived in a settings screen nobody was looking at. Both sit **below the screensaver** (z:300):
-  a dashboard that has gone to sleep should stay asleep for a prompt that will still be there on
-  waking. `alertVisible` is derived in C++ from three inputs — `needsReauth`, dismissed, and
-  `phase == "idle"` — so the prompt never stacks under the dialog. Dismissing is sticky until the
-  grant works again and then fails afresh (a dashboard nobody can re-authorize right now must stay
-  usable), and `begin()` counts as dismissing, so a failed flow does not re-raise the prompt the
-  moment its error is closed.
-- **`m_flowActive` fences late replies.** `cancel()` only set the phase, so a `SPOTIFY_AUTH_URL`
-  arriving afterwards flipped the phase back to `consent` and reopened the dialog for an abandoned
-  flow. The flag is set in `begin()`, cleared in `cancel()` and on `SPOTIFY_AUTH_RESULT`; the
-  `SPOTIFY_AUTH_STATUS` branch stays unfenced on purpose — that snapshot must always apply.
-
-> **Dead end, recorded so nobody repeats it.** Before the flow moved to the host browser, a lot of
-> work went into making the embedded `WebEngineView` look like a real browser: `GALLIUM_DRIVER`
-> for WebGL, `--disable-gpu-compositing` for rendering, and a `WebEngineProfile` whose UA and
-> `clientHints` were rewritten together (setting `httpUserAgent` alone leaves `Sec-CH-UA` reporting
-> Chromium's real version, so the old hardcoded `Chrome/131` against Chromium 140 advertised two
-> Chrome majors in one request — a *stronger* bot signal than not spoofing). All of it worked, and
-> **none of it got past Spotify's login gate.** The lesson is the RFC's, not a tuning one: an
-> embedded user-agent is not supposed to work, and no amount of fingerprint alignment changes that.
-
-**Spotify device identification** is `core/spotifydevice.{hh,cpp}`, the QML singleton
-**`SpotifyDevice`**, rendered by `items/settings/SpotifyDevicePopup.qml`. The *Tunnista laite*
-action row sits under *Tunnistaudu uudelleen* in the same card; the popup is a scrim + dialog
-**inside `SettingsView`**, not in `Main.qml` — unlike the re-auth prompt, which is app-level
-because a grant can die while any view is on screen, a device scan is only ever started from this
-screen. Three things are load-bearing:
-- **A scan costs a Spotify request every 2 s and silences the radio**, so it must not outlive the
-  screen. `SettingsView`'s `onIsCurrentChanged` cancels it when the view goes away, and
-  `connectedChanged` clears it (phase `error`) when the socket drops — otherwise the dialog spins
-  forever on a scan the backend destroyed with the old `StreamWriter`, with a stale device still
-  selectable.
-- **Two fences, not one.** `m_flowActive` answers "is a flow running at all"; the `scanId` epoch
-  (§5.2.8e) answers "does this packet belong to THIS flow". The epoch is incremented *before* the
-  first send, so a missing field parsing as 0 can never match a live scan.
-- **The button row's membership is constant** across a `hasDevice` transition, and the guide and
-  detail blocks share one container with a floor height. On a 10" touch panel a control that
-  changes position between reach and tap mis-routes the tap — here, onto *Peruuta*, which would
-  close the dialog and kill the scan. Same reasoning as `SettingAction.qml`'s arm-then-confirm.
-
-An `action` row whose key `Settings::invokeAction` does not handle itself now emits
-**`actionRequested(key)`**, which `SettingsView` routes — that is how the backend owns the Spotify
-exchange while the consent UI stays a view concern, with `Settings` knowing nothing about either.
-
-**In-place app updates** are `core/appupdate.{hh,cpp}`, the QML singleton **`Updater`**, rendered
-by `items/settings/UpdatePanel.qml` as the `status: "appUpdate"` widget of the *Päivitys*
-subsection — **first in the Ylläpito group**, which it gets for free because local subsections are
-folded in before backend ones. **This side runs no process**: the backend does the git work, the
-dependency sync and the rebuild (§5.2.9), and the singleton picks a channel, shows what comes back,
-and restarts the app when told. The whole `UPDATE_STATE` document is carried as an opaque
-`QVariantMap`, like `SystemStatus`'s, so a field added on the backend reaches the screen with no
-C++ change. Five things are load-bearing:
-- **`updateChannel` is a `hidden` schema entry** — a new per-setting key that keeps a setting out
-  of the RENDERED rows while it is stored, coerced, persisted and readable through
-  `Settings.values` / `valueOf()` exactly like any other. Filtered in `Settings::decorateSections`,
-  the rendering boundary, so the empty-subsection drop still counts correctly and nothing that
-  persists a value (all of which walks `m_localSchema`) is touched. It exists because the channel
-  decides what the verdict beneath it says — it has to come *first*, not in a row underneath — and
-  a two-way choice on a touch panel is a segmented control, not a dropdown.
-- **The restart is routed through a signal, not a call.** `restartRequested()` is connected in
-  `Main.qml` to `Settings.restartApp()` — the `actionRequested` idiom, and app-level for the
-  `SpotifyAuthAlert` reason: a rebuild takes minutes and the user is free to walk back to the
-  dashboard while it runs. It is fenced on the job's **`startedMs`**, because the job keeps being
-  broadcast after the flag is set and re-emitting would fire the restart repeatedly — and NOT on
-  the job id, which is a per-process counter that restarts at 1 with the backend and could
-  therefore repeat, silently swallowing a later job's restart.
-- **The screensaver and the panel blackout are both inhibited while `Updater.busy`**
-  (`ScreenSaver.inhibited`, and the `Display.enabled` Binding), and `items/settings/UpdateBanner.qml`
-  puts an *"Älä katkaise virtaa"* strip at z:270 over every view. An update runs for minutes with
-  nobody touching the panel, so without this the photo pile fades in over a live rebuild and the
-  backlight follows it off — a black screen mid-flash is precisely when a user reaches for the plug.
-- **`SettingAction` is disabled outright while a run is in flight.** Two of those buttons restart a
-  process; the backend vetoes that anyway, but a button that silently does nothing is worse than
-  one that visibly cannot be used.
-- **`UpdatePanel` indexes `Updater.state.channels` directly and there is no `channelInfo()`
-  invokable.** A `Q_INVOKABLE` registers no property dependency, so a binding built on one never
-  re-evaluates: the card froze on the state that existed when its Loader was constructed, while
-  the sibling bindings reading `Updater.state` kept refreshing — a live check time above a stale
-  version. The same trap as `Settings.valuesRevision`, solved by not reaching for an invokable.
-- **The build's commit is compiled in** (`FRONTEND_V2_BUILD_COMMIT`, resolved at CMake configure
-  time, which the build script runs every time — and scoped with
-  `set_source_files_properties` to the single file that reads it, because a target-wide
-  definition changes every translation unit's command line on every commit and would make each
-  update a full C++ rebuild on the Pi) and exposed as `Updater.buildCommit`. The
-  repository's HEAD and the running binary are different questions — between a checkout and the
-  app restarting they genuinely differ — so reporting HEAD as "the running version" would be a lie
-  exactly when it matters. `restartPending` derives the mismatch and the card says so.
-
-**Numeric settings default to `SettingNumber` — a `[−] [typed value] [+]` stepper — and
-> sliders are OPT-IN** via the schema's `editor: "slider"`. A slider only works when the exact
-> number does not matter; most settings here are the opposite. Dispatching on `type` alone
-> gave `backendPort` (1–65535) a slider whose 320px track is ~205 ports per pixel, and 13 of
-> the 18 numeric settings were similarly undraggable. Only four are genuine coarse dials and
-> carry the hint: `tripMaxSpeedKmh`, `graphBucketsPerPx`, `graphRenderMarginFrac`,
-> `screensaverStackCount`. **Rule of thumb: if the user knows the number they want, it is not
-> a slider.** `SettingNumber`'s ± buttons hold-to-repeat, and it accepts typing for big jumps.
-> `editor` is the general per-type control HINT, not a numeric one — `slider` and `folder` are its
-> two consumers today.
-
-> **`type: "action"` is a button, not a value.** `SettingAction.qml` renders it and calls
-> `Settings::invokeAction(key)`; nothing is stored, persisted or sent as `CONFIG_SET`. Keeping
-> actions in the schema is what lets the *Ylläpito* section — **restart the dashboard**,
-> **restart the backend** — be ordinary sidebar rows instead of a widget bolted onto the view.
-> Entries carry `actionLabel` and optionally `requiresConnection` (which greys the backend
-> restart while disconnected). Both need a **second tap to confirm** (armed for 4 s, then it
-> lapses) — a modal would need a Cancel button and a way to dismiss it, which a fullscreen
-> keyboard-less panel does not have.
->
-> **`Settings::restartApp()` quits with exit code 42**, the same non-zero code the backend
-> uses, so the README's `Restart=on-failure` frontend unit relaunches it. It calls
-> `QCoreApplication::exit()` rather than `os._exit`'s equivalent: unwinding `exec()` closes the
-> socket and flushes cleanly, and unlike the backend there is no journal-traceback problem to
-> avoid. On the embedded target this is the ONLY way to restart the dashboard — it runs
-> fullscreen with no keyboard — which is also why no bare "quit" is offered.
-
-Three write-rate / semantics rules matter:
-- the **slider commits on release**, not per frame (otherwise a drag rewrites the settings
-  file — or fires a `CONFIG_SET` the backend persists — dozens of times a second);
-- **text and number fields commit on `editingFinished`**, not per keystroke (otherwise every
-  prefix of a typed value gets sent and rejected);
-- a **nullable setting that is null renders as "—" / an empty field, not as its minimum**, and
-  can be cleared back to null. `electricityPriceEurPerKwh` null means "no flat tariff, show —"
-  in the Charging view, which is not the same as pricing energy at 0.000 €/kWh.
+In `frontend_v2`, `core/serverclient` reassembles frames and hands each packet to a per-domain C++
+data model or singleton that QML binds to, and user-tunable design tokens flow through
+`app/Theme.qml` — see `frontend_v2/CLAUDE.md`. The frozen `frontend/` routes packets through Qt
+Widgets datahandlers instead (`frontend/CLAUDE.md`).
 
 ## 6. Event flows
+
+Frontend class names in the telemetry, control and weather flows are the frozen `frontend/`'s; in
+`frontend_v2` the same packets land in the `core/` data models.
 
 **Live telemetry → UI**
 ```
@@ -1544,25 +320,16 @@ SpotifyPlayer poll → _update_state (under _state_lock) → device == target?
   throughout (the whole backend is asyncio).
 - **C++**: C++20; `.hh` headers / `.cpp` sources; `PascalCase` types, `camelCase` methods/members;
   Qt slot/signal naming (`onXxxUpdate`, `processXxx`).
-- **QSS**: scoped per widget in `frontend/resources/styles/`, selected by object name (`#ClimateController`).
-  Use the `:/resources/...` resource prefix (note the leading slash).
-- **UI language**: widget labels are **Finnish** (e.g. "Nopeus", "Akun Varaus", "Ilmastointi", "Sisä", "Ulko").
+- **QSS**: scoped per widget in `frontend/resources/styles/`, selected by object name
+  (`#ClimateController`). Use the `:/resources/...` resource prefix (note the leading slash).
+- **UI language**: widget labels are **Finnish** (e.g. "Nopeus", "Akun Varaus", "Ilmastointi",
+  "Sisä", "Ulko").
 - **Binary code**: always network byte order — `struct.pack("!...")` / `QDataStream::BigEndian`.
 - No committed formatter config — match the surrounding file.
 
 ### 7.2 Python docstrings
-Every class and function gets a triple-quoted docstring. Functions document each argument:
-```python
-def calculate_range(distance_miles: float, efficiency: float) -> float:
-    '''
-    Converts distance from miles to kilometers and applies efficiency factor.
-    Arguments:
-        distance_miles (float): Raw distance value from the Tesla API in miles
-        efficiency (float): Energy efficiency multiplier for the current drive mode
-    '''
-```
-Add inline comments only for non-obvious logic (protocol packing, formula eval, state-machine
-transitions, scheduling edge cases). Don't comment self-explanatory code.
+Every class and function gets a triple-quoted docstring documenting each argument — format and
+example in `backend/CLAUDE.md`.
 
 ### 7.3 Agent validation policy
 **The agent builds the frontend** — compile errors should surface in the session that caused them, not
@@ -1586,12 +353,7 @@ syntax warnings — blocking on that backlog would fire on untouched code, so th
 rather than blocking edits. The hook is a fast filter, not a substitute for the build.
 
 ### 7.4 Frontend logging
-- Format is byte-identical to the backend; stdout only, no files/rotation.
-- Each `.cpp` gets a file-local `static const Logger logger = Logger::get("<name>");`.
-- Threshold via `TESLA_HOMEDASH_LOG_LEVEL`; `Logger::install` is called twice from `main()`
-  (INFO first so `AppConfig`'s own logs land, then the configured level).
-- Outbound control commands → INFO; protocol problems (truncated/unknown/mismatched/socket) → WARNING;
-  per-packet telemetry trace → DEBUG. New paths follow that convention.
+Byte-identical to the backend's format, stdout only — conventions in `frontend_v2/CLAUDE.md`.
 
 ### 7.5 Other conventions (git / PR)
 - Commit subjects use short imperative prefixes: `Add:`, `Fix:`, `Update:`, `Remove:`, `Create:`.
@@ -1617,289 +379,38 @@ rather than blocking edits. The hook is a fast filter, not a substitute for the 
   automatically ask the user whether to also close that issue (and reference the issue number in the
   commit/PR). Don't close issues unprompted.
 
-### 7.6 Keeping this document current
-Update this `CLAUDE.md` whenever you change something it describes — a new telemetry field or command,
-a new/renamed service or widget, a protocol change, a build-command change, or a new load-bearing
-invariant. Treat the doc as part of the change, not an afterthought, and bump §7.7.
+### 7.6 Keeping these documents current
+Documentation is part of the change, not an afterthought. Update the `CLAUDE.md` **nearest the code
+you changed** — a service's own file for its invariants, `frontend_v2/core/CLAUDE.md` for a
+singleton, and so on — and this root file only for what is cross-cutting: project structure,
+build commands, the protocol overview, conventions, workflow. A new service or area with
+load-bearing details gets its own `CLAUDE.md` in its directory and a ★ in §2. A feature spanning
+directories is written up once, beside the file holding most of its facts, with pointers from the
+others.
+
+Keep this root file lean: it loads in every session, so detail that only matters inside one
+directory belongs in that directory, and nested files never repeat what is here. Describe the
+*current* behaviour and why it is that way; history belongs in commits, issues and PRs.
 
 ### 7.7 Documentation currency
-This guide is current as of the **Options-view feature build-out** on
-`feature/settings-options-view`, tracked as issues **#30–#41** (all but **#40**, host reboot,
-which is deliberately deferred).
-
-Landed in the latest pass: the **screensaver folder browser** — the *Kuvakansio* row no longer
-asks the user to type an absolute path. It is now a tappable path that opens a modal browser over
-the Options view: shortcut column (home, Pictures, each mounted removable volume by its own label),
-a tappable breadcrumb, a 56px-row directory list, and a live count of the images in the folder you
-are standing in. New `core/folderbrowser.{hh,cpp}` (the `Folders` singleton),
-`items/settings/SettingFolder.qml`, `items/settings/FolderPickerPopup.qml`, and one new schema key,
-`editor: "folder"` (§5.3.6). No protocol change and no backend change.
-
-**The design point: tapping anything only changes WHERE YOU ARE; the button at the bottom writes.**
-Nothing is ever "selected", so there is no tap-to-select vs. double-tap-to-open overload, and a leaf
-folder with no subdirectories — `DCIM/100CANON`, the usual case — is selectable at all, which a
-select-the-row design cannot manage. The confirm button's label and width are fixed for the same
-reason `SpotifyDevicePopup`'s are: a label naming the current folder would resize as the user
-navigates and slide *Peruuta* under a finger already reaching for it.
-
-One finding here outlives the feature: **a modal inside a view cannot out-`z` the dock**, because
-the dock is declared after the view host in `Main.qml`. A centred 690px card put its buttons
-squarely inside the dock's band (measured: dock y 684–780 against a button row at y 681–725), so
-the picker's card is top-anchored and sized to stop above it.
-
-**Removing the text field is what the deployment actually required, not a simplification.** The Pi
-runs fullscreen, and squeekboard does not draw over a fullscreen surface (labwc#2926) — so the
-field it replaces could be focused on the device but never typed into. The obvious objection, that
-a field is the escape hatch for folders the browser cannot reach, does not survive measurement:
-the only such folders contain `#`, `%` or `?`, and `ScreenSaver.qml` uses the same
-`FolderListModel`, so it could not PLAY them however the path was entered.
-
-Two pre-existing defects in the same feature were found by measuring rather than reading, and both
-are fixed here. **An empty `screensaverDir` did not disable the screensaver** — a `FolderListModel`
-with an empty `folder` at component completion falls back to the process's working directory and
-lists the images there — and **the lowercase-only `nameFilters` skipped every `DSC_0042.JPG`**,
-because `nameFilters` are case-sensitive by default (measured: 2 of 5 files matched, 4 with
-`caseSensitive: false`). A folder of camera photos played nothing, with the toggle on and the path
-correct.
-
-Landed in the preceding pass: **in-place app updates** — a *Päivitys* card at the top of the Options
-view's *Ylläpito* section that moves the installation between two channels, **Kehitys** (the tip of
-`origin/main`) and **Julkaisut** (the newest `v*` tag), and then does everything that has to follow:
-`uv sync --locked`, a frontend rebuild, and a restart of both halves. New protocol codes
-`0xD0`–`0xD3` (§5.1), new `update_service/update_service.py` (§5.2.9), new `core/appupdate.{hh,cpp}`
-+ `items/settings/UpdatePanel.qml` + `UpdateBanner.qml` (§5.3.6).
-
-Two findings from reviewing it are worth carrying past this feature. **A `Q_INVOKABLE` registers
-no property dependency**, so a QML binding built on one never re-evaluates — the update card froze
-on the state its Loader was constructed with while every sibling binding around it refreshed. And
-**a guard checked before an `await` is not a guard**: `Server` dispatches each packet as its own
-task, so two taps inside the ~1 s of git queries `handle_apply` performs both passed the
-"already running" test until the job was claimed synchronously.
-
-The design choice that shapes it: **the verdict is a COMMIT comparison, not a version-string
-compare** (`merge-base --is-ancestor` in both directions → up_to_date / update / downgrade /
-switch), which is what makes moving between channels work in either direction — going from
-development to releases normally reads *downgrade*, and that is an ordinary outcome rather than a
-special case.
-
-Five findings from building it are general, not local. **ld unlinks its output rather than
-truncating it**, so relinking a *running* executable succeeds and the live process keeps its old
-inode — measured, including not-yet-paged-in code faulting in fine afterwards; the `mv`-aside dance
-this design started with was solving a problem that does not exist (`cp` and shell redirection DO
-hit ETXTBSY; the linker is the exception). **`GIT_TERMINAL_PROMPT=0` does not stop git blocking on
-credentials** — it falls through to an askpass helper, and `GIT_ASKPASS` set to the *empty string*
-is the load-bearing variable. **A bare `uv sync` rewrites the tracked `uv.lock`**, which would have
-permanently wedged this feature's own dirty-tree refusal; `--locked` turns that into a loud failure.
-**`scripts/build-frontend.sh` could never have worked on the Pi**: it globbed only `gcc_64` (the ARM
-kit is `gcc_arm64`) and hard-coded `-G Ninja`, which the Pi's setup does not install — both fixed,
-and the README's systemd unit still launched the *frozen* `frontend/builddir/gui`, which is fixed
-too. And **`RestartSec=5` in the README's units is load-bearing**: at the default 100 ms a crash
-loop trips systemd's `StartLimitBurst=5`/`10s` in about two seconds and leaves the unit permanently
-`failed`, recoverable only over SSH.
-
-Two safety rules worth carrying forward. A target that does not itself contain the updater is
-**refused whatever the verdict says** — the only release tag today is such a commit, and moving a
-keyboard-less panel onto it would be a one-way trip. And **anything that fails after the checkout
-rolls the working tree back**, because a new source tree beside an old virtualenv is the one
-genuinely unrecoverable state here: the backend's unit re-syncs on every start, so the next restart
-fails, retries and fails again — taking the Options view with it. Deliberately deferred: job state
-is not persisted across a backend restart, so an update interrupted by a power cut is reported only
-by the journal, not by the card.
-
-Landed in the preceding pass: **Spotify device identification** — the Options view can now discover
-`spotifyDeviceId` instead of it being obtainable only by SSHing in to run `setup/spotify_setup.py`.
-A *Tunnista laite* row under the re-auth button opens a scrim dialog over the Options view; the
-user starts playback on the device they want, the backend polls `current_playback()` and shows the
-device (name, type, volume) beside the track (name, artists, album, cover), and *Valitse laite*
-writes the id. New protocol codes `0xA5`–`0xA9` (§5.1), new `media_service/spotify_device_service.py`
-(§5.2.8e) and `core/spotifydevice.{hh,cpp}` + `items/settings/SpotifyDevicePopup.qml` (§5.3.6).
-
-Two consequences worth knowing. **`spotifyDeviceId` is now a `SETTINGS_SCHEMA` entry** — the schema
-is the write allow-list, so there was no other legal way to persist it; that also makes it a visible
-(validated, non-empty) text row on the Spotify card, and it is why `handle_set`'s body was extracted
-into a shared `__write` behind the new public `ConfigService.apply_write()`. And
-**`SpotifyPlayer.apply_config()` now re-reads it**, contradicting the docstring that said it
-deliberately did not — without that the chosen device would only take effect after a restart.
-
-Four defects that adversarial review caught here are general lessons, not local ones: `Server`'s
-`__safe_write` **swallows** a dead-peer write, so a long-lived per-client task must check
-`writer.is_closing()` itself; `RadioPlayer.stop()` emits **no VLC event**, so any caller must
-re-stream the play state or the media card shows a pause icon over silence; a bare
-`asyncio.create_task` is held only **weakly** by the loop, so a fire-and-forget task needs a strong
-reference plus a done-callback or its exception vanishes; and a single boolean cannot fence *which*
-flow a late reply belongs to — hence the `scanId` epoch.
-
-Landed in the preceding pass: the **Spotify re-authorisation debug pass**. The consent flow
-dead-ended on the WSL2 dev box: WSL2 exposes the GPU as `/dev/dxg` with **no `/dev/dri`**, Mesa
-falls back to llvmpipe, Chromium ≥120 refuses a WebGL context on software GL, and Spotify's login
-gate — **Google reCAPTCHA Enterprise, not Cloudflare**, as the original build assumed throughout —
-cannot build a solvable challenge without one, so `challenge-orchestrator` answered 400 forever.
-Measured both ways in a `WebEngineView`: `webgl1:false` + `WebGL1 blocklisted` by default,
-`webgl1/webgl2:true` on `ANGLE (… D3D12 …)` with `GALLIUM_DRIVER=d3d12`. That alone then broke
-rendering instead — no `EGL_EXT_image_dma_buf_import` on the d3d12 driver, so a black panel — and
-needed `--disable-gpu-compositing` beside it; a seven-configuration matrix scored on *both* "does a
-solid-colour page actually paint" and "does WebGL work" picked that pair as the only one winning
-both. `scripts/build-frontend.sh` exports them under `--run` when it sees that host shape (inert on
-the Pi, which has `/dev/dri`). **The dead-end itself is a dev-box artifact**; four defects found
-alongside it are not. Backend: a failed cache write reported success (spotipy swallows the `OSError`
-and never `makedirs`), and the CSRF state check compared our own nonce with itself — both fixed in
-§5.2.8d, with `spotipy` now logging through the shared handlers at a pinned INFO. Frontend
-(§5.3.6): `cancel()` did not fence late replies (now `m_flowActive`).
-
-**Then the embedded browser was removed outright.** With WebGL, compositing and the UA/client-hint
-mismatch all fixed, the `WebEngineView` still could not pass Spotify's reCAPTCHA gate — while the
-same flow in a real browser succeeded on the first try (verified end to end: browser history shows
-`authorize` → `login/otp` → the callback landing on the loopback listener, and a live API call
-against the resulting grant). So `handle_get_url` now opens the page with `xdg-open` and catches the
-redirect on a one-shot `asyncio.start_server` (RFC 8252 §7.3), `0xA3` is retired, and
-**`Qt::WebEngineQuick` is gone from the build** — `ldd` confirms the binary links no WebEngine
-library, which is also why `README.md` lists **Qt 5 Compatibility** but no longer WebEngine. The
-popup is now a small progress dialog plus `DialogButton.qml`.
-
-That raised a question with a surprising answer: **`frontend_v2` had no fullscreen support at
-all** — `Main.qml` was a hard-locked 1280×800 window, `TESLA_HOMEDASH_FULLSCREEN` was read only by
-the frozen Widgets `frontend/`, and `build-frontend.sh --fullscreen` exported it to a binary that
-ignored it. So fullscreen is now a real local setting (§5.3.6) that releases the size lock, makes
-`--fullscreen` work, and steps back to windowed while a re-authorization runs so the browser and
-the on-screen keyboard stay reachable (labwc#2926). Deliberately deferred:
-`build_status()` still reports "authorized" from cache presence alone, so it stays green after the
-user revokes the app at spotify.com — that needs `SpotifyPlayer` to record its last auth failure.
-
-Landed two passes back: **host audio** (#37 — `audio_service/`, auto-detecting
-`pactl`/`wpctl`/`amixer`, two `config.json` keys and no new protocol code, carried by two generic
-`ConfigService` additions, `register_options` and `register_guard`); **Spotify re-authorisation**
-(#38 — `0xA0`–`0xA4`, the backend holding the secret and the frontend showing the consent page in
-the project's only `WebEngineView`, which aborts the redirect navigation so no loopback server is
-needed; plus the two latent hazards that fixed — a duplicated OAuth scope literal, and spotipy's
-interactive fallback that blocks the player's executor thread forever); the **maintenance
-dashboard** (#39 — `system_service/`, stdlib `/proc` metrics, duck-typed `health()` probes and an
-`ErrorCounter` log handler, served request/response so it costs nothing while unopened); and four
-settings-UX changes — scroll bars removed, a real font ramp on the subsection cards, schema-driven
-**`relevantWhen`** fading, and a restart banner that is now **derived from a startup baseline**
-(with the new `startedAt` schema field distinguishing a backend restart from a reconnect) so
-reverting a value clears it.
-
-**#35 was rebuilt in the same pass to respect the service boundary**: `wlopm` no longer runs from
-the frontend at all. The UI owns the idle countdown; `display_service` owns the process.
-
-Predecessor work in this series — the **Options-view regrouping**. The settings schema gained a **subsection level** (#30): groups →
-sections → settings in both halves, one card per subsection in the pane, and — the load-bearing
-part — `Settings::rebuildGroups()` now **merges the local and backend schemas by group id** instead
-of concatenating them, so one sidebar section holds subsections from both. On that, the settings
-were regrouped into six general sections (#31: Yleinen, Media, Datan visualisointi, Sähkö, Tesla,
-Ylläpito), with `config/settings.json` as the canonical section list (empty-`sections` placeholders
-place the backend-only ones). Also landed: the graph tunables reworked (#32 — `tripMaxSpeedKmh` and
-`graphMinZoomSpanMs` back to Theme literals, `graphBucketsPerPx` → `graphMaxPoints` with a
-*rajoittamaton* top stop that really disables decimation, plus a new `graphSensitivity` multiplier
-on pinch/wheel/drag); the screensaver photo folder as a live nullable setting (#33) with
-`AppConfig` no longer reading `TESLA_HOMEDASH_SCREENSAVER_DIR`; advisory `warnBelow`/`warnAbove`
-thresholds on numeric rows (#34); display power-down via `wlopm` (#35); the backend-address
-reachability probe (#36, which added the subsection `status` hook); and **both config files
-moved to `~/.config/Tesla-Homedash/`**
-(#41 — `backend_config.json` + `frontend_config.json`, `CONFIG_PATH` demoted to an override, the
-frontend migrating its old file once). Still open from that set: #37 system audio, #38 Spotify re-auth,
-#39 system status, #40 host reboot.
-
-Predecessor work — the **WSL2 development-environment migration**. Development moved from
-native Windows to WSL2 (Ubuntu 24.04), and §3.2 + §8 now document **both** flows side by side rather
-than Windows only — the Windows box still builds, so neither replaces the other. New on the Linux
-side: `scripts/build-frontend.sh` (the counterpart of `build-frontend.ps1`; kit from `--qt-prefix`,
-else `$QTDIR`, else newest `~/Qt/*/gcc_64`), `ccache` instead of `sccache` (the CMakeLists probes for
-either), and `~/Tesla-Homedash` as the main checkout. `.claude/hooks/check-edit.py` now finds
-`~/Qt/*/gcc_64/bin/qmllint` (`QT_SEARCH` replaces `QT_ROOTS`/`QT_GLOB`), so the QML half of the hook
-no longer silently no-ops off Windows — it still skips rather than blocks when no Qt kit exists, and
-`TESLA_HOMEDASH_QMLLINT` still wins. `.claude/settings.json` gained the Linux build invocations
-alongside the PowerShell ones. **There is no Linux port of `new-session.ps1` / `finish-session.ps1`**
-— use plain `git worktree` (§8). The full bootstrap guide is `docs/wsl-dev-environment.md`, corrected
-in the same pass from a real run: Qt needs the OpenGL **-dev** packages (`libgl1-mesa-dev`), not just
-`libgl1`, or `find_package` fails claiming the `Quick` component is missing when the real cause is
-the absent `libGL.so`; and `http://localhost:8086` in a Windows browser reaches a *Windows* InfluxDB
-if one exists, not WSL's.
-
-Predecessor work — the **settings / Options-view** work on `feature/settings-options-view`.
-The dashboard gained an **Asetukset** view (7th dock entry) that edits both frontend preferences
-and the backend's `config.json` tunables at runtime, driven by *schemas* rather than hand-laid
-rows — adding a tunable is one schema entry and no UI code.
-
-Backend: new `config_service/` (§5.2.8) with `SETTINGS_SCHEMA` (16 settings in 5 groups) as the
-write allow-list + UI description, served over new protocol codes `0x90`–`0x94` (§5.1).
-`Config` gained `set()` / `save()` — atomic write with a `config.json.bak` snapshot, and a
-`__init__` rollback to that backup when the live file fails to load, which is what keeps a
-restart-tier setting from restart-looping systemd. **The key discovery that shaped the design:
-no service re-reads `Config`** — every one snapshots its values in its constructor — so there
-is no "live" apply tier. Seven services gained **`apply_config()`** (`WeatherService`,
-`MyEnergiService`, `TripLoader`, `ChargingLoader`, `SpotPriceProvider`, `RadioPlayer`,
-`SpotifyPlayer`, the last two via `MediaManager`), and settings with no such path are marked
-restart-tier; a hook whose service is absent is honestly *downgraded* to restart. The restart
-button exits with code **42** (non-zero, so the README's `Restart=on-failure` suffices) via
-`os._exit` rather than `raise SystemExit`, which would print a spurious traceback.
-
-Frontend (`frontend_v2`): new `core/settings.{hh,cpp}` singleton (§5.3.6) fronting local +
-backend settings, `core/dotenv.{hh,cpp}` extracted from `appconfig.cpp` so both can read `.env`,
-`views/SettingsView.qml` as a **master/detail** screen (`SettingsSidebar` + `SettingsPane`,
-one sidebar section per schema group, sticky ID-based selection) with the `items/settings/`
-delegates (numeric settings render as a `[−] value [+]` stepper; sliders are opt-in via the
-schema's `editor: "slider"`, since only 4 of 18 numeric settings are coarse enough to drag;
-a `type: "action"` button powers the *Ylläpito* section, which restarts the dashboard itself
-with exit code 42 — the only way to do that on a fullscreen keyboard-less Pi), and
-`app/Theme.qml` converted into a
-**façade**: user-tunable tokens now bind to `Settings.values.*` while the ~236 existing
-`Theme.x` call sites across 38 files are untouched. `AppConfig` now takes a `const Settings*`
-and honours saved overrides for `backendHost`/`backendPort`/`screensaverTimeoutMin` over the
-environment (`schema default < env/.env < saved override`). `HistoryGraph`'s LOD tunables
-(`bucketsPerPx`, `settleMs`, `renderMarginFrac`, `minZoomSpanMs`) now default from Theme so
-they are tunable per device.
-
-Deliberately **out of scope**, tracked as **issue #29**: editing the `tesla data` /
-`calculated tesla data` tables (47 properties × 6 keys). Their `stream_id`/`category`/`unit`
-must stay in lockstep with the frontend registry and the `0x71` wire format, so only the
-display-only `log` and `line_mode` fields are safely editable — a separate sub-view, not a
-settings form.
-
-Predecessor work — the **agent-builds-the-frontend policy change** (§7.3): the agent now runs
-`scripts\build-frontend.ps1` itself after frontend changes instead of deferring every build to the
-user, so compile errors surface in the session that caused them. Backing that up, `.claude/settings.json`
-(committed) registers a `PostToolUse` hook on `Edit|Write` running `.claude/hooks/check-edit.py`,
-which byte-compiles `backend/src` on Python edits and runs `qmllint` on QML edits — the latter gated to
-`[syntax]`/`Error:` only, because `frontend_v2` carries ~750 pre-existing style diagnostics but zero
-syntax warnings. Note for future edits: `QT_QML_GENERATE_QMLLS_INI` is **deprecated
-since Qt 6.10** ("no replacement needed") — don't add it to `frontend_v2/CMakeLists.txt`.
-Predecessor work — the **weather-service hang fix**: `WeatherService` had deadlocked on the
-Pi for 16 days. `fmiopendata`'s fetch helper calls `requests.get()` with no timeout, so a stalled
-FMI response parked an executor thread forever, and APScheduler's default `max_instances=1`
-then refused every later tick. Fixed in three layers inside `backend/src`: the FMI GET is now
-issued directly with aiohttp + `_FMI_TIMEOUT` and parsed with fmiopendata's own `MultiPoint`
-(`__download_stored_query` / `__fetch_and_parse`) under an `asyncio.wait_for` deadline; the
-refresh job gained `max_instances=2` / `misfire_grace_time=300` / `coalesce=True` and is now
-scheduled *before* the initial fetch; and a cycle yielding no future forecast hours returns
-without broadcasting or caching (see §5.2.4's invariants). Also `configure_logging` is env-driven
-via `TESLA_HOMEDASH_LOG_LEVEL`, defaulting to **INFO**.
-Predecessor work — the **per-property graph line mode** (issue #20, PR #23, merged `50500f6`):
-a per-property `line_mode` (`step` default / `linear`) sourced from `config.json` metadata,
-threaded through `VehicleDataProperty.get_line_mode()` and serialized as a **4th** per-property
-field on `TESLA_GRAPH_PROPERTIES` `0x71`; `HistoryGraph.buildStepped()`/`valueAt()` branch on it.
-`GpsHeading` was flipped to `log: false`.
-Predecessor work — the **spot-price cost** (issue #12; `SpotPriceProvider` + `SpotPriceService`,
-`SPOT_PRICE_STREAM` `0x88`, per-hour spot-valued Charging costs, `CHARGING_SUMMARY` `0x83` = 11
-doubles), the **charging-stats** backend (`966a04a`; `CHARGER_STREAM` `0x50`, `CHARGING_*` /
-`CHARGER_HISTORY` `0x80`–`0x87`, per-session energy = **sum of positive `ChargeAdded`
-increments**), and the History **empty-window boundary-fill** (`1184b60`/`cc11bb8`) — still applies.
-When you land changes that touch behaviour documented here, update this line to the new HEAD commit.
+Current as of the **map-tuning pass** on `feature/settings-options-view` (the Options-view series,
+issues #30–#41, with #40 host reboot deferred) and the split of this guide into per-directory
+`CLAUDE.md` files. When you land a change that touches documented behaviour, update this line.
 
 ## 8. Session workflow — main checkout by default, worktree only for parallelism
 
-The default is to **work in the main checkout** (`P:\Tesla-Homedash` on Windows,
-`~/Tesla-Homedash` on WSL2). An isolated git worktree is
-only worth its setup cost when you genuinely need **two sessions running at the same time** — reach
-for one *only then*. Most sessions are sequential and stay in the main checkout with a warm build
-dir and incremental builds. Pure Q&A / exploration that changes no files needs neither.
+The default is to **work in the main checkout** (`P:\Tesla-Homedash` on Windows, `~/Tesla-Homedash`
+on WSL2). An isolated git worktree is only worth its setup cost when you genuinely need **two
+sessions running at the same time** — reach for one *only then*. Most sessions are sequential and
+stay in the main checkout with a warm build dir and incremental builds. Pure Q&A / exploration that
+changes no files needs neither.
 
 **Backend — run one, shared.** The frontend connects to whatever backend is on `127.0.0.1:6969`
 (`TESLA_HOMEDASH_BACKEND_HOST` / `_PORT` default there), and port 6969 is fixed so only **one**
 backend can run at a time. Start it **once** (from the main checkout: `cd backend; uv run python
-run.py` — identical on both platforms) and leave it — every frontend, in any checkout, connects to it. Do **not** start a backend
-per session. Only a session that actually edits backend code runs its own, and it stops the shared
-one first.
+run.py` — identical on both platforms) and leave it — every frontend, in any checkout, connects to
+it. Do **not** start a backend per session. Only a session that actually edits backend code runs its
+own, and it stops the shared one first.
 
 **Frontend — build from the CLI, no Qt Creator needed.** Build + run `frontend_v2` with the script
 for your platform; both configure + build `appfrontend_v2` into `frontend_v2/build` and work from
@@ -1924,11 +435,11 @@ runs the built binary.)
 **When you *do* need a parallel session (worktree).**
 1. Ask the user **(a) what we're doing** and **(b) a short name**; choose the branch **type**
    (`feature` / `fix` / `chore` / `docs` / `refactor` / `test` / `perf`).
-2. **Windows:** `powershell -ExecutionPolicy Bypass -File scripts\new-session.ps1 -Type <type> -Name "<name>"`
-   — **there is no Linux port of the session scripts**; on WSL2 use plain
-   `git worktree add ../Tesla-Homedash-worktrees/<type>-<slug> -b <type>/<slug> origin/main`, then
-   copy `.env` + `config.json` in by hand and repoint `CONFIG_PATH` at the copy.
-   — makes branch `<type>/<slug>` off the freshest `origin/main`, adds a worktree under
+2. **Windows:** `powershell -ExecutionPolicy Bypass -File scripts\new-session.ps1 -Type <type> -Name
+   "<name>"` — **there is no Linux port of the session scripts**; on WSL2 use plain `git worktree
+   add ../Tesla-Homedash-worktrees/<type>-<slug> -b <type>/<slug> origin/main`, then copy `.env` +
+   `config.json` in by hand and repoint `CONFIG_PATH` at the copy. — makes branch `<type>/<slug>`
+   off the freshest `origin/main`, adds a worktree under
    `..\Tesla-Homedash-worktrees\<type>-<slug>`, copies the gitignored `.env` + `config.json` in, and
    repoints `CONFIG_PATH` at the worktree's copy. Final stdout line: `WORKTREE_PATH=<path>`.
 3. Switch in with the **`EnterWorktree`** tool (`path:` = that `WORKTREE_PATH`). Build there with
