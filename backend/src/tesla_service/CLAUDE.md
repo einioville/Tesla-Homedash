@@ -42,3 +42,18 @@
   derives `calculation_formula(x=baseline, y=latest)`; the baseline is read from InfluxDB at period
   start (falls back to the live value), reset by an APScheduler cron job. **Talks to:** `Vehicle`
   (which owns Influx access).
+- **`property_editor.py`** (`TeslaPropertyEditor`, issue #29) serves the Options view's
+  *Telemetriakentät* card over `TESLA_GET_PROPERTY_TABLE` / `TESLA_SET_PROPERTY` (`0x63`–`0x66`).
+  **Only `log`, `line_mode` and `zero_based` are editable** — every other key of a `tesla data`
+  entry is mirrored by the frontend's generated registry or the Teslemetry field names, and adding
+  or removing a field stays a code change on both sides. A change goes through `Config.set` +
+  `save` (the same `.bak` + atomic replace as a settings write; a failed save rolls the in-memory
+  value back) and then onto the live `VehicleDataProperty` via its setters, so it applies from the
+  next telemetry update with no restart (`log` is read per update). Each toggle is one write — the
+  user flips one at a time — so no batched write was needed. **`_REQUIRED_LOGGED` refuses turning
+  `log` OFF** for fields whose stored history another view reads back (Trips: `Gear`, `Location`,
+  `VehicleSpeed`, `Odometer`; Charging: the energy/SoC/state fields; plus every calculated field's
+  source): switching them off would silently starve that view. **Keep it in step with the readers**
+  in `trip_service/` and `charging_service/`. The table is broadcast after an accepted change so
+  every open card shows the truth; `numeric` is `null` until a field has streamed, because
+  `value_type` is inferred lazily. **Talks to:** `Config` (set/save), `Vehicle`, `Server`.

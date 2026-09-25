@@ -75,6 +75,8 @@ qt_add_executable(appfrontend_v2
     core/tesla/tesladata.cpp
     core/tesla/teslahistory.hh
     core/tesla/teslahistory.cpp
+    core/tesla/teslafieldeditor.hh
+    core/tesla/teslafieldeditor.cpp
     core/trip/tripsdata.hh
     core/trip/tripsdata.cpp
     core/charging/chargingdata.hh
@@ -121,6 +123,7 @@ qt_add_qml_module(appfrontend_v2
         items/settings/SettingsPane.qml
         items/settings/BackendProbeStatus.qml
         items/settings/ScreenPowerStatus.qml
+        items/settings/TeslaFieldTable.qml
         items/settings/SystemStatusPanel.qml
         items/settings/UpdatePanel.qml
         items/settings/UpdateBanner.qml

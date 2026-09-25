@@ -123,6 +123,18 @@ visibility — so a settings screen nobody has opened costs nothing on either si
 handled as an opaque `QVariantMap` on purpose: it is a dashboard, not a contract, and adding a
 metric on the backend should not need a C++ change to display it.
 
+## `TeslaFields` — `tesla/teslafieldeditor.{hh,cpp}`
+
+**The telemetry-field table** (issue #29) is `core/tesla/teslafieldeditor.{hh,cpp}`, the QML
+singleton **`TeslaFields`**, rendered by `items/settings/TeslaFieldTable.qml` as the
+`status: "teslaProperties"` widget of the backend's *Tesla → Telemetriakentät* subsection (a
+settings-free subsection, so it exists only while the backend is connected). **It holds no copy it
+edits**: `setField()` sends `TESLA_SET_PROPERTY` and the rows re-render from the table the backend
+broadcasts after an accepted change, so two open panels can never disagree. A refusal comes back as
+`lastError` — the backend names the view that needs a field's history. The table is requested when
+the card is built and again on reconnect once it has been asked for. Backend side:
+`backend/src/tesla_service/CLAUDE.md`.
+
 ## `SpotifyAuth` — `spotifyauth.{hh,cpp}`
 
 **Spotify re-authorisation** (issue #38) is `core/spotifyauth.{hh,cpp}`, the QML singleton

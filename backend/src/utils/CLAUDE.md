@@ -43,6 +43,10 @@ Framing, byte order and the Tesla stream value types are in the root `CLAUDE.md`
 | `0x60` | TESLA_SWITCH_CLIMATE | F→B | (empty) |
 | `0x61` | TESLA_MINUS_TEMP | F→B | (empty) |
 | `0x62` | TESLA_PLUS_TEMP | F→B | (empty) |
+| `0x63` | TESLA_GET_PROPERTY_TABLE | F→B | (empty) — the Options view's telemetry-field table (#29) |
+| `0x64` | TESLA_PROPERTY_TABLE | B→F | `status(1B) + len(4B) + JSON` — `{properties: [{id, category, unit, log, line_mode, zero_based, numeric, requiredBy}]}`; to the requester, and **broadcast** after an accepted change |
+| `0x65` | TESLA_SET_PROPERTY | F→B | `len(4B) + JSON` — `{id, field, value}`; `field` ∈ `log`/`line_mode`/`zero_based` |
+| `0x66` | TESLA_SET_PROPERTY_RESULT | B→F | `status(1B) + len(4B) + JSON` — `{ok, id, field, value, message}`; to the requester only |
 | `0x70` | TESLA_GET_GRAPH_PROPERTIES | F→B | (empty) |
 | `0x71` | TESLA_GRAPH_PROPERTIES | B→F | `count(2B)` + per property `id_len(2B)+id + unit_len(2B)+unit + cat_len(2B)+category + mode_len(2B)+line_mode` (UTF-8) `+ zero_based(1B)`; `line_mode` = `step`/`linear` graph render hint, `zero_based` = 1 pins the graph's y-axis bottom to 0 |
 | `0x72` | TESLA_GET_HISTORY | F→B | `range_code(1B)` (0=1h,1=1d,2=1M,3=custom,4=1week) + `id_len(2B)+id` + `start_ms(8B)` + `end_ms(8B)` |

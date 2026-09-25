@@ -481,6 +481,18 @@ SETTINGS_SCHEMA: list[dict] = [
                     },
                 ],
             },
+            {
+                # The per-field flags of config.json's `tesla data` (issue #29).
+                # Not settings: a table with its own delegate family, served by
+                # tesla_service/property_editor.py over TESLA_*_PROPERTY codes,
+                # so the subsection is nothing but its status widget.
+                "id": "telemetryFields",
+                "label": "Telemetriakentät",
+                "help": "Mitkä kentät tallennetaan historiaan ja miten ne piirretään "
+                        "Historia-näkymän graafiin.",
+                "status": "teslaProperties",
+                "settings": [],
+            },
         ],
     },
 ]

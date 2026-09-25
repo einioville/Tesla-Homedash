@@ -260,6 +260,7 @@ Item {
                                         case "spotifyAuth": return spotifyComponent
                                         case "appUpdate": return updateComponent
                                         case "screenPower": return screenPowerComponent
+                                        case "teslaProperties": return teslaFieldsComponent
                                         default: return null
                                         }
                                     }
@@ -306,6 +307,7 @@ Item {
     Component { id: spotifyComponent; SpotifyAuthStatus {} }
     Component { id: updateComponent; UpdatePanel {} }
     Component { id: screenPowerComponent; ScreenPowerStatus {} }
+    Component { id: teslaFieldsComponent; TeslaFieldTable {} }
 
     // Shown before the first schema arrives (and if one never does).
     Text {

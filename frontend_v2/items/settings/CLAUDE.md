@@ -13,6 +13,7 @@ behind several of these files are documented in `../../core/CLAUDE.md`:
 | `SpotifyDevicePopup.qml` | `SpotifyDevice` |
 | `UpdatePanel.qml`, `UpdateBanner.qml` | `Updater` |
 | `ScreenPowerStatus.qml` | `Display` |
+| `TeslaFieldTable.qml` | `TeslaFields` |
 | everything else | `Settings` |
 
 ## Layout
@@ -117,7 +118,8 @@ slide-in, well after focus moved.
 
 The hook is a **subsection-level `status` key**: a subsection may name a runtime status widget,
 which `SettingsPane` renders in the card via a `Loader` above the rows, resolving the name against a
-small component table (`backendProbe`, `systemStatus`, `spotifyAuth`, `appUpdate`, `screenPower`). `active:` gates construction,
+small component table (`backendProbe`, `systemStatus`, `spotifyAuth`, `appUpdate`, `screenPower`,
+`teslaProperties`). `active:` gates construction,
 which is what keeps the probe from firing for a card that did not ask
 for it. A subsection carrying a `status` but **no settings** is legitimate and is exempted from the
 empty-section filter: the system-status card is entirely a status widget. It exists because not

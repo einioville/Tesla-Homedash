@@ -113,7 +113,9 @@ Parsed once by `Config` and injected into every service. Keys:
 > `Config.__init__` rolls back to that `.bak` if the live file fails to parse or validate — which is
 > what stops a restart-tier setting from restart-looping systemd. The structural parts (`tesla
 > data`, `calculated tesla data`, `radioMediaIds`) are deliberately NOT in the schema: the frontend
-> registry mirrors them, so editing them at runtime would desync the two halves (that's issue #29).
+> registry mirrors them, so editing them at runtime would desync the two halves. The one exception
+> is the display/logging flags of `tesla data` (`log`, `line_mode`, `zero_based`), which the
+> Telemetriakentät card edits through its own codes (`src/tesla_service/CLAUDE.md`, issue #29).
 
 ## Python docstrings
 

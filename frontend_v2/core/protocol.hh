@@ -52,6 +52,13 @@ inline constexpr quint8 TESLA_SWITCH_CLIMATE_STATE = 0x60;
 inline constexpr quint8 TESLA_MINUS_TARGET_TEMP = 0x61;
 inline constexpr quint8 TESLA_PLUS_TARGET_TEMP = 0x62;
 
+// The Options view's telemetry-field table (issue #29). JSON bodies; status bytes
+// are CONFIG_STATUS_*. Keep in lockstep with protocol.py.
+inline constexpr quint8 TESLA_GET_PROPERTY_TABLE = 0x63;    // F->B: (empty)
+inline constexpr quint8 TESLA_PROPERTY_TABLE = 0x64;        // B->F: status(1B) + len(4B) + JSON {properties}
+inline constexpr quint8 TESLA_SET_PROPERTY = 0x65;          // F->B: len(4B) + JSON {id, field, value}
+inline constexpr quint8 TESLA_SET_PROPERTY_RESULT = 0x66;   // B->F: status(1B) + len(4B) + JSON {ok, id, field, value, message}
+
 // History request/response (the History view). A request/response pair: the
 // backend replies to this client only (not a broadcast). Keep in lockstep with
 // protocol.py.

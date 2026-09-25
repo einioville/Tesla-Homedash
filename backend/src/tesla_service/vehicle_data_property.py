@@ -334,6 +334,34 @@ class VehicleDataProperty:
         async with self._async_lock:
             return self.__zero_based
 
+    async def set_logging(self, log: bool) -> None:
+        '''
+        Turns InfluxDB logging on or off from the next update on (issue #29).
+        Read per update, so nothing else has to be told.
+        Arguments:
+            log (bool): Whether this field is written to InfluxDB.
+        '''
+        async with self._async_lock:
+            self.__log = bool(log)
+
+    async def set_line_mode(self, line_mode: str) -> None:
+        '''
+        Changes the History-graph render hint (issue #29).
+        Arguments:
+            line_mode (str): "step" or "linear".
+        '''
+        async with self._async_lock:
+            self.__line_mode = line_mode
+
+    async def set_zero_based(self, zero_based: bool) -> None:
+        '''
+        Changes whether the History graph pins its y-axis to 0 (issue #29).
+        Arguments:
+            zero_based (bool): Pin the axis bottom to 0.
+        '''
+        async with self._async_lock:
+            self.__zero_based = bool(zero_based)
+
     async def get_logging(self):
         async with self._async_lock:
             return self.__log

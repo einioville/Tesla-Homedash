@@ -18,6 +18,7 @@ from .myenergi_service.myenergi_service import MyEnergiService
 from .server.server import Server
 from .system_service.system_status_service import SystemStatusService
 from .update_service.update_service import UpdateService
+from .tesla_service.property_editor import TeslaPropertyEditor
 from .tesla_service.telemetry import TelemetryHandler
 from .tesla_service.vehicle import Vehicle
 from .trip_service.trip_loader import TripLoader
@@ -905,6 +906,11 @@ async def main():
     system_status.register_probe("update", "Versio", updater.health)
     logger.debug("Update service initialized")
 
+    # The Options view's telemetry-field table: log / line_mode / zero_based per
+    # `tesla data` field, written to config.json and applied to the live vehicle.
+    # Request/response only, so it is not in the services list below.
+    property_editor = TeslaPropertyEditor(config=config, vehicle=vehicle, server=server)
+
     # Wire incoming-message dispatch and on-connect snapshot before start().
     _register_handlers(
         server, mm, vehicle, trip_loader, charging_loader, config, config_service
@@ -918,6 +924,8 @@ async def main():
     server.register_handler(protocol.UPDATE_GET_STATE, updater.handle_get_state)
     server.register_handler(protocol.UPDATE_APPLY, updater.handle_apply)
     server.register_handler(protocol.UPDATE_CANCEL, updater.handle_cancel)
+    server.register_handler(protocol.TESLA_GET_PROPERTY_TABLE, property_editor.handle_get)
+    server.register_handler(protocol.TESLA_SET_PROPERTY, property_editor.handle_set)
     services = [vehicle, mm, weather, spot_price_service, config_service, display,
                 spotify_auth, updater]
     if myenergi is not None:

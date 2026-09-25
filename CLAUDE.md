@@ -50,6 +50,7 @@ backend/                          # ★ orchestration, service contracts, .env +
       telemetry.py                # Teslemetry stream client (teslemetry_stream) → Vehicle.on_telemetry_event
       vehicle.py                  # Vehicle state, telemetry handler, HVAC REST commands, rate limiting, snapshots
       vehicle_data_property.py    # VehicleDataProperty / CalculatedVehicleDataProperty — value store, formula eval, serialize
+      property_editor.py          # The Options view's telemetry-field table: log / line_mode / zero_based (0x63-0x66)
     media_service/                # ★
       base_media_player.py        # Abstract player interface
       media_manager.py            # Orchestrator — owns both players, routes controls, gates streaming to the active one

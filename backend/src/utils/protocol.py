@@ -45,6 +45,17 @@ TESLA_SWITCH_CLIMATE_STATE = 0x60
 TESLA_MINUS_TARGET_TEMP = 0x61
 TESLA_PLUS_TARGET_TEMP = 0x62
 
+# The Options view's telemetry-field table (issue #29): the per-field flags in
+# config.json's `tesla data` that are safe to change at runtime — log, line_mode,
+# zero_based. Everything else in that table is mirrored by the frontend registry
+# and stays read-only. Status bytes are CONFIG_STATUS_*.
+TESLA_GET_PROPERTY_TABLE = 0x63    # F->B: (empty)
+TESLA_PROPERTY_TABLE = 0x64        # B->F: status(1B) + len(4B) + UTF-8 JSON {"properties": [...]};
+                                   #       to the requester, and broadcast after an accepted change
+TESLA_SET_PROPERTY = 0x65          # F->B: len(4B) + UTF-8 JSON {"id", "field", "value"}
+TESLA_SET_PROPERTY_RESULT = 0x66   # B->F: status(1B) + len(4B) + UTF-8 JSON
+                                   #       {"ok", "id", "field", "value", "message"}
+
 # Historical-data request/response (the History view). Unlike the fire-and-forget
 # command bytes above, these are a request/response pair: the backend replies to
 # the requesting client only (server.send_to), never a broadcast.

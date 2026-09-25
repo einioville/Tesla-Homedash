@@ -23,6 +23,7 @@
 #include "core/spotifydevice.hh"
 #include "core/systemstatus.hh"
 #include "core/tesla/tesladata.hh"
+#include "core/tesla/teslafieldeditor.hh"
 #include "core/tesla/teslahistory.hh"
 #include "core/trip/tripsdata.hh"
 #include "core/weather/weatherdata.hh"
@@ -127,6 +128,10 @@ int main(int argc, char* argv[]) {
     // itself when told so the binary that was just replaced is the one running.
     AppUpdate appUpdate;
     appUpdate.attachServer(&serverClient);
+    // The Options view's telemetry-field table: which fields are saved to history
+    // and how the History graph draws them, edited in the backend's config.json.
+    TeslaFieldEditor teslaFields;
+    teslaFields.attachServer(&serverClient);
     QObject::connect(&idleWatcher, &IdleWatcher::activity, &screenPower,
                      &ScreenPower::onActivity);
 
@@ -160,6 +165,7 @@ int main(int argc, char* argv[]) {
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "SpotifyAuth", &spotifyAuth);
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "SpotifyDevice", &spotifyDevice);
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "Updater", &appUpdate);
+    qmlRegisterSingletonInstance("frontend_v2", 1, 0, "TeslaFields", &teslaFields);
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "Settings", &settings);
 
     QObject::connect(

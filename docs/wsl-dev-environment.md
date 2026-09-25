@@ -640,6 +640,4 @@ git checkout feature/settings-options-view
 
 What is outstanding on it: the Options view **compiles but has never been runtime
 verified** — it has not been exercised against a live backend. Work through §11 step 6
-first, then per CLAUDE.md §7.5 commit and open the PR. Related deferred work is tracked
-as **issue #29** (editing the `tesla data` / `calculated tesla data` tables, which must
-stay in lockstep with the frontend registry and the `0x71` wire format).
+first, then per CLAUDE.md §7.5 commit and open the PR.
