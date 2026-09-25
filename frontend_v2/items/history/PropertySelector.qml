@@ -29,6 +29,8 @@ TripComboBox {
     // How the graph connects this property's readings: "step" (hold, default) or "linear"
     // (point-to-point). Sourced from config.json metadata via History.properties.
     readonly property string selectedLineMode: currentEntry ? (currentEntry.line_mode || "step") : "step"
+    // Whether the graph pins its y-axis bottom to 0 (config.json `zero_based`).
+    readonly property bool selectedZeroBased: currentEntry ? currentEntry.zero_based === true : false
 
     signal propertySelected(string id)
 

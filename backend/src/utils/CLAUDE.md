@@ -44,7 +44,7 @@ Framing, byte order and the Tesla stream value types are in the root `CLAUDE.md`
 | `0x61` | TESLA_MINUS_TEMP | F→B | (empty) |
 | `0x62` | TESLA_PLUS_TEMP | F→B | (empty) |
 | `0x70` | TESLA_GET_GRAPH_PROPERTIES | F→B | (empty) |
-| `0x71` | TESLA_GRAPH_PROPERTIES | B→F | `count(2B)` + per property `id_len(2B)+id + unit_len(2B)+unit + cat_len(2B)+category + mode_len(2B)+line_mode` (UTF-8); `line_mode` = `step`/`linear` graph render hint |
+| `0x71` | TESLA_GRAPH_PROPERTIES | B→F | `count(2B)` + per property `id_len(2B)+id + unit_len(2B)+unit + cat_len(2B)+category + mode_len(2B)+line_mode` (UTF-8) `+ zero_based(1B)`; `line_mode` = `step`/`linear` graph render hint, `zero_based` = 1 pins the graph's y-axis bottom to 0 |
 | `0x72` | TESLA_GET_HISTORY | F→B | `range_code(1B)` (0=1h,1=1d,2=1M,3=custom,4=1week) + `id_len(2B)+id` + `start_ms(8B)` + `end_ms(8B)` |
 | `0x73` | TESLA_HISTORY | B→F | `id_len(2B)+id` + `status(1B)` + `count(4B)` + count×(`ts_ms(8B)` + `value(8B double)`) |
 | `0x50` | CHARGER_STREAM | B→F | myenergi charger live state: repeated `sub_id(1B) + value` (see charger sub-ids below) |

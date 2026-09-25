@@ -75,7 +75,14 @@ Parsed once by `Config` and injected into every service. Keys:
   default when absent; right for sampled/held signals like `VehicleSpeed` or setpoints) or
   `"linear"` (straight point-to-point line; right for accumulators / continuous quantities like
   `Odometer`, the energy counters, `OutsideTemp`). Display-only hint handed to the frontend over
-  `TESLA_GRAPH_PROPERTIES`. A field is graphable (appears in the History dropdown) only if
+  `TESLA_GRAPH_PROPERTIES`. Optional `zero_based` (bool, issue #42) — the History graph pins its
+  y-axis bottom to 0 and pads only the top, for a field that cannot go negative (speed, power,
+  battery level/range, session energy); a fitted axis would show impossible values and blow a
+  2-point drift up to full height. Leave it off for signed fields (`OutsideTemp`) **and for the
+  lifetime counters** (`Odometer`, `LifetimeEnergyUsed`), whose month of change is too small
+  against their size to see from zero. Data that dips below 0 anyway falls back to the ordinary
+  fit. Absent → false, so an existing `config.json` keeps today's axes until the key is added.
+  A field is graphable (appears in the History dropdown) only if
   `log: true` **and** numeric — set `log: false` to keep a numeric field off the graph (e.g.
   `GpsHeading`, which wraps 0↔360 and isn't worth graphing).
 - `calculated tesla data` — derived fields (`DrivenToday`, `DrivenThisMonth`): adds

@@ -6,7 +6,8 @@
             "log": true,
             "formula": null,
             "stream_id": 0,
-            "sleep_default": 0
+            "sleep_default": 0,
+            "zero_based": true
         },
         "BatteryLevel": {
             "category": "Charging",
@@ -14,7 +15,8 @@
             "log": true,
             "formula": null,
             "stream_id": 1,
-            "line_mode": "linear"
+            "line_mode": "linear",
+            "zero_based": true
         },
         "BmsFullchargecomplete": {
             "category": "Charging",
@@ -29,7 +31,8 @@
             "log": true,
             "formula": null,
             "stream_id": 3,
-            "sleep_default": 0
+            "sleep_default": 0,
+            "zero_based": true
         },
         "BMSState": {
             "category": "Charging",
@@ -51,7 +54,8 @@
             "log": true,
             "formula": "x * 1.609344",
             "stream_id": 6,
-            "sleep_default": 0
+            "sleep_default": 0,
+            "zero_based": true
         },
         "ChargerPhases": {
             "category": "Charging",
@@ -65,7 +69,8 @@
             "unit": "V",
             "log": true,
             "formula": null,
-            "stream_id": 8
+            "stream_id": 8,
+            "zero_based": true
         },
         "DetailedChargeState": {
             "category": "Charging",
@@ -88,7 +93,8 @@
             "log": true,
             "formula": null,
             "stream_id": 11,
-            "line_mode": "linear"
+            "line_mode": "linear",
+            "zero_based": true
         },
         "EstimatedHoursToChargeTermination": {
             "category": "Charging",
@@ -179,7 +185,8 @@
             "log": true,
             "formula": "x * 1.609344",
             "stream_id": 23,
-            "line_mode": "linear"
+            "line_mode": "linear",
+            "zero_based": true
         },
         "TimeToFullCharge": {
             "category": "Charging",
@@ -195,7 +202,8 @@
             "log": true,
             "formula": "x * 1.609344",
             "stream_id": 25,
-            "sleep_default": 0
+            "sleep_default": 0,
+            "zero_based": true
         },
         "VehicleOnline": {
             "category": "Vehicle state",
@@ -336,7 +344,8 @@
             "log": true,
             "formula": "x * 1.609344",
             "stream_id": 45,
-            "line_mode": "linear"
+            "line_mode": "linear",
+            "zero_based": true
         },
         "ACChargingEnergyIn": {
             "category": "Charging",
@@ -344,7 +353,8 @@
             "log": true,
             "formula": null,
             "stream_id": 46,
-            "line_mode": "linear"
+            "line_mode": "linear",
+            "zero_based": true
         },
         "DCChargingEnergyIn": {
             "category": "Charging",
@@ -352,7 +362,8 @@
             "log": true,
             "formula": null,
             "stream_id": 47,
-            "line_mode": "linear"
+            "line_mode": "linear",
+            "zero_based": true
         }
     },
     "calculated tesla data": {

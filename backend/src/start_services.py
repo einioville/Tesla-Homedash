@@ -404,6 +404,7 @@ def _register_handlers(
             ):
                 encoded = field.encode("utf-8")
                 body += struct.pack("!H", len(encoded)) + encoded
+            body += struct.pack("!B", 1 if entry["zero_based"] else 0)
         await server.send_to(
             writer, protocol.frame(protocol.TESLA_GRAPH_PROPERTIES, body)
         )

@@ -56,7 +56,7 @@ inline constexpr quint8 TESLA_PLUS_TARGET_TEMP = 0x62;
 // backend replies to this client only (not a broadcast). Keep in lockstep with
 // protocol.py.
 inline constexpr quint8 TESLA_GET_GRAPH_PROPERTIES = 0x70;  // F->B: request graphable-property list (empty)
-inline constexpr quint8 TESLA_GRAPH_PROPERTIES = 0x71;      // B->F: count(2B) + per property id/unit/category (len(2B)+UTF-8)
+inline constexpr quint8 TESLA_GRAPH_PROPERTIES = 0x71;      // B->F: count(2B) + per property id/unit/category/line_mode (len(2B)+UTF-8) + zero_based(1B)
 inline constexpr quint8 TESLA_GET_HISTORY = 0x72;           // F->B: range_code(1B) + id(len(2B)+UTF-8) + start_ms(8B) + end_ms(8B)
 inline constexpr quint8 TESLA_HISTORY = 0x73;               // B->F: id(len(2B)+UTF-8) + status(1B) + count(4B) + count*(ts_ms(8B)+value(8B double))
 

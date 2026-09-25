@@ -58,6 +58,7 @@ Rectangle {
             title: qsTr("Latausteho") + " (W)"
             unit: "W"
             series: Charging.chargeSeries
+            zeroBased: true
             live: view.isCurrent
         }
     }

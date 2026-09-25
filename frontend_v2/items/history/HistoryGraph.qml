@@ -37,6 +37,13 @@ Item {
     // between readings. Sourced per-property from config.json; buildStepped() and valueAt()
     // branch on it, and the glow / y-fit / live marker follow from those two.
     property string lineMode: "step"
+    // Pin the y-axis bottom to 0 for a quantity that cannot go negative (#42), and pad
+    // only the top. A fitted axis would otherwise show impossible values (a parked car
+    // graphs at -1…1 km/h) and blow a 2-point battery drift up to the full plot height,
+    // so a change reads as a collapse. Per property, never blanket: OutsideTemp and grid
+    // power are signed. Data that dips below 0 anyway falls back to the ordinary fit
+    // rather than being clipped.
+    property bool zeroBased: false
 
     // --- Gradient glow under the line (the modern look; tweak here) -----------
     // A translucent area fill under the line that fades to transparent toward the plot
@@ -239,8 +246,12 @@ Item {
 
     // y-fit over the visible window (recomputed when the window or data changes).
     readonly property var yFit: fitY(viewMinX, viewMaxX)
+    readonly property bool yFloorAtZero: zeroBased && yFit.min >= 0
+    // Padding relative to the span actually SHOWN, so a zero-based 61–63 % battery gets
+    // headroom proportional to 0–63 rather than to its 2-point wiggle. A flat series
+    // (zero span) gets 1.0, so a car parked all day reads as 0…1 km/h.
     readonly property real yPad: {
-        const span = yFit.max - yFit.min
+        const span = yFit.max - (yFloorAtZero ? 0 : yFit.min)
         return span > 0 ? span * 0.08 : 1.0
     }
     readonly property bool viewIsFull:
@@ -409,7 +420,7 @@ Item {
         }
         axisY: ValueAxis {
             id: yAxis
-            min: root.yFit.min - root.yPad
+            min: root.yFloorAtZero ? 0 : root.yFit.min - root.yPad
             max: root.yFit.max + root.yPad
             // Faint horizontal gridlines aligned with the value labels (colour from the
             // theme's grid.mainColor above); the X axis keeps its grid off so only

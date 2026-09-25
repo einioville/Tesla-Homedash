@@ -31,6 +31,7 @@ class VehicleDataProperty:
         log: bool = False,
         sleep_default=None,
         line_mode: str = None,
+        zero_based: bool = False,
     ):
         self.__id = data_id
         self.__stream_id = stream_id
@@ -54,6 +55,11 @@ class VehicleDataProperty:
         # accumulators / continuous quantities like Odometer or OutsideTemp). Purely a
         # display hint handed to the frontend over TESLA_GRAPH_PROPERTIES; None → "step".
         self.__line_mode = line_mode
+        # Whether the History graph pins its y-axis bottom to 0 (#42) — for a
+        # quantity that cannot go negative, where a fitted axis would show
+        # impossible values and blow a 2-point drift up to full height. Also a
+        # pure display hint; signed fields (OutsideTemp, grid power) leave it off.
+        self.__zero_based = bool(zero_based)
         self._async_lock = asyncio.Lock()
         self._vehicle = vehicle
         self.__value_type = None
@@ -323,6 +329,10 @@ class VehicleDataProperty:
     async def get_line_mode(self):
         async with self._async_lock:
             return self.__line_mode
+
+    async def get_zero_based(self) -> bool:
+        async with self._async_lock:
+            return self.__zero_based
 
     async def get_logging(self):
         async with self._async_lock:
