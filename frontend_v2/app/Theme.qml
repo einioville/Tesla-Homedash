@@ -216,4 +216,33 @@ QtObject {
     // Tightest zoom window. Fixed: a minute is short enough for any range the
     // History view loads, and nothing is gained by exposing it.
     readonly property int graphMinZoomSpanMs: 60000
+
+    // --- Map tuning -------------------------------------------------------
+    // Drives TeslaMap (the dashboard card and the full-screen Kartta view);
+    // mapSensitivity alone also reaches the Trips route map, which carries the
+    // same pan/pinch/wheel handlers.
+    // Zoom the map returns to when auto-follow resumes after a gesture.
+    readonly property real mapDefaultZoom: Settings.values.mapDefaultZoom
+    // Multiplier on pan/pinch/wheel response, exactly like graphSensitivity.
+    // At 1.0 a drag is EXACT 1:1 — the grabbed point stays under the finger —
+    // so any other value deliberately trades that away for reach.
+    readonly property real mapSensitivity: Settings.values.mapSensitivity
+    // Idle delay after the user stops moving the map before it snaps back to
+    // the car. A map has no re-render step to debounce (QtLocation streams and
+    // repaints tiles itself), so this is the only timeout the map really has.
+    readonly property int mapFollowResumeSec: Settings.values.mapFollowResumeSec
+    // "north" keeps north up and rotates the car icon; "heading" rotates the
+    // MAP under a car icon that then always points up the screen.
+    readonly property string mapOrientation: Settings.values.mapOrientation
+    // "lock" pins the car to the exact centre; "warp" lets it roam inside a
+    // centred dead-zone square and re-centres only when it escapes.
+    readonly property string mapFollowMode: Settings.values.mapFollowMode
+    // Dead-zone half-extent — the distance from the centre the car may reach on
+    // either axis — as a fraction of the map's SHORTER side, so the free area is
+    // square on any card. Warp mode only.
+    readonly property real mapWarpDeadzoneFrac: Settings.values.mapWarpDeadzonePct / 100.0
+    // How far behind centre the car is parked on a re-centre, opposite its
+    // direction of travel, so the road ahead gets the larger share of the map.
+    // Same fraction-of-shorter-side units as the dead zone. Warp mode only.
+    readonly property real mapWarpLeadFrac: Settings.values.mapWarpLeadPct / 100.0
 }

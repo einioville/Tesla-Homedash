@@ -99,7 +99,9 @@ Item {
             routeCanvas.requestPaint()
         }
 
-        // Free pan (1:1 in map coordinates, DPR-correct — see TeslaMap).
+        // Free pan (1:1 in map coordinates, DPR-correct — see TeslaMap), scaled
+        // by the shared map gesture sensitivity so this map and the car map feel
+        // the same under a finger. Only the default 1.0 is truly 1:1.
         DragHandler {
             id: panHandler
             target: null
@@ -114,8 +116,8 @@ Item {
                 var from = map.toCoordinate(lastCentroid, false)
                 var to = map.toCoordinate(centroid.position, false)
                 map.center = QtPositioning.coordinate(
-                    map.center.latitude + (from.latitude - to.latitude),
-                    map.center.longitude + (from.longitude - to.longitude))
+                    map.center.latitude + (from.latitude - to.latitude) * Theme.mapSensitivity,
+                    map.center.longitude + (from.longitude - to.longitude) * Theme.mapSensitivity)
                 lastCentroid = centroid.position
             }
         }
@@ -124,7 +126,7 @@ Item {
             acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
             onWheel: function(event) {
                 followAnim.stop()
-                map.zoomLevel += event.angleDelta.y / 120 * 0.5
+                map.zoomLevel += event.angleDelta.y / 120 * 0.5 * Theme.mapSensitivity
             }
         }
 
@@ -136,7 +138,7 @@ Item {
             onActiveScaleChanged: {
                 if (!active)
                     return
-                map.zoomLevel = startZoom + Math.log2(activeScale)
+                map.zoomLevel = startZoom + Math.log2(activeScale) * Theme.mapSensitivity
             }
         }
 

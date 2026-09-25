@@ -285,6 +285,107 @@
                             "apply": "live"
                         }
                     ]
+                },
+                {
+                    "id": "map",
+                    "label": "Kartta",
+                    "help": "Kartan seuranta, suunta ja eleiden herkkyys.",
+                    "settings": [
+                        {
+                            "key": "mapDefaultZoom",
+                            "editor": "slider",
+                            "type": "float",
+                            "label": "Oletuszoomaus",
+                            "help": "Zoomaustaso, johon kartta palaa auton seurannan jatkuessa. Suurempi = lähempänä.",
+                            "min": 10.0,
+                            "max": 19.0,
+                            "step": 0.5,
+                            "default": 15.0,
+                            "apply": "live"
+                        },
+                        {
+                            "key": "mapSensitivity",
+                            "editor": "slider",
+                            "type": "float",
+                            "label": "Eleherkkyys",
+                            "help": "Kuinka nopeasti kartta liikkuu ja zoomaa sormella. Arvolla 1,0 kartta seuraa sormea tarkalleen.",
+                            "min": 0.5,
+                            "max": 3.0,
+                            "step": 0.1,
+                            "default": 1.0,
+                            "apply": "live"
+                        },
+                        {
+                            "key": "mapFollowResumeSec",
+                            "type": "int",
+                            "label": "Seurannan palautusviive",
+                            "help": "Kuinka kauan kartan siirtämisen jälkeen odotetaan, ennen kuin se palaa seuraamaan autoa.",
+                            "unit": "s",
+                            "min": 2,
+                            "max": 120,
+                            "step": 1,
+                            "default": 10,
+                            "apply": "live"
+                        },
+                        {
+                            "key": "mapOrientation",
+                            "type": "enum",
+                            "label": "Kartan suunta",
+                            "help": "Pysyykö pohjoinen aina ylhäällä, vai kääntyykö kartta ajosuuntaan niin että auto osoittaa aina ylös.",
+                            "options": [
+                                {"value": "north", "label": "Pohjoinen ylös"},
+                                {"value": "heading", "label": "Ajosuunta ylös"}
+                            ],
+                            "default": "north",
+                            "apply": "live"
+                        },
+                        {
+                            "key": "mapFollowMode",
+                            "type": "enum",
+                            "label": "Seurantatapa",
+                            "help": "Lukittu pitää auton aina täsmälleen keskellä. Liukuva antaa auton liikkua vapaasti keskialueella ja keskittää sen pehmeästi vasta alueen reunalla.",
+                            "options": [
+                                {"value": "lock", "label": "Lukittu"},
+                                {"value": "warp", "label": "Liukuva"}
+                            ],
+                            "default": "lock",
+                            "apply": "live"
+                        },
+                        {
+                            "key": "mapWarpDeadzonePct",
+                            "editor": "slider",
+                            "type": "int",
+                            "label": "Vapaa alue",
+                            "help": "Kuinka kauas keskeltä auto saa liikkua ennen uudelleenkeskitystä, osuutena kartan lyhyemmästä sivusta.",
+                            "unit": "%",
+                            "min": 5,
+                            "max": 45,
+                            "step": 1,
+                            "default": 25,
+                            "apply": "live",
+                            "relevantWhen": {
+                                "key": "mapFollowMode",
+                                "equals": "warp"
+                            }
+                        },
+                        {
+                            "key": "mapWarpLeadPct",
+                            "editor": "slider",
+                            "type": "int",
+                            "label": "Katseluvara edessä",
+                            "help": "Kuinka paljon auto jätetään keskikohdan taakse, jotta ajosuuntaan näkyy pidemmälle. Nolla keskittää auton tarkalleen.",
+                            "unit": "%",
+                            "min": 0,
+                            "max": 30,
+                            "step": 1,
+                            "default": 12,
+                            "apply": "live",
+                            "relevantWhen": {
+                                "key": "mapFollowMode",
+                                "equals": "warp"
+                            }
+                        }
+                    ]
                 }
             ]
         },
