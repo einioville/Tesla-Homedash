@@ -877,6 +877,10 @@ async def main():
     # that" veto, so config_service needs to know nothing about audio.
     config_service.register_options("audio.outputDevice", audio.device_options)
     config_service.register_guard("audio", audio.guard_write)
+    # Wired back the other way too: on a first start with no stored volume, audio
+    # stores the host's current level through config_service rather than pushing
+    # the schema default over it.
+    audio.attach_config_service(config_service)
     if myenergi is not None:
         config_service.register_hook("myenergi", myenergi.apply_config)
     logger.debug("Config service initialized")

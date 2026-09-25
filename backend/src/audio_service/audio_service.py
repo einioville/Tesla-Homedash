@@ -43,6 +43,20 @@ class AudioService:
         audio = config.audio_config
         self.__volume_percent = audio.get("volumePercent")
         self.__output_device = audio.get("outputDevice") or ""
+        # Set by attach_config_service().  ConfigService is built after this
+        # service, because it takes this service's hook, options and guard.
+        self.__config_service = None
+
+    def attach_config_service(self, config_service) -> None:
+        '''
+        Gives the service the write path it uses to store the host's volume on
+        first start.  Called from start_services once ConfigService exists.
+        Arguments:
+            config_service (ConfigService): Performs the audio.volumePercent write
+                with the same validation, atomic save and schema broadcast a
+                CONFIG_SET gets.
+        '''
+        self.__config_service = config_service
 
     # ── Lifecycle ─────────────────────────────────────────────────
 
@@ -56,7 +70,11 @@ class AudioService:
         await self.__refresh_devices()
         # force: nothing has been pushed at the host yet this boot, so even an
         # "unchanged" device has to be applied to make the stored value true.
-        await self.__apply(self.__output_device, self.__volume_percent, force=True)
+        if self.__volume_is_stored():
+            await self.__apply(self.__output_device, self.__volume_percent, force=True)
+        else:
+            await self.__apply(self.__output_device, None, force=True)
+            await self.__adopt_host_volume()
 
         while True:
             await asyncio.sleep(_DEVICE_REFRESH_SECONDS)
@@ -141,6 +159,43 @@ class AudioService:
             clamped = max(0, min(100, int(volume)))
             await self.__backend.set_volume(clamped)
             self.__volume_percent = volume
+
+    def __volume_is_stored(self) -> bool:
+        '''
+        Whether config.json holds a volume of its own, as opposed to the
+        _AUDIO_DEFAULTS value that audio_config merges in when it does not.
+        '''
+        block = self.__config.get("audio")
+        return isinstance(block, dict) and block.get("volumePercent") is not None
+
+    async def __adopt_host_volume(self) -> None:
+        '''
+        First start with no stored volume: takes the host's current volume as
+        the setting instead of pushing the schema default over a level the user
+        chose on this device.  Stored through ConfigService, so the Options view
+        shows the real level and a reboot restores it; from then on the value is
+        the user's and the startup force-apply is right.  An unreadable volume is
+        left exactly as it is.
+        '''
+        volume = await self.__backend.get_volume()
+        if volume is None:
+            logger.info("No stored volume and the host's cannot be read; leaving it as it is")
+            return
+        # pactl and wpctl report overdrive above 100 %; the setting cannot hold it.
+        volume = max(0, min(100, volume))
+        self.__volume_percent = volume
+        if self.__config_service is None:
+            return
+        result = await self.__config_service.apply_write("audio.volumePercent", volume)
+        if result["ok"] and result["applied"] == "unchanged":
+            # Equal to the default, so there is nothing to persist; the next start
+            # adopts the host's level again, which is still the right behaviour.
+            logger.info("Host volume (%d%%) already matches the setting", volume)
+        elif result["ok"]:
+            logger.info("Adopted the host's current volume (%d%%) as the stored setting", volume)
+        else:
+            logger.warning("Could not store the host's volume (%d%%): %s",
+                           volume, result["message"])
 
     async def __refresh_devices(self) -> None:
         '''Re-reads the selectable outputs, so hotplugged devices appear.'''

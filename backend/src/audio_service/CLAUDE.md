@@ -10,6 +10,13 @@ write. Bookworm ships PipeWire + WirePlumber + pipewire-pulse, but `pipewire-pul
 Enumeration on that path uses `pw-dump`'s JSON, never `wpctl status`'s box-drawing tree.
 `AudioService` applies `audio.volumePercent` / `audio.outputDevice` and refreshes the device list
 every 15 s (HDMI and Bluetooth hotplug). Load-bearing details:
+- **A volume nobody stored is adopted, never pushed** (#47). An existing `config.json` has no
+  `audio` block, and `audio_config` merges `_AUDIO_DEFAULTS` over that — so force-applying on first
+  start would silently drop a host set to 85 % down to the schema's 60 %. With no stored
+  `volumePercent`, `run()` applies the device only, then reads the host's volume and stores it
+  through `ConfigService.apply_write` (wired after construction by `attach_config_service`, since
+  ConfigService takes this service's hook/options/guard). Once a value is stored, the startup
+  force-apply is right and stays.
 - **Device first, volume second, always.** A sink carries its *own* volume, so switching output
   without re-applying the volume makes the user's setting silently stop holding.
 - **`wpctl` does not clamp** — `set-volume 150%` is accepted and overdrives the sink — and
