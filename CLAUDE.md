@@ -376,9 +376,10 @@ Byte-identical to the backend's format, stdout only — conventions in `frontend
   GitHub issues on `einioville/Tesla-Homedash`. Every issue you open must carry at least one label
   (`gh issue create --label "<label>"`; pick or create the fitting one — `bug`, `enhancement`, etc.)
   and be assigned to the maintainer (`--assignee "@me"`). Never open an unlabelled or unassigned issue.
-- **After a feature/fix commit, ask about closing its issue.** When a commit resolves an open issue,
-  automatically ask the user whether to also close that issue (and reference the issue number in the
-  commit/PR). Don't close issues unprompted.
+- **Close an issue as soon as a commit fixes it.** When a commit directly fixes an open issue — or the
+  work it lands would resolve one — reference it in the commit (`Closes #N`) and close the issue with
+  `gh issue close <N> --reason completed` and a short comment naming the commit, without asking first.
+  An issue the work only partly addresses gets `Refs #N` and stays open.
 
 ### 7.6 Keeping these documents current
 Documentation is part of the change, not an afterthought. Update the `CLAUDE.md` **nearest the code
