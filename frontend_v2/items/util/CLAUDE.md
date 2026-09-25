@@ -25,3 +25,15 @@ screensaver plays as empty.
 
 `ScreenSaver.inhibited` is held while `Updater.busy`, so the photos never fade in over a live
 update (`../../core/CLAUDE.md`, under `Updater`).
+
+## `HoldRepeatArea.qml` — tap to step, hold to repeat
+
+The press area behind every ± button (the climate card's target arrows, `SettingNumber`'s
+steppers), so they all behave the same (#48). A tap steps on **release**, so a press that becomes a
+drag steps nothing; a hold repeats after a 400 ms delay, and the release ending a hold adds no
+extra step (a naive `onClicked` + running `Timer` stepped twice on any slightly long tap).
+`canStep` false stops the repeat and swallows the tap, so a held button stops at its limit instead
+of hammering it. `finished()` fires once per press however it ended, for callers that batch steps:
+**`SettingNumber` must**, because a settings write rebuilds its own delegate
+(`../settings/CLAUDE.md`), whereas the climate arrows can send every step — `Vehicle.plus_temp` only
+moves the local setpoint and nothing reaches the car until climate is next toggled.

@@ -13,6 +13,13 @@ import frontend_v2
 //
 // The field accepts typing for a big jump; the ± buttons (with hold-to-repeat)
 // handle nudging without a keyboard, which is what the 10" touch panel needs.
+//
+// A held button steps a PENDING value that only the field shows, and the press
+// commits it once, on release. Committing per step cannot work here: every
+// Settings.setValue() rebuilds Settings.groups — at once for a local key, on the
+// schema broadcast for a backend one — which destroys this delegate and the
+// press with it, so a hold stopped after one step. And each step was a disk
+// write (a backend CONFIG_SET is a config.json save plus apply hooks).
 Item {
     id: control
 
@@ -75,10 +82,37 @@ Item {
             Settings.setValue(control.setting.key, rounded)
     }
 
-    function nudge(direction) {
-        const base = control.isUnset ? (control.setting.min !== undefined ? control.setting.min : 0)
-                                     : Number(control.setting.value)
-        control.commit(base + direction * control.stepSize)
+    // Steps taken by the press in progress, not yet committed; null when none.
+    property var pendingValue: null
+
+    // What the ± buttons step from and test against their limits: the pending
+    // value during a press, else the setting's own (NaN while a nullable one is
+    // unset, which leaves both buttons usable).
+    readonly property real stepFrom: pendingValue !== null
+                                     ? pendingValue
+                                     : (isUnset ? NaN : Number(setting.value))
+    readonly property bool canStepDown: isNaN(stepFrom) || stepFrom > minimum
+    readonly property bool canStepUp: isNaN(stepFrom) || stepFrom < maximum
+
+    // Steps the pending value and shows it; nothing is written yet.
+    function stepPending(direction) {
+        const base = !isNaN(control.stepFrom)
+                     ? control.stepFrom
+                     : (control.setting.min !== undefined ? control.setting.min : 0)
+        const next = control.clamp(base + direction * control.stepSize)
+        control.pendingValue = control.isInt ? Math.round(next)
+                                             : Number(next.toFixed(control.decimals))
+        field.text = control.formatted(control.pendingValue)
+    }
+
+    // Commits what the press stepped to, once. Clears the pending value first,
+    // because commit() may destroy this delegate.
+    function commitPending() {
+        if (control.pendingValue === null)
+            return
+        const value = control.pendingValue
+        control.pendingValue = null
+        control.commit(value)
     }
 
     // Re-sync from the authoritative value unless the user is mid-edit.
@@ -98,8 +132,9 @@ Item {
             color: minusArea.pressed ? Theme.tripComboPressed : Theme.tripComboBg
             border.width: 1
             border.color: Theme.tripCardBorder
-            opacity: enabled ? 1.0 : 0.4
-            enabled: control.isUnset || Number(control.setting.value) > control.minimum
+            // Dimmed rather than disabled: disabling the item mid-hold would
+            // cancel the very press that reached the limit.
+            opacity: control.canStepDown ? 1.0 : 0.4
 
             Text {
                 anchors.centerIn: parent
@@ -109,20 +144,14 @@ Item {
                 color: Theme.dataLabelValue
             }
 
-            MouseArea {
-                id: minusArea
-                anchors.fill: parent
-                onClicked: control.nudge(-1)
-            }
-
             // Hold to repeat — without it, moving a 30-minute timeout to 120 is
             // 90 separate taps.
-            Timer {
-                interval: 120
-                repeat: true
-                running: minusArea.pressed && minusButton.enabled
-                triggeredOnStart: false
-                onTriggered: control.nudge(-1)
+            HoldRepeatArea {
+                id: minusArea
+                anchors.fill: parent
+                canStep: control.canStepDown
+                onStepped: control.stepPending(-1)
+                onFinished: control.commitPending()
             }
         }
 
@@ -209,8 +238,7 @@ Item {
             color: plusArea.pressed ? Theme.tripComboPressed : Theme.tripComboBg
             border.width: 1
             border.color: Theme.tripCardBorder
-            opacity: enabled ? 1.0 : 0.4
-            enabled: control.isUnset || Number(control.setting.value) < control.maximum
+            opacity: control.canStepUp ? 1.0 : 0.4
 
             Text {
                 anchors.centerIn: parent
@@ -220,18 +248,12 @@ Item {
                 color: Theme.dataLabelValue
             }
 
-            MouseArea {
+            HoldRepeatArea {
                 id: plusArea
                 anchors.fill: parent
-                onClicked: control.nudge(1)
-            }
-
-            Timer {
-                interval: 120
-                repeat: true
-                running: plusArea.pressed && plusButton.enabled
-                triggeredOnStart: false
-                onTriggered: control.nudge(1)
+                canStep: control.canStepUp
+                onStepped: control.stepPending(1)
+                onFinished: control.commitPending()
             }
         }
     }

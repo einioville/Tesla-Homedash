@@ -75,7 +75,11 @@ similarly undraggable. Only genuine coarse dials carry the hint — `screensaver
 `graphMaxPoints`, `graphSensitivity`, `graphRenderMarginFrac` and the map's `mapDefaultZoom`,
 `mapSensitivity`, `mapWarpDeadzonePct`, `mapWarpLeadPct` (check `config/settings.json` for the
 current set). **Rule of thumb: if the user knows the number they want, it is not a slider.**
-`SettingNumber`'s ± buttons hold-to-repeat, and it accepts typing for big jumps. `editor` is the
+`SettingNumber`'s ± buttons hold-to-repeat (`../util/HoldRepeatArea.qml`), and it accepts typing
+for big jumps. **A hold steps a pending value that only the field shows and commits it once, on
+release** — every `Settings.setValue()` rebuilds `Settings.groups` (at once for a local key, on the
+schema broadcast for a backend one), which destroys the delegate and the press with it, so writing
+per step stopped every hold after one step and wrote `config.json` on each. `editor` is the
 general per-type control HINT, not a numeric one — `slider` and `folder` are its two consumers
 today.
 

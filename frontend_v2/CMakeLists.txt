@@ -156,6 +156,7 @@ qt_add_qml_module(appfrontend_v2
         items/util/GradientCard.qml
         items/util/TintedIcon.qml
         items/util/GlowIcon.qml
+        items/util/HoldRepeatArea.qml
         items/util/RoundedImage.qml
         items/util/GlassPanel.qml
         items/util/NotificationLayer.qml
