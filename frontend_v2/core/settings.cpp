@@ -674,6 +674,8 @@ void Settings::invokeAction(const QString &key) {
         restartApp();
     } else if (key == QLatin1String("restartBackend")) {
         requestBackendRestart();
+    } else if (key == QLatin1String("rebootHost")) {
+        requestHostReboot();
     } else {
         // Not ours: something in QML owns this one. Nothing warns here — a key
         // with no listener at all is a schema mistake, not a runtime error, and
@@ -706,6 +708,15 @@ void Settings::requestBackendRestart() {
         m_backendRestartBaseline.clear();
         refreshBackendRestartPending();
     }
+}
+
+void Settings::requestHostReboot() {
+    if (m_server == nullptr || !m_server->connected()) {
+        emit writeFailed(QString(), QStringLiteral("Ei yhteyttä palvelimeen"));
+        return;
+    }
+    logger.info(QStringLiteral("Requesting host reboot"));
+    m_server->sendPacket(protocol::frame(protocol::HOST_REBOOT));
 }
 
 // ── Backend traffic ──────────────────────────────────────────────────────────

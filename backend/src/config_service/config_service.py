@@ -34,6 +34,7 @@ import asyncio
 import json
 import logging
 import os
+import shutil
 import struct
 import time
 from typing import Any, Callable
@@ -52,6 +53,10 @@ RESTART_EXIT_CODE = 42
 # Grace period between arming the restart and killing the process, so the reply
 # that preceded it reaches the client instead of dying in the socket buffer.
 _RESTART_DRAIN_SECONDS = 0.25
+
+# A reboot command either starts the shutdown at once or is refused at once;
+# neither may ask for a password, so anything slower is a stuck call.
+_REBOOT_TIMEOUT_SECONDS = 15.0
 
 
 # ── Value validators ──────────────────────────────────────────────────────────
@@ -918,16 +923,89 @@ class ConfigService:
                 which IS the thing the vetoes exist to protect.
         '''
         if not force:
-            for name, veto in self.__restart_vetoes.items():
-                try:
-                    refusal = veto()
-                except Exception as e:  # noqa: BLE001 - a broken veto must not block
-                    logger.warning("Restart veto %s failed: %s", name, e)
-                    continue
-                if refusal:
-                    return refusal
+            refusal = self.__veto_reason()
+            if refusal:
+                return refusal
         self.__restart_requested.set()
         return ""
+
+    async def handle_reboot(self, _payload: bytes, writer) -> None:
+        '''
+        HOST_REBOOT handler (issue #40): reboots the whole machine.  Subject to
+        the same vetoes as a restart — rebooting mid-update is the same harm as
+        restarting mid-update, only worse.  A started reboot replies nothing, as
+        an armed restart does; a refused one replies in the CONFIG_SET_RESULT
+        shape so the Options view shows it as an ordinary toast.
+        Arguments:
+            _payload (bytes): Unused; the command carries no payload.
+            writer (StreamWriter): The requesting client, told when it is refused.
+        '''
+        logger.warning("Host reboot requested by a client")
+        refusal = self.__veto_reason() or await self.__reboot()
+        if refusal:
+            logger.warning("Host reboot refused: %s", refusal)
+            await self.__reply_error(writer, "", None, refusal)
+
+    def __veto_reason(self) -> str:
+        '''
+        The first restart veto's refusal reason, or "" when none objects.  A
+        veto that raises is logged and skipped: a broken veto must not block.
+        '''
+        for name, veto in self.__restart_vetoes.items():
+            try:
+                refusal = veto()
+            except Exception as e:  # noqa: BLE001 - a broken veto must not block
+                logger.warning("Restart veto %s failed: %s", name, e)
+                continue
+            if refusal:
+                return refusal
+        return ""
+
+    async def __reboot(self) -> str:
+        '''
+        Starts a host reboot, or returns why it could not.
+
+        The backend runs unprivileged, so the right has to be granted on the
+        host, and either of the two usual ways works — tried in this order:
+        `systemctl reboot` through logind (a polkit rule allowing
+        org.freedesktop.login1.reboot*), then `sudo -n systemctl reboot` (a
+        sudoers entry for exactly that command, or the Pi's default passwordless
+        sudo).  Neither may prompt: `--no-ask-password` and `sudo -n` fail at
+        once instead, because a keyboard-less panel cannot answer a prompt.
+        '''
+        systemctl = shutil.which("systemctl")
+        if systemctl is None:
+            return "Laitetta ei voi käynnistää uudelleen: systemctl puuttuu"
+        attempts = [[systemctl, "--no-ask-password", "reboot"]]
+        if shutil.which("sudo") is not None:
+            attempts.append(["sudo", "-n", systemctl, "reboot"])
+
+        for argv in attempts:
+            try:
+                process = await asyncio.create_subprocess_exec(
+                    *argv,
+                    stdin=asyncio.subprocess.DEVNULL,
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+            except OSError as e:
+                logger.warning("Could not run %s: %s", " ".join(argv), e)
+                continue
+            try:
+                _, stderr = await asyncio.wait_for(
+                    process.communicate(), timeout=_REBOOT_TIMEOUT_SECONDS
+                )
+            except asyncio.TimeoutError:
+                process.kill()
+                logger.warning("%s timed out", " ".join(argv))
+                continue
+            if process.returncode == 0:
+                logger.warning("Host reboot started via: %s", " ".join(argv))
+                return ""
+            logger.info("%s refused (%s): %s", " ".join(argv), process.returncode,
+                        stderr.decode("utf-8", "replace").strip())
+        return ("Palvelimella ei ole oikeutta käynnistää laitetta uudelleen. Lisää "
+                "polkit-sääntö tai sudoers-rivi (README: Laitteen uudelleenkäynnistys).")
 
     # ── Snapshot + run task ───────────────────────────────────────
 

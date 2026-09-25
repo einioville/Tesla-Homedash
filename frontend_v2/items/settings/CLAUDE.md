@@ -88,7 +88,8 @@ today.
 **`type: "action"` is a button, not a value.** `SettingAction.qml` renders it and calls
 `Settings::invokeAction(key)`; nothing is stored, persisted or sent as `CONFIG_SET`. Keeping
 actions in the schema is what lets the *Ylläpito* section — **restart the dashboard**,
-**restart the backend** — be ordinary sidebar rows instead of a widget bolted onto the view.
+**restart the backend**, **reboot the host** (`HOST_REBOOT`, #40) — be ordinary sidebar rows
+instead of a widget bolted onto the view.
 Entries carry `actionLabel` and optionally `requiresConnection` (which greys the backend
 restart while disconnected). Both need a **second tap to confirm** (armed for 4 s, then it
 lapses) — a modal would need a Cancel button and a way to dismiss it, which a fullscreen

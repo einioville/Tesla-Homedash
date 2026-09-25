@@ -491,6 +491,32 @@ puts the working tree back where it started.
 `config.json`, `.env` and the dashboard's own settings file are all outside the repository
 or gitignored, so an update never touches them.
 
+### Rebooting the device from the dashboard (Laitteen uudelleenkäynnistys)
+
+**Asetukset → Ylläpito → Uudelleenkäynnistys → Käynnistä laite uudelleen** reboots the whole
+Raspberry Pi (twice, to confirm; refused while an update is running). The backend runs as your
+user, so the host has to grant that one right. Either of these works — the backend tries
+`systemctl reboot` first, then `sudo -n systemctl reboot`, and never asks for a password:
+
+- **A polkit rule** (preferred). Create `/etc/polkit-1/rules.d/50-tesla-homedash-reboot.rules`,
+  replacing `pi` with your user:
+
+  ```js
+  polkit.addRule(function (action, subject) {
+      if ((action.id == "org.freedesktop.login1.reboot" ||
+           action.id == "org.freedesktop.login1.reboot-multiple-sessions") &&
+          subject.user == "pi") {
+          return polkit.Result.YES;
+      }
+  });
+  ```
+
+- **A sudoers entry** for exactly that command: `sudo visudo -f /etc/sudoers.d/tesla-homedash-reboot`
+  and add `pi ALL=(root) NOPASSWD: /usr/bin/systemctl reboot`. (A user that already has
+  passwordless sudo — Raspberry Pi OS's default first user — needs nothing.)
+
+Without either, the button reports that the backend lacks the right, and nothing happens.
+
 Reload the unit files, then enable and start everything:
 
 ```bash

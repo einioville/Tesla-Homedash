@@ -66,6 +66,7 @@ Framing, byte order and the Tesla stream value types are in the root `CLAUDE.md`
 | `0x92` | CONFIG_SET | F→B | `len(4B) + UTF-8 JSON` — `{"key": <dotted>, "value": <json>}` |
 | `0x93` | CONFIG_SET_RESULT | B→F | `status(1B) + len(4B) + UTF-8 JSON` — `{key, value, applied, message}` |
 | `0x94` | CONFIG_RESTART | F→B | (empty) — exit with code 42 so the service manager restarts |
+| `0x95` | HOST_REBOOT | F→B | (empty) — reboot the host (#40); nothing is replied when it starts, a refusal comes back as `CONFIG_SET_RESULT` |
 | `0xA0` | SPOTIFY_AUTH_STATUS | B→F | `status(1B) + len(4B) + JSON` — `{authorized, needsReauth, scope, expiresAt, redirectUri, cachePath, reason}`; snapshot on connect, broadcast after an exchange **and the moment the player is refused**. `needsReauth` = a new authorization is the fix (expired / revoked / never stored / scope short) — NOT merely `!authorized`, since an unreadable config is unauthorized too and re-authorizing would not help it |
 | `0xA1` | SPOTIFY_AUTH_GET_URL | F→B | (empty) — start a flow, replacing any pending one |
 | `0xA2` | SPOTIFY_AUTH_URL | B→F | `status(1B) + len(4B) + JSON` — `{url, redirectUri, state}` on OK (informational only; the backend has already opened the page), or `{message}` on error |
@@ -99,7 +100,7 @@ returns two synthetic points (window-start + window-end at that held value) so t
 flat held line across the whole range instead of "no data". Only a genuinely absent prior value
 (or an InfluxDB outage, where the boundary query also yields nothing) replies `status=0`.
 
-**Config protocol (`0x90`–`0x94`)** — the Options view. Request/response like History/Trips
+**Config protocol (`0x90`–`0x95`)** — the Options view. Request/response like History/Trips
 (the backend replies to the requesting client via `send_to`), with one exception: a successful
 `CONFIG_SET` *also broadcasts* a fresh `CONFIG_SCHEMA` so a second frontend refreshes its
 displayed values. Bodies are `len(4B) + UTF-8 JSON` (the `CHARGER_RAW_JSON` idiom) rather than

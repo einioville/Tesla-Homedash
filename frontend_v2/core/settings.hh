@@ -114,6 +114,9 @@ public:
     // Asks the backend to exit so its service manager restarts it, applying every
     // restart-tier setting written since. No-op while disconnected.
     Q_INVOKABLE void requestBackendRestart();
+    // Asks the backend to reboot the whole host (issue #40). A refusal — an update
+    // in flight, or no reboot privilege on the host — arrives as writeFailed.
+    Q_INVOKABLE void requestHostReboot();
 
     // Quits this app with a non-zero code so the service manager restarts it,
     // applying restart-tier local settings. On the embedded target the dashboard

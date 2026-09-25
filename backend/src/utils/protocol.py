@@ -208,6 +208,9 @@ CONFIG_SET_RESULT = 0x93    # B->F: status(1B) + len(4B) + UTF-8 JSON
                             #       {"key", "value", "applied": live|hook|restart, "message"}
 CONFIG_RESTART = 0x94       # F->B: (empty) — exit the process so systemd restarts it
                             #       (needs Restart=always in the unit; see README)
+HOST_REBOOT = 0x95          # F->B: (empty) — reboot the whole host (issue #40). Nothing
+                            #       is replied when it starts; a refusal (a veto, or no
+                            #       privilege on the host) comes back as CONFIG_SET_RESULT
 
 # CONFIG_* status byte. 0 is the failure case for both CONFIG_SCHEMA (no schema could
 # be built) and CONFIG_SET_RESULT (validation rejected the value, nothing was written).

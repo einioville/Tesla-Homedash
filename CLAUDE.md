@@ -394,9 +394,10 @@ directory belongs in that directory, and nested files never repeat what is here.
 *current* behaviour and why it is that way; history belongs in commits, issues and PRs.
 
 ### 7.7 Documentation currency
-Current as of the **in-app on-screen keyboard** (#49) on `feature/settings-options-view` (the
-Options-view series, issues #30–#41, with #40 host reboot deferred), after the map-tuning pass and
-the split of this guide into per-directory `CLAUDE.md` files. When you land a change that touches documented behaviour, update this line.
+Current as of the **issue sweep** on `feature/settings-options-view` — the Options-view series
+(#30–#41, host reboot #40 included), the telemetry-field table (#29), the zero-based graph axis
+(#42), the screen-off fixes (#43–#47), hold-to-repeat (#48) and the on-screen keyboard (#49) —
+after the map-tuning pass and the split of this guide into per-directory `CLAUDE.md` files. When you land a change that touches documented behaviour, update this line.
 
 ## 8. Session workflow — main checkout by default, worktree only for parallelism
 

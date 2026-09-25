@@ -924,6 +924,7 @@ async def main():
     server.register_handler(protocol.UPDATE_GET_STATE, updater.handle_get_state)
     server.register_handler(protocol.UPDATE_APPLY, updater.handle_apply)
     server.register_handler(protocol.UPDATE_CANCEL, updater.handle_cancel)
+    server.register_handler(protocol.HOST_REBOOT, config_service.handle_reboot)
     server.register_handler(protocol.TESLA_GET_PROPERTY_TABLE, property_editor.handle_get)
     server.register_handler(protocol.TESLA_SET_PROPERTY, property_editor.handle_set)
     services = [vehicle, mm, weather, spot_price_service, config_service, display,

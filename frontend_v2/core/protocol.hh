@@ -148,6 +148,7 @@ inline constexpr quint8 CONFIG_SCHEMA = 0x91;      // B->F: status(1B) + len(4B)
 inline constexpr quint8 CONFIG_SET = 0x92;         // F->B: len(4B) + UTF-8 JSON {"key","value"}
 inline constexpr quint8 CONFIG_SET_RESULT = 0x93;  // B->F: status(1B) + len(4B) + UTF-8 JSON
 inline constexpr quint8 CONFIG_RESTART = 0x94;     // F->B: (empty) — ask the backend to exit for systemd
+inline constexpr quint8 HOST_REBOOT = 0x95;        // F->B: (empty) — reboot the host; a refusal arrives as CONFIG_SET_RESULT
 
 // CONFIG_* status byte: 0 = failure (schema unavailable / value rejected, nothing written).
 inline constexpr quint8 CONFIG_STATUS_ERROR = 0;

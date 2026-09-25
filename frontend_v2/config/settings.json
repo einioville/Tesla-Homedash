@@ -478,6 +478,15 @@
                             "actionLabel": "Käynnistä",
                             "requiresConnection": true,
                             "apply": "live"
+                        },
+                        {
+                            "key": "rebootHost",
+                            "type": "action",
+                            "label": "Käynnistä laite uudelleen",
+                            "help": "Käynnistää koko laitteen uudelleen. Palvelin tarvitsee siihen oikeuden (polkit-sääntö tai sudoers-rivi, ks. README).",
+                            "actionLabel": "Käynnistä",
+                            "requiresConnection": true,
+                            "apply": "live"
                         }
                     ]
                 },

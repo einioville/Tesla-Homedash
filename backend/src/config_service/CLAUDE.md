@@ -52,3 +52,14 @@ a callable returning a non-empty Finnish reason refuses a `CONFIG_RESTART` befor
 and killing the backend mid-checkout is exactly what everything else there exists to prevent.
 `request_restart(force=True)` skips the vetoes — the updater's own final restart IS the thing
 they protect.
+
+**Host reboot** (issue #40). `HOST_REBOOT` (`0x95`) lives here beside `CONFIG_RESTART` because it
+shares its **vetoes** (`__veto_reason()`, used by both — rebooting mid-update is the same harm as
+restarting mid-update) and its refusal reply (the `CONFIG_SET_RESULT` shape, so the Options view
+toasts it with no new parsing). The backend is unprivileged, so the host must grant the right:
+`__reboot()` tries `systemctl --no-ask-password reboot` (a polkit rule for
+`org.freedesktop.login1.reboot*`) and then `sudo -n systemctl reboot` (a narrow sudoers entry, or
+the Pi's default passwordless sudo). **Neither may prompt** — a keyboard-less panel cannot answer
+one, and a hung prompt would hold the handler; with neither granted the user gets a toast naming
+the README section. A started reboot replies nothing, like an armed restart. Test it only with the
+subprocess call stubbed: on a dev box with passwordless sudo it really reboots.
