@@ -75,7 +75,7 @@ Framing, byte order and the Tesla stream value types are in the root `CLAUDE.md`
 | `0xB0` | SYSTEM_GET_STATUS | F→B | (empty) — sample the host now |
 | `0xB1` | SYSTEM_STATUS | B→F | `status(1B) + len(4B) + JSON` — host/backend metrics, per-service health, error tallies |
 | `0xC0` | DISPLAY_SET_POWER | F→B | `on(1B)` — 1 wakes the panel, 0 powers it down |
-| `0xC1` | DISPLAY_POWER_STATE | B→F | `available(1B) + on(1B)`; `available=0` = no wlopm on the host |
+| `0xC1` | DISPLAY_POWER_STATE | B→F | `available(1B) + on(1B) + fault(1B)`; `available=0` = no wlopm on the host; `fault` 0 none, 1 wlopm refused the change, 2 output lost after a wake (sticky, power-off refused until restart). The frontend reads a 2-byte payload as fault 0 |
 | `0xD0` | UPDATE_GET_STATE | F→B | `len(4B) + UTF-8 JSON` — `{"fetch": <bool>}`; `fetch` contacts the remote (backend-throttled to one per 2 min) |
 | `0xD1` | UPDATE_STATE | B→F | `status(1B) + len(4B) + JSON`, **broadcast** — `{available, reason, repoPath, remoteUrl, branch, dirty, dirtyFiles, fetchedMs, current{…}, channels{development{…},releases{…}}, tools{…}, job}`. `job` is `null` when idle and the whole progress report while a run is in flight, so there is no second progress code and a client connecting mid-update sees it in its snapshot |
 | `0xD2` | UPDATE_APPLY | F→B | `len(4B) + UTF-8 JSON` — `{"channel": "development"\|"releases", "commit": <40-hex>}`; the commit **fences** the request (a target that moved since the check is refused) |

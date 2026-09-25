@@ -200,6 +200,11 @@ inline constexpr quint8 SYSTEM_STATUS = 0xB1;
 // switching, because system calls belong to the backend.
 inline constexpr quint8 DISPLAY_SET_POWER = 0xC0;
 inline constexpr quint8 DISPLAY_POWER_STATE = 0xC1;
+// DISPLAY_POWER_STATE's third byte. Optional on the wire: an older backend sends
+// two bytes, which reads as NONE.
+inline constexpr quint8 DISPLAY_FAULT_NONE = 0;
+inline constexpr quint8 DISPLAY_FAULT_REFUSED = 1;
+inline constexpr quint8 DISPLAY_FAULT_OUTPUT_LOST = 2;
 
 // ── App update ─────────────────────────────────────────────────────────────
 // Updates the checkout both halves run from: fetch, move the working tree to a

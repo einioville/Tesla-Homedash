@@ -109,6 +109,10 @@ round, a lit panel looked dark forever (#44). **Wakes from activity are throttle
 included, so a wake that keeps failing (wlopm blocked by a VNC server, a failed startup power-on)
 would otherwise send a request — and spawn a `wlopm` — per event. A working wake is answered in
 milliseconds, so the throttle never delays one. `wake()` is deliberate and bypasses it.
+`fault` mirrors the backend's third state byte (`backend/src/display_service/CLAUDE.md`; a two-byte
+payload from an older backend reads as none); while it is `OUTPUT_LOST` the countdown no longer
+requests a power-off, and `items/settings/ScreenPowerStatus.qml` explains it in the
+Näytönsäästäjä card.
 
 ## `System` — `systemstatus.{hh,cpp}`
 

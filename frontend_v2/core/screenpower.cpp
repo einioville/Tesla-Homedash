@@ -88,6 +88,11 @@ void ScreenPower::onTimeout() {
     if (!m_enabled || m_off) {
         return;
     }
+    // The backend refuses this anyway once an output has been lost; skipping it
+    // here just saves the round trip every timeout.
+    if (m_fault == protocol::DISPLAY_FAULT_OUTPUT_LOST) {
+        return;
+    }
     request(true);
 }
 
@@ -118,14 +123,24 @@ void ScreenPower::onPacket(quint8 type, const QByteArray &payload) {
     // it left a lit panel looking dark forever, and onActivity() then sent a
     // wake request on every single input event (#44).
     const bool off = payload.at(1) == 0;
-    if (available == m_available && off == m_off) {
+    // Optional: a backend from before the fault byte sends two bytes.
+    const int fault = payload.size() >= 3 ? static_cast<quint8>(payload.at(2))
+                                          : protocol::DISPLAY_FAULT_NONE;
+    if (available == m_available && off == m_off && fault == m_fault) {
         return;
     }
     if (available != m_available) {
         logger.info(available ? QStringLiteral("Display power control available")
                               : QStringLiteral("Display power control unavailable on the host"));
     }
+    if (fault != m_fault && fault != protocol::DISPLAY_FAULT_NONE) {
+        logger.warning(QStringLiteral("Display power fault reported by the backend: %1")
+                           .arg(fault == protocol::DISPLAY_FAULT_OUTPUT_LOST
+                                    ? QStringLiteral("output lost after wake")
+                                    : QStringLiteral("power change refused")));
+    }
     m_available = available;
     m_off = off;
+    m_fault = fault;
     emit stateChanged();
 }

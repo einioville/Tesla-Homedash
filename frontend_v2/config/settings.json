@@ -81,6 +81,7 @@
                 {
                     "id": "screensaver",
                     "label": "Näytönsäästäjä",
+                    "status": "screenPower",
                     "help": "Kuvaesitys, kun näyttöä ei ole koskettu hetkeen. Ilman kuvakansiota näytönsäästäjä ei käynnisty.",
                     "settings": [
                         {

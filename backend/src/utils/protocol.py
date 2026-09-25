@@ -280,8 +280,15 @@ SYSTEM_STATUS = 0xB1          # B->F: status(1B) + len(4B) + UTF-8 JSON
 # The FRONTEND decides WHEN (it is the only side that sees touch input); the
 # BACKEND does the switching, because talking to the system is the backend's job.
 DISPLAY_SET_POWER = 0xC0      # F->B: on(1B) — 1 = wake the panel, 0 = power it down
-DISPLAY_POWER_STATE = 0xC1    # B->F: available(1B) + on(1B) — available=0 means the
-                              #       host has no wlopm, so the feature is inert
+DISPLAY_POWER_STATE = 0xC1    # B->F: available(1B) + on(1B) + fault(1B) — available=0
+                              #       means the host has no wlopm, so the feature is inert
+
+# DISPLAY_POWER_STATE fault codes: why the panel is not doing what was asked.
+DISPLAY_FAULT_NONE = 0
+DISPLAY_FAULT_REFUSED = 1      # wlopm exited non-zero (a VNC server holding the output)
+DISPLAY_FAULT_OUTPUT_LOST = 2  # wlopm --on "worked" but the output is gone or still off
+                               # (the labwc 0.20 / wlroots 0.20 wedge); sticky, and
+                               # power-off is refused until the backend restarts
 
 # ── App update (the Options view's "Päivitys" card) ─────────────────────────
 # Updates the checkout this backend and the dashboard are running FROM, in place:

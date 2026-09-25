@@ -22,6 +22,7 @@ quietly instead of failing every timeout.
 '''
 
 import asyncio
+import json
 import logging
 import shutil
 
@@ -40,6 +41,12 @@ _ALL_OUTPUTS = "*"
 # A wlopm run is milliseconds of work; anything beyond this means the compositor
 # is not answering and waiting longer only blocks the event loop's next tick.
 _RUN_TIMEOUT_SECONDS = 5.0
+
+# What `wlopm --json` says about the driven output(s) right after a power-on.
+_LIT = "lit"
+_MISSING = "missing"    # gone from the compositor: the labwc 0.20 wedge (#43)
+_DARK = "dark"          # present but still reporting off
+_UNKNOWN = "unknown"    # no usable answer; never reported as a fault
 
 
 class DisplayService:
@@ -60,6 +67,9 @@ class DisplayService:
         # Assumed on at startup. A fresh backend implies a fresh session, and the
         # first thing run() does is make that true rather than merely assume it.
         self.__on = True
+        # Why the panel is not doing what was last asked (protocol.DISPLAY_FAULT_*).
+        # OUTPUT_LOST is sticky for the life of the process: see set_power().
+        self.__fault = protocol.DISPLAY_FAULT_NONE
         # Serialises runs: an off->on flip arriving mid-run must not race the
         # process it is reversing.
         self.__lock = asyncio.Lock()
@@ -110,12 +120,21 @@ class DisplayService:
         '''
         if not self.__available or on == self.__on:
             return
+        if not on and self.__fault == protocol.DISPLAY_FAULT_OUTPUT_LOST:
+            # This host has already lost its output once after a blank, and on a
+            # keyboard-less panel every further power-off risks a black screen
+            # that only SSH can undo.  A backend restart re-enables it.
+            logger.info("Display power-off skipped: the output was lost after an "
+                        "earlier wake; restart the backend to allow it again")
+            return
+        before = self.__state_frame()
+        was_on = self.__on
         async with self.__lock:
-            if not await self.__run(on):
-                return
-            self.__on = on
-        logger.info("Display %s", "on" if on else "off")
-        await self.__server.broadcast(self.__state_frame())
+            await self.__switch(on)
+        if self.__on != was_on:
+            logger.info("Display %s", "on" if self.__on else "off")
+        if self.__state_frame() != before:
+            await self.__server.broadcast(self.__state_frame())
 
     async def run(self) -> None:
         '''
@@ -124,20 +143,28 @@ class DisplayService:
         believing it is lit — and the panel only wakes on a touch nobody knows to
         make.
 
-        Records the outcome rather than the intent.  If the power-on fails the
-        panel is treated as OFF: set_power() skips a request for the state it
-        believes the panel is already in, so a wrongly assumed "on" would drop
-        every later wake silently, while a wrongly assumed "off" only costs one
-        redundant wlopm --on.  Clients already connected are told either way.
+        Records the outcome rather than the intent.  If the power-on fails, the
+        panel is whatever `wlopm --json` reports, and OFF when that cannot be
+        read: set_power() skips a request for the state it believes the panel
+        is already in, so a wrongly assumed "on" would drop every later wake
+        silently, while a wrongly assumed "off" only costs one redundant
+        wlopm --on.  Clients already connected are told either way.
         '''
         if not self.__available:
             return
         before = self.__state_frame()
         async with self.__lock:
-            self.__on = await self.__run(True)
-        if not self.__on and self.__available:
-            logger.warning("Startup display power-on failed; treating the panel as "
-                           "off so the next wake request runs %s again", _COMMAND)
+            # Off until the switch proves otherwise.
+            self.__on = False
+            await self.__switch(True)
+        if self.__fault == protocol.DISPLAY_FAULT_REFUSED and self.__available:
+            if self.__on:
+                logger.warning("Startup display power-on was refused but the panel reports "
+                               "lit; %s cannot switch it (a VNC server holding the output "
+                               "does this), so screen-off will not work", _COMMAND)
+            else:
+                logger.warning("Startup display power-on failed; treating the panel as "
+                               "off so the next wake request runs %s again", _COMMAND)
         if self.__state_frame() != before:
             await self.__server.broadcast(self.__state_frame())
 
@@ -154,6 +181,99 @@ class DisplayService:
             self.__on = True
 
     # ── Internals ─────────────────────────────────────────────────
+
+    async def __switch(self, on: bool) -> None:
+        '''
+        One power change with its outcome recorded: `__on` follows what actually
+        happened and `__fault` says why it did not.  The caller holds the lock.
+
+        A refused change (wlopm exiting non-zero — a VNC server holding the
+        output does exactly that, in both directions, #46) leaves the state as
+        it was.  A power-on is then CHECKED, because on labwc 0.20 / wlroots
+        0.20 a long blank can drop the output from the compositor entirely and
+        `wlopm --on *` succeeds against nothing (#43).
+        Arguments:
+            on (bool): True for power-on, False for power-off.
+        '''
+        if not await self.__run(on):
+            if self.__fault != protocol.DISPLAY_FAULT_OUTPUT_LOST:
+                self.__fault = protocol.DISPLAY_FAULT_REFUSED
+            # A refusal says nothing about the panel, so ask — a VNC server
+            # blocks changes, not reads.  Without this a refused startup
+            # power-on marks a LIT panel dark, and the dashboard then retries a
+            # wake on every touch for as long as the server runs.
+            verdict = await self.__check_lit()
+            if verdict == _LIT:
+                self.__on = True
+            elif verdict in (_DARK, _MISSING):
+                self.__on = False
+            return
+        verdict = await self.__check_lit() if on else _UNKNOWN
+        if verdict == _MISSING:
+            self.__on = False
+            self.__fault = protocol.DISPLAY_FAULT_OUTPUT_LOST
+            logger.error(
+                "Display output %s is gone from the compositor after a power-on; the "
+                "panel stays dark. Known on labwc 0.20 / wlroots 0.20 after a long "
+                "blank. Recover with `sudo systemctl restart lightdm`; screen-off is "
+                "suspended until the backend restarts", self.__output)
+            return
+        if verdict == _DARK:
+            self.__on = False
+            if self.__fault != protocol.DISPLAY_FAULT_OUTPUT_LOST:
+                self.__fault = protocol.DISPLAY_FAULT_REFUSED
+            logger.warning("%s --on succeeded but the output still reports off", _COMMAND)
+            return
+        self.__on = on
+        if self.__fault == protocol.DISPLAY_FAULT_REFUSED:
+            self.__fault = protocol.DISPLAY_FAULT_NONE
+
+    async def __check_lit(self) -> str:
+        '''
+        Reads `wlopm --json` and says whether the driven output(s) are present
+        and lit.  Only an output that is MISSING is ever treated as the #43
+        wedge; anything unreadable — an older wlopm without --json, output in a
+        shape this does not recognise — is _UNKNOWN, so a wake that cannot be
+        verified is never reported as a fault.
+        '''
+        try:
+            process = await asyncio.create_subprocess_exec(
+                _COMMAND, "--json",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+        except OSError as e:
+            logger.debug("Could not run %s --json: %s", _COMMAND, e)
+            return _UNKNOWN
+        try:
+            stdout, _ = await asyncio.wait_for(
+                process.communicate(), timeout=_RUN_TIMEOUT_SECONDS
+            )
+        except asyncio.TimeoutError:
+            process.kill()
+            return _UNKNOWN
+        if process.returncode != 0:
+            return _UNKNOWN
+        try:
+            entries = json.loads(stdout)
+        except ValueError:
+            return _UNKNOWN
+        if not isinstance(entries, list):
+            return _UNKNOWN
+
+        # [{"output": "HDMI-A-1", "power-mode": "on"}, ...]
+        modes = {
+            entry["output"]: entry.get("power-mode")
+            for entry in entries
+            if isinstance(entry, dict) and "output" in entry
+        }
+        if self.__output == _ALL_OUTPUTS:
+            if not modes:
+                return _MISSING
+            return _DARK if any(mode == "off" for mode in modes.values()) else _LIT
+        if self.__output not in modes:
+            return _MISSING
+        return _DARK if modes[self.__output] == "off" else _LIT
 
     async def __run(self, on: bool) -> bool:
         '''
@@ -193,5 +313,5 @@ class DisplayService:
         '''Builds a DISPLAY_POWER_STATE packet from the current state.'''
         return protocol.frame(
             protocol.DISPLAY_POWER_STATE,
-            bytes((1 if self.__available else 0, 1 if self.__on else 0)),
+            bytes((1 if self.__available else 0, 1 if self.__on else 0, self.__fault)),
         )

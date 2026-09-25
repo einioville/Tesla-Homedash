@@ -120,6 +120,7 @@ qt_add_qml_module(appfrontend_v2
         items/settings/SettingsSidebar.qml
         items/settings/SettingsPane.qml
         items/settings/BackendProbeStatus.qml
+        items/settings/ScreenPowerStatus.qml
         items/settings/SystemStatusPanel.qml
         items/settings/UpdatePanel.qml
         items/settings/UpdateBanner.qml

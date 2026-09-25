@@ -45,6 +45,10 @@ class ScreenPower : public QObject {
     // Backend-reported: false when the host has no wlopm, so the feature is inert
     // however the setting is set.
     Q_PROPERTY(bool available READ available NOTIFY stateChanged)
+    // Backend-reported: why the panel is not doing what was asked — one of
+    // protocol::DISPLAY_FAULT_* (0 none, 1 wlopm refused, 2 output lost after a
+    // wake). The Options view explains it; OUTPUT_LOST also stops power-offs.
+    Q_PROPERTY(int fault READ fault NOTIFY stateChanged)
 
 public:
     explicit ScreenPower(QObject *parent = nullptr);
@@ -53,6 +57,7 @@ public:
     int timeoutMs() const { return m_timeoutMs; }
     bool off() const { return m_off; }
     bool available() const { return m_available; }
+    int fault() const { return m_fault; }
 
     void setEnabled(bool enabled);
     void setTimeoutMs(int timeoutMs);
@@ -91,6 +96,7 @@ private:
     bool m_enabled = false;
     bool m_off = false;
     bool m_available = false;
+    int m_fault = 0;
 };
 
 #endif  // FRONTEND_V2_SCREENPOWER_HH

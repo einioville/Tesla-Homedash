@@ -259,6 +259,7 @@ Item {
                                         case "systemStatus": return systemComponent
                                         case "spotifyAuth": return spotifyComponent
                                         case "appUpdate": return updateComponent
+                                        case "screenPower": return screenPowerComponent
                                         default: return null
                                         }
                                     }
@@ -304,6 +305,7 @@ Item {
     Component { id: systemComponent; SystemStatusPanel {} }
     Component { id: spotifyComponent; SpotifyAuthStatus {} }
     Component { id: updateComponent; UpdatePanel {} }
+    Component { id: screenPowerComponent; ScreenPowerStatus {} }
 
     // Shown before the first schema arrives (and if one never does).
     Text {

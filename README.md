@@ -433,6 +433,17 @@ WantedBy=default.target
 > `RestartSec` of 100 ms a crash-looping process trips that in about two seconds; at 5 s it
 > never can, so the unit keeps retrying and heals itself once the cause is fixed.
 
+> **Screen-off (the Options view's *Näytön sammutus*) is unreliable on current Raspberry Pi
+> OS.** It is off by default; two things break it:
+>
+> - **labwc 0.20 / wlroots 0.20** (Raspberry Pi OS since September 2026): after a long blank the
+>   output can disappear from the compositor and never come back — the panel stays black whatever
+>   you touch. Recover with `sudo systemctl restart lightdm` (the backend survives it). The backend
+>   detects this, refuses further power-offs until it is restarted, and the Options view says why.
+>   A plain `swayidle` + `wlopm` setup wedges the same way; it is not specific to this app.
+> - **A running VNC server (wayvnc)** blocks `wlopm` in both directions, so the panel simply never
+>   blanks. Stop the VNC server to use screen-off; the Options view reports the refusal.
+
 **3. Frontend** — `~/.config/systemd/user/tesla-homedash-frontend.service`. This one is
 tied to the graphical session (it needs the desktop's display), and it starts after the
 backend so there's data to show:
