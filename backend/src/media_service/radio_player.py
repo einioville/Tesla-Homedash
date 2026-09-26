@@ -41,11 +41,11 @@ class RadioPlayer(BaseMediaPlayer):
             vlc.EventType.MediaPlayerEndReached, self.__on_vlc_event
         )
 
-        # Retained so apply_config() can re-read the default station at runtime.
+        # Retained so a station change can be remembered (__remember_channel).
         self.__config = config
         self.__media_ids = config.radio_media_ids
         self.__channels = list(self.__media_ids.keys())
-        self.__channel = config.default_radio_station
+        self.__channel = self.__initial_channel()
         self.__channel_index = self.__channels.index(self.__channel)
 
         self.__stream_url: str | None = None
@@ -56,27 +56,41 @@ class RadioPlayer(BaseMediaPlayer):
 
         self.__async_loop = asyncio.get_running_loop()
 
-    def apply_config(self) -> None:
+    def __initial_channel(self) -> str:
         '''
-        Re-reads the default radio station after the Options view writes it.
+        The station to start on: the one last tuned to, else the
+        defaultRadioStation of a config.json written before the station was
+        remembered, else the first configured.  A name that is not (or no longer)
+        a radioMediaIds key is skipped rather than raising, so renaming a station
+        in config.json cannot stop the backend from starting.
+        '''
+        for candidate in (self.__config.media_config.get("lastRadioStation"),
+                          self.__config.get("defaultRadioStation")):
+            if candidate in self.__channels:
+                return candidate
+        return self.__channels[0]
 
-        This repoints which station the player will LOAD next (the radio fallback
-        after Spotify releases control, or the next skip's starting point); it does
-        not interrupt a stream that is already playing.  An unknown station name is
-        ignored rather than raising -- the schema constrains the value to the keys
-        of radioMediaIds, so this is belt-and-braces.
+    def __remember_channel(self) -> None:
         '''
-        new_channel = self.__config.default_radio_station
-        if new_channel == self.__channel:
+        Saves the current station as media.lastRadioStation, so the radio comes
+        back on it after a restart.  (After Spotify it already does: the release
+        reloads whatever station is current.)
+
+        Written straight through Config, not ConfigService: this is state the radio
+        owns, not a setting — it is in no schema, has no hook to run, and is valid
+        by construction, being always a radioMediaIds key.  Saved at once rather
+        than debounced: each skip already waits on a stream fetch, so writes cannot
+        outpace a finger, and a debounce window is a window in which a power cut
+        loses the station.  A failed save is logged and the station still changes;
+        the value stays in memory and rides along with the next successful save.
+        '''
+        if self.__config.media_config.get("lastRadioStation") == self.__channel:
             return
-        if new_channel not in self.__channels:
-            logger.warning("Unknown default radio station %s; keeping %s",
-                           new_channel, self.__channel)
-            return
-        logger.info("Default radio station changed: %s -> %s",
-                    self.__channel, new_channel)
-        self.__channel = new_channel
-        self.__channel_index = self.__channels.index(new_channel)
+        self.__config.set("media.lastRadioStation", self.__channel)
+        try:
+            self.__config.save()
+        except OSError as e:
+            logger.warning("Could not save the radio station %s: %s", self.__channel, e)
 
     def __on_vlc_event(self, event) -> None:
         '''
@@ -241,6 +255,7 @@ class RadioPlayer(BaseMediaPlayer):
             self.__channel_index = 0
         self.__channel = self.__channels[self.__channel_index]
         logger.info("Skipped to next channel: %s", self.__channel)
+        self.__remember_channel()
         await self.load_player()
         self.__vlc_player.play()
 
@@ -250,6 +265,7 @@ class RadioPlayer(BaseMediaPlayer):
             self.__channel_index = len(self.__channels) - 1
         self.__channel = self.__channels[self.__channel_index]
         logger.info("Skipped to previous channel: %s", self.__channel)
+        self.__remember_channel()
         await self.load_player()
         self.__vlc_player.play()
 

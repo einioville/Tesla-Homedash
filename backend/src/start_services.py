@@ -873,7 +873,6 @@ async def main():
     config_service.register_hook("trip", trip_loader.apply_config)
     config_service.register_hook("charging", charging_loader.apply_config)
     config_service.register_hook("spot_price", spot_provider.apply_config)
-    config_service.register_hook("radio", mm.apply_config_radio)
     config_service.register_hook("spotify", mm.apply_config_spotify)
     config_service.register_hook("media", mm.apply_config_media)
     config_service.register_hook("audio", audio.apply_config)

@@ -36,14 +36,6 @@ class MediaManager:
         # was silent before Spotify is never started by Spotify ending.
         self.__radio_interrupted: bool = False
 
-    def apply_config_radio(self) -> None:
-        '''
-        Forwards a config change to the radio player (the default station).
-        Exposed separately from the Spotify hook so ConfigService can apply just
-        the setting that changed rather than poking both players.
-        '''
-        self.__radio_player.apply_config()
-
     def apply_config_spotify(self) -> None:
         '''Forwards a config change to the Spotify player (the target device).'''
         self.__spotify_player.apply_config()
@@ -198,7 +190,7 @@ class MediaManager:
         await self.__spotify_player.run()
         await self.load_default_media_player()
         if self.__autoplay_radio:
-            logger.info("Starting the default radio station (autoplayRadio)")
+            logger.info("Starting the radio (autoplayRadio)")
             await self.__radio_player.play()
             await self.__radio_player.stream_everything(client=None)
 

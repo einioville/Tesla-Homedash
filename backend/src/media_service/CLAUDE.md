@@ -28,6 +28,13 @@
 - **`radio_player.py`** (`RadioPlayer`) plays Nelonen Media HLS streams through libVLC, fetching the
   stream + art URL per station, cycling stations on skip, and restarting on VLC error/end events
   (guarded by `__intentional_stop`). **Talks to:** Nelonen API (aiohttp), libVLC, `MediaManager`.
+  **It remembers its own station**: every skip saves `media.lastRadioStation` through `Config`
+  directly — state the radio owns, not a setting, so it is in no schema and bypasses
+  `ConfigService` (nothing to validate: it is always a `radioMediaIds` key). Saved at once, not
+  debounced — a skip already waits on a stream fetch, and a debounce window is one where a power cut
+  loses the station. Startup takes that, else a legacy `defaultRadioStation`, else the first
+  station; an unknown name is skipped rather than raised on, so a renamed station cannot stop the
+  backend starting.
 - **`setup/spotify_setup.py`**: a one-off helper (run during setup) that completes the OAuth
   handshake and prints the active Connect device id for `config.json`. Not part of the runtime.
 

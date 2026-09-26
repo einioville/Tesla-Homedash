@@ -87,7 +87,9 @@ Parsed once by `Config` and injected into every service. Keys:
   `GpsHeading`, which wraps 0↔360 and isn't worth graphing).
 - `calculated tesla data` — derived fields (`DrivenToday`, `DrivenThisMonth`): adds
   `source_data_property_id`, `period` (`day`/`month`), `calculation_formula` (e.g. `y - x`).
-- `radioMediaIds` — station name → Nelonen Media id; `defaultRadioStation` — a key from it.
+- `radioMediaIds` — station name → Nelonen Media id. There is no station setting: the radio starts
+  on the station last tuned to (`media.lastRadioStation`, below). A `defaultRadioStation` left in an
+  older `config.json` is read once as the starting station, until the first station change.
 - `spotifyDeviceId` — target Spotify Connect device id, written at runtime by the Options view's
   *Tunnista laite* flow (never typed by hand — `src/media_service/CLAUDE.md`); `spotifyDeviceName`
   (optional) — its display name, written beside it by the same flow;
@@ -109,9 +111,10 @@ Parsed once by `Config` and injected into every service. Keys:
   added before VAT), `baseUrl` (the no-key sähkötin.fi range endpoint; swappable for another source).
   All-in €/kWh for an hour = `(spot + marginCentsPerKwh/100) × (1 + vatPercent/100)`. Prices are
   fetched on demand (no self-logging) — historical hours price past sessions retroactively.
-- `media` (optional) — `autoplayRadio` (start the default station at backend start) and
-  `resumeRadioAfterSpotify` (`src/media_service/CLAUDE.md`). Both default off, which is the
-  pre-existing behaviour.
+- `media` (optional) — `autoplayRadio` (start the radio at backend start) and
+  `resumeRadioAfterSpotify` (`src/media_service/CLAUDE.md`), both default off; and
+  `lastRadioStation`, which is **state, not a setting** — `RadioPlayer` writes it on every station
+  change, straight through `Config.save()`, and it is in no schema.
 - `logging` (optional) — `debugEnabled` / `debugMinutes`: the Options view's temporary DEBUG log for
   both halves, which clears itself (`src/system_service/CLAUDE.md`). It raises the level above
   `TESLA_HOMEDASH_LOG_LEVEL` for a while and returns to it; it does not replace the variable.

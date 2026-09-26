@@ -222,32 +222,23 @@ SETTINGS_SCHEMA: list[dict] = [
             {
                 "id": "radio",
                 "label": "Radio",
+                # No station setting: the radio starts on the station last used,
+                # which RadioPlayer remembers itself (media.lastRadioStation).
                 "settings": [
-                    {
-                        "key": "defaultRadioStation",
-                        "type": "enum",
-                        "label": "Oletusradiokanava",
-                        "help": "Kanava, jolle radio palaa Spotifyn lopetettua.",
-                        "options": "dynamic",
-                        "apply": "hook",
-                        "hooks": ["radio"],
-                    },
                     {
                         "key": "media.autoplayRadio",
                         "type": "bool",
                         "label": "Soita radiota käynnistyksessä",
-                        "help": "Oletuskanava alkaa soida, kun palvelin käynnistyy. "
-                                "Pois päältä radio vain valmistellaan.",
+                        "help": "Toista radiota automaattisesti käynnistyksen jälkeen.",
                         "apply": "hook",
                         "hooks": ["media"],
                     },
                     {
                         "key": "media.resumeRadioAfterSpotify",
                         "type": "bool",
-                        "label": "Jatka radiota Spotifyn jälkeen",
-                        "help": "Kun Spotify lopettaa kesken soiton, radio jatkaa — jos "
-                                "se soi Spotifyn alkaessa. Tauolle jätetty Spotify ei "
-                                "käynnistä radiota myöhemmin.",
+                        "label": "Jatka radion toistoa automaattisesti Spotify-toiston jälkeen",
+                        "help": "Jos radio toistaa mediaa Spotify-toistoon vaihtaessa, jatka "
+                                "radion toistamista Spotify-toiston päättyessä.",
                         "apply": "hook",
                         "hooks": ["media"],
                     },
@@ -292,13 +283,11 @@ SETTINGS_SCHEMA: list[dict] = [
             {
                 "id": "audio",
                 "label": "Ääni",
-                "help": "Järjestelmän äänentoisto — koskee sekä radiota että Spotifyta.",
                 "settings": [
                     {
                         "key": "audio.volumePercent",
                         "type": "int",
                         "label": "Äänenvoimakkuus",
-                        "help": "Järjestelmän oletuslaitteen voimakkuus.",
                         "unit": "%",
                         "min": 0,
                         "max": 100,
@@ -311,11 +300,12 @@ SETTINGS_SCHEMA: list[dict] = [
                         "guard": "audio",
                     },
                     {
+                        # No help line. On ALSA, where the output cannot be switched
+                        # at runtime, the choices list is empty, so the membership
+                        # check below refuses any write without the row explaining.
                         "key": "audio.outputDevice",
                         "type": "enum",
-                        "label": "Toistolaite",
-                        "help": "Tyhjä = järjestelmän oma oletus. ALSA-järjestelmässä "
-                                "laitetta ei voi vaihtaa ajon aikana.",
+                        "label": "Ulostulo",
                         "options": "dynamic",
                         "apply": "hook",
                         "hooks": ["audio"],
@@ -595,8 +585,7 @@ class ConfigService:
         self.__hooks: dict[str, Callable[[], Any]] = {}
         # key -> zero-arg callable returning [{"value", "label"}].  Lets a service
         # own its own dynamic enum instead of __dynamic_options growing a
-        # hardcoded branch per key (defaultRadioStation predates this and stays
-        # as the built-in fallback).
+        # hardcoded branch per key.
         self.__options_providers: dict[str, Callable[[], list[dict]]] = {}
         # guard name -> callable(key, value), raising ValueError to REJECT a write
         # that could not take effect.  Distinct from a hook: a hook runs after the
@@ -730,20 +719,15 @@ class ConfigService:
 
     def __dynamic_options(self, key: str) -> list[dict]:
         '''
-        Resolves an enum whose choices come from config rather than the schema.
-        Currently only defaultRadioStation, whose choices are the configured
-        radioMediaIds keys.
+        Resolves an enum whose choices are built at schema time rather than
+        listed in the schema, through the provider its service registered
+        (register_options) — audio.outputDevice is the one today.
         Arguments:
             key (str): The setting key whose options are being built.
         '''
         provider = self.__options_providers.get(key)
         if provider is not None:
             return provider()
-        if key == "defaultRadioStation":
-            return [
-                {"value": name, "label": name}
-                for name in self.__config.radio_media_ids.keys()
-            ]
         logger.warning("No dynamic options builder for %s", key)
         return []
 

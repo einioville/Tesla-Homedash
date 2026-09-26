@@ -405,7 +405,7 @@ after the map-tuning pass and the split of this guide into per-directory `CLAUDE
 second Options-view batch: navigation/home return, night mode, notification toggles, radio
 autoplay/resume, the temporary debug log, map imagery, and the self-closing Spotify consent window — plus
 the Media section's Spotify card redesign (per-row details, the grant record, device status, section
-order). When you land a change that touches documented behaviour, update this line.
+order) and the radio remembering its last station in place of a default-station setting. When you land a change that touches documented behaviour, update this line.
 
 ## 8. Session workflow — main checkout by default, worktree only for parallelism
 

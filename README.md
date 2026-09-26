@@ -241,7 +241,6 @@ Open `config.json` and adjust the fields you'll typically need to change:
 - `spotifyDeviceId` — leave blank for now; fill in during step 5.
 - `spotifyCachePath` — absolute path where spotipy will store its OAuth refresh token (e.g. `/home/<your-user>/spotify_cache`).
 - `spotifyRedirectUri` — defaults to `http://127.0.0.1:8080/callback`; must match whatever you registered as a redirect URI in the Spotify Developer App.
-- `defaultRadioStation` — key from the `radioMediaIds` map.
 - `timeZone` — IANA timezone (e.g. `Europe/Helsinki`).
 - `weatherPlace` — city the FMI feed should report for.
 

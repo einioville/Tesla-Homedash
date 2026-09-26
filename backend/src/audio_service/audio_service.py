@@ -110,7 +110,7 @@ class AudioService:
         # SettingSelect has no clear button — only the numeric editors do — so a
         # sentinel option is the only route back, which is why this key is a
         # plain enum rather than nullable.
-        return [{"value": "", "label": "Järjestelmän oletus"}] + [
+        return [{"value": "", "label": "Oletuslaite"}] + [
             {"value": device.identifier, "label": device.label} for device in self.__devices
         ]
 

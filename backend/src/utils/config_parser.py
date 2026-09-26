@@ -85,7 +85,6 @@ class Config:
         "calculated tesla data",
         "weatherPlace",
         "radioMediaIds",
-        "defaultRadioStation",
         "spotifyDeviceId",
         "spotifyRedirectUri",
         "spotifyCachePath",
@@ -141,6 +140,7 @@ class Config:
     _MEDIA_DEFAULTS = {
         "autoplayRadio": False,
         "resumeRadioAfterSpotify": False,
+        "lastRadioStation": "",
     }
 
     # Temporary debug logging from the Options view.  debugEnabled switches both
@@ -235,10 +235,6 @@ class Config:
         return self.__data["radioMediaIds"]
 
     @property
-    def default_radio_station(self) -> str:
-        return self.__data["defaultRadioStation"]
-
-    @property
     def spotify_device_id(self) -> str:
         return self.__data["spotifyDeviceId"]
 
@@ -309,10 +305,12 @@ class Config:
     def media_config(self) -> dict:
         '''
         Media block merged over _MEDIA_DEFAULTS:
-        - autoplayRadio: start the default station when the backend starts, rather
-          than only loading it.
+        - autoplayRadio: start the radio when the backend starts, rather than only
+          loading it.
         - resumeRadioAfterSpotify: when Spotify releases playback while it was
           playing, restart the radio IF Spotify had interrupted it.
+        - lastRadioStation: the station last tuned to, written by RadioPlayer
+          itself (not an Options-view setting); "" until the first change.
         '''
         return {**self._MEDIA_DEFAULTS, **self.__data.get("media", {})}
 

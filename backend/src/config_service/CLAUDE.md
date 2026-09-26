@@ -8,8 +8,8 @@ bundled schema and a group present in both halves MERGES into one sidebar sectio
 how `general` shows the frontend's screensaver card beside this file's location card. Every
 setting declares `key` (dotted), `type` (`bool|int|float|string|enum`), Finnish
 `label`/`help`, `unit`, numeric `min`/`max`/`step`, `nullable`, `options` (or the string
-`"dynamic"`, resolved at schema-build time — `defaultRadioStation`'s choices are the configured
-`radioMediaIds` keys), an optional `validator` name, and its **apply tier**. It is both the
+`"dynamic"`, resolved at schema-build time by the provider the owning service registered with
+`register_options` — `audio.outputDevice`'s choices are the host's sinks), an optional `validator` name, and its **apply tier**. It is both the
 write allow-list and the frontend's UI description, so adding a tunable is one entry here and
 **no frontend change at all**.
 
@@ -22,8 +22,8 @@ write allow-list and the frontend's UI description, so adding a tunable is one e
 >   Registered in `start_services` via `config_service.register_hook(name, svc.apply_config)`.
 >   Implemented on: `WeatherService`, `MyEnergiService`, `TripLoader`, `ChargingLoader`,
 >   `SpotPriceProvider`, `DebugLogging` (the `logging` block, `../system_service/CLAUDE.md`), and
->   `MediaManager.apply_config_radio()` / `_spotify()` (which forward to the two players) /
->   `_media()` (the manager's own `media` block). `SpotPriceProvider` needs no cache flush — it caches *raw* prices and
+>   `MediaManager.apply_config_spotify()` (which forwards to the Spotify player) /
+>   `_media()` (the manager's own `media` block), and `AudioService`. `SpotPriceProvider` needs no cache flush — it caches *raw* prices and
 >   applies VAT/margin on read.
 > - **`restart`** — the value builds something that cannot be rebuilt in place: `timeZone`
 >   (APScheduler cron jobs), `myenergi.zappiSerial` (the Zappi resolved at connect),

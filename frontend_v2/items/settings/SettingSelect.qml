@@ -7,8 +7,8 @@ import frontend_v2
 // padding/elide fix from #19) — apply here for free rather than being rebuilt.
 //
 // Options arrive as [{value, label}] from the schema. The backend resolves dynamic
-// ones (defaultRadioStation's choices are the configured radioMediaIds keys), so
-// this delegate never has to know where a list comes from.
+// ones (audio.outputDevice's choices are the host's audio sinks), so this delegate
+// never has to know where a list comes from.
 TripComboBox {
     id: control
 
