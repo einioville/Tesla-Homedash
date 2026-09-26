@@ -102,19 +102,6 @@ QtObject {
                 })
             }
         }
-
-        // valuesRevision makes these invokable reads live (see Settings.valueOf).
-        const revision = Settings.valuesRevision
-        if (Settings.valueOf("screensaverEnabled") === true
-                && String(Settings.valueOf("screensaverDir") || "").length === 0) {
-            list.push({
-                id: "screensaverDir",
-                level: "warn",
-                title: qsTr("Näytönsäästäjällä ei ole kuvakansiota"),
-                detail: qsTr("Näytönsäästäjä ei käynnisty ilman kansiota"),
-                key: "screensaverDir"
-            })
-        }
         return list
     }
 

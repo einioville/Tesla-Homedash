@@ -22,7 +22,7 @@
         "Per-subsection keys: id, label, help (optional, under the card title),\nstatus (optional: names a runtime status widget rendered in the card -\n'backendProbe' is the reachability check), settings.",
         "",
         "Per-setting keys: key, type (bool|int|float|string|enum|action), label, help,",
-        "unit, min/max/step (numeric), maxLabel (slider top-stop text), options\n(enum), default, apply, editor,\nwarnBelow/warnAbove + warnMessage (advisory caution, never blocks a write),\nrelevantWhen {key, equals|notEquals} (fades the row while another setting\nmakes it meaningless - faded, never disabled, so it stays editable).",
+        "unit, min/max/step (numeric), maxLabel (slider top-stop text), options\n(enum), default, apply, editor,\nwarnBelow/warnAbove + warnMessage (advisory caution, never blocks a write),\nrelevantWhen {key, equals|notEquals|notEmpty} or a list of such rules that\nmust ALL hold (fades and disables the row while other settings make it\nmeaningless).",
         "editor: a per-type CONTROL HINT, always opt-in, ignored when absent.",
         "        'slider' (int/float) replaces the default [-] value [+] stepper,",
         "        and only for coarse dials where the exact number does not matter",
@@ -136,7 +136,11 @@
                             "type": "bool",
                             "label": "Näytönsäästäjä",
                             "default": true,
-                            "apply": "live"
+                            "apply": "live",
+                            "relevantWhen": {
+                                "key": "screensaverDir",
+                                "notEmpty": true
+                            }
                         },
                         {
                             "key": "screensaverTimeoutMin",
@@ -149,10 +153,16 @@
                             "step": 1,
                             "default": 30,
                             "apply": "live",
-                            "relevantWhen": {
-                                "key": "screensaverEnabled",
-                                "equals": true
-                            }
+                            "relevantWhen": [
+                                {
+                                    "key": "screensaverEnabled",
+                                    "equals": true
+                                },
+                                {
+                                    "key": "screensaverDir",
+                                    "notEmpty": true
+                                }
+                            ]
                         },
                         {
                             "key": "screensaverAdvanceSec",
@@ -164,10 +174,16 @@
                             "step": 1,
                             "default": 8,
                             "apply": "live",
-                            "relevantWhen": {
-                                "key": "screensaverEnabled",
-                                "equals": true
-                            }
+                            "relevantWhen": [
+                                {
+                                    "key": "screensaverEnabled",
+                                    "equals": true
+                                },
+                                {
+                                    "key": "screensaverDir",
+                                    "notEmpty": true
+                                }
+                            ]
                         },
                         {
                             "key": "screensaverStackCount",
@@ -180,10 +196,16 @@
                             "step": 1,
                             "default": 10,
                             "apply": "live",
-                            "relevantWhen": {
-                                "key": "screensaverEnabled",
-                                "equals": true
-                            }
+                            "relevantWhen": [
+                                {
+                                    "key": "screensaverEnabled",
+                                    "equals": true
+                                },
+                                {
+                                    "key": "screensaverDir",
+                                    "notEmpty": true
+                                }
+                            ]
                         },
                         {
                             "key": "screensaverDir",

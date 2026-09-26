@@ -35,6 +35,9 @@ Item {
     // A setting can declare that it only MATTERS while another setting holds a
     // particular value — the screensaver's dwell time means nothing with the
     // screensaver off. Such a row is faded AND inert — see `enabled` below.
+    // `relevantWhen` is one rule or a list of rules that must ALL hold: the
+    // dwell time also means nothing while there is no photo folder, which
+    // makes the screensaver switch itself unavailable.
     //
     // The rule may name a setting in EITHER half, so the value is resolved via
     // Settings.valueOf rather than Settings.values, which knows only local keys.
@@ -42,7 +45,22 @@ Item {
     // invokable call captures no property to depend on.
     readonly property bool relevant: {
         const revision = Settings.valuesRevision
-        const dep = row.setting.relevantWhen
+        const rules = row.setting.relevantWhen
+        if (rules === undefined || rules === null)
+            return true
+        // A single rule is an object with a key. A list is tested by shape, not
+        // Array.isArray: it arrives from C++ as a QVariantList, which need not
+        // convert to a true JS array.
+        if (rules.key !== undefined)
+            return row.ruleHolds(rules)
+        for (const rule of rules) {
+            if (!row.ruleHolds(rule))
+                return false
+        }
+        return true
+    }
+
+    function ruleHolds(dep) {
         if (dep === undefined || dep === null || dep.key === undefined)
             return true
         const current = Settings.valueOf(dep.key)
@@ -50,6 +68,10 @@ Item {
             return current === dep.equals
         if (dep.notEquals !== undefined)
             return current !== dep.notEquals
+        // A cleared nullable string is "" locally but may arrive as null from
+        // the backend; both mean "not configured".
+        if (dep.notEmpty === true)
+            return current !== undefined && current !== null && String(current).length > 0
         return true
     }
 

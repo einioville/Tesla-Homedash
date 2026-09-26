@@ -407,7 +407,8 @@ second Options-view batch: navigation/home return, night mode, notification togg
 autoplay/resume, the temporary debug log, map imagery, and the self-closing Spotify consent window — plus
 the Media section's Spotify card redesign (per-row details, the grant record, device status, section
 order), the radio remembering its last station in place of a default-station setting, inline
-write results and the issues box with its fix spotlight. When you land a change that touches documented behaviour, update this line.
+write results and the issues box with its fix spotlight — plus the Yleinen wording pass and the
+screensaver switch that stays unavailable until a photo folder is set. When you land a change that touches documented behaviour, update this line.
 
 ## 8. Session workflow — main checkout by default, worktree only for parallelism
 

@@ -60,12 +60,15 @@ setting whose editor lives in the subsection's status widget; `updateChannel` is
 `status` is dropped, which is how the backend's `spotify` subsection — `spotifyDeviceId` /
 `spotifyDeviceName`, written only by the device scan — renders nothing while staying the write
 allow-list), **`details`** (a row-level live block under the label — see *Row details* below),
-**`relevantWhen`** (`{key, equals|notEquals}` — `SettingRow`
+**`relevantWhen`** (`{key, equals|notEquals|notEmpty}`, or a list of
+such rules that must ALL hold — `SettingRow`
 fades a row whose controlling setting makes it meaningless **and sets `enabled: false` on it**,
 since a control that changes a value with no effect is worse than one that visibly cannot be used;
-`enabled` propagates down the item tree, so no editor needs to know about relevance. A setting that
-is a *precondition* for its controller — the screensaver's photo folder, without which the
-screensaver cannot run at all — must NOT carry a rule, or it becomes unsettable exactly when it
+`enabled` propagates down the item tree, so no editor needs to know about relevance. `notEmpty`
+treats `""` and null alike, since a cleared nullable string can arrive as either. The screensaver
+card is the list form's consumer: the switch is unavailable until a photo folder is set, and its
+three tuning rows need the switch on *and* the folder. A setting that is a *precondition* for its
+controller — that photo folder — must NOT carry a rule, or it becomes unsettable exactly when it
 needs setting. Resolved through `Settings.valueOf()`, which reaches **both** halves, with
 `Settings.valuesRevision` read purely to make the binding live), **`editor: "folder"`** (opt-in on a
 `string` setting: the row becomes a tappable path that opens the folder browser instead of a text
@@ -182,8 +185,10 @@ the local sections from reading as a bug.
   offers no *Korjaa*. **While disconnected, only the connection is reported** — every other check
   reads backend state that is stale until it returns. Today's checks: backend unreachable →
   `backendHost`; Spotify grant broken, or valid for ≤ 30 more days → `spotifyReauth`; no Spotify
-  device chosen, or chosen but not listed → `spotifyIdentifyDevice` (only with a working grant);
-  screensaver on without a folder → `screensaverDir`. Add a check by pushing one more entry.
+  device chosen, or chosen but not listed → `spotifyIdentifyDevice` (only with a working grant).
+  A missing screensaver folder is deliberately *not* an issue: the switch is unavailable without
+  one, so a user who wants no screensaver could never clear it. Add a check by pushing one more
+  entry.
   The view refreshes `SpotifyDevice.configuredStatus` whenever it becomes current, since the device
   checks read it.
 - **`SettingsIssuesPopup.qml`** is the list, drawn like `SpotifyDevicePopup` (scrim over the blurred
