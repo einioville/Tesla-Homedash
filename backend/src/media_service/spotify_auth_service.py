@@ -29,7 +29,9 @@ import requests
 from spotipy.oauth2 import SpotifyOauthError
 
 from ..utils import protocol
-from .spotify_oauth import SPOTIFY_SCOPE, build_oauth, scope_covers
+from .spotify_oauth import (GRANT_LIFETIME_SECONDS, SPOTIFY_AUTH_SCOPE, SPOTIFY_SCOPE,
+                            build_oauth, read_grant_record, scope_covers,
+                            write_grant_record)
 
 logger = logging.getLogger("media_service.spotify_auth")
 
@@ -100,7 +102,10 @@ class SpotifyAuthService:
             writer (StreamWriter): The requesting client.
         '''
         try:
-            oauth = build_oauth(self.__config)
+            # The ISSUING manager asks for the wider scope, so the grant can also
+            # name its account; everything that reads the cache keeps asking for
+            # SPOTIFY_SCOPE alone (spotify_oauth.SPOTIFY_AUTH_SCOPE says why).
+            oauth = build_oauth(self.__config, scope=SPOTIFY_AUTH_SCOPE)
             nonce = secrets.token_urlsafe(16)
             # The nonce goes to get_authorize_url(), NOT to the constructor: with
             # SpotifyOAuth.state left None, spotipy omits `state` from the token
@@ -520,9 +525,35 @@ class SpotifyAuthService:
             # failure — the grant is already on disk and the next poll will use it.
             logger.warning("Spotify grant saved, but the player refresh failed: %s", e)
 
+        await self.__record_grant()
+
         await self.__reply_result(writer, True, "Tunnistautuminen onnistui",
                                   scope=scope, expires_at=expires_at)
         await self.__server.broadcast(self.__status_frame())
+
+    async def __record_grant(self) -> None:
+        '''
+        Writes the grant record for the exchange that just succeeded: the date
+        (the only source of "valid until" there is) and the account it belongs
+        to.  Runs after refresh_spotify_auth(), which clears the player's auth
+        latch — before that, the profile read would be refused unasked.
+
+        Neither half may fail the authorization: the grant is already on disk
+        and working.  A profile that cannot be read still records the date, and
+        a record that cannot be written only costs the Options view its dates.
+        '''
+        try:
+            profile = await self.__media_manager.spotify_current_user()
+        except Exception as e:  # noqa: BLE001 - the date is worth recording regardless
+            logger.warning("Could not read the Spotify profile: %s", e)
+            profile = None
+        try:
+            write_grant_record(self.__config, profile)
+        except OSError as e:
+            logger.warning("Spotify grant saved, but its record could not be written: %s", e)
+            return
+        logger.info("Spotify grant recorded | account e-mail %s",
+                    "known" if (profile or {}).get("email") else "not granted")
 
     async def notify_auth_state_changed(self) -> None:
         '''
@@ -560,6 +591,12 @@ class SpotifyAuthService:
             "redirectUri": self.__config.spotify_redirect_uri,
             "cachePath": self.__config.spotify_cache_path,
             "reason": "",
+            # From the grant record (write_grant_record): epoch seconds, or None
+            # for a grant this app did not issue — Spotify reports neither date.
+            "authorizedAt": None,
+            "validUntil": None,
+            "email": "",
+            "displayName": "",
         }
 
         # The player's verdict outranks the file's existence: a cached refresh
@@ -570,6 +607,9 @@ class SpotifyAuthService:
         if player_error:
             status["reason"] = player_error
             status["needsReauth"] = True
+            # Still says whose grant it was and when it lapsed: that is what
+            # explains a rejection that arrives on schedule.
+            self.__add_grant_record(status)
             return status
 
         try:
@@ -591,9 +631,12 @@ class SpotifyAuthService:
         # the authorization runs out. Do not render it as one: it would imply the
         # grant dies within the hour (it does not) while hiding the only expiry
         # that ever needs the user, the refresh token's 6 months. Spotify does not
-        # expose the grant's issue date, so showing a real "valid until" would mean
-        # recording our own timestamp at each successful exchange.
+        # expose the grant's issue date; the real "valid until" is validUntil,
+        # derived from the timestamp this app records at each exchange.
         status["expiresAt"] = token.get("expires_at")
+        # Not attached in the no-token branch above: with no grant on disk the
+        # record describes one that is gone.
+        self.__add_grant_record(status)
         if not scope_covers(SPOTIFY_SCOPE, status["scope"]):
             status["reason"] = "Tunnuksen oikeudet eivät riitä"
             status["needsReauth"] = True
@@ -602,6 +645,25 @@ class SpotifyAuthService:
         status["authorized"] = True
         status["reason"] = "Tunnus löytyi"
         return status
+
+    def __add_grant_record(self, status: dict) -> None:
+        '''
+        Folds the grant record into a status document.  validUntil is derived
+        here rather than stored, so a change to GRANT_LIFETIME_SECONDS applies to
+        grants already recorded.  The record is not checked against the cache: a
+        grant replaced from outside this app (the CLI helper, a copied cache)
+        would still show the last one issued here — which is why the CLI helper
+        writes the record too.
+        Arguments:
+            status (dict): The document build_status() is assembling.
+        '''
+        record = read_grant_record(self.__config)
+        authorized_at = record.get("authorizedAt")
+        if isinstance(authorized_at, (int, float)) and not isinstance(authorized_at, bool):
+            status["authorizedAt"] = int(authorized_at)
+            status["validUntil"] = int(authorized_at) + GRANT_LIFETIME_SECONDS
+        status["email"] = str(record.get("email") or "")
+        status["displayName"] = str(record.get("displayName") or "")
 
     # ── Internals ─────────────────────────────────────────────────
 

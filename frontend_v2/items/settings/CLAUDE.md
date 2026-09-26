@@ -9,8 +9,8 @@ behind several of these files are documented in `../../core/CLAUDE.md`:
 |---|---|
 | `BackendProbeStatus.qml` | `Probe` |
 | `SystemStatusPanel.qml` | `System` |
-| `SpotifyAuthStatus.qml`, `SpotifyAuthPopup.qml`, `SpotifyAuthAlert.qml`, `DialogButton.qml` | `SpotifyAuth` |
-| `SpotifyDevicePopup.qml` | `SpotifyDevice` |
+| `SpotifyAuthDetails.qml`, `SpotifyAuthPopup.qml`, `SpotifyAuthAlert.qml`, `DialogButton.qml` | `SpotifyAuth` |
+| `SpotifyDeviceDetails.qml`, `SpotifyDevicePopup.qml` | `SpotifyDevice` |
 | `UpdatePanel.qml`, `UpdateBanner.qml` | `Updater` |
 | `ScreenPowerStatus.qml` | `Display` |
 | `TeslaFieldTable.qml` | `TeslaFields` |
@@ -34,6 +34,11 @@ Load-bearing:
   and is never overwritten by a list change; `currentGroup` resolves it on read, falling back
   to the first section. That is what makes a backend section still be selected after a
   reconnect instead of the user being bounced to the first one.
+- **Subsection order across the two halves is the local group's `sectionOrder`.** Local
+  subsections are folded in before the backend's, so without it a backend card can never lead its
+  section. `Settings` applies the list after the merge: named ids first, in that order, everything
+  unnamed after them in its natural order (so a subsection added later still appears). Media uses
+  it to put the backend's *Ääni* card above the local *Spotify* card and the backend's *Radio*.
 - **Group `icon` is a SEMANTIC name** (`"charger"`, `"media"`, `"price"`, …), mapped to a
   resource by `SettingsSidebar.iconFor()`. The backend names icons without knowing anything
   about frontend assets; an unknown name falls back to the gear. Both schema builders copy
@@ -45,7 +50,11 @@ Load-bearing:
 Beyond the basics (`key`, `type`, `label`, `help`, `unit`, `min`/`max`/`step`, `nullable`,
 `options`): **`hidden`** (kept out of the rendered rows while stored and persisted normally — for a
 setting whose editor lives in the subsection's status widget; `updateChannel` is the example —
-`core/CLAUDE.md`, under `Updater`), **`relevantWhen`** (`{key, equals|notEquals}` — `SettingRow`
+`core/CLAUDE.md`, under `Updater`. A subsection whose entries are ALL hidden and that names no
+`status` is dropped, which is how the backend's `spotify` subsection — `spotifyDeviceId` /
+`spotifyDeviceName`, written only by the device scan — renders nothing while staying the write
+allow-list), **`details`** (a row-level live block under the label — see *Row details* below),
+**`relevantWhen`** (`{key, equals|notEquals}` — `SettingRow`
 fades a row whose controlling setting makes it meaningless **and sets `enabled: false` on it**,
 since a control that changes a value with no effect is worse than one that visibly cannot be used;
 `enabled` propagates down the item tree, so no editor needs to know about relevance. A setting that
@@ -120,11 +129,31 @@ above it) and `revealFocused()` scrolls the focused field into the strip that st
 runs on both a focus change and the inset change, because the inset only settles after the panel's
 slide-in, well after focus moved.
 
+## Row details
+
+The row-level sibling of the subsection `status` hook below: **`details: "<id>"`** makes
+`SettingRow` load a component under the label, resolved against its own small table
+(`spotifyAuth` → `SpotifyAuthDetails`, `spotifyDevice` → `SpotifyDeviceDetails`). It is for facts
+that belong to one row without being its value — the two Spotify actions carry no `help`, and their
+details are the whole explanation. Both render through **`SettingDetails.qml`**: a status line led
+by a green / amber / red / grey dot, then label–value pairs. Grey means *could not be established*,
+which is kept apart from red on purpose.
+
+- **`SpotifyAuthDetails`** — account (e-mail, else display name), *Tunnistettu*, *Voimassa asti*.
+  Red only when the backend says the grant does not work; amber within 30 days of `validUntil`, past
+  it while Spotify still accepts the grant (the 180-day estimate is deliberately early), and when
+  the dates are unknown — a grant issued before the backend's grant record existed. Re-evaluates
+  hourly, so amber arrives on a panel left on this view.
+- **`SpotifyDeviceDetails`** — name (type) and id of the configured device. Amber when Spotify does
+  not list it: Spotify lists only devices that are up, so *switched off* and *wrong id* look the
+  same, and the text says both. It asks for `SpotifyDevice.configuredStatus` on construction; the
+  row is rebuilt on every settings write, so the request is throttled in C++ (`core/CLAUDE.md`).
+
 ## Status widgets
 
 The hook is a **subsection-level `status` key**: a subsection may name a runtime status widget,
 which `SettingsPane` renders in the card via a `Loader` above the rows, resolving the name against a
-small component table (`backendProbe`, `systemStatus`, `spotifyAuth`, `appUpdate`, `screenPower`,
+small component table (`backendProbe`, `systemStatus`, `appUpdate`, `screenPower`,
 `teslaProperties`). `active:` gates construction,
 which is what keeps the probe from firing for a card that did not ask
 for it. A subsection carrying a `status` but **no settings** is legitimate and is exempted from the

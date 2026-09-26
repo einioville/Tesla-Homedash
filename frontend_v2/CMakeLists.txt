@@ -127,7 +127,9 @@ qt_add_qml_module(appfrontend_v2
         items/settings/SystemStatusPanel.qml
         items/settings/UpdatePanel.qml
         items/settings/UpdateBanner.qml
-        items/settings/SpotifyAuthStatus.qml
+        items/settings/SettingDetails.qml
+        items/settings/SpotifyAuthDetails.qml
+        items/settings/SpotifyDeviceDetails.qml
         items/settings/SpotifyAuthPopup.qml
         items/settings/SpotifyDevicePopup.qml
         items/settings/FolderPickerPopup.qml

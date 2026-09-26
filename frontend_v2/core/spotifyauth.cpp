@@ -114,6 +114,11 @@ void SpotifyAuth::onPacket(quint8 type, const QByteArray &payload) {
         m_reason = body.value(QStringLiteral("reason")).toString();
         m_scope = body.value(QStringLiteral("scope")).toString();
         m_cachePath = body.value(QStringLiteral("cachePath")).toString();
+        m_email = body.value(QStringLiteral("email")).toString();
+        m_displayName = body.value(QStringLiteral("displayName")).toString();
+        // Epoch seconds on the wire (null when unknown) -> ms for a QML Date.
+        m_authorizedAt = body.value(QStringLiteral("authorizedAt")).toDouble(0) * 1000.0;
+        m_validUntil = body.value(QStringLiteral("validUntil")).toDouble(0) * 1000.0;
         const bool needs = body.value(QStringLiteral("needsReauth")).toBool();
         if (needs != m_needsReauth) {
             m_needsReauth = needs;

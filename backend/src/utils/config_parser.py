@@ -89,7 +89,6 @@ class Config:
         "spotifyDeviceId",
         "spotifyRedirectUri",
         "spotifyCachePath",
-        "spotifyMarket",
     )
 
     # Trip-detection tunables. Not a REQUIRED_KEY: the real config.json is
@@ -250,12 +249,6 @@ class Config:
     @property
     def spotify_cache_path(self) -> str:
         return self.__data["spotifyCachePath"]
-
-    @property
-    def spotify_market(self) -> str:
-        '''ISO 3166-1 alpha-2 country code passed to Spotify playback queries
-        (e.g. "FI"). Determines track/episode availability filtering.'''
-        return self.__data["spotifyMarket"]
 
     @property
     def electricity_price_eur_per_kwh(self) -> float | None:

@@ -347,18 +347,17 @@
             "id": "media",
             "icon": "media",
             "label": "Media",
+            "sectionOrder": ["audio", "spotify", "radio"],
             "sections": [
                 {
-                    "id": "spotifyAuth",
-                    "label": "Spotify-tunnistautuminen",
-                    "help": "Valtuutus vanhenee 6 kuukauden kuluttua, minkä jälkeen se on uusittava tästä. Katkeaa myös, jos poistat sovelluksen oikeudet Spotify-tilisi asetuksista.",
-                    "status": "spotifyAuth",
+                    "id": "spotify",
+                    "label": "Spotify",
                     "settings": [
                         {
                             "key": "spotifyReauth",
                             "type": "action",
                             "label": "Tunnistaudu uudelleen",
-                            "help": "Avaa Spotifyn kirjautumissivun selaimeen ja tallentaa uuden käyttöoikeuden. Uusiminen aloittaa uuden 6 kuukauden jakson.",
+                            "details": "spotifyAuth",
                             "actionLabel": "Kirjaudu",
                             "requiresConnection": true,
                             "apply": "live"
@@ -367,7 +366,7 @@
                             "key": "spotifyIdentifyDevice",
                             "type": "action",
                             "label": "Tunnista laite",
-                            "help": "Tunnistaa, millä Spotify-laitteella toisto on parhaillaan käynnissä, ja tallentaa sen kojelaudan kohdelaitteeksi. Aloita toisto haluamallasi laitteella ennen tunnistusta.",
+                            "details": "spotifyDevice",
                             "actionLabel": "Tunnista",
                             "requiresConnection": true,
                             "apply": "live"

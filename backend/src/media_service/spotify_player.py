@@ -42,10 +42,9 @@ class SpotifyPlayer(BaseMediaPlayer):
         self._auth_manager = build_oauth(config)
 
         self._spotify = Spotify(auth_manager=self._auth_manager)
-        # Retained so apply_config() can re-read the market at runtime.
+        # Retained so apply_config() can re-read the target device at runtime.
         self._config = config
         self._target_device_id: str = config.spotify_device_id
-        self._market: str = config.spotify_market
         self._loop = asyncio.get_running_loop()
 
         self._current_device_id: str | None = None
@@ -117,8 +116,7 @@ class SpotifyPlayer(BaseMediaPlayer):
     def apply_config(self) -> None:
         '''
         Re-reads the runtime-editable Spotify settings after the Options view
-        writes them.  The market is passed per API call, so the next poll already
-        uses the new value.
+        writes them.
 
         spotifyDeviceId IS re-read here.  It used not to be — it was produced by
         the one-off setup helper and was not exposed in the Options view at all —
@@ -131,11 +129,6 @@ class SpotifyPlayer(BaseMediaPlayer):
 
         Stays synchronous because ConfigService calls it as a plain hook.
         '''
-        new_market = self._config.spotify_market
-        if new_market != self._market:
-            logger.info("Spotify market changed: %s -> %s", self._market, new_market)
-            self._market = new_market
-
         new_device_id = self._config.spotify_device_id
         if new_device_id != self._target_device_id:
             logger.info(
@@ -204,7 +197,6 @@ class SpotifyPlayer(BaseMediaPlayer):
         '''
         playback = await self._call_spotify(
             self._spotify.current_playback,
-            market=self._market,
             additional_types="episode",
         )
         if playback is _FAILED or not playback:
@@ -266,6 +258,22 @@ class SpotifyPlayer(BaseMediaPlayer):
         if result is _FAILED or not isinstance(result, dict):
             return None
         return result.get("devices") or []
+
+    async def current_user(self) -> dict | None:
+        '''
+        Reads the signed-in account, for the Options view's grant record.
+        Returns {"id", "displayName", "email"} or None when the call failed.
+        "email" is "" for a grant issued without user-read-email (anything
+        authorized before SPOTIFY_AUTH_SCOPE asked for it) — /me simply omits it.
+        '''
+        result = await self._call_spotify(self._spotify.current_user)
+        if result is _FAILED or not isinstance(result, dict):
+            return None
+        return {
+            "id": result.get("id") or "",
+            "displayName": result.get("display_name") or "",
+            "email": result.get("email") or "",
+        }
 
     async def run(self) -> None:
         '''
@@ -468,8 +476,10 @@ class SpotifyPlayer(BaseMediaPlayer):
             await self._update_state_impl()
 
     async def _update_state_impl(self) -> None:
+        # No `market`: with a user token Spotify filters by the account's own
+        # country, which takes priority over the parameter anyway.
         playback = await self._call_spotify(
-            self._spotify.current_playback, market=self._market, additional_types="episode"
+            self._spotify.current_playback, additional_types="episode"
         )
 
         # API error — skip this cycle

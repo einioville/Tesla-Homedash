@@ -59,8 +59,8 @@ backend/                          # ★ orchestration, service contracts, .env +
       setup/
         spotify_setup.py          # Standalone OAuth + Connect-device-ID helper (run once during setup)
       spotify_auth_service.py     # Re-authorisation from the Options view (0xA0-0xA4)
-      spotify_device_service.py   # Device identification — scan playback, confirm, write spotifyDeviceId (0xA5-0xA9)
-      spotify_oauth.py            # The one canonical SPOTIFY_SCOPE + NonInteractiveSpotifyOAuth
+      spotify_device_service.py   # Device identification — scan playback, confirm, write spotifyDeviceId (0xA5-0xAB)
+      spotify_oauth.py            # The one canonical SPOTIFY_SCOPE, the grant record + NonInteractiveSpotifyOAuth
     weather_service/              # ★
       weather_service.py          # FMI WFS polling, forecast serialization, 15-min refresh
     trip_service/
@@ -403,7 +403,9 @@ Current as of the **issue sweep** on `feature/settings-options-view` — the Opt
 (#42), the screen-off fixes (#43–#47), hold-to-repeat (#48) and the on-screen keyboard (#49) —
 after the map-tuning pass and the split of this guide into per-directory `CLAUDE.md` files — plus the
 second Options-view batch: navigation/home return, night mode, notification toggles, radio
-autoplay/resume, the temporary debug log, map imagery, and the self-closing Spotify consent window. When you land a change that touches documented behaviour, update this line.
+autoplay/resume, the temporary debug log, map imagery, and the self-closing Spotify consent window — plus
+the Media section's Spotify card redesign (per-row details, the grant record, device status, section
+order). When you land a change that touches documented behaviour, update this line.
 
 ## 8. Session workflow — main checkout by default, worktree only for parallelism
 

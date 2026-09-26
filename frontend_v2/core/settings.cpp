@@ -115,6 +115,31 @@ QVariantList sectionsOf(const QVariantMap &group) {
     return {synthetic};
 }
 
+// Applies a local group's "sectionOrder" to its merged subsections. Without one,
+// local subsections always precede the backend's, which is wrong whenever the card
+// that belongs on top comes from the backend (Media's Ääni card). Named ids come
+// first, in the order named; everything unnamed keeps its relative order after
+// them, so a subsection added later still shows up rather than vanishing.
+QVariantList orderSections(const QVariantList &sections, const QStringList &order) {
+    if (order.isEmpty()) {
+        return sections;
+    }
+    QVariantList out;
+    for (const QString &id : order) {
+        for (const QVariant &section : sections) {
+            if (section.toMap().value(QStringLiteral("id")).toString() == id) {
+                out.append(section);
+            }
+        }
+    }
+    for (const QVariant &section : sections) {
+        if (!order.contains(section.toMap().value(QStringLiteral("id")).toString())) {
+            out.append(section);
+        }
+    }
+    return out;
+}
+
 // Frames a JSON request body as len(4B) + UTF-8, the CONFIG_* payload shape.
 QByteArray jsonRequestBody(const QJsonObject &object) {
     const QByteArray json = QJsonDocument(object).toJson(QJsonDocument::Compact);
@@ -554,6 +579,8 @@ void Settings::rebuildGroups() {
         if (backendById.contains(id)) {
             sections.append(decorateSections(sectionsOf(backendById.take(id)), false));
         }
+        sections = orderSections(
+            sections, group.value(QStringLiteral("sectionOrder")).toStringList());
         // Empty means a placeholder that exists only to fix this group's
         // position and name (media / tesla hold no local settings of their own),
         // and its backend half has not arrived — hide it rather than show an

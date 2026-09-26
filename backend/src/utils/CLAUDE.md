@@ -70,7 +70,7 @@ Framing, byte order and the Tesla stream value types are in the root `CLAUDE.md`
 | `0x93` | CONFIG_SET_RESULT | B→F | `status(1B) + len(4B) + UTF-8 JSON` — `{key, value, applied, message}` |
 | `0x94` | CONFIG_RESTART | F→B | (empty) — exit with code 42 so the service manager restarts |
 | `0x95` | HOST_REBOOT | F→B | (empty) — reboot the host (#40); nothing is replied when it starts, a refusal comes back as `CONFIG_SET_RESULT` |
-| `0xA0` | SPOTIFY_AUTH_STATUS | B→F | `status(1B) + len(4B) + JSON` — `{authorized, needsReauth, scope, expiresAt, redirectUri, cachePath, reason}`; snapshot on connect, broadcast after an exchange **and the moment the player is refused**. `needsReauth` = a new authorization is the fix (expired / revoked / never stored / scope short) — NOT merely `!authorized`, since an unreadable config is unauthorized too and re-authorizing would not help it |
+| `0xA0` | SPOTIFY_AUTH_STATUS | B→F | `status(1B) + len(4B) + JSON` — `{authorized, needsReauth, scope, expiresAt, redirectUri, cachePath, reason, authorizedAt, validUntil, email, displayName}` (the last four from the grant record; the dates are epoch seconds or `null`, and `expiresAt` is the ACCESS token's hour — never a grant expiry); snapshot on connect, broadcast after an exchange **and the moment the player is refused**. `needsReauth` = a new authorization is the fix (expired / revoked / never stored / scope short) — NOT merely `!authorized`, since an unreadable config is unauthorized too and re-authorizing would not help it |
 | `0xA1` | SPOTIFY_AUTH_GET_URL | F→B | (empty) — start a flow, replacing any pending one |
 | `0xA2` | SPOTIFY_AUTH_URL | B→F | `status(1B) + len(4B) + JSON` — `{url, redirectUri, state}` on OK (informational only; the backend has already opened the page), or `{message}` on error |
 | `0xA3` | *(retired)* | — | Carried the redirect URL back from the embedded WebView. The consent page now opens in the host's real browser and the backend catches the redirect on its own loopback listener, so nothing produces one |
@@ -80,6 +80,8 @@ Framing, byte order and the Tesla stream value types are in the root `CLAUDE.md`
 | `0xA7` | SPOTIFY_DEVICE_STATE | B→F | `status(1B) + len(4B) + JSON` — `{scanId, scanning, message, device, track, current}`; sent to the scanning client only |
 | `0xA8` | SPOTIFY_DEVICE_SELECT | F→B | `len(4B) + UTF-8 JSON` — `{deviceId, scanId}` |
 | `0xA9` | SPOTIFY_DEVICE_RESULT | B→F | `status(1B) + len(4B) + JSON` — `{ok, message, deviceId, deviceName, scanId}` |
+| `0xAA` | SPOTIFY_DEVICE_GET_STATUS | F→B | (empty) — ask for the configured device's standing |
+| `0xAB` | SPOTIFY_DEVICE_STATUS | B→F | `status(1B, always OK) + len(4B) + JSON` — `{configured, id, name, type, detected, isRestricted, reason}`; `detected` is `null` when Spotify's device list could not be read. Replied to the requester, **broadcast** after a successful select; no `scanId` — it describes `config.json`, not a flow |
 | `0xB0` | SYSTEM_GET_STATUS | F→B | (empty) — sample the host now |
 | `0xB1` | SYSTEM_STATUS | B→F | `status(1B) + len(4B) + JSON` — host/backend metrics, per-service health, error tallies |
 | `0xC0` | DISPLAY_SET_POWER | F→B | `on(1B)` — 1 wakes the panel, 0 powers it down |

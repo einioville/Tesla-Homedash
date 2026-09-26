@@ -80,18 +80,6 @@ def _validate_timezone(value: str) -> str:
     return value
 
 
-def _validate_market(value: str) -> str:
-    '''
-    Checks an ISO 3166-1 alpha-2 country code for the Spotify market.
-    Arguments:
-        value (str): Candidate two-letter country code, e.g. "FI".
-    '''
-    code = value.strip().upper()
-    if len(code) != 2 or not code.isalpha():
-        raise ValueError("Maakoodin on oltava kaksi kirjainta (esim. FI)")
-    return code
-
-
 def _validate_url(value: str) -> str:
     '''
     Checks that a string looks like an http(s) endpoint.  Not a full URL parse —
@@ -140,7 +128,6 @@ def _validate_spotify_device_id(value: str) -> str:
 
 _VALIDATORS: dict[str, Callable[[str], str]] = {
     "timezone": _validate_timezone,
-    "market": _validate_market,
     "url": _validate_url,
     "place": _validate_place,
     "spotify_device_id": _validate_spotify_device_id,
@@ -267,32 +254,36 @@ SETTINGS_SCHEMA: list[dict] = [
                 ],
             },
             {
+                # Renders NOTHING: every entry is hidden, and the frontend drops a
+                # subsection left with no rows. The Spotify card the user sees is
+                # the frontend's own (config/settings.json), whose "Tunnista laite"
+                # row shows the device these keys describe. They are here because
+                # the schema is the write allow-list: SpotifyDeviceService stores
+                # them through apply_write(), and nothing else writes them — typing
+                # a Connect id by hand is how a wrong one gets in, and a wrong one
+                # fails completely silently.
                 "id": "spotify",
                 "label": "Spotify",
                 "settings": [
                     {
-                        "key": "spotifyMarket",
-                        "type": "string",
-                        "label": "Spotify-markkina",
-                        "help": "ISO-maakoodi, vaikuttaa kappaleiden saatavuuteen.",
-                        "validator": "market",
-                        "apply": "hook",
-                        "hooks": ["spotify"],
-                    },
-                    {
-                        # Written by the Options view's "Tunnista laite" scan
-                        # (SpotifyDeviceService), which needs a legal key here to
-                        # write through — the schema is the allow-list. Listing it
-                        # also makes the configured id inspectable, which matters
-                        # because a wrong one fails completely silently.
                         "key": "spotifyDeviceId",
                         "type": "string",
                         "label": "Spotify-laite",
                         "validator": "spotify_device_id",
-                        "help": "Spotify Connect -laitteen tunnus, jolta soitto "
-                                "poimitaan. Asetetaan yleensä \"Tunnista laite\" "
-                                "-painikkeella; väärä tunnus ei anna virhettä vaan "
-                                "saa soittimen painikkeet toimimaan tyhjää.",
+                        "hidden": True,
+                        "apply": "hook",
+                        "hooks": ["spotify"],
+                    },
+                    {
+                        # Display name of the device above, stored beside it so the
+                        # row can name the device while it is switched off. Hook
+                        # tier, not restart: a hidden restart-tier key would raise
+                        # the restart banner for a cosmetic write. The spotify hook
+                        # ignores it (it acts only on a changed device id).
+                        "key": "spotifyDeviceName",
+                        "type": "string",
+                        "label": "Spotify-laitteen nimi",
+                        "hidden": True,
                         "apply": "hook",
                         "hooks": ["spotify"],
                     },

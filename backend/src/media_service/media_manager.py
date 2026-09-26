@@ -45,7 +45,7 @@ class MediaManager:
         self.__radio_player.apply_config()
 
     def apply_config_spotify(self) -> None:
-        '''Forwards a config change to the Spotify player (market, target device).'''
+        '''Forwards a config change to the Spotify player (the target device).'''
         self.__spotify_player.apply_config()
 
     def apply_config_media(self) -> None:
@@ -222,8 +222,8 @@ class MediaManager:
     async def refresh_spotify_auth(self) -> None:
         '''
         Forwards a completed re-authorization to the Spotify player.  Separate
-        from apply_config_spotify(), which only re-reads the market: a new grant
-        is not a config change, and the player has to ACT on it (poll now) rather
+        from apply_config_spotify(), which only re-reads the target device: a new
+        grant is not a config change, and the player has to ACT on it (poll now) rather
         than re-snapshot a value.
         '''
         await self.__spotify_player.refresh_auth()
@@ -241,9 +241,18 @@ class MediaManager:
     async def list_spotify_devices(self) -> list | None:
         '''
         Lists the available Spotify Connect devices, or None when the call failed.
-        Used only to resolve the configured device id to a display name.
+        Used to resolve the configured device id to a display name and to tell
+        whether that device is reachable right now.
         '''
         return await self.__spotify_player.list_devices()
+
+    async def spotify_current_user(self) -> dict | None:
+        '''
+        Reads the signed-in Spotify account ({"id", "displayName", "email"}), or
+        None when the call failed.  For the grant record SpotifyAuthService writes
+        after an exchange.
+        '''
+        return await self.__spotify_player.current_user()
 
     def spotify_target_device_id(self) -> str:
         '''The Connect device id the Spotify player currently claims from.'''

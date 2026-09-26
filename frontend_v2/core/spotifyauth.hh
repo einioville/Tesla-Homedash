@@ -41,6 +41,14 @@ class SpotifyAuth : public QObject {
     Q_PROPERTY(QString reason READ reason NOTIFY statusChanged)
     Q_PROPERTY(QString scope READ scope NOTIFY statusChanged)
     Q_PROPERTY(QString cachePath READ cachePath NOTIFY statusChanged)
+    // The account and dates from the backend's grant record, written at each
+    // exchange this app makes — Spotify itself reports neither date. Epoch ms,
+    // 0 when unknown (a grant from before the record existed). email is "" for a
+    // grant issued without the e-mail scope; displayName is the fallback.
+    Q_PROPERTY(QString email READ email NOTIFY statusChanged)
+    Q_PROPERTY(QString displayName READ displayName NOTIFY statusChanged)
+    Q_PROPERTY(double authorizedAt READ authorizedAt NOTIFY statusChanged)
+    Q_PROPERTY(double validUntil READ validUntil NOTIFY statusChanged)
     // The backend says a NEW AUTHORIZATION is what would fix things — the grant
     // expired (Spotify's refresh tokens last 6 months), was revoked, or was never
     // stored. Deliberately not just !authorized: a config the backend cannot read
@@ -59,6 +67,10 @@ public:
     QString reason() const { return m_reason; }
     QString scope() const { return m_scope; }
     QString cachePath() const { return m_cachePath; }
+    QString email() const { return m_email; }
+    QString displayName() const { return m_displayName; }
+    double authorizedAt() const { return m_authorizedAt; }
+    double validUntil() const { return m_validUntil; }
     bool needsReauth() const { return m_needsReauth; }
     bool alertVisible() const { return m_alertVisible; }
 
@@ -92,6 +104,10 @@ private:
     QString m_reason;
     QString m_scope;
     QString m_cachePath;
+    QString m_email;
+    QString m_displayName;
+    double m_authorizedAt = 0;
+    double m_validUntil = 0;
     bool m_authorized = false;
     bool m_needsReauth = false;
     bool m_alertDismissed = false;

@@ -96,14 +96,33 @@ and the new code is never redeemed) and runs in an executor, since spotipy is bl
 > token does not extend the refresh token's lifetime."* Announced 2026-06-18, enforced for existing
 > apps **2026-07-20**, and it covers the authorization-code flow this app uses (PKCE or not). So
 > re-authorization is not an incident-recovery tool — it is **routine maintenance roughly twice a
-> year**, and the reason the Options view's card carries that warning in its `help`.
+> year**, and the reason the Options view's *Tunnistaudu uudelleen* row shows when it runs out.
 >
 > Do not confuse the two expiries. The cache's `expires_in`/`expires_at` is the **access** token's
 > ~1 hour, refreshed silently by spotipy before every request; the status packet's `expiresAt`
 > carries that value and **must never be rendered as "authorization valid until"** — it would imply
-> the grant dies within the hour while hiding the only expiry the user ever needs. Spotify does not
-> expose the grant's issue date, so a real "valid until" would mean recording our own timestamp at
-> each successful exchange.
+> the grant dies within the hour while hiding the only expiry the user ever needs. The real one is
+> `validUntil`, below.
+>
+> **The grant record** (`spotify_oauth.write_grant_record`) is how the dates exist at all: Spotify
+> exposes neither a grant's issue date nor its expiry, and the token cache cannot carry one —
+> spotipy rebuilds the cache document from every refresh response, dropping any key it did not put
+> there. So each successful exchange (here, and in `setup/spotify_setup.py`) writes
+> `<spotifyCachePath>.grant.json` — `authorizedAt`, plus the account's e-mail / display name / id
+> from `/me` — atomically and `0600`. `build_status()` folds it in as `authorizedAt`, `validUntil`
+> (derived, `+ GRANT_LIFETIME_SECONDS`, **180 days: the conservative reading of "6 months"**, so the
+> warning comes a few days early rather than late), `email` and `displayName`. A grant issued before
+> the record existed reports both dates as `null`; the record is not attached when no grant is on
+> disk at all, since it would describe one that is gone. It is not cross-checked against the cache,
+> which is why every issuer must write it.
+>
+> **The e-mail needs `user-read-email`, and that scope is requested, never required.** The issuers
+> build their manager with `SPOTIFY_AUTH_SCOPE` (`SPOTIFY_SCOPE` + `user-read-email`); every reader
+> keeps `SPOTIFY_SCOPE`. Adding the scope to `SPOTIFY_SCOPE` itself would make every reader refuse
+> every grant issued before it — the silent playback death the one-constant rule below exists to
+> prevent. Issuing wider than the reader is safe; spotipy stamps the refreshing manager's scope back
+> onto the cache at each refresh, so the stamp narrows to `SPOTIFY_SCOPE` again while Spotify keeps
+> the wider grant. An older grant simply has no e-mail, and the row falls back to the display name.
 >
 > When it does expire the token endpoint returns **HTTP 400 `{"error": "invalid_grant"}`**, raised by
 > spotipy as `SpotifyOauthError`. `SpotifyPlayer._call_spotify` catches that **before** the
@@ -132,7 +151,8 @@ and the new code is never redeemed) and runs in an executor, since spotipy is bl
 > a WSL2 dev box (the GPU half of that story is in `scripts/CLAUDE.md`). Earlier comments in this
 > repo blamed Cloudflare; they were wrong.
 
-`spotify_oauth.py` holds the **one canonical `SPOTIFY_SCOPE`** and `NonInteractiveSpotifyOAuth`.
+`spotify_oauth.py` holds the **one canonical `SPOTIFY_SCOPE`** (plus the issuer-only
+`SPOTIFY_AUTH_SCOPE`, above), the grant record, and `NonInteractiveSpotifyOAuth`.
 Both are fixes for real hazards found while building this:
 - The scope literal was **duplicated** between the player and the setup helper. spotipy stamps the
   *issuing* manager's scope onto the cached token and then refuses the cache unless the *reading*
@@ -192,6 +212,15 @@ reported once rather than polled against. Load-bearing details, most of them def
   on a device that was already playing, where `SpotifyPlayer` claims within one poll and resuming
   would emit a second of radio for nothing. A *failed* select deliberately does NOT end the scan,
   so the retry has something to retry against.
+- **The configured device's status is served on request** (`SPOTIFY_DEVICE_GET_STATUS`, `0xAA`) and
+  broadcast after a successful select: `build_status()` reads Spotify's device list through the
+  player and reports `detected` **tri-state** — `null` when it could not look (no device configured,
+  a latched grant, the call failed), so "not listed" and "could not check" never render alike. Not a
+  snapshot provider, because every connect would cost a Spotify call. The name comes from the live
+  list when the device is up (it may have been renamed) and otherwise from **`spotifyDeviceName`**,
+  which a successful select writes beside the id — cosmetic, so a failed write is only logged.
+  Both keys are `hidden` in `SETTINGS_SCHEMA`: nothing but the scan writes them, since a hand-typed
+  Connect id is exactly how a wrong one gets in.
 - **`scanId` is a frontend-generated epoch**, echoed on every state and result and required on a
   select. A single "is a flow running" bool cannot tell WHICH flow a packet belongs to: cancel a
   scan, start another, and a state already in flight repopulates the dialog with the previous

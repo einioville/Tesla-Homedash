@@ -11,6 +11,9 @@
 namespace {
 const Logger logger = Logger::get("spotify.device");
 
+// How long a configuredStatus answer stays fresh enough not to re-ask.
+constexpr qint64 kStatusThrottleMs = 15000;
+
 // Reads a status(1B) + len(4B) + UTF-8 JSON body, the CONFIG_*/SPOTIFY_*
 // shape. Leaves *ok false on any truncation, so a malformed frame is refused
 // rather than half-parsed. Deliberately identical to spotifyauth.cpp's reader:
@@ -59,11 +62,29 @@ void SpotifyDevice::attachServer(ServerClient *client) {
     connect(client, &ServerClient::connectedChanged, this,
             &SpotifyDevice::onConnectionChanged);
     // Nothing is requested here: the backend scans only while a client asked it
-    // to, so there is no snapshot to receive on connect.
+    // to, and the configured-device status costs it a Spotify call, so neither
+    // is snapshotted on connect.
 }
 
 void SpotifyDevice::onConnectionChanged() {
-    if (m_server == nullptr || m_server->connected() || !m_flowActive) {
+    if (m_server == nullptr) {
+        return;
+    }
+    if (m_server->connected()) {
+        // A restarted backend may have another device configured, and the status
+        // on screen describes the old process — re-ask, past the throttle.
+        if (m_statusWanted) {
+            refreshStatus(true);
+        }
+        return;
+    }
+    if (m_statusPending) {
+        // Its reply died with the socket; without this the row reads "checking"
+        // until the next reconnect.
+        m_statusPending = false;
+        emit configuredStatusChanged();
+    }
+    if (!m_flowActive) {
         return;
     }
     logger.warning(QStringLiteral("Connection lost during a Spotify device scan"));
@@ -138,6 +159,36 @@ void SpotifyDevice::select() {
     setPhase(QStringLiteral("saving"));
     m_server->sendPacket(
         protocol::frame(protocol::SPOTIFY_DEVICE_SELECT, jsonRequestBody(request)));
+}
+
+void SpotifyDevice::refreshStatus(bool force) {
+    m_statusWanted = true;
+    if (m_server == nullptr || !m_server->connected()) {
+        return;
+    }
+    if (!force && (m_statusPending ||
+                   (m_statusAge.isValid() && m_statusAge.elapsed() < kStatusThrottleMs))) {
+        return;
+    }
+    m_statusAge.restart();
+    if (!m_statusPending) {
+        m_statusPending = true;
+        emit configuredStatusChanged();
+    }
+    m_server->sendPacket(protocol::frame(protocol::SPOTIFY_DEVICE_GET_STATUS));
+}
+
+void SpotifyDevice::applyConfiguredStatus(const QByteArray &payload) {
+    quint8 status = protocol::SPOTIFY_AUTH_ERROR;
+    bool ok = false;
+    const QJsonObject body = readStatusJson(payload, &status, &ok);
+    if (!ok) {
+        logger.warning(QStringLiteral("Malformed Spotify device status packet"));
+        return;
+    }
+    m_configuredStatus = body.toVariantMap();
+    m_statusPending = false;
+    emit configuredStatusChanged();
 }
 
 void SpotifyDevice::setPhase(const QString &phase, const QString &message) {
@@ -219,6 +270,12 @@ void SpotifyDevice::applyState(const QJsonObject &body) {
 }
 
 void SpotifyDevice::onPacket(quint8 type, const QByteArray &payload) {
+    // Before the fence on purpose: the configured device's status belongs to no
+    // flow, and the backend broadcasts it after ANY panel's successful select.
+    if (type == protocol::SPOTIFY_DEVICE_STATUS) {
+        applyConfiguredStatus(payload);
+        return;
+    }
     if (type != protocol::SPOTIFY_DEVICE_STATE && type != protocol::SPOTIFY_DEVICE_RESULT) {
         return;
     }

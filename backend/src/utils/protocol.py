@@ -225,14 +225,16 @@ CONFIG_STATUS_OK = 1
 # The code is useless without SPOTIFY_CLIENT_SECRET, which stays in the backend's
 # .env, and Spotify invalidates it on first use (and after ~10 minutes).
 #
-# The frontend opens the authorize URL in an embedded WebEngineView and ABORTS the
-# redirect navigation, so nothing ever listens on the redirect URI's port: it only
-# has to be registered byte-identically in the Spotify Developer app, because the
+# The backend opens the authorize URL in the host's real browser and catches the
+# redirect on its own loopback listener at the redirect URI's host/port, so the
+# code never leaves loopback (media_service/CLAUDE.md). The redirect URI still has
+# to be registered byte-identically in the Spotify Developer app, because the
 # token POST echoes it.
 SPOTIFY_AUTH_STATUS = 0xA0    # B->F: status(1B) + len(4B) + UTF-8 JSON — grant state.
                               #   Snapshot on connect + broadcast after a successful
-                              #   exchange. {"authorized", "scope", "expiresAt",
-                              #   "redirectUri", "cachePath", "reason"}
+                              #   exchange. {"authorized", "needsReauth", "scope",
+                              #   "expiresAt", "redirectUri", "cachePath", "reason",
+                              #   "authorizedAt", "validUntil", "email", "displayName"}
 SPOTIFY_AUTH_GET_URL = 0xA1   # F->B: (empty) — start a flow, replacing any pending one
 SPOTIFY_AUTH_URL = 0xA2       # B->F: status(1B) + len(4B) + UTF-8 JSON
                               #   ok:    {"url", "redirectUri", "state"}
@@ -282,6 +284,15 @@ SPOTIFY_DEVICE_SELECT = 0xA8      # F->B: len(4B) + UTF-8 JSON
                                   #   a scanId that is not the live scan's is refused
 SPOTIFY_DEVICE_RESULT = 0xA9      # B->F: status(1B) + len(4B) + UTF-8 JSON, requester only
                                   #   {"scanId", "ok", "message", "deviceId", "deviceName"}
+# The configured device's standing, for the "Tunnista laite" row's details. Not
+# part of the scan family and carries no scanId: it describes config.json, not a
+# flow. On request (it costs a Spotify device-list call, so it is not snapshotted
+# to every client), and broadcast after a successful select.
+SPOTIFY_DEVICE_GET_STATUS = 0xAA  # F->B: (empty)
+SPOTIFY_DEVICE_STATUS = 0xAB      # B->F: status(1B, always OK) + len(4B) + UTF-8 JSON
+                                  #   {"configured", "id", "name", "type", "detected",
+                                  #    "isRestricted", "reason"}; detected is null when
+                                  #   Spotify's device list could not be read
 
 # ── System status (the Options view's maintenance dashboard) ────────────────
 # Request/response rather than a broadcast: the Options view is open a fraction

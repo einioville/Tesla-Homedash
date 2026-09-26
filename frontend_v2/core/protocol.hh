@@ -168,8 +168,9 @@ inline constexpr quint8 VALUE_TYPE_BOOL = 2;    // uint8 (1B)
 inline constexpr quint8 VALUE_TYPE_DICT = 3;    // sequence of double(8B) — Location = lat, lon
 
 // ── Spotify re-authorisation ───────────────────────────────────────────────
-// The frontend shows the page and posts back the code; the client secret and the
-// token exchange stay in the backend.
+// The backend opens the consent page in the host's browser, catches the redirect
+// and performs the token exchange; this side only starts a flow and hears the
+// outcome.
 inline constexpr quint8 SPOTIFY_AUTH_STATUS = 0xA0;
 inline constexpr quint8 SPOTIFY_AUTH_GET_URL = 0xA1;
 inline constexpr quint8 SPOTIFY_AUTH_URL = 0xA2;
@@ -194,6 +195,11 @@ inline constexpr quint8 SPOTIFY_DEVICE_SCAN_STOP = 0xA6;   // F->B: (empty)
 inline constexpr quint8 SPOTIFY_DEVICE_STATE = 0xA7;       // B->F: status(1B) + len(4B) + UTF-8 JSON {scanId,scanning,message,device,track,current}
 inline constexpr quint8 SPOTIFY_DEVICE_SELECT = 0xA8;      // F->B: len(4B) + UTF-8 JSON {"deviceId","scanId"}
 inline constexpr quint8 SPOTIFY_DEVICE_RESULT = 0xA9;      // B->F: status(1B) + len(4B) + UTF-8 JSON {ok,message,deviceId,deviceName,scanId}
+// The configured device's standing for the "Tunnista laite" row. Outside the scan
+// family: no scanId, since it describes config.json rather than a flow. Replied to
+// the requester, and broadcast after a successful SELECT.
+inline constexpr quint8 SPOTIFY_DEVICE_GET_STATUS = 0xAA;  // F->B: (empty)
+inline constexpr quint8 SPOTIFY_DEVICE_STATUS = 0xAB;      // B->F: status(1B) + len(4B) + UTF-8 JSON {configured,id,name,type,detected,isRestricted,reason}
 
 // Leading status byte on every B->F packet above (auth and device alike).
 inline constexpr quint8 SPOTIFY_AUTH_ERROR = 0;

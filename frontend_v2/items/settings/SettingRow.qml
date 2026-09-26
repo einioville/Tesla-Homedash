@@ -12,7 +12,7 @@ import frontend_v2
 //
 // `setting` is one entry from Settings.groups: key, type, label, help, unit,
 // min/max/step, options, value, apply ("live"/"hook"/"restart"), origin
-// ("local"/"backend") and an optional editor hint.
+// ("local"/"backend"), an optional editor hint and an optional `details` block.
 Item {
     id: row
 
@@ -126,6 +126,25 @@ Item {
             wrapMode: Text.WordWrap
         }
 
+        // A row may name a live details block (`details: "<id>"`) for facts that
+        // belong to the row but are not its value — the Spotify actions list the
+        // grant's account and dates, and the configured device. Resolved here the
+        // way SettingsPane resolves a subsection's `status`; `active` gates
+        // construction, so a row that names nothing builds nothing.
+        Loader {
+            width: labelColumn.width
+            active: sourceComponent !== null
+            visible: active
+            height: active && item !== null ? item.implicitHeight : 0
+            sourceComponent: {
+                switch (row.setting.details) {
+                case "spotifyAuth": return spotifyAuthDetails
+                case "spotifyDevice": return spotifyDeviceDetails
+                default: return null
+                }
+            }
+        }
+
         // Only while the threshold is actually crossed, so it reads as a
         // consequence of the current value rather than as permanent small print.
         Row {
@@ -213,5 +232,13 @@ Item {
     Component {
         id: actionComponent
         SettingAction { setting: row.setting }
+    }
+    Component {
+        id: spotifyAuthDetails
+        SpotifyAuthDetails {}
+    }
+    Component {
+        id: spotifyDeviceDetails
+        SpotifyDeviceDetails {}
     }
 }

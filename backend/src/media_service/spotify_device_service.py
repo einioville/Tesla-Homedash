@@ -62,17 +62,20 @@ class SpotifyDeviceService:
     requesting client, and writes the chosen device id to config.json through
     ConfigService.
 
+    Also answers SPOTIFY_DEVICE_GET_STATUS: which device is configured, and
+    whether Spotify can see it right now.
+
     Not registered with Server.register_service and given no run task: a scan is
-    user-initiated and short-lived, so there is nothing to snapshot to a new
-    client and nothing to keep running between scans.
+    user-initiated and short-lived, and the device status costs a Spotify request,
+    so both are served on request rather than snapshotted to every new client.
     Arguments:
-        config (Config): Shared configuration (read for nothing yet, kept for
-            symmetry with the other media services and for future tunables).
+        config (Config): Shared configuration; read for the stored device name.
         server (Server): TCP server used for send_to.
         media_manager (MediaManager): Route to the Spotify player's API calls and
             to stopping whatever else is playing.
-        config_service (ConfigService): Performs the spotifyDeviceId write through
-            the same validated path a CONFIG_SET takes.
+        config_service (ConfigService): Performs the spotifyDeviceId (and
+            spotifyDeviceName) writes through the same validated path a
+            CONFIG_SET takes.
     '''
 
     def __init__(self, config, server, media_manager, config_service):
@@ -270,6 +273,16 @@ class SpotifyDeviceService:
 
         logger.info("Spotify device selected: %s (%s)", device_id, name or "?")
 
+        # Kept beside the id so the Options view can name the configured device
+        # even while it is switched off (Spotify lists only devices that are up).
+        # Cosmetic, so a failure is logged and nothing else: the id is what
+        # decides claiming, and it is already saved.
+        if name:
+            name_result = await self.__config_service.apply_write("spotifyDeviceName", name)
+            if not name_result.get("ok"):
+                logger.warning("Could not save spotifyDeviceName: %s",
+                               name_result.get("message"))
+
         # Resume the radio only when the chosen device was NOT playing at the
         # moment it was picked. When it WAS playing, SpotifyPlayer claims control
         # within one poll and claim_media_control stops the radio again — so
@@ -284,8 +297,77 @@ class SpotifyDeviceService:
         # reply goes out before any resume, which refetches the radio stream.
         await self.__cancel_scan(resume_playback=False)
         await self.__reply_result(writer, True, message, device_id, name, scan_id)
+        # To every client: a second panel on the Options view is showing the
+        # device this just replaced.
+        await self.__server.broadcast(self.__status_frame(await self.build_status()))
         if not chosen_is_playing:
             await self.__resume_playback(scan)
+
+    async def handle_get_status(self, _payload: bytes, writer) -> None:
+        '''
+        SPOTIFY_DEVICE_GET_STATUS handler: replies with the configured device and
+        whether Spotify can see it, for the Options view's "Tunnista laite" row.
+        Arguments:
+            _payload (bytes): Unused; the request carries no body.
+            writer (StreamWriter): The requesting client.
+        '''
+        await self.__server.send_to(writer, self.__status_frame(await self.build_status()))
+
+    # ── Device status ─────────────────────────────────────────────
+
+    async def build_status(self) -> dict:
+        '''
+        Builds one SPOTIFY_DEVICE_STATUS document.  "detected" is tri-state:
+        True / False once Spotify's device list was read, None when it could not
+        be (no device configured, no working grant, the call failed) — "not in
+        the list" and "could not look" must not render the same.
+
+        Spotify lists only devices that are up and signed in, so a configured
+        device that is missing is either switched off or a wrong id; the two
+        cannot be told apart from here, and the row says so.
+        '''
+        # The PLAYER's target, not Config's: it is what claiming actually uses.
+        configured = self.__media_manager.spotify_target_device_id() or ""
+        stored_name = str(self.__config.get("spotifyDeviceName") or "")
+        status = {
+            "configured": bool(configured),
+            "id": configured,
+            "name": stored_name,
+            "type": "",
+            "detected": None,
+            "isRestricted": False,
+            "reason": "",
+        }
+        if not configured:
+            status["reason"] = "Laitetta ei ole valittu"
+            return status
+
+        auth_error = self.__media_manager.spotify_auth_error()
+        if auth_error is not None:
+            status["reason"] = auth_error
+            return status
+
+        devices = await self.__media_manager.list_spotify_devices()
+        if devices is None:
+            status["reason"] = "Spotify ei vastannut"
+            return status
+
+        for device in devices:
+            device_id = device.get("id")
+            if device_id:
+                self.__device_names[device_id] = device.get("name") or ""
+            if device_id == configured:
+                # The live name wins: the device may have been renamed since it
+                # was chosen.
+                status["name"] = device.get("name") or stored_name
+                status["type"] = device.get("type") or ""
+                status["isRestricted"] = bool(device.get("is_restricted"))
+                status["detected"] = True
+                return status
+
+        status["detected"] = False
+        status["reason"] = "Laite ei näy Spotifyssa"
+        return status
 
     # ── Scanning ──────────────────────────────────────────────────
 
@@ -588,6 +670,16 @@ class SpotifyDeviceService:
         return protocol.frame(
             msg_type, bytes((status,)) + struct.pack("!I", len(body)) + body
         )
+
+    def __status_frame(self, status: dict) -> bytes:
+        '''
+        Frames a SPOTIFY_DEVICE_STATUS packet.  The status byte is always OK: the
+        document itself says what could and could not be established.
+        Arguments:
+            status (dict): The document built by build_status.
+        '''
+        body = json.dumps(status, ensure_ascii=False).encode("utf-8")
+        return self.__json_frame(protocol.SPOTIFY_DEVICE_STATUS, protocol.SPOTIFY_AUTH_OK, body)
 
     async def __send_state(self, writer, state: dict) -> None:
         '''

@@ -900,7 +900,7 @@ async def main():
     # because it writes spotifyDeviceId through it: the id is in SETTINGS_SCHEMA,
     # so the scan's write gets the same validation, atomic save and apply hook a
     # CONFIG_SET does. Not in the services list below — a scan is user-initiated,
-    # so there is nothing to snapshot to a connecting client.
+    # and the device status costs a Spotify call, so both are served on request.
     spotify_devices = SpotifyDeviceService(
         config=config, server=server, media_manager=mm,
         config_service=config_service,
@@ -929,6 +929,7 @@ async def main():
     server.register_handler(protocol.SPOTIFY_DEVICE_SCAN_START, spotify_devices.handle_scan_start)
     server.register_handler(protocol.SPOTIFY_DEVICE_SCAN_STOP, spotify_devices.handle_scan_stop)
     server.register_handler(protocol.SPOTIFY_DEVICE_SELECT, spotify_devices.handle_select)
+    server.register_handler(protocol.SPOTIFY_DEVICE_GET_STATUS, spotify_devices.handle_get_status)
     server.register_handler(protocol.SYSTEM_GET_STATUS, system_status.handle_get_status)
     server.register_handler(protocol.UPDATE_GET_STATE, updater.handle_get_state)
     server.register_handler(protocol.UPDATE_APPLY, updater.handle_apply)

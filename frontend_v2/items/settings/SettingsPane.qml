@@ -251,13 +251,11 @@ Item {
                                     height: active && item !== null ? item.implicitHeight : 0
                                     // Named in the schema, resolved here. `active` gates
                                     // construction, which is what keeps the probe from
-                                    // firing — and Chromium from starting — for a card
-                                    // that did not ask for it.
+                                    // firing for a card that did not ask for it.
                                     sourceComponent: {
                                         switch (card.modelData.status) {
                                         case "backendProbe": return probeComponent
                                         case "systemStatus": return systemComponent
-                                        case "spotifyAuth": return spotifyComponent
                                         case "appUpdate": return updateComponent
                                         case "screenPower": return screenPowerComponent
                                         case "teslaProperties": return teslaFieldsComponent
@@ -304,7 +302,6 @@ Item {
     // inline, so the Loader above is a lookup instead of a chain of conditions.
     Component { id: probeComponent; BackendProbeStatus {} }
     Component { id: systemComponent; SystemStatusPanel {} }
-    Component { id: spotifyComponent; SpotifyAuthStatus {} }
     Component { id: updateComponent; UpdatePanel {} }
     Component { id: screenPowerComponent; ScreenPowerStatus {} }
     Component { id: teslaFieldsComponent; TeslaFieldTable {} }

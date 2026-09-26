@@ -139,8 +139,11 @@ the card is built and again on reconnect once it has been asked for. Backend sid
 
 **Spotify re-authorisation** (issue #38) is `core/spotifyauth.{hh,cpp}`, the QML singleton
 **`SpotifyAuth`**, with `items/settings/SpotifyAuthPopup.qml` over the view and
-`SpotifyAuthStatus.qml` in the card. `phase` is a plain string state machine
-(`idle`/`requesting`/`consent`/`done`/`error`) so QML switches on it with no enum registration.
+`SpotifyAuthDetails.qml` under the *Tunnistaudu uudelleen* row. `phase` is a plain string state
+machine (`idle`/`requesting`/`consent`/`done`/`error`) so QML switches on it with no enum
+registration. Beside the grant verdict it carries `email`, `displayName`, `authorizedAt` and
+`validUntil` from the backend's grant record (`backend/src/media_service/CLAUDE.md`) — epoch **ms**,
+**0 = unknown**, since a grant issued before the record existed has neither date.
 
 **This side renders no browser and never touches a credential.** The backend opens the consent page
 in the host's real browser and catches the redirect on its own loopback listener
@@ -189,7 +192,7 @@ Two details are load-bearing:
 action row sits under *Tunnistaudu uudelleen* in the same card; the popup is a scrim + dialog
 **inside `SettingsView`**, not in `Main.qml` — unlike the re-auth prompt, which is app-level
 because a grant can die while any view is on screen, a device scan is only ever started from this
-screen. Three things are load-bearing:
+screen. Four things are load-bearing:
 - **A scan costs a Spotify request every 2 s and silences the radio**, so it must not outlive the
   screen. `SettingsView`'s `onIsCurrentChanged` cancels it when the view goes away, and
   `connectedChanged` clears it (phase `error`) when the socket drops — otherwise the dialog spins
@@ -199,6 +202,14 @@ screen. Three things are load-bearing:
   (`backend/src/media_service/CLAUDE.md`) answers "does this packet belong to THIS flow". The epoch
   is incremented *before* the first send, so a missing field parsing as 0 can never match a live
   scan.
+- **`configuredStatus` is not part of any flow and is never fenced.** It is the configured
+  device's `SPOTIFY_DEVICE_STATUS` document, carried as an opaque `QVariantMap` for
+  `SpotifyDeviceDetails.qml`, and is handled *before* the `m_flowActive` fence — the backend
+  broadcasts it after any panel's successful select. `refreshStatus()` is **throttled to one
+  request per 15 s** unless forced: each costs the backend a Spotify device-list call, and the row
+  that asks is rebuilt on every settings write, since `Settings.groups` is replaced wholesale. It
+  re-asks on reconnect (forced) once anything has asked, and clears `statusPending` on disconnect
+  so the row does not read "checking" forever.
 - **The button row's membership is constant** across a `hasDevice` transition, and the guide and
   detail blocks share one container with a floor height. On a 10" touch panel a control that
   changes position between reach and tap mis-routes the tap — here, onto *Peruuta*, which would

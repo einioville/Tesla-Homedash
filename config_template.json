@@ -401,10 +401,10 @@
     "weatherPlace": "Helsinki",
     "defaultRadioStation": "Radio Suomipop",
     "spotifyDeviceId": "",
+    "spotifyDeviceName": "",
     "spotifyCachePath": "/home/youruser/spotify_cache",
     "spotifyRedirectUri": "http://127.0.0.1:8080/callback",
     "timeZone": "Europe/Helsinki",
-    "spotifyMarket": "FI",
     "electricityPriceEurPerKwh": null,
     "myenergi": {
         "zappiSerial": "",

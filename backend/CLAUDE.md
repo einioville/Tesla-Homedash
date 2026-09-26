@@ -88,10 +88,14 @@ Parsed once by `Config` and injected into every service. Keys:
 - `calculated tesla data` — derived fields (`DrivenToday`, `DrivenThisMonth`): adds
   `source_data_property_id`, `period` (`day`/`month`), `calculation_formula` (e.g. `y - x`).
 - `radioMediaIds` — station name → Nelonen Media id; `defaultRadioStation` — a key from it.
-- `spotifyDeviceId` — target Spotify Connect device id (**now runtime-editable**, both as a text row
-  and via the Options view's *Tunnista laite* flow — `src/media_service/CLAUDE.md`);
+- `spotifyDeviceId` — target Spotify Connect device id, written at runtime by the Options view's
+  *Tunnista laite* flow (never typed by hand — `src/media_service/CLAUDE.md`); `spotifyDeviceName`
+  (optional) — its display name, written beside it by the same flow;
   `spotifyRedirectUri` (default `http://127.0.0.1:8080/callback`, must match the Spotify app);
-  `spotifyCachePath` — spotipy OAuth token cache; `spotifyMarket` — ISO-3166-1 alpha-2 (e.g. `FI`).
+  `spotifyCachePath` — spotipy OAuth token cache, **which is the grant itself**, with the grant
+  record `<spotifyCachePath>.grant.json` beside it. (`spotifyMarket` is gone: with a user token
+  Spotify filters by the account's own country, so the parameter never had an effect. A leftover key
+  in an existing `config.json` is ignored.)
 - `weatherPlace` — FMI place (e.g. `Tampere`); `timeZone` — IANA zone (e.g. `Europe/Helsinki`).
 - `myenergi` (optional) — Zappi tunables: `zappiSerial` (`""` = auto-select the first Zappi),
   `pollIntervalIdleSeconds` / `pollIntervalActiveSeconds`, `minSessionEnergyKwh`, `sessionMergeMinutes`.

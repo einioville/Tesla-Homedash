@@ -244,7 +244,6 @@ Open `config.json` and adjust the fields you'll typically need to change:
 - `defaultRadioStation` — key from the `radioMediaIds` map.
 - `timeZone` — IANA timezone (e.g. `Europe/Helsinki`).
 - `weatherPlace` — city the FMI feed should report for.
-- `spotifyMarket` — Spotify catalog market as an ISO 3166-1 alpha-2 country code (e.g. `FI`).
 
 **5. Run the Spotify setup helper:**
 

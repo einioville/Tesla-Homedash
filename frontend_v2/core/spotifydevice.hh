@@ -2,9 +2,11 @@
 #define FRONTEND_V2_SPOTIFYDEVICE_HH
 
 #include <QByteArray>
+#include <QElapsedTimer>
 #include <QJsonObject>
 #include <QObject>
 #include <QString>
+#include <QVariantMap>
 
 class ServerClient;
 
@@ -32,6 +34,9 @@ class ServerClient;
  *   "saving"   the chosen id was sent, awaiting SPOTIFY_DEVICE_RESULT
  *   "done"     spotifyDeviceId was written
  *   "error"    see `message`
+ *
+ * It also carries the CONFIGURED device's standing for the "Tunnista laite"
+ * row (`configuredStatus`), which is not part of any flow and is never fenced.
  *
  * Registered with the QML engine as the singleton `SpotifyDevice` (see main.cpp).
  */
@@ -66,6 +71,14 @@ class SpotifyDevice : public QObject {
     Q_PROPERTY(QString currentDeviceId READ currentDeviceId NOTIFY deviceChanged)
     Q_PROPERTY(QString currentDeviceName READ currentDeviceName NOTIFY deviceChanged)
     Q_PROPERTY(bool isCurrent READ isCurrent NOTIFY deviceChanged)
+    // The device config.json names, and whether Spotify can see it right now:
+    // the whole SPOTIFY_DEVICE_STATUS document ({configured, id, name, type,
+    // detected, isRestricted, reason}) as an opaque map, so a field added on the
+    // backend reaches QML without a change here. `detected` is null when the
+    // backend could not look. Empty until the first reply.
+    Q_PROPERTY(QVariantMap configuredStatus READ configuredStatus NOTIFY configuredStatusChanged)
+    // True while a status request is unanswered.
+    Q_PROPERTY(bool statusPending READ statusPending NOTIFY configuredStatusChanged)
 
 public:
     explicit SpotifyDevice(QObject *parent = nullptr);
@@ -87,6 +100,8 @@ public:
     QString currentDeviceId() const { return m_currentDeviceId; }
     QString currentDeviceName() const { return m_currentDeviceName; }
     bool isCurrent() const { return m_isCurrent; }
+    QVariantMap configuredStatus() const { return m_configuredStatus; }
+    bool statusPending() const { return m_statusPending; }
 
     void attachServer(ServerClient *client);
 
@@ -97,11 +112,16 @@ public:
     Q_INVOKABLE void cancel();
     // Writes the detected device's id to config.json's spotifyDeviceId.
     Q_INVOKABLE void select();
+    // Asks the backend for configuredStatus. Throttled unless `force`: each
+    // request costs the backend a Spotify call, and the row asking for it is
+    // rebuilt on every settings write (Settings.groups is replaced wholesale).
+    Q_INVOKABLE void refreshStatus(bool force = false);
 
 signals:
     void phaseChanged();
     void deviceChanged();
     void flowActiveChanged();
+    void configuredStatusChanged();
 
 private:
     void onPacket(quint8 type, const QByteArray &payload);
@@ -118,6 +138,8 @@ private:
     // Resets the detected device, its track and the resolved current device.
     // Does NOT emit — the callers emit once they have finished writing.
     void clearDevice();
+    // Stores one SPOTIFY_DEVICE_STATUS body as configuredStatus.
+    void applyConfiguredStatus(const QByteArray &payload);
 
     ServerClient *m_server = nullptr;
     QString m_phase = QStringLiteral("idle");
@@ -159,6 +181,14 @@ private:
     // first scan, so 0 — the value a missing or malformed field parses as — can
     // never match a live scan.
     quint32 m_scanId = 0;
+
+    QVariantMap m_configuredStatus;
+    bool m_statusPending = false;
+    // Set by the first refreshStatus(), so a reconnect re-asks only when
+    // something on screen actually wants the answer.
+    bool m_statusWanted = false;
+    // Age of the last status request, for the throttle.
+    QElapsedTimer m_statusAge;
 };
 
 #endif  // FRONTEND_V2_SPOTIFYDEVICE_HH
