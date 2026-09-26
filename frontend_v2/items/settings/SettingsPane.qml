@@ -210,9 +210,14 @@ Item {
                         }
 
                         // --- Card body -----------------------------------
+                        // No vertical padding of its own. Every row already centres
+                        // its content with at least 12px above and below, so a card
+                        // margin on top of that made the first and last rows
+                        // lopsided — more space toward the card edge than toward the
+                        // divider. Only the intro block pads itself.
                         Item {
                             width: parent.width
-                            height: cardContent.implicitHeight + 24
+                            height: cardContent.implicitHeight
 
                             Column {
                                 id: cardContent
@@ -221,45 +226,57 @@ Item {
                                 anchors.top: parent.top
                                 anchors.leftMargin: 14
                                 anchors.rightMargin: 14
-                                anchors.topMargin: 12
-                                spacing: 2
 
-                                // Optional one-liner under the card title.
-                                Text {
+                                // Intro: the card's help line and status widget. Unlike
+                                // a row it has no padding of its own, so it gets some —
+                                // at the bottom too when nothing follows it (the
+                                // system-status card is all intro).
+                                Column {
                                     width: parent.width
-                                    // No explicit height: binding it to
-                                    // implicitHeight feeds a wrapped Text back into
-                                    // its own layout, and a Column already skips
-                                    // invisible children.
-                                    visible: card.modelData.help !== undefined
-                                             && card.modelData.help.length > 0
-                                    text: card.modelData.help !== undefined ? card.modelData.help : ""
-                                    font.family: Theme.fontFamily
-                                    font.pixelSize: 12
-                                    color: Theme.dataLabelTitle
-                                    wrapMode: Text.WordWrap
-                                }
+                                    visible: introHelp.visible || introStatus.active
+                                    topPadding: 12
+                                    bottomPadding: card.entries.length > 0 ? 2 : 12
+                                    spacing: 2
 
-                                // A subsection may declare a runtime status widget with
-                                // `status: "<id>"`. Not every fact about a section fits in
-                                // a setting row — "is that address reachable?" belongs to
-                                // the host and port TOGETHER, not to either one.
-                                Loader {
-                                    width: parent.width
-                                    active: sourceComponent !== null
-                                    visible: active
-                                    height: active && item !== null ? item.implicitHeight : 0
-                                    // Named in the schema, resolved here. `active` gates
-                                    // construction, which is what keeps the probe from
-                                    // firing for a card that did not ask for it.
-                                    sourceComponent: {
-                                        switch (card.modelData.status) {
-                                        case "backendProbe": return probeComponent
-                                        case "systemStatus": return systemComponent
-                                        case "appUpdate": return updateComponent
-                                        case "screenPower": return screenPowerComponent
-                                        case "teslaProperties": return teslaFieldsComponent
-                                        default: return null
+                                    // Optional one-liner under the card title.
+                                    Text {
+                                        id: introHelp
+                                        width: parent.width
+                                        // No explicit height: binding it to
+                                        // implicitHeight feeds a wrapped Text back into
+                                        // its own layout, and a Column already skips
+                                        // invisible children.
+                                        visible: card.modelData.help !== undefined
+                                                 && card.modelData.help.length > 0
+                                        text: card.modelData.help !== undefined ? card.modelData.help : ""
+                                        font.family: Theme.fontFamily
+                                        font.pixelSize: 12
+                                        color: Theme.dataLabelTitle
+                                        wrapMode: Text.WordWrap
+                                    }
+
+                                    // A subsection may declare a runtime status widget with
+                                    // `status: "<id>"`. Not every fact about a section fits in
+                                    // a setting row — "is that address reachable?" belongs to
+                                    // the host and port TOGETHER, not to either one.
+                                    Loader {
+                                        id: introStatus
+                                        width: parent.width
+                                        active: sourceComponent !== null
+                                        visible: active
+                                        height: active && item !== null ? item.implicitHeight : 0
+                                        // Named in the schema, resolved here. `active` gates
+                                        // construction, which is what keeps the probe from
+                                        // firing for a card that did not ask for it.
+                                        sourceComponent: {
+                                            switch (card.modelData.status) {
+                                            case "backendProbe": return probeComponent
+                                            case "systemStatus": return systemComponent
+                                            case "appUpdate": return updateComponent
+                                            case "screenPower": return screenPowerComponent
+                                            case "teslaProperties": return teslaFieldsComponent
+                                            default: return null
+                                            }
                                         }
                                     }
                                 }

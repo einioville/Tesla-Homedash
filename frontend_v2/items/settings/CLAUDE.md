@@ -34,6 +34,11 @@ Load-bearing:
   and is never overwritten by a list change; `currentGroup` resolves it on read, falling back
   to the first section. That is what makes a backend section still be selected after a
   reconnect instead of the user being bounced to the first one.
+- **Rows carry the card's only vertical padding.** A row centres its label block and its editor in
+  at least 56px with at least 12px above and below; the card body adds nothing around the rows. A
+  card margin on top of that made the first and last rows lopsided — more space toward the card
+  edge than toward the divider. Only the intro (the card's `help` line and `status` widget), which
+  has no padding of its own, is padded, and at the bottom too only when no row follows it.
 - **Subsection order across the two halves is the local group's `sectionOrder`.** Local
   subsections are folded in before the backend's, so without it a backend card can never lead its
   section. `Settings` applies the list after the merge: named ids first, in that order, everything
@@ -87,7 +92,10 @@ matter; most settings here are the opposite. Dispatching on `type` alone gave `b
 similarly undraggable. Only genuine coarse dials carry the hint — `screensaverStackCount`,
 `graphMaxPoints`, `graphSensitivity`, `graphRenderMarginFrac` and the map's `mapDefaultZoom`,
 `mapSensitivity`, `mapWarpDeadzonePct`, `mapWarpLeadPct` (check `config/settings.json` for the
-current set). **Rule of thumb: if the user knows the number they want, it is not a slider.**
+current set). **Rule of thumb: if the user knows the number they want, it is not a slider.** The slider is **one
+line** — track, then the readout at its right, sized by `TextMetrics` for the widest text it can
+show so the track keeps its length mid-drag — because an editor must centre on the label like the
+others: a readout stacked above the track pushed the track ~8px below the label's centre line.
 `SettingNumber`'s ± buttons hold-to-repeat (`../util/HoldRepeatArea.qml`), and it accepts typing
 for big jumps. **A hold steps a pending value that only the field shows and commits it once, on
 release** — every `Settings.setValue()` rebuilds `Settings.groups` (at once for a local key, on the

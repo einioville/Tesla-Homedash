@@ -4,6 +4,10 @@ import frontend_v2
 
 // Numeric editor (int and float): a slider with a live readout.
 //
+// One line — track, then the readout at its right — so the control centres on the
+// row's label like every other editor. The readout used to sit ABOVE the track,
+// which pushed the track below the label's centre line.
+//
 // The important behaviour here is COMMIT-ON-RELEASE. A slider emits a value on
 // every frame of a drag; writing each one would rewrite the settings file dozens
 // of times a second and, for a backend setting, fire a CONFIG_SET packet per
@@ -42,13 +46,20 @@ Item {
                                 ? setting.value : minimum
 
     implicitWidth: 240
-    implicitHeight: 40
+    implicitHeight: 24
 
     // Re-sync when the authoritative value changes underneath us (another client
     // wrote it, or our own write came back), but never while dragging.
     onSettingChanged: if (!slider.pressed) displayValue = setting.value !== undefined
                                                           && setting.value !== null
                                                           ? setting.value : minimum
+
+    // The readout text for a value — the number and its unit.
+    function format(value) {
+        return (control.isInt ? Math.round(value)
+                              : value.toFixed(control.stepSize < 0.1 ? 3 : 2))
+               + (control.setting.unit !== undefined ? " " + control.setting.unit : "")
+    }
 
     function commit() {
         const value = control.isInt ? Math.round(control.displayValue) : control.displayValue
@@ -67,31 +78,40 @@ Item {
         onTriggered: control.commit()
     }
 
+    // Sized for the widest text the readout can show, so the track keeps its length
+    // while a drag adds a digit ("95 %" -> "100 %") or reaches the max label.
+    TextMetrics {
+        id: widest
+        font: readout.font
+        text: [control.format(control.minimum), control.format(control.maximum),
+               control.maxLabel, "—"].reduce((a, b) => b.length > a.length ? b : a, "")
+    }
+
     Row {
+        id: valueRow
         anchors.right: parent.right
-        anchors.top: parent.top
+        anchors.verticalCenter: parent.verticalCenter
         spacing: 8
 
         Text {
             id: readout
             anchors.verticalCenter: parent.verticalCenter
+            width: Math.ceil(widest.advanceWidth)
+            horizontalAlignment: Text.AlignRight
             text: control.isUnset
                   ? "—"
-                  : control.atMaxLabel
-                    ? control.maxLabel
-                    : (control.isInt ? Math.round(control.displayValue)
-                                     : control.displayValue.toFixed(control.stepSize < 0.1 ? 3 : 2))
-                      + (control.setting.unit !== undefined ? " " + control.setting.unit : "")
+                  : control.atMaxLabel ? control.maxLabel : control.format(control.displayValue)
             font.family: Theme.fontFamily
             font.pixelSize: 13
             color: control.isUnset ? Theme.dataLabelTitle : Theme.accent
         }
 
-        // Clears a nullable setting back to "not configured". Only offered when
-        // there is something to clear.
+        // Clears a nullable setting back to "not configured". Its space is kept
+        // while there is nothing to clear, so clearing does not stretch the track.
         Rectangle {
             anchors.verticalCenter: parent.verticalCenter
-            visible: control.nullable && !control.isUnset
+            visible: control.nullable
+            opacity: control.isUnset ? 0 : 1
             width: 18
             height: 18
             radius: 9
@@ -109,6 +129,7 @@ Item {
             MouseArea {
                 id: clearArea
                 anchors.fill: parent
+                enabled: !control.isUnset
                 onClicked: Settings.setValue(control.setting.key, null)
             }
         }
@@ -117,8 +138,9 @@ Item {
     Slider {
         id: slider
         anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.bottom: parent.bottom
+        anchors.right: valueRow.left
+        anchors.rightMargin: 12
+        anchors.verticalCenter: parent.verticalCenter
         height: 24
 
         from: control.minimum

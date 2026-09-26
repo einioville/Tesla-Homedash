@@ -69,7 +69,10 @@ Item {
         return setting.warnAbove !== undefined && v > setting.warnAbove
     }
 
-    implicitHeight: Math.max(56, labelColumn.implicitHeight + 20)
+    // At least 12px above and below the label block, centred. This is the ONLY
+    // vertical padding a row gets — the card adds none around its rows, so the
+    // first and last rows sit exactly like the ones between dividers.
+    implicitHeight: Math.max(56, labelColumn.implicitHeight + 24)
 
     // --- Left: label, help text, restart badge ---------------------------
     Column {
