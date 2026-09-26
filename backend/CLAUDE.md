@@ -105,6 +105,12 @@ Parsed once by `Config` and injected into every service. Keys:
   added before VAT), `baseUrl` (the no-key sähkötin.fi range endpoint; swappable for another source).
   All-in €/kWh for an hour = `(spot + marginCentsPerKwh/100) × (1 + vatPercent/100)`. Prices are
   fetched on demand (no self-logging) — historical hours price past sessions retroactively.
+- `media` (optional) — `autoplayRadio` (start the default station at backend start) and
+  `resumeRadioAfterSpotify` (`src/media_service/CLAUDE.md`). Both default off, which is the
+  pre-existing behaviour.
+- `logging` (optional) — `debugEnabled` / `debugMinutes`: the Options view's temporary DEBUG log for
+  both halves, which clears itself (`src/system_service/CLAUDE.md`). It raises the level above
+  `TESLA_HOMEDASH_LOG_LEVEL` for a while and returns to it; it does not replace the variable.
 
 > **`config.json` is now written at runtime.** The frontend's Options view can change the subset of
 > keys listed in `config_service.SETTINGS_SCHEMA` (`src/config_service/CLAUDE.md`). `Config` gained

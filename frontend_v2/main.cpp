@@ -77,6 +77,26 @@ int main(int argc, char* argv[]) {
     // Now that the socket exists, let Settings serve the backend half of the
     // Options view (CONFIG_SCHEMA / CONFIG_SET / CONFIG_RESTART).
     settings.attachServer(&serverClient);
+    // The temporary debug log (Ylläpito > Vianetsintä) is ONE backend setting for
+    // both halves: follow logging.debugEnabled from the backend's schema, and
+    // return to the configured level when it clears — which the backend does by
+    // itself once the duration is up (backend/src/system_service/debug_logging.py).
+    QObject::connect(&settings, &Settings::groupsChanged, &app,
+                     [&settings, &config, debugOn = false]() mutable {
+                         const bool wanted =
+                             settings.valueOf(QStringLiteral("logging.debugEnabled")).toBool();
+                         if (wanted == debugOn) {
+                             return;
+                         }
+                         debugOn = wanted;
+                         if (wanted) {
+                             Logger::install(Logger::Level::Debug);
+                             logger.warning(QStringLiteral("Debug logging ON (Vianetsintäloki)"));
+                         } else {
+                             logger.warning(QStringLiteral("Debug logging OFF"));
+                             Logger::install(config.logLevel());
+                         }
+                     });
     TeslaData teslaData(&serverClient);
     // History reads live values off the Tesla singleton (by property id) for the
     // live-graph mode, so it takes a TeslaData pointer.

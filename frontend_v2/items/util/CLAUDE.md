@@ -26,6 +26,30 @@ screensaver plays as empty.
 `ScreenSaver.inhibited` is held while `Updater.busy`, so the photos never fade in over a live
 update (`../../core/CLAUDE.md`, under `Updater`).
 
+## `NightSchedule.qml` — night mode (Yleinen > Yötila)
+
+A decider with no machinery of its own. Inside the `nightStartMin`–`nightEndMin` window (local
+time; a window crossing midnight is the normal case, and start == end means none) it raises
+`screensaverActive` or `screenOffActive`, and `Main.qml` routes them into what already exists:
+- **`screensaver`** shortens `Idle.timeoutMs` to `nightWakeMin` and sets `ScreenSaver.nightMode`,
+  which lets the screensaver run **without the daytime toggle or a photo folder** — no folder means a
+  plain black overlay, a dark panel for a host where the backlight cannot be cut. `pushNext()`
+  therefore gates on `hasPhotos` rather than `folderModel.count`: with no folder the model lists
+  the working directory (above), and the night screensaver would show whatever images sit there.
+- **`screenOff`** arms `Display` with the short timeout even when the daytime power-off is off, so
+  it inherits wake-on-touch, the update inhibit and the `OUTPUT_LOST` handling (#43).
+
+`IdleWatcher` and `ScreenPower` both restart their countdown on a timeout change, so the panel goes
+dark `nightWakeMin` after the window opens rather than at once. **The window closing counts as a
+touch** (`Idle.poke()`): that lifts a night screensaver and, through `Display`'s activity hook, wakes
+a dark panel whatever the daytime settings would leave it in. `nowMin` is seeded at construction —
+a placeholder 0 would put the window in effect for one tick and poke the panel awake on the way out.
+
+**Home return** (`homeReturnEnabled` / `homeReturnMin`, Yleinen > Navigointi) is a `Timer` in
+`Main.qml` that runs only while a view other than the dashboard is current and restarts on every
+`Idle.activity()`. It keeps counting under the screensaver, which is what makes the screensaver lift
+onto the dashboard. The dock's auto-hide delay (`dockHideSec`) sits in the same card.
+
 ## `HoldRepeatArea.qml` — tap to step, hold to repeat
 
 The press area behind every ± button (the climate card's target arrows, `SettingNumber`'s

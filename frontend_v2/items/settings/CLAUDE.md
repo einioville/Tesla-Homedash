@@ -57,7 +57,9 @@ needs setting. Resolved through `Settings.valueOf()`, which reaches **both** hal
 field, and honoured only for `origin === "local"` — the browser walks the FRONTEND's filesystem, so
 a backend key falls back to `SettingText` rather than silently browsing the wrong machine),
 **`maxLabel`** (`SettingSlider` shows this text instead of the number at the slider's top stop — the
-graph point cap uses it for *rajoittamaton*, which really does disable decimation) and **`warnBelow`
+graph point cap uses it for *rajoittamaton*, which really does disable decimation), **`secret`** (a
+`string` shown masked by `SettingText` except while it is being edited, and logged as `<hidden>` by
+`Settings::setValue` — the MML map key; the saved file still holds it in clear, like `.env`) and **`warnBelow`
 / `warnAbove` + `warnMessage`** (issue
 #34: `SettingRow` shows an inline caution while the value crosses the threshold; advisory only,
 `min`/`max` remain the hard bounds — the myenergi idle poll interval is the first consumer).
@@ -82,8 +84,11 @@ for big jumps. **A hold steps a pending value that only the field shows and comm
 release** — every `Settings.setValue()` rebuilds `Settings.groups` (at once for a local key, on the
 schema broadcast for a backend one), which destroys the delegate and the press with it, so writing
 per step stopped every hold after one step and wrote `config.json` on each. `editor` is the
-general per-type control HINT, not a numeric one — `slider` and `folder` are its two consumers
-today.
+general per-type control HINT, not a numeric one — `slider`, `folder` and `time` are its consumers
+today. **`editor: "time"`** keeps `SettingNumber` but reads the int as minutes since midnight
+(`HH:MM`), makes the ± buttons **wrap** past midnight (min 0, max 1440 − step) and the field
+read-only: the number pad has no colon, and with wrapping, eight 15-minute steps back from 00:00
+reach 22:00. The night-mode window (`nightStartMin` / `nightEndMin`) is its consumer.
 
 **`type: "action"` is a button, not a value.** `SettingAction.qml` renders it and calls
 `Settings::invokeAction(key)`; nothing is stored, persisted or sent as `CONFIG_SET`. Keeping

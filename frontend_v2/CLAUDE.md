@@ -52,6 +52,10 @@ All optional; defaults match the embedded target.
   `AppConfigLocation/settings.json` is copied over once on first run.
 - `TESLA_HOMEDASH_SCREENSAVER_DIR` — no longer read by `AppConfig`; it now supplies the
   DEFAULT for the `screensaverDir` setting, which owns the value and can change it live.
+- `TESLA_HOMEDASH_MAP_API_KEY` — likewise only the default for the `mapApiKey` setting (a
+  `secret`). `AppConfig` resolves the basemap from `mapImagery` + `mapApiKey` through `Settings`:
+  "mml" with a key → MML 0.5 m orthophoto, otherwise EOX Sentinel-2. Restart-tier — the OSM plugin
+  reads its tile host once.
 
 **Frontend settings file.** `frontend_v2/config/settings.json` is the *bundled schema*
 (defaults, types, bounds, Finnish labels) compiled into the binary; the user's overrides are
@@ -130,11 +134,24 @@ module installed. The only locale is `fi_FI`, which drops the language-switch ke
 - `QT_QML_GENERATE_QMLLS_INI` is **deprecated since Qt 6.10** ("no replacement needed") — don't add
   it to `CMakeLists.txt`.
 
+## Notifications
+
+`core/notification/notificationhandler.{hh,cpp}` (`Notifications`) turns the rules in
+`config/notifications.json` into `notify(id, message)`; `items/util/NotificationLayer.qml` shows them.
+Whether each rule shows — keyed by its `id` — and for how long are Options-view settings (Yleinen >
+Ilmoitukset) applied in the layer, so the file holds rules only (its old `graceMs` is gone). A rule
+id with no setting is shown: only an explicit `false` silences one.
+
 ## Logging (`core/logger.{hh,cpp}`)
 
 - Format is byte-identical to the backend; stdout only, no files/rotation.
 - Each `.cpp` gets a file-local `const Logger logger = Logger::get("<name>");`.
 - Threshold via `TESLA_HOMEDASH_LOG_LEVEL`; `Logger::install` is called twice from `main()`
   (INFO first so `AppConfig`'s own logs land, then the configured level).
+- **The temporary debug log is one backend setting for both halves.** `main()` follows
+  `logging.debugEnabled` out of the backend's schema (`Settings::groupsChanged`) and re-installs at
+  DEBUG, then back at the configured level when it clears — which the backend does by itself when
+  the duration is up (`backend/src/system_service/CLAUDE.md`). The threshold is atomic because it now
+  changes while worker threads log.
 - Outbound control commands → INFO; protocol problems (truncated/unknown/mismatched/socket) → WARNING;
   per-packet telemetry trace → DEBUG. New paths follow that convention.

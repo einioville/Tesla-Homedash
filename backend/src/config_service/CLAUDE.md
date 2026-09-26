@@ -21,8 +21,9 @@ write allow-list and the frontend's UI description, so adding a tunable is one e
 >   single `__apply_interval` point; `WeatherService` drops its cached frame and refetches).
 >   Registered in `start_services` via `config_service.register_hook(name, svc.apply_config)`.
 >   Implemented on: `WeatherService`, `MyEnergiService`, `TripLoader`, `ChargingLoader`,
->   `SpotPriceProvider`, and `MediaManager.apply_config_radio()` / `_spotify()` (which forward
->   to the two players). `SpotPriceProvider` needs no cache flush — it caches *raw* prices and
+>   `SpotPriceProvider`, `DebugLogging` (the `logging` block, `../system_service/CLAUDE.md`), and
+>   `MediaManager.apply_config_radio()` / `_spotify()` (which forward to the two players) /
+>   `_media()` (the manager's own `media` block). `SpotPriceProvider` needs no cache flush — it caches *raw* prices and
 >   applies VAT/margin on read.
 > - **`restart`** — the value builds something that cannot be rebuilt in place: `timeZone`
 >   (APScheduler cron jobs), `myenergi.zappiSerial` (the Zappi resolved at connect),

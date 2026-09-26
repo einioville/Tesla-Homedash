@@ -476,11 +476,16 @@ class SpotifyPlayer(BaseMediaPlayer):
         if playback is _FAILED:
             return
 
+        # While claimed, the previous observation was on the target device, so
+        # this is "was Spotify playing HERE when it let go" — read before the
+        # fields below overwrite it with the new device's state.
+        was_playing = self._is_playing
+
         if playback is None or playback.get("item") is None:
             self._current_device_id = None
             self._is_playing = False
             if self._claimed:
-                await self._media_manager.release_playback()
+                await self._media_manager.release_playback(was_playing=was_playing)
                 self._claimed = False
             self._set_poll_interval(self._POLL_IDLE)
             return
@@ -509,7 +514,7 @@ class SpotifyPlayer(BaseMediaPlayer):
             self._set_poll_interval(self._POLL_ACTIVE)
         elif not on_target and self._claimed:
             logger.info("Spotify device left target, releasing playback: %s", self._current_device_id)
-            await self._media_manager.release_playback()
+            await self._media_manager.release_playback(was_playing=was_playing)
             self._claimed = False
             self._set_poll_interval(self._POLL_IDLE)
 

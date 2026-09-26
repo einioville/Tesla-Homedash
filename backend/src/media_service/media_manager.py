@@ -26,6 +26,15 @@ class MediaManager:
         self.__spotify_player: SpotifyPlayer = SpotifyPlayer(media_manager=self, config=config)
         self.__active_player: BaseMediaPlayer | None = None
         self.__server = server
+        self.__config = config
+        # Snapshot of the media block, re-read by apply_config_media().
+        self.__autoplay_radio: bool = False
+        self.__resume_radio_after_spotify: bool = False
+        self.apply_config_media()
+        # Whether the radio was audibly playing at the moment Spotify took over.
+        # "Resume" means putting back what Spotify interrupted, so a radio that
+        # was silent before Spotify is never started by Spotify ending.
+        self.__radio_interrupted: bool = False
 
     def apply_config_radio(self) -> None:
         '''
@@ -38,6 +47,16 @@ class MediaManager:
     def apply_config_spotify(self) -> None:
         '''Forwards a config change to the Spotify player (market, target device).'''
         self.__spotify_player.apply_config()
+
+    def apply_config_media(self) -> None:
+        '''
+        Re-snapshots the media block (radio autoplay at startup, resuming the radio
+        after Spotify).  Neither needs anything restarted: autoplay is consulted
+        once per process start, and the resume flag at the next release.
+        '''
+        media = self.__config.media_config
+        self.__autoplay_radio = bool(media.get("autoplayRadio"))
+        self.__resume_radio_after_spotify = bool(media.get("resumeRadioAfterSpotify"))
 
     async def play(self) -> None:
         logger.debug("Media command: play")
@@ -98,6 +117,10 @@ class MediaManager:
             player (BaseMediaPlayer): The player claiming control
         '''
         if self.__active_player and self.__active_player != player:
+            # Read before stop(): afterwards the radio is silent by definition.
+            if (player is self.__spotify_player
+                    and self.__active_player is self.__radio_player):
+                self.__radio_interrupted = self.__radio_player.is_playing()
             await self.__active_player.stop()
         self.__active_player = player
         logger.info("Media control claimed by %s", player.__class__.__name__)
@@ -105,13 +128,26 @@ class MediaManager:
         await self.__stream_media_type()
         await self.__active_player.stream_everything(client=None)
 
-    async def release_playback(self) -> None:
+    async def release_playback(self, was_playing: bool = False) -> None:
         '''
-        Releases the current player and loads the default media player
-        without starting playback.
+        Releases the current player and loads the default media player.  The
+        radio stays silent unless resumeRadioAfterSpotify is on AND both halves
+        of "resume" hold: Spotify interrupted a playing radio, and Spotify itself
+        was still playing when it let go.  The second condition is what keeps a
+        Spotify paused at night from starting the radio twenty minutes later,
+        when its Connect session times out.
+        Arguments:
+            was_playing (bool): Whether Spotify was playing on the target device
+                at its last observation before the release.
         '''
+        interrupted = self.__radio_interrupted
+        self.__radio_interrupted = False
         logger.info("Playback released, loading default radio player")
         await self.load_default_media_player()
+        if self.__resume_radio_after_spotify and interrupted and was_playing:
+            logger.info("Resuming the radio Spotify interrupted")
+            await self.__radio_player.play()
+            await self.__radio_player.stream_everything(client=None)
 
     async def load_default_media_player(self) -> None:
         '''
@@ -161,6 +197,10 @@ class MediaManager:
         logger.info("MediaManager starting")
         await self.__spotify_player.run()
         await self.load_default_media_player()
+        if self.__autoplay_radio:
+            logger.info("Starting the default radio station (autoplayRadio)")
+            await self.__radio_player.play()
+            await self.__radio_player.stream_everything(client=None)
 
     def set_spotify_auth_listener(self, listener) -> None:
         '''

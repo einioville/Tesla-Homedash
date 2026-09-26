@@ -136,6 +136,22 @@ class Config:
         "baseUrl": "https://sahkotin.fi/prices",
     }
 
+    # Media playback behaviour.  Both off by default, which is exactly how the
+    # stack behaved before the keys existed: the radio is loaded but silent at
+    # startup, and stays silent when Spotify lets go of playback.
+    _MEDIA_DEFAULTS = {
+        "autoplayRadio": False,
+        "resumeRadioAfterSpotify": False,
+    }
+
+    # Temporary debug logging from the Options view.  debugEnabled switches both
+    # halves to DEBUG and switches itself back off after debugMinutes; the level
+    # the process was STARTED with (TESLA_HOMEDASH_LOG_LEVEL) is what it returns to.
+    _LOGGING_DEFAULTS = {
+        "debugEnabled": False,
+        "debugMinutes": 30,
+    }
+
     def __init__(self, config_path: str):
         if not config_path:
             raise RuntimeError("Config path is empty or None")
@@ -295,6 +311,26 @@ class Config:
         block still reports the values actually in effect.
         '''
         return {**self._AUDIO_DEFAULTS, **self.__data.get("audio", {})}
+
+    @property
+    def media_config(self) -> dict:
+        '''
+        Media block merged over _MEDIA_DEFAULTS:
+        - autoplayRadio: start the default station when the backend starts, rather
+          than only loading it.
+        - resumeRadioAfterSpotify: when Spotify releases playback while it was
+          playing, restart the radio IF Spotify had interrupted it.
+        '''
+        return {**self._MEDIA_DEFAULTS, **self.__data.get("media", {})}
+
+    @property
+    def logging_config(self) -> dict:
+        '''
+        Logging block merged over _LOGGING_DEFAULTS:
+        - debugEnabled: both halves log at DEBUG while true.
+        - debugMinutes: how long debugEnabled stays on before it clears itself.
+        '''
+        return {**self._LOGGING_DEFAULTS, **self.__data.get("logging", {})}
 
     # ── Loading / validation ───────────────────────────────────────
 

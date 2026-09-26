@@ -245,6 +245,25 @@ SETTINGS_SCHEMA: list[dict] = [
                         "apply": "hook",
                         "hooks": ["radio"],
                     },
+                    {
+                        "key": "media.autoplayRadio",
+                        "type": "bool",
+                        "label": "Soita radiota käynnistyksessä",
+                        "help": "Oletuskanava alkaa soida, kun palvelin käynnistyy. "
+                                "Pois päältä radio vain valmistellaan.",
+                        "apply": "hook",
+                        "hooks": ["media"],
+                    },
+                    {
+                        "key": "media.resumeRadioAfterSpotify",
+                        "type": "bool",
+                        "label": "Jatka radiota Spotifyn jälkeen",
+                        "help": "Kun Spotify lopettaa kesken soiton, radio jatkaa — jos "
+                                "se soi Spotifyn alkaessa. Tauolle jätetty Spotify ei "
+                                "käynnistä radiota myöhemmin.",
+                        "apply": "hook",
+                        "hooks": ["media"],
+                    },
                 ],
             },
             {
@@ -500,6 +519,44 @@ SETTINGS_SCHEMA: list[dict] = [
             },
         ],
     },
+    {
+        "id": "maintenance",
+        "icon": "system",
+        "label": "Ylläpito",
+        "sections": [
+            {
+                "id": "diagnostics",
+                "label": "Vianetsintä",
+                "help": "Tilapäinen yksityiskohtainen loki sekä palvelimelle että "
+                        "näytölle, kun vikaa pitää selvittää ilman SSH-yhteyttä.",
+                "settings": [
+                    {
+                        "key": "logging.debugEnabled",
+                        "type": "bool",
+                        "label": "Vianetsintäloki",
+                        "help": "Kirjaa kaiken DEBUG-tasolla. Kytkeytyy pois itsestään "
+                                "alla olevan ajan kuluttua, koska loki täyttyy muuten "
+                                "nopeasti ja vanhat tapahtumat katoavat.",
+                        "apply": "hook",
+                        "hooks": ["logging"],
+                    },
+                    {
+                        "key": "logging.debugMinutes",
+                        "type": "int",
+                        "label": "Kesto",
+                        "help": "Laskenta alkaa alusta, kun lokin kytkee päälle tai "
+                                "palvelin käynnistyy uudelleen.",
+                        "unit": "min",
+                        "min": 5,
+                        "max": 240,
+                        "step": 5,
+                        "apply": "hook",
+                        "hooks": ["logging"],
+                    },
+                ],
+            },
+        ],
+    },
 ]
 
 # Dotted-path prefix -> the Config accessor that merges that optional block over
@@ -510,6 +567,8 @@ _MERGED_BLOCKS = {
     "myenergi": "myenergi_config",
     "spotPrice": "spot_price_config",
     "audio": "audio_config",
+    "media": "media_config",
+    "logging": "logging_config",
 }
 
 

@@ -129,6 +129,10 @@ class ErrorCounter(logging.Handler):
 # Shared by every allow-listed logger, and read by the system status service.
 _error_counter = ErrorCounter()
 
+# The level configure_logging() applied — what the process was started with, and
+# what set_debug_logging(False) returns to.
+_base_level = _DEFAULT_LEVEL
+
 
 def error_counter() -> ErrorCounter:
     '''Returns the shared WARNING+ counter for the system status service.'''
@@ -144,6 +148,7 @@ def configure_logging(level: int | None = None) -> None:
             default) the level comes from TESLA_HOMEDASH_LOG_LEVEL, falling back
             to INFO.
     '''
+    global _base_level
     invalid: str | None = None
     if level is None:
         # `.env` is normally loaded lazily by config_parser.get_env, whose first
@@ -153,6 +158,7 @@ def configure_logging(level: int | None = None) -> None:
         load_dotenv()
         level, invalid = _resolve_level()
 
+    _base_level = level
     formatter = logging.Formatter(fmt=_LOG_FORMAT, datefmt=_DATE_FORMAT)
     handler = logging.StreamHandler()
     handler.setFormatter(formatter)
@@ -194,3 +200,21 @@ def configure_logging(level: int | None = None) -> None:
             "Invalid %s=%r; falling back to INFO (valid: %s)",
             _LOG_LEVEL_ENV, invalid, ", ".join(_LEVEL_NAMES),
         )
+
+
+def set_debug_logging(enabled: bool) -> None:
+    '''
+    Switches every allow-listed service logger to DEBUG, or back to the level
+    configure_logging() started with.  The runtime half of the Options view's
+    temporary debug log (system_service/debug_logging.py owns the timer that
+    switches it off again).
+
+    spotipy is deliberately left alone: its level stays pinned at INFO or above,
+    because at DEBUG it prints the client secret, the authorization code and
+    the refresh token (see configure_logging).
+    Arguments:
+        enabled (bool): True for DEBUG, False to restore the startup level.
+    '''
+    level = logging.DEBUG if enabled else _base_level
+    for name in _SERVICE_LOGGERS:
+        logging.getLogger(name).setLevel(level)

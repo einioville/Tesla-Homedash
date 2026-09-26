@@ -611,8 +611,11 @@ void Settings::setValue(const QString &key, const QVariant &value) {
         }
         setLocal(key, coerced);
         const QString applied = schemaIt.value().value(QStringLiteral("apply")).toString();
+        // A `secret` value (the map API key) must not land in the journal.
+        const bool secret = schemaIt.value().value(QStringLiteral("secret")).toBool();
         logger.info(QStringLiteral("Setting %1 = %2 (%3)")
-                        .arg(key, coerced.toString(), applied));
+                        .arg(key, secret ? QStringLiteral("<hidden>") : coerced.toString(),
+                             applied));
         emit writeSucceeded(key, applied);
         return;
     }

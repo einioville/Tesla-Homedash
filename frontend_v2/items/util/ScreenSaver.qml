@@ -22,6 +22,12 @@ Item {
     // off Idle.idle would immediately cancel itself. forceShow sidesteps that.
     property bool forceShow: false
 
+    // Night mode's screensaver variant (items/util/NightSchedule.qml): runs on
+    // Idle alone, WITHOUT the daytime toggle or a photo folder — with no photos
+    // the overlay is simply black, which is the point: a dark panel at night
+    // with the backlight on, for a host where cutting it is not an option.
+    property bool nightMode: false
+
     // Set while something on screen must stay visible regardless of idleness. An
     // app update is the case: it runs for minutes with nobody touching the panel,
     // so the photo pile would fade in over a live rebuild and the backlight would
@@ -36,11 +42,12 @@ Item {
     // finds there. So with no photo folder configured the pile would fill with
     // whatever images happen to sit in the process's cwd. Gating on the setting
     // itself is what actually delivers the documented "no folder, no
-    // screensaver" behaviour.
-    readonly property bool active: Theme.screensaverEnabled && !root.inhibited
-                                   && (Idle.idle || root.forceShow)
-                                   && Theme.screensaverDir.length > 0
-                                   && folderModel.count > 0
+    // screensaver" behaviour — by day. At night the photos are optional.
+    readonly property bool hasPhotos: Theme.screensaverDir.length > 0 && folderModel.count > 0
+    readonly property bool active: !root.inhibited
+                                   && ((Theme.screensaverEnabled && root.hasPhotos
+                                        && (Idle.idle || root.forceShow))
+                                       || (root.nightMode && Idle.idle))
 
     // Fade in/out rather than pop. Stay renderable through the fade-out (visible
     // while any opacity remains) so the photos fade with the black backdrop.
@@ -82,7 +89,9 @@ Item {
     }
 
     function pushNext() {
-        if (folderModel.count === 0)
+        // hasPhotos, not count: with no folder set the model lists the working
+        // directory (see `active`), and a night screensaver runs without one.
+        if (!root.hasPhotos)
             return
         if (_shuffleBag.length === 0)
             _refillBag()
@@ -127,8 +136,8 @@ Item {
         id: folderModel
         // Live: changing the folder in the Options view refills the model without a
         // restart. An unset folder yields an empty URL, so count stays 0 and
-        // `active` above never becomes true — which is exactly the documented
-        // "no folder, no screensaver" behaviour.
+        // `active` above never becomes true by day — which is exactly the
+        // documented "no folder, no screensaver" behaviour.
         folder: Settings.toFileUrl(Theme.screensaverDir)
         showDirs: false
         sortField: FolderListModel.Name

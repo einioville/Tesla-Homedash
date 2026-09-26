@@ -5,8 +5,16 @@
 - **`media_manager.py`** (`MediaManager`) constructs both players, holds the **active** one, and
   routes controls to it. `claim_media_control` (Spotify took over) stops radio, switches active,
   starts playback, streams media type + full state; `release_playback`/`load_default_media_player`
-  return to radio without auto-play. `stream_data` drops packets from the non-active player.
-  `get_run_task` starts Spotify polling then loads radio. **Talks to:** both players, `Server`.
+  return to radio. `stream_data` drops packets from the non-active player. `get_run_task` starts
+  Spotify polling then loads radio — and plays it when `media.autoplayRadio` is on. **Talks to:**
+  both players, `Server`.
+- **Resuming the radio after Spotify** (`media.resumeRadioAfterSpotify`, off by default) needs BOTH
+  halves of "resume": the radio was audibly playing when Spotify claimed control (read in
+  `claim_media_control` *before* `stop()`), and Spotify was still playing on the target device at
+  its last poll before the release (`SpotifyPlayer` passes `was_playing`, read before the new
+  playback overwrites `_is_playing`). The second one is load-bearing: a Spotify left paused keeps
+  its claim until its Connect session times out, often much later, and without it the radio would
+  start by itself in the middle of the night.
 - **`base_media_player.py`**: the abstract control/stream interface both players implement.
 - **`spotify_player.py`** (`SpotifyPlayer`) polls the Spotify Web API via spotipy on an APScheduler
   interval (10 s idle / 2 s active). `_update_state` is **serialised by `self._state_lock`**: it
@@ -60,6 +68,19 @@ and the new code is never redeemed) and runs in an executor, since spotipy is bl
 >   it deadlocks there. The exchange completes and the token lands on disk, but the success reply
 >   never reaches the frontend. `close()` alone releases the listening socket, which is all a retry
 >   needs.
+>
+> **The consent window is one this process owns, so it can be closed.** Handing the URL to `xdg-open`
+> gives it to whatever browser is already running, which opens a tab and exits — nothing here can
+> close that. So `__open_in_browser` prefers a Chromium-family `--app` window in a **dedicated
+> profile** (`~/.cache/Tesla-Homedash/spotify-browser`): a separate profile directory is a separate
+> browser instance, launched in its own process group so a wrapper script (`chromium-browser` on the
+> Pi) cannot hide the real browser from the signal. `__cancel_pending()` — the one exit every flow
+> end passes through: result, error, cancel, expiry or a replacing flow — SIGTERMs the group (a clean
+> exit flushes the profile's Spotify login cookie), then SIGKILLs after 5 s. The profile also needs
+> `--password-store=basic`, or a fresh profile on a desktop session asks for the keyring password on
+> a keyboard-less panel. Without Chromium the page still goes to `xdg-open`, and the result page's
+> `window.close()` is only a best effort: a browser lets a script close a tab only while its history
+> holds one page, which the login in between usually spoils.
 >
 > There is no fallback left to degrade to, so **either half failing is a hard error** replied as
 > `SPOTIFY_AUTH_URL` + `SPOTIFY_AUTH_ERROR`: without a listener the code cannot be caught, without a

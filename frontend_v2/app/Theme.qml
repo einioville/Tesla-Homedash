@@ -42,6 +42,31 @@ QtObject {
     readonly property bool screenOffEnabled: Settings.values.screenOffEnabled
     readonly property int screenOffMin: Settings.values.screenOffMin
 
+    // Night mode (Yleinen > Yötila) — between two clock times the panel goes
+    // dark after a much shorter idle than by day. items/util/NightSchedule.qml
+    // decides when; Main.qml routes it into the screensaver / Display machinery.
+    // "off" | "screensaver" | "screenOff".
+    readonly property string nightMode: Settings.values.nightMode
+    // Minutes since local midnight. start === end means no window at all.
+    readonly property int nightStartMin: Settings.values.nightStartMin
+    readonly property int nightEndMin: Settings.values.nightEndMin
+    // How long a touch keeps the panel awake inside the window.
+    readonly property int nightWakeMs: Settings.values.nightWakeMin * 60000
+
+    // Navigation (Yleinen > Navigointi). With home return on, an idle panel
+    // switches back to the dashboard — so the screensaver lifts onto it rather
+    // than onto whichever view was last open.
+    readonly property bool homeReturnEnabled: Settings.values.homeReturnEnabled
+    readonly property int homeReturnMs: Settings.values.homeReturnMin * 60000
+    // How long the dock stays up after the last touch on it.
+    readonly property int dockHideMs: Settings.values.dockHideSec * 1000
+
+    // Notifications (Yleinen > Ilmoitukset): per-rule on/off, keyed by the rule
+    // `id` in config/notifications.json, and how long each pill is held.
+    readonly property bool notifyLockState: Settings.values.notifyLockState
+    readonly property bool notifyServerConnection: Settings.values.notifyServerConnection
+    readonly property int notificationDurationMs: Settings.values.notificationDurationSec * 1000
+
     // Surfaces
     readonly property color appBackground: "#0f1115"
     readonly property color dockBackground: "#cc1b2230"

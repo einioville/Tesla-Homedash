@@ -34,6 +34,13 @@
         "        to the text field. Pair it with nullable when 'not configured' is",
         "        a meaningful value - the browser's Tyhjenna writes an empty string.",
         "",
+        "        'time' (int) renders minutes since midnight as HH:MM on the same",
+        "        stepper, wrapping past midnight, with no typing. Use min 0,",
+        "        max 1440 - step.",
+        "",
+        "secret: true (string) masks the value while the field is not being",
+        "        edited and keeps it out of the log line a write produces.",
+        "",
         "hidden: true keeps a setting out of the rendered rows while still",
         "        storing, coercing and persisting it normally. For a setting whose",
         "        editor lives inside the subsection's status widget - the update",
@@ -74,6 +81,48 @@
                             "label": "Koko näyttö",
                             "help": "Piilottaa ikkunan kehykset. Kokoluku 1280×800 vapautetaan, jotta paneeli täyttää ruudun.",
                             "default": false,
+                            "apply": "live"
+                        }
+                    ]
+                },
+                {
+                    "id": "navigation",
+                    "label": "Navigointi",
+                    "settings": [
+                        {
+                            "key": "homeReturnEnabled",
+                            "type": "bool",
+                            "label": "Palaa kojelautaan",
+                            "help": "Vaihtaa takaisin kojelautaan, kun näyttöä ei ole koskettu hetkeen. Näytönsäästäjän alta palataan silloin kojelautaan eikä viimeksi auki olleeseen näkymään.",
+                            "default": false,
+                            "apply": "live"
+                        },
+                        {
+                            "key": "homeReturnMin",
+                            "type": "int",
+                            "label": "Paluuviive",
+                            "help": "Kosketuksetta kulunut aika ennen paluuta.",
+                            "unit": "min",
+                            "min": 1,
+                            "max": 120,
+                            "step": 1,
+                            "default": 5,
+                            "apply": "live",
+                            "relevantWhen": {
+                                "key": "homeReturnEnabled",
+                                "equals": true
+                            }
+                        },
+                        {
+                            "key": "dockHideSec",
+                            "type": "int",
+                            "label": "Telakan piilotusviive",
+                            "help": "Kuinka kauan alareunan näkymäpalkki pysyy esillä viimeisen kosketuksen jälkeen.",
+                            "unit": "s",
+                            "min": 1,
+                            "max": 30,
+                            "step": 1,
+                            "default": 3,
                             "apply": "live"
                         }
                     ]
@@ -174,6 +223,107 @@
                                 "key": "screenOffEnabled",
                                 "equals": true
                             }
+                        }
+                    ]
+                },
+                {
+                    "id": "night",
+                    "label": "Yötila",
+                    "help": "Pimentää näytön kellonaikojen välillä. Kosketus herättää näytön hetkeksi, ja aamulla näyttö herää itsestään.",
+                    "settings": [
+                        {
+                            "key": "nightMode",
+                            "type": "enum",
+                            "label": "Yötila",
+                            "help": "Näytönsäästäjä näyttää kuvat, tai mustan ruudun ilman kuvakansiota. Näyttö pois katkaisee taustavalon wlopm:llä kuten yllä oleva näytön sammutus.",
+                            "options": [
+                                {"value": "off", "label": "Pois"},
+                                {"value": "screensaver", "label": "Näytönsäästäjä"},
+                                {"value": "screenOff", "label": "Näyttö pois"}
+                            ],
+                            "default": "off",
+                            "apply": "live"
+                        },
+                        {
+                            "key": "nightStartMin",
+                            "type": "int",
+                            "editor": "time",
+                            "label": "Alkaa",
+                            "min": 0,
+                            "max": 1425,
+                            "step": 15,
+                            "default": 1320,
+                            "apply": "live",
+                            "relevantWhen": {
+                                "key": "nightMode",
+                                "notEquals": "off"
+                            }
+                        },
+                        {
+                            "key": "nightEndMin",
+                            "type": "int",
+                            "editor": "time",
+                            "label": "Päättyy",
+                            "min": 0,
+                            "max": 1425,
+                            "step": 15,
+                            "default": 390,
+                            "apply": "live",
+                            "relevantWhen": {
+                                "key": "nightMode",
+                                "notEquals": "off"
+                            }
+                        },
+                        {
+                            "key": "nightWakeMin",
+                            "type": "int",
+                            "label": "Hereilläoloaika",
+                            "help": "Kuinka kauan kosketuksen jälkeen näyttö pysyy yöllä hereillä.",
+                            "unit": "min",
+                            "min": 1,
+                            "max": 30,
+                            "step": 1,
+                            "default": 1,
+                            "apply": "live",
+                            "relevantWhen": {
+                                "key": "nightMode",
+                                "notEquals": "off"
+                            }
+                        }
+                    ]
+                },
+                {
+                    "id": "notifications",
+                    "label": "Ilmoitukset",
+                    "help": "Näytön yläreunaan liukuvat ilmoitukset.",
+                    "settings": [
+                        {
+                            "key": "notifyLockState",
+                            "type": "bool",
+                            "label": "Lukituksen muutos",
+                            "help": "Kun auto lukitaan tai avataan.",
+                            "default": true,
+                            "apply": "live"
+                        },
+                        {
+                            "key": "notifyServerConnection",
+                            "type": "bool",
+                            "label": "Palvelinyhteys",
+                            "help": "Kun yhteys palvelimeen katkeaa tai palaa.",
+                            "default": true,
+                            "apply": "live"
+                        },
+                        {
+                            "key": "notificationDurationSec",
+                            "type": "int",
+                            "label": "Näyttöaika",
+                            "help": "Kuinka kauan ilmoitus pysyy näkyvissä.",
+                            "unit": "s",
+                            "min": 2,
+                            "max": 30,
+                            "step": 1,
+                            "default": 5,
+                            "apply": "live"
                         }
                     ]
                 },
@@ -384,6 +534,33 @@
                             "relevantWhen": {
                                 "key": "mapFollowMode",
                                 "equals": "warp"
+                            }
+                        },
+                        {
+                            "key": "mapImagery",
+                            "type": "enum",
+                            "label": "Ilmakuva",
+                            "help": "Maanmittauslaitoksen 0,5 m ilmakuva vaatii ilmaisen API-avaimen. Ilman avainta käytetään Sentinel-2-satelliittikuvaa (noin 10 m).",
+                            "options": [
+                                {"value": "mml", "label": "Maanmittauslaitos"},
+                                {"value": "eox", "label": "Sentinel-2 (EOX)"}
+                            ],
+                            "default": "mml",
+                            "apply": "restart"
+                        },
+                        {
+                            "key": "mapApiKey",
+                            "type": "string",
+                            "secret": true,
+                            "env": "TESLA_HOMEDASH_MAP_API_KEY",
+                            "label": "MML:n API-avain",
+                            "help": "Maanmittauslaitoksen avoimen datan rajapinta-avain.",
+                            "nullable": true,
+                            "default": "",
+                            "apply": "restart",
+                            "relevantWhen": {
+                                "key": "mapImagery",
+                                "equals": "mml"
                             }
                         }
                     ]

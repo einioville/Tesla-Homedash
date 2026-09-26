@@ -52,6 +52,11 @@ Item {
             // names: the on-screen keyboard's sentence capitalisation would mangle
             // most of them, and prediction holds text in pre-edit, off `text`.
             inputMethodHints: Qt.ImhNoAutoUppercase | Qt.ImhNoPredictiveText
+            // A `secret` setting (an API key) is masked on a panel anyone walks
+            // past, and shown in full only while it is being edited — a key typed
+            // blind on a touch keyboard would never come out right.
+            echoMode: control.setting.secret === true && !activeFocus
+                      ? TextInput.Password : TextInput.Normal
 
             // Enter commits (editingFinished follows) and closes the keyboard,
             // leaving focus where it is — clearing focus here would fire

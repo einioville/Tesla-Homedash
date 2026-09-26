@@ -27,10 +27,12 @@ class Settings;
  *                                (debug|info|warning|error|critical)
  *   TESLA_HOMEDASH_MAP_API_KEY   (string)  optional — a National Land Survey of
  *                                Finland (Maanmittauslaitos) open-data api-key.
- *                                When set, the map uses MML's 0.5 m orthophoto;
- *                                otherwise it falls back to the keyless EOX
- *                                Sentinel-2 basemap. Kept in the environment so
- *                                the key never lives in the committed QML.
+ *                                NOT read here: it is the default for the
+ *                                `mapApiKey` setting. With `mapImagery` "mml" and a
+ *                                key the map uses MML's 0.5 m orthophoto; otherwise
+ *                                the keyless EOX Sentinel-2 basemap. Never in the
+ *                                committed QML — the environment or the user's
+ *                                settings file only.
  *   TESLA_HOMEDASH_SCREENSAVER_DIR         (string)  optional — a folder of photos
  *                                the screensaver cycles through. NOT read here: it
  *                                is the default for the Options-view setting of the

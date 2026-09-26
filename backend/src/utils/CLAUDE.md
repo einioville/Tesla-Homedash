@@ -15,6 +15,9 @@
   re-authorisation silently lost the grant, but at DEBUG it prints the token POST body and the
   base64 `Authorization` header carrying `SPOTIFY_CLIENT_ID:SPOTIFY_CLIENT_SECRET`, the
   authorization code and the refresh token. Never add it to the tuple itself.
+  `set_debug_logging(enabled)` moves the `_SERVICE_LOGGERS` between DEBUG and the level
+  `configure_logging()` started with, leaving `spotipy` alone for the same reason — its caller is
+  `system_service/debug_logging.py`.
 
 ## Binary protocol reference
 

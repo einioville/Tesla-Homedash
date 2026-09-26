@@ -17,8 +17,10 @@ refresh token, only the code.
 import asyncio
 import json
 import logging
+import os
 import secrets
 import shutil
+import signal
 import struct
 import time
 import urllib.parse
@@ -34,6 +36,31 @@ logger = logging.getLogger("media_service.spotify_auth")
 # A pending flow is abandoned after this long. Spotify's own codes expire in about
 # ten minutes, so holding one longer only invites a confusing failure.
 _FLOW_TTL_SECONDS = 600
+
+# Chromium-family browsers the consent page is opened in as a window this
+# process OWNS, so it can be closed when the flow ends. In order of preference:
+# Raspberry Pi OS ships chromium-browser (a wrapper that adds its Wayland flags).
+_APP_BROWSERS = ("chromium-browser", "chromium", "google-chrome", "google-chrome-stable")
+
+# How long a browser gets to exit on SIGTERM before it is killed.
+_BROWSER_CLOSE_GRACE_SECONDS = 5.0
+
+
+def _browser_profile_dir() -> str:
+    '''
+    The dedicated browser profile the consent window runs in:
+    $XDG_CACHE_HOME (or ~/.cache) / Tesla-Homedash / spotify-browser.
+
+    Dedicated because a browser handed a URL while it is already running passes
+    it to the running instance and exits at once — the window then belongs to
+    that instance and nothing here can close it. A separate profile directory is
+    a separate instance. Cache rather than config: losing it only means logging
+    in to Spotify once more, which the six-monthly re-authorization mostly means
+    anyway.
+    '''
+    base = os.environ.get("XDG_CACHE_HOME") or os.path.join(
+        os.path.expanduser("~"), ".cache")
+    return os.path.join(base, "Tesla-Homedash", "spotify-browser")
 
 
 class SpotifyAuthService:
@@ -58,6 +85,9 @@ class SpotifyAuthService:
         self.__media_manager = media_manager
         # One flow at a time: a new GET_URL replaces whatever was pending.
         self.__pending: dict | None = None
+        # Browser-closing tasks in flight. The loop holds only a weak reference
+        # to a task, so an unretained one can be collected before it runs.
+        self.__closing: set[asyncio.Task] = set()
 
     # ── Handlers ──────────────────────────────────────────────────
 
@@ -94,6 +124,9 @@ class SpotifyAuthService:
             "writer": writer,
             "server": None,
             "timer": None,
+            # The consent window's process when this service launched it itself;
+            # None when the page went to xdg-open, whose window is not ours.
+            "browser": None,
             # Set by the first redirect that actually carries a code, so a reload
             # or a second connection cannot re-enter the exchange.
             "claimed": False,
@@ -125,7 +158,8 @@ class SpotifyAuthService:
             return
 
         pending["timer"] = asyncio.create_task(self.__expire(pending))
-        if not await self.__open_in_browser(url):
+        opened, pending["browser"] = await self.__open_in_browser(url)
+        if not opened:
             await self.__cancel_pending()
             await self.__reply_url_error(
                 writer, "Selainta ei voitu avata (xdg-open puuttuu)"
@@ -226,15 +260,22 @@ class SpotifyAuthService:
             pending["claimed"] = True
 
             if error:
-                text = f"Spotify palautti virheen: {error}. Voit sulkea taman valilehden."
+                text = f"Spotify palautti virheen: {error}. Ikkuna sulkeutuu."
             else:
-                text = "Tunnistautuminen valmis. Voit sulkea taman valilehden."
+                text = "Tunnistautuminen valmis. Ikkuna sulkeutuu."
+            # The window this service launched is closed from here once the flow
+            # ends. window.close() is only the fallback for a page xdg-open handed
+            # to an already-running browser: a browser lets a script close a tab
+            # only while its history holds a single page, which a login in
+            # between usually spoils — hence the text still says how to close it.
             page = (
                 "<!doctype html><html lang=\"fi\"><meta charset=\"utf-8\">"
                 "<title>Tesla-Homedash</title>"
                 "<body style=\"font-family:sans-serif;background:#111;color:#eee;"
                 "display:flex;align-items:center;justify-content:center;height:100vh\">"
-                f"<p>{text}</p></body></html>"
+                f"<p>{text} Jos ei, sulje se itse.</p>"
+                "<script>setTimeout(function(){window.close()},800)</script>"
+                "</body></html>"
             ).encode("utf-8")
             await respond(http_writer, b"200 OK", page)
 
@@ -251,20 +292,59 @@ class SpotifyAuthService:
 
         return await asyncio.start_server(handle, host, port)
 
-    async def __open_in_browser(self, url: str) -> bool:
+    async def __open_in_browser(self, url: str) -> tuple[bool, "asyncio.subprocess.Process | None"]:
         '''
-        Opens the authorize URL in the host's default browser.  A system call, so
-        it belongs on this side — the same boundary `display_service` follows.
-        Returns False (rather than raising) when the host has no launcher, so the
-        frontend can fall back to showing the URL.
+        Opens the authorize URL in a browser on the host.  A system call, so it
+        belongs on this side — the same boundary `display_service` follows.
+
+        Prefers a Chromium-family app window in a dedicated profile, which this
+        process owns and can therefore close when the flow ends
+        (`_browser_profile_dir` explains why a dedicated profile is what makes
+        that possible).  Falls back to the default browser via xdg-open, whose
+        window cannot be closed from here.
+
+        Returns (opened, process): process is the owned browser, or None for the
+        xdg-open fallback.  (False, None) when the host has no browser at all.
         Arguments:
             url (str): The Spotify authorize URL.
         '''
+        for name in _APP_BROWSERS:
+            binary = shutil.which(name)
+            if binary is None:
+                continue
+            profile = _browser_profile_dir()
+            try:
+                os.makedirs(profile, exist_ok=True)
+                process = await asyncio.create_subprocess_exec(
+                    binary,
+                    f"--user-data-dir={profile}",
+                    # A fresh profile otherwise greets the user with first-run
+                    # pages and, on a desktop session, a keyring password prompt
+                    # nobody at a keyboard-less panel can answer.
+                    "--no-first-run",
+                    "--no-default-browser-check",
+                    "--password-store=basic",
+                    "--start-maximized",
+                    f"--app={url}",
+                    stdin=asyncio.subprocess.DEVNULL,
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.DEVNULL,
+                    # Its own process group, so closing it reaches the real
+                    # browser even when `binary` is a wrapper script that forks
+                    # it rather than exec'ing it.
+                    start_new_session=True,
+                )
+            except OSError as e:
+                logger.warning("Could not launch %s: %s", binary, e)
+                continue
+            logger.info("Spotify consent page opened in an owned %s window", name)
+            return True, process
+
         opener = (shutil.which("xdg-open") or shutil.which("x-www-browser")
                   or shutil.which("sensible-browser"))
         if opener is None:
             logger.warning("No browser launcher (xdg-open) on this host")
-            return False
+            return False, None
         try:
             await asyncio.create_subprocess_exec(
                 opener, url,
@@ -273,8 +353,52 @@ class SpotifyAuthService:
             )
         except OSError as e:
             logger.warning("Could not launch a browser with %s: %s", opener, e)
-            return False
-        return True
+            return False, None
+        logger.info("Spotify consent page handed to %s; its window cannot be "
+                    "closed automatically", opener)
+        return True, None
+
+    def __close_browser(self, process) -> None:
+        '''
+        Closes the consent window this service launched, in the background: a
+        browser can take a moment to exit, and the flow's reply to the dashboard
+        must not wait for it.
+        Arguments:
+            process (asyncio.subprocess.Process | None): The owned browser, or
+                None when there is nothing of ours to close.
+        '''
+        if process is None or process.returncode is not None:
+            return
+        task = asyncio.create_task(self.__terminate_browser(process))
+        self.__closing.add(task)
+        task.add_done_callback(self.__closing.discard)
+
+    @staticmethod
+    async def __terminate_browser(process) -> None:
+        '''
+        SIGTERM to the browser's process group (a clean exit, so the profile's
+        login cookie is flushed), then SIGKILL if it has not gone within the
+        grace period.
+        Arguments:
+            process (asyncio.subprocess.Process): The owned browser.
+        '''
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            return
+        except OSError as e:
+            logger.warning("Could not close the Spotify consent window: %s", e)
+            return
+        try:
+            await asyncio.wait_for(process.wait(), timeout=_BROWSER_CLOSE_GRACE_SECONDS)
+        except asyncio.TimeoutError:
+            logger.warning("Spotify consent window ignored SIGTERM; killing it")
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except OSError:
+                pass
+            return
+        logger.info("Spotify consent window closed")
 
     async def __cancel_pending(self) -> None:
         '''
@@ -302,6 +426,12 @@ class SpotifyAuthService:
         if server is not None:
             pending["server"] = None
             server.close()
+        # Every way a flow ends comes through here — a result, an error, a
+        # cancel, the expiry, or a new flow replacing this one — so this is the
+        # one place the consent window is closed.
+        browser = pending.get("browser")
+        pending["browser"] = None
+        self.__close_browser(browser)
 
     async def __expire(self, pending: dict) -> None:
         '''

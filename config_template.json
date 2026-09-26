@@ -422,5 +422,13 @@
     "audio": {
         "volumePercent": 60,
         "outputDevice": ""
+    },
+    "media": {
+        "autoplayRadio": false,
+        "resumeRadioAfterSpotify": false
+    },
+    "logging": {
+        "debugEnabled": false,
+        "debugMinutes": 30
     }
 }

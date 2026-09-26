@@ -101,9 +101,36 @@ Window {
 
     Timer {
         id: hideTimer
-        interval: 3000
+        interval: Theme.dockHideMs
         repeat: false
         onTriggered: window.hideDock()
+    }
+
+    // Home return (Yleinen > Navigointi): an idle panel switches back to the
+    // dashboard. Runs only while another view is showing and restarts on every
+    // input event, so it measures time since the LAST touch. It keeps counting
+    // under the screensaver, which is what makes the screensaver lift onto the
+    // dashboard. Switching views also closes the keyboard, which commits a
+    // half-typed setting rather than stranding it (dismissKeyboard above).
+    Timer {
+        id: homeReturnTimer
+        interval: Theme.homeReturnMs
+        running: Theme.homeReturnEnabled && window.currentView !== 0
+        onTriggered: window.currentView = 0
+    }
+    Connections {
+        target: Idle
+
+        function onActivity() {
+            if (homeReturnTimer.running)
+                homeReturnTimer.restart()
+        }
+    }
+
+    // Night mode (Yleinen > Yötila). Decides only; the Bindings at the bottom of
+    // this file and the screensaver's `nightMode` act on it.
+    NightSchedule {
+        id: nightSchedule
     }
 
     // One-time Qt Graphs renderer warm-up, hidden behind the (opaque) views so it
@@ -240,6 +267,7 @@ Window {
         // An update takes minutes with no touch input; without this the photo
         // pile covers it and the panel then goes dark mid-rebuild.
         inhibited: Updater.busy
+        nightMode: nightSchedule.screensaverActive
         // Waking to a keyboard still up over a half-typed field is a trap.
         onActiveChanged: if (active) window.dismissKeyboard()
     }
@@ -304,10 +332,15 @@ Window {
     // at the IdleWatcher whenever it changes. AppConfig seeds the watcher with the
     // same value at construction (it also honours the env var), so this binding
     // only ever re-applies a user edit — it does not fight the startup value.
+    // Inside a night-mode screensaver window the much shorter wake time applies
+    // instead; IdleWatcher restarts its countdown on a change, so the panel
+    // goes dark that long after the window opens, not at once.
     Binding {
         target: Idle
         property: "timeoutMs"
-        value: Settings.values.screensaverTimeoutMin * 60000
+        value: nightSchedule.screensaverActive
+               ? Theme.nightWakeMs
+               : Settings.values.screensaverTimeoutMin * 60000
     }
 
     // Panel power-down: a longer step past the screensaver that cuts the backlight
@@ -320,12 +353,17 @@ Window {
         // Disarmed outright while an update runs: the screensaver is inhibited
         // above for the same reason, and a dark panel over a live rebuild is the
         // shape that gets a device power-cycled mid-checkout.
-        value: Settings.values.screenOffEnabled && !Updater.busy
+        // Night mode's "Näyttö pois" arms it too, with the short night wake
+        // time, whether or not the daytime power-off is on.
+        value: (Settings.values.screenOffEnabled || nightSchedule.screenOffActive)
+               && !Updater.busy
     }
     Binding {
         target: Display
         property: "timeoutMs"
-        value: Settings.values.screenOffMin * 60000
+        value: nightSchedule.screenOffActive
+               ? Theme.nightWakeMs
+               : Settings.values.screenOffMin * 60000
     }
 
     // An update rewrote this binary while the app was running, so the file on

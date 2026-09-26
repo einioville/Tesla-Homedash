@@ -7,6 +7,7 @@
 #include <QtGlobal>
 #include <QtMessageHandler>
 
+#include <atomic>
 #include <utility>
 
 #ifdef Q_OS_WIN
@@ -21,8 +22,10 @@
 
 namespace {
 // Global level threshold. Messages below this severity are dropped before any
-// string formatting work. Set by Logger::install().
-Logger::Level g_threshold = Logger::Level::Info;
+// string formatting work. Set by Logger::install() — at runtime too, when the
+// Options view's debug log toggles — while worker threads may be logging, hence
+// atomic.
+std::atomic<Logger::Level> g_threshold{Logger::Level::Info};
 
 // Serialises writes to stdout so QtConcurrent workers (e.g. the media cover-art
 // decode) and the GUI thread don't interleave half-lines.
@@ -76,7 +79,7 @@ Logger Logger::get(const QString &name) {
 }
 
 void Logger::install(Level default_level) {
-    g_threshold = default_level;
+    g_threshold.store(default_level, std::memory_order_relaxed);
     qInstallMessageHandler(&qtMessageHandler);
 }
 
@@ -97,7 +100,7 @@ void Logger::error(const QString &message) const    { log(Level::Error, message)
 void Logger::critical(const QString &message) const { log(Level::Critical, message); }
 
 void Logger::log(Level level, const QString &message) const {
-    if (static_cast<int>(level) < static_cast<int>(g_threshold)) {
+    if (static_cast<int>(level) < static_cast<int>(g_threshold.load(std::memory_order_relaxed))) {
         return;
     }
 

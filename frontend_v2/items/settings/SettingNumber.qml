@@ -20,12 +20,18 @@ import frontend_v2
 // schema broadcast for a backend one — which destroys this delegate and the
 // press with it, so a hold stopped after one step. And each step was a disk
 // write (a backend CONFIG_SET is a config.json save plus apply hooks).
+//
+// `editor: "time"` reuses the same stepper for a time of day stored as minutes
+// since midnight: the value reads as HH:MM, the ± buttons WRAP past midnight
+// (22:00 is eight steps back from 00:00, not eighty-eight forward), and the field
+// takes no typing — the number pad has no colon.
 Item {
     id: control
 
     required property var setting
 
     readonly property bool isInt: setting.type === "int"
+    readonly property bool isTime: setting.editor === "time"
     readonly property real minimum: setting.min !== undefined ? setting.min : -Infinity
     readonly property real maximum: setting.max !== undefined ? setting.max : Infinity
     readonly property real stepSize: setting.step !== undefined ? setting.step : (isInt ? 1 : 0.1)
@@ -49,6 +55,11 @@ Item {
     implicitHeight: 38
 
     function formatted(value) {
+        if (control.isTime) {
+            const minutes = Math.round(value)
+            const pad = (n) => (n < 10 ? "0" : "") + n
+            return pad(Math.floor(minutes / 60)) + ":" + pad(minutes % 60)
+        }
         return control.isInt ? String(Math.round(value)) : value.toFixed(control.decimals)
     }
 
@@ -91,15 +102,21 @@ Item {
     readonly property real stepFrom: pendingValue !== null
                                      ? pendingValue
                                      : (isUnset ? NaN : Number(setting.value))
-    readonly property bool canStepDown: isNaN(stepFrom) || stepFrom > minimum
-    readonly property bool canStepUp: isNaN(stepFrom) || stepFrom < maximum
+    readonly property bool canStepDown: isTime || isNaN(stepFrom) || stepFrom > minimum
+    readonly property bool canStepUp: isTime || isNaN(stepFrom) || stepFrom < maximum
 
     // Steps the pending value and shows it; nothing is written yet.
     function stepPending(direction) {
         const base = !isNaN(control.stepFrom)
                      ? control.stepFrom
                      : (control.setting.min !== undefined ? control.setting.min : 0)
-        const next = control.clamp(base + direction * control.stepSize)
+        let next = base + direction * control.stepSize
+        if (control.isTime) {
+            // Wrap around the day: one step past max lands on min and back.
+            const span = control.maximum - control.minimum + control.stepSize
+            next = control.minimum + ((next - control.minimum) % span + span) % span
+        }
+        next = control.clamp(next)
         control.pendingValue = control.isInt ? Math.round(next)
                                              : Number(next.toFixed(control.decimals))
         field.text = control.formatted(control.pendingValue)
@@ -177,7 +194,10 @@ Item {
                 color: Theme.dataLabelValue
                 horizontalAlignment: TextInput.AlignHCenter
                 verticalAlignment: TextInput.AlignVCenter
-                selectByMouse: true
+                selectByMouse: !control.isTime
+                // A time is stepped, never typed (see the header).
+                readOnly: control.isTime
+                activeFocusOnPress: !control.isTime
                 // The surrounding Rectangle is the visual field; the Basic style's
                 // own background would paint a light box over the dark theme.
                 background: null

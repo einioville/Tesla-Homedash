@@ -16,6 +16,7 @@ from .media_service.spotify_auth_service import SpotifyAuthService
 from .media_service.spotify_device_service import SpotifyDeviceService
 from .myenergi_service.myenergi_service import MyEnergiService
 from .server.server import Server
+from .system_service.debug_logging import DebugLogging
 from .system_service.system_status_service import SystemStatusService
 from .update_service.update_service import UpdateService
 from .tesla_service.property_editor import TeslaPropertyEditor
@@ -874,6 +875,7 @@ async def main():
     config_service.register_hook("spot_price", spot_provider.apply_config)
     config_service.register_hook("radio", mm.apply_config_radio)
     config_service.register_hook("spotify", mm.apply_config_spotify)
+    config_service.register_hook("media", mm.apply_config_media)
     config_service.register_hook("audio", audio.apply_config)
     # The audio stack owns its own enum choices and its own "this host cannot do
     # that" veto, so config_service needs to know nothing about audio.
@@ -886,6 +888,13 @@ async def main():
     if myenergi is not None:
         config_service.register_hook("myenergi", myenergi.apply_config)
     logger.debug("Config service initialized")
+
+    # The Options view's temporary debug log. Applied once now, so a debug log
+    # left on across a restart comes back on — for one more duration only.
+    debug_logging = DebugLogging(config=config, config_service=config_service)
+    config_service.register_hook("logging", debug_logging.apply_config)
+    debug_logging.apply_config()
+    system_status.register_probe("logging", "Loki", debug_logging.health)
 
     # The Options view's "Tunnista laite" scan. Constructed AFTER config_service
     # because it writes spotifyDeviceId through it: the id is in SETTINGS_SCHEMA,

@@ -1,5 +1,4 @@
 {
-    "graceMs": 5000,
     "notifications": [
         {
             "id": "lock_state",

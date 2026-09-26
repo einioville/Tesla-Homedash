@@ -52,6 +52,8 @@ public:
     // Idempotent. Sets the global level threshold and installs the Qt message
     // handler. Call once from main() (and again once the configured level is
     // known — INFO first so AppConfig's own logs land, then the real level).
+    // main() also re-installs at runtime to follow the backend's temporary
+    // debug-log setting; the threshold is atomic for that reason.
     static void install(Level default_level);
 
     // Case-insensitive parse of the names used by AppConfig:

@@ -165,6 +165,7 @@ qt_add_qml_module(appfrontend_v2
         items/util/GlassPanel.qml
         items/util/NotificationLayer.qml
         items/util/ScreenSaver.qml
+        items/util/NightSchedule.qml
         items/tesla/DataEntry.qml
         items/tesla/DataEntryList.qml
         items/tesla/TemperatureCard.qml
