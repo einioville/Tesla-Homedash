@@ -43,14 +43,21 @@ Rectangle {
         // Same reasoning, cheaper stakes: ViewController keeps this view alive, so
         // a browser left standing would still be there on return — a scrim over a
         // stale listing of a stick that may since have been unplugged, with the
-        // settings underneath unreachable.
-        if (!isCurrent)
+        // settings underneath unreachable. The issues box and the spotlight go
+        // for the same reason.
+        if (!isCurrent) {
             folderPopup.close()
+            issuesPopup.close()
+            spotlight.dismiss()
+        } else {
+            // The device checks in SettingsIssues read this; throttled in C++.
+            SpotifyDevice.refreshStatus()
+        }
     }
 
-    // Transient result banner (a rejected value, a confirmed write).
-    property string toastText: ""
-    property bool toastIsError: false
+    // The last write result, shown beside the title of the row that made it
+    // (SettingsPane.rowFeedback explains why the view holds it).
+    property var rowFeedback: ({ key: "", text: "", error: false })
 
     readonly property var allGroups: Settings.groups
 
@@ -65,16 +72,25 @@ Rectangle {
         return allGroups.length > 0 ? allGroups[0] : undefined
     }
 
-    function showToast(message, isError) {
-        toastText = message
-        toastIsError = isError
-        toastTimer.restart()
+    function showFeedback(key, message, isError) {
+        // A result with no row to sit beside — a refused restart, a lost
+        // connection — goes to the app's notification pill instead.
+        if (key.length === 0 || pane.rowItem(key) === null) {
+            Notifications.post("settings", message)
+            return
+        }
+        rowFeedback = { key: key, text: message, error: isError }
+        feedbackTimer.interval = isError ? 6000 : 2500
+        feedbackTimer.restart()
     }
 
     Timer {
-        id: toastTimer
-        interval: 4000
-        onTriggered: view.toastText = ""
+        id: feedbackTimer
+        onTriggered: view.rowFeedback = { key: "", text: "", error: false }
+    }
+
+    SettingsIssues {
+        id: issueDetector
     }
 
     Connections {
@@ -100,14 +116,14 @@ Rectangle {
         }
 
         function onWriteFailed(key, message) {
-            view.showToast(key.length > 0 ? key + ": " + message : message, true)
+            view.showFeedback(key, message, true)
         }
 
+        // A restart-tier write needs no wording of its own: the row already
+        // carries its "uudelleenkäynnistys" badge and the restart banner appears.
         function onWriteSucceeded(key, applied) {
-            if (applied === "restart")
-                view.showToast(qsTr("Tallennettu — vaatii uudelleenkäynnistyksen"), false)
-            else if (applied !== "unchanged")
-                view.showToast(qsTr("Tallennettu"), false)
+            if (applied !== "unchanged")
+                view.showFeedback(key, qsTr("Tallennettu"), false)
         }
     }
 
@@ -127,7 +143,8 @@ Rectangle {
         id: content
         anchors.fill: parent
 
-        layer.enabled: devicePopup.visible || folderPopup.visible
+        layer.enabled: devicePopup.visible || folderPopup.visible || issuesPopup.visible
+                       || spotlight.active
         layer.effect: MultiEffect {
             blurEnabled: true
             blur: 1.0
@@ -158,27 +175,35 @@ Rectangle {
                 color: Theme.dataLabelValue
             }
 
-            // Connection state: without it, a settings screen showing only the three
-            // local sections reads as a bug rather than "the backend isn't there".
+            // Only when something is wrong. A lost backend is one of the issues,
+            // which is what keeps a screen showing only the local sections from
+            // reading as a bug.
             Row {
                 anchors.right: parent.right
                 anchors.verticalCenter: parent.verticalCenter
-                spacing: 8
+                spacing: 10
+                visible: issueDetector.issues.length > 0
 
                 Rectangle {
                     anchors.verticalCenter: parent.verticalCenter
                     width: 8
                     height: 8
                     radius: 4
-                    color: Server.connected ? "#4ade80" : "#f87171"
+                    color: issueDetector.hasErrors ? "#f87171" : "#ffb020"
                 }
 
                 Text {
                     anchors.verticalCenter: parent.verticalCenter
-                    text: Server.connected ? qsTr("Yhdistetty") : Server.stateText
+                    text: qsTr("Ongelmia havaittu")
                     font.family: Theme.fontFamily
-                    font.pixelSize: 13
-                    color: Theme.dataLabelTitle
+                    font.pixelSize: 14
+                    color: issueDetector.hasErrors ? "#f87171" : "#ffd48a"
+                }
+
+                DialogButton {
+                    anchors.verticalCenter: parent.verticalCenter
+                    label: qsTr("Tarkista")
+                    onActivated: issuesPopup.open()
                 }
             }
         }
@@ -272,16 +297,14 @@ Rectangle {
                             enabled: !Updater.busy
                             onClicked: {
                                 if (modelData.app) {
-                                    view.showToast(qsTr("Sovellus käynnistyy uudelleen…"), false)
+                                    Notifications.post("settings", qsTr("Sovellus käynnistyy uudelleen…"))
                                     Settings.restartApp()
                                 } else {
-                                    // No optimistic toast here: the backend can
-                                    // REFUSE this one, and it answers with a
-                                    // CONFIG_SET_RESULT that lands in the same
-                                    // single toast slot. A cheerful "restarting…"
-                                    // would be overwritten by the refusal a few
-                                    // milliseconds later, or — worse — would be
-                                    // the last thing shown if the reply were lost.
+                                    // No optimistic message here: the backend can
+                                    // REFUSE this one (a keyless CONFIG_SET_RESULT,
+                                    // which lands in the notification pill), and a
+                                    // cheerful "restarting…" queued ahead of the
+                                    // refusal would contradict it.
                                     Settings.requestBackendRestart()
                                 }
                             }
@@ -296,10 +319,11 @@ Rectangle {
             id: sidebar
             anchors.left: parent.left
             anchors.top: restartBanner.bottom
-            anchors.bottom: footer.top
+            anchors.bottom: parent.bottom
             anchors.leftMargin: Theme.gridMargin
             anchors.topMargin: 8
-            anchors.bottomMargin: 6
+            // Clear of the dock's swipe zone and the home indicator.
+            anchors.bottomMargin: Theme.gridMargin + 28
             width: 260
 
             groups: view.allGroups
@@ -308,6 +332,7 @@ Rectangle {
         }
 
         SettingsPane {
+            id: pane
             anchors.left: sidebar.right
             anchors.right: parent.right
             anchors.top: sidebar.top
@@ -318,67 +343,7 @@ Rectangle {
             anchors.rightMargin: Theme.gridMargin
 
             groupData: view.currentGroup
-        }
-
-        // --- Footer -----------------------------------------------------------
-        Item {
-            id: footer
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.bottom: parent.bottom
-            // Clear of the dock's swipe zone and the home indicator.
-            anchors.bottomMargin: Theme.gridMargin + 28
-            anchors.leftMargin: Theme.gridMargin
-            anchors.rightMargin: Theme.gridMargin
-            height: 30
-
-            // Which files these settings actually live in — one per half of the
-            // view. Worth the two lines: the paths are deployment-specific (a
-            // worktree copy on the dev box, /home/pi on the device), so "where do I
-            // edit this by hand" is otherwise unanswerable from the screen. Labelled
-            // with the same two words the restart buttons use.
-            Column {
-                anchors.left: parent.left
-                anchors.verticalCenter: parent.verticalCenter
-                width: parent.width * 0.6
-                spacing: 2
-
-                Text {
-                    width: parent.width
-                    text: qsTr("Sovellus") + " · " + Settings.storagePath
-                    font.family: Theme.fontFamily
-                    font.pixelSize: 10
-                    color: Theme.dataLabelTitle
-                    elide: Text.ElideMiddle
-                }
-
-                // Empty until a CONFIG_SCHEMA has arrived. Kept visible with a dash
-                // rather than hidden, so the footer does not reflow on connect.
-                Text {
-                    width: parent.width
-                    text: qsTr("Palvelin") + " · " +
-                          (Settings.backendStoragePath.length > 0
-                              ? Settings.backendStoragePath : "—")
-                    font.family: Theme.fontFamily
-                    font.pixelSize: 10
-                    color: Theme.dataLabelTitle
-                    elide: Text.ElideMiddle
-                }
-            }
-
-            // Transient write result, right-aligned so it never reflows the list.
-            Text {
-                anchors.right: parent.right
-                anchors.verticalCenter: parent.verticalCenter
-                width: parent.width * 0.4
-                horizontalAlignment: Text.AlignRight
-                text: view.toastText
-                visible: view.toastText.length > 0
-                font.family: Theme.fontFamily
-                font.pixelSize: 12
-                color: view.toastIsError ? "#f87171" : "#4ade80"
-                elide: Text.ElideLeft
-            }
+            rowFeedback: view.rowFeedback
         }
     }
 
@@ -405,5 +370,26 @@ Rectangle {
     FolderPickerPopup {
         id: folderPopup
         anchors.fill: parent
+    }
+
+    // --- Issues -------------------------------------------------------------
+    // The header's "Tarkista" opens this; "Korjaa" closes it, selects the section
+    // holding the fix and spotlights that row. Both outside `content`, like the
+    // dialogs above, so the blur they ask for does not swallow them.
+    SettingsIssuesPopup {
+        id: issuesPopup
+        anchors.fill: parent
+        issues: issueDetector.issues
+        onFixRequested: (issue) => {
+            issuesPopup.close()
+            view.currentSectionId = issue.section
+            spotlight.show(issue.key)
+        }
+    }
+
+    SettingSpotlight {
+        id: spotlight
+        anchors.fill: parent
+        pane: pane
     }
 }

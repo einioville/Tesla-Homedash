@@ -14,6 +14,7 @@ behind several of these files are documented in `../../core/CLAUDE.md`:
 | `UpdatePanel.qml`, `UpdateBanner.qml` | `Updater` |
 | `ScreenPowerStatus.qml` | `Display` |
 | `TeslaFieldTable.qml` | `TeslaFields` |
+| `SettingsIssues.qml` | reads `Server`, `SpotifyAuth`, `SpotifyDevice`, `Settings` |
 | everything else | `Settings` |
 
 ## Layout
@@ -156,6 +157,48 @@ which is kept apart from red on purpose.
   not list it: Spotify lists only devices that are up, so *switched off* and *wrong id* look the
   same, and the text says both. It asks for `SpotifyDevice.configuredStatus` on construction; the
   row is rebuilt on every settings write, so the request is throttled in C++ (`core/CLAUDE.md`).
+
+## Write results
+
+**A write's result is shown beside the title of the row that made it** — "Tallennettu" in
+green for 2.5 s, a rejection in red for 6 s — not in a banner elsewhere on the screen. The state
+lives in `SettingsView.rowFeedback`, passed down through `SettingsPane`, **not in the row**: every
+write rebuilds `Settings.groups`, which destroys the row that made the write before its result
+arrives. A result with no row to sit beside — a keyless `CONFIG_SET_RESULT` (a refused restart or
+reboot), a lost connection, a hidden setting such as `updateChannel` — goes to the app's
+notification pill (`Notifications.post("settings", …)`) instead. A restart-tier write gets no extra
+wording: the row's badge and the restart banner already say it.
+
+## Issues and the fix spotlight
+
+The header shows **"Ongelmia havaittu" + *Tarkista*** only while `SettingsIssues` reports
+something (red dot if any issue is an error, amber for warnings only). It replaced the old
+"Yhdistetty" indicator; a lost backend is itself an issue, which is what keeps a screen showing only
+the local sections from reading as a bug.
+
+- **`SettingsIssues.qml`** is a plain binding over the singletons, so an issue appears and clears by
+  itself. Each names the **setting key that fixes it**; its section is looked up in
+  `Settings.groups` rather than hardcoded, and an issue whose row is not in the schema right now
+  offers no *Korjaa*. **While disconnected, only the connection is reported** — every other check
+  reads backend state that is stale until it returns. Today's checks: backend unreachable →
+  `backendHost`; Spotify grant broken, or valid for ≤ 30 more days → `spotifyReauth`; no Spotify
+  device chosen, or chosen but not listed → `spotifyIdentifyDevice` (only with a working grant);
+  screensaver on without a folder → `screensaverDir`. Add a check by pushing one more entry.
+  The view refreshes `SpotifyDevice.configuredStatus` whenever it becomes current, since the device
+  checks read it.
+- **`SettingsIssuesPopup.qml`** is the list, drawn like `SpotifyDevicePopup` (scrim over the blurred
+  view, opaque card) but anchored under the header. A tap beside the card closes it.
+- **`SettingSpotlight.qml`** is where *Korjaa* ends: the view selects the fix's section and the view
+  blurs its content (the same layer the dialogs use), while this draws a **crisp copy** of the row —
+  a `ShaderEffectSource` over an opaque plate recreating the card behind it, ringed in the accent —
+  until the next tap. The row cannot leave the blurred layer, so a copy is the only way to show it
+  sharp. **A press on the copy dismisses and is not accepted**, so it reaches the real row beneath
+  (tapping the highlighted *Kirjaudu* works first time); a press anywhere else is swallowed, so a
+  blind tap on the blur cannot flip a switch nobody could see. The row is found by key on every
+  80 ms tick (rows name themselves `settingRow:<key>`, `SettingsPane.rowItem()`), because a write
+  rebuilds every row and a status widget settling can move one; the first ticks also scroll it to
+  the middle of the pane, since the section may only just have been built. The copy is not drawn
+  before the first tick: a just-selected section has not been laid out yet.
 
 ## Status widgets
 

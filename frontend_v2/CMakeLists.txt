@@ -130,6 +130,9 @@ qt_add_qml_module(appfrontend_v2
         items/settings/SettingDetails.qml
         items/settings/SpotifyAuthDetails.qml
         items/settings/SpotifyDeviceDetails.qml
+        items/settings/SettingsIssues.qml
+        items/settings/SettingsIssuesPopup.qml
+        items/settings/SettingSpotlight.qml
         items/settings/SpotifyAuthPopup.qml
         items/settings/SpotifyDevicePopup.qml
         items/settings/FolderPickerPopup.qml

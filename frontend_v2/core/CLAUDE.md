@@ -26,13 +26,11 @@ yet at that point, so the `CONFIG_*` wiring is deferred to `attachServer()` afte
 `ServerClient` is constructed. `core/dotenv.{hh,cpp}` holds the `.env` discovery/parsing both
 readers share.
 
-The view's footer names **both** files the screen writes: `Settings.storagePath` (the local
-override file) and `Settings.backendStoragePath` — the backend's `config.json`, taken from the
-top-level `path` in its `CONFIG_SCHEMA` document (`Config.path`). The paths are
-deployment-specific, so without them "where do I edit this by hand" is unanswerable from the
-device. `backendStoragePath` is empty until a schema arrives (rendered as "—") and is kept
-after a disconnect, like the backend groups themselves; a document without the key never
-blanks a path already shown, so an older backend degrades quietly.
+`Settings.storagePath` (the local override file) and `Settings.backendStoragePath` (the
+backend's `config.json`, from the top-level `path` in its `CONFIG_SCHEMA` document) name the two
+files the Options view writes. **The view no longer displays them** — its footer is gone — but the
+properties stay for logging and diagnostics. `backendStoragePath` is empty until a schema arrives
+and is kept after a disconnect; a document without the key never blanks a path already known.
 
 **The two schemas merge by group id.** `Settings::rebuildGroups()` indexes the backend's groups by
 id and folds each into the local group of the same id, so one sidebar section can hold subsections

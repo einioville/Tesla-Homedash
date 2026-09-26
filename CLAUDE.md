@@ -280,7 +280,8 @@ SettingRow delegate → Settings.setValue(key, value)
     → validate against SETTINGS_SCHEMA → Config.set + Config.save (bak + atomic replace)
     → apply tier "hook": run the registered service apply_config()s
     → CONFIG_SET_RESULT → send_to(requesting client)   [+ CONFIG_SCHEMA broadcast to all]
-    → Settings.parseSetResult → writeSucceeded/writeFailed → SettingsView toast
+    → Settings.parseSetResult → writeSucceeded/writeFailed → result beside the row's title
+      (a keyless result → the notification pill)
   apply tier "restart": banner → CONFIG_RESTART → ConfigService.run → os._exit(42) → systemd
 ```
 
@@ -405,7 +406,8 @@ after the map-tuning pass and the split of this guide into per-directory `CLAUDE
 second Options-view batch: navigation/home return, night mode, notification toggles, radio
 autoplay/resume, the temporary debug log, map imagery, and the self-closing Spotify consent window — plus
 the Media section's Spotify card redesign (per-row details, the grant record, device status, section
-order) and the radio remembering its last station in place of a default-station setting. When you land a change that touches documented behaviour, update this line.
+order), the radio remembering its last station in place of a default-station setting, inline
+write results and the issues box with its fix spotlight. When you land a change that touches documented behaviour, update this line.
 
 ## 8. Session workflow — main checkout by default, worktree only for parallelism
 

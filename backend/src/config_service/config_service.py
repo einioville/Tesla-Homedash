@@ -707,10 +707,10 @@ class ConfigService:
             entry = {k: v for k, v in group.items() if k != "sections"}
             entry["sections"] = sections
             groups.append(entry)
-        # The path lets the Options view name the file its remote half writes,
-        # alongside the frontend's own settings file.  Top-level rather than
-        # per-group: it describes the whole document, and an older frontend that
-        # does not read it simply ignores the extra key.
+        # The path names the file this half writes (the frontend keeps it as
+        # Settings.backendStoragePath for diagnostics; the view no longer shows
+        # it).  Top-level rather than per-group: it describes the whole document,
+        # and a frontend that does not read it simply ignores the extra key.
         return {
             "path": self.__config.path,
             "startedAt": self.__started_at_ms,

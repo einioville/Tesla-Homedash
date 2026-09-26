@@ -18,6 +18,14 @@ Item {
 
     required property var setting
 
+    // The view's last write result ({key, text, error}); shown beside the title
+    // when it is this row's. See SettingsPane.rowFeedback.
+    property var feedback: ({ key: "", text: "", error: false })
+    readonly property bool hasFeedback: feedback.key === setting.key && feedback.text.length > 0
+
+    // Found by key for the issues spotlight (SettingsPane.rowItem).
+    objectName: "settingRow:" + setting.key
+
     // Width given to the editor on the right. The detail pane widens this from
     // the default now that one section fills the screen.
     property int editorWidth: 240
@@ -84,9 +92,11 @@ Item {
         spacing: 2
 
         Row {
+            id: titleRow
             spacing: 8
 
             Text {
+                id: titleText
                 text: row.setting.label !== undefined ? row.setting.label : row.setting.key
                 font.family: Theme.fontFamily
                 font.pixelSize: 15
@@ -116,6 +126,22 @@ Item {
                     font.pixelSize: 10
                     color: "#ffd48a"
                 }
+            }
+
+            // The write result, beside the title of the row it belongs to rather
+            // than in a banner elsewhere on the screen. Elided to what is left of
+            // the label column, since a rejection message can be long.
+            Text {
+                visible: row.hasFeedback
+                anchors.verticalCenter: parent.verticalCenter
+                width: Math.min(implicitWidth,
+                                labelColumn.width - titleText.width - titleRow.spacing
+                                - (row.needsRestart ? badgeText.implicitWidth + 12 + titleRow.spacing : 0))
+                elide: Text.ElideRight
+                text: row.feedback.text
+                font.family: Theme.fontFamily
+                font.pixelSize: 12
+                color: row.feedback.error ? "#f87171" : "#4ade80"
             }
         }
 

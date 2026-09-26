@@ -17,6 +17,11 @@ Item {
     // selected / the list is still empty.
     property var groupData
 
+    // The last write result, {key, text, error}, shown beside that row's title.
+    // Held by the view rather than by the row: a write rebuilds Settings.groups,
+    // which destroys the row that made it before the result arrives.
+    property var rowFeedback: ({ key: "", text: "", error: false })
+
     readonly property bool hasData: groupData !== undefined && groupData !== null
     readonly property var sections: hasData && groupData.sections !== undefined
                                     ? groupData.sections : []
@@ -57,6 +62,30 @@ Item {
             revealAnimation.to = target
             revealAnimation.restart()
         }
+    }
+
+    // The rendered row for a setting key, or null. Rows name themselves
+    // ("settingRow:<key>"), so this needs no registry that could go stale.
+    function rowItem(key) {
+        const name = "settingRow:" + key
+        const stack = [cards]
+        while (stack.length > 0) {
+            const item = stack.pop()
+            if (item.objectName === name)
+                return item
+            for (let i = 0; i < item.children.length; ++i)
+                stack.push(item.children[i])
+        }
+        return null
+    }
+
+    // Scrolls a row to the middle of the pane (clamped), at once — the spotlight
+    // measures the row straight after.
+    function revealRow(row) {
+        revealAnimation.stop()
+        const top = row.mapToItem(flick.contentItem, 0, 0).y
+        const target = top + row.height / 2 - flick.height / 2
+        flick.contentY = Math.max(0, Math.min(target, flick.contentHeight - flick.height))
     }
 
     function isInsideFlick(item) {
@@ -292,6 +321,7 @@ Item {
 
                                         SettingRow {
                                             width: parent.width
+                                            feedback: pane.rowFeedback
                                             // Wider than the old two-column layout
                                             // allowed; a slider this size is comfortable
                                             // to drag with a fingertip.
