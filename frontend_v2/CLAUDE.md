@@ -50,9 +50,9 @@ All optional; defaults match the embedded target.
   file (default `<QStandardPaths::GenericConfigLocation>/Tesla-Homedash/frontend_config.json`
   — i.e. beside the backend's `backend_config.json`). A file at the pre-move
   `AppConfigLocation/settings.json` is copied over once on first run.
-- `TESLA_HOMEDASH_SCREENSAVER_DIR` — no longer read by `AppConfig`; it now supplies the
-  DEFAULT for the `screensaverDir` setting, which owns the value and can change it live.
-- `TESLA_HOMEDASH_MAP_API_KEY` — likewise only the default for the `mapApiKey` setting (a
+- `TESLA_HOMEDASH_SCREENSAVER_DIR` — no longer read: the screensaver's photos live in a fixed
+  folder (`core/CLAUDE.md`, under `Photos`), and a startup warning names it if this is still set.
+- `TESLA_HOMEDASH_MAP_API_KEY` — only the default for the `mapApiKey` setting (a
   `secret`). `AppConfig` resolves the basemap from `mapImagery` + `mapApiKey` through `Settings`:
   "mml" with a key → MML 0.5 m orthophoto, otherwise EOX Sentinel-2. Restart-tier — the OSM plugin
   reads its tile host once.

@@ -26,15 +26,11 @@ QtObject {
 
     // Screensaver — after the configured idle timeout a black photo slideshow
     // takes over the screen; any tap dismisses it and returns to the last-used
-    // view. On/off, timeout, dwell, pile size and the photo folder are all
-    // Options-view settings; the folder still DEFAULTS to
-    // TESLA_HOMEDASH_SCREENSAVER_DIR, so an existing deployment keeps working
-    // until it is changed on-device. With no folder there are no photos and the
-    // screensaver never activates.
+    // view. On/off, timeout, dwell and pile size are Options-view settings; the
+    // photos come from a fixed folder (the Photos singleton), and with none there
+    // the screensaver never activates.
     // Press F10 to toggle it on demand for testing.
     readonly property bool screensaverEnabled: Settings.values.screensaverEnabled
-    // Plain filesystem path; Settings.toFileUrl() turns it into a URL for QML.
-    readonly property string screensaverDir: Settings.values.screensaverDir
 
     // Panel power-down — a step BEYOND the screensaver: the screensaver keeps the
     // backlight on to show photos, this cuts it. Main.qml pushes both at the C++

@@ -1,20 +1,24 @@
 import QtQuick
 import frontend_v2
 
-// One pill button for SpotifyAuthPopup. Matches the Options view's combo styling
-// (TripComboBox's field colours) so the dialog reads as part of the same screen.
+// One pill button for the Options view's dialogs (SpotifyAuthPopup,
+// UsbImportPopup). Matches the view's combo styling (TripComboBox's field
+// colours) so a dialog reads as part of the same screen; `primary` tints the one
+// action a dialog exists for in the accent.
 Rectangle {
     id: control
 
     property alias label: text.text
+    property bool primary: false
     signal activated
 
     implicitWidth: text.implicitWidth + 30
     implicitHeight: 34
     radius: 8
-    color: area.pressed ? Theme.tripComboPressed : Theme.tripComboBg
+    color: control.primary ? (area.pressed ? "#994aa8ff" : "#664aa8ff")
+                           : (area.pressed ? Theme.tripComboPressed : Theme.tripComboBg)
     border.width: 1
-    border.color: Theme.tripCardBorder
+    border.color: control.primary ? Theme.accent : Theme.tripCardBorder
 
     Text {
         id: text

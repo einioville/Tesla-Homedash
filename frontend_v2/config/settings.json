@@ -22,18 +22,11 @@
         "Per-subsection keys: id, label, help (optional, under the card title),\nstatus (optional: names a runtime status widget rendered in the card -\n'backendProbe' is the reachability check), settings.",
         "",
         "Per-setting keys: key, type (bool|int|float|string|enum|action), label, help,",
-        "unit, min/max/step (numeric), maxLabel (slider top-stop text), options\n(enum), default, apply, editor,\nwarnBelow/warnAbove + warnMessage (advisory caution, never blocks a write),\nrelevantWhen {key, equals|notEquals|notEmpty} or a list of such rules that\nmust ALL hold (fades and disables the row while other settings make it\nmeaningless).",
+        "unit, min/max/step (numeric), maxLabel (slider top-stop text), options\n(enum), default, apply, editor,\nwarnBelow/warnAbove + warnMessage (advisory caution, never blocks a write),\nrelevantWhen {key, equals|notEquals} or {condition} (a runtime fact named in\nSettingRow.conditionHolds), or a list of such rules that must ALL hold\n(fades and disables the row while they do not).",
         "editor: a per-type CONTROL HINT, always opt-in, ignored when absent.",
         "        'slider' (int/float) replaces the default [-] value [+] stepper,",
         "        and only for coarse dials where the exact number does not matter",
         "        (a 65534-step slider is unusable, see SettingNumber).",
-        "        'folder' (string) replaces the text field with a tappable path",
-        "        that opens the folder browser. Honoured only for LOCAL settings:",
-        "        the browser walks this machine's filesystem, and a backend key's",
-        "        paths belong to the backend's host, so a backend entry falls back",
-        "        to the text field. Pair it with nullable when 'not configured' is",
-        "        a meaningful value - the browser's Tyhjenna writes an empty string.",
-        "",
         "        'time' (int) renders minutes since midnight as HH:MM on the same",
         "        stepper, wrapping past midnight, with no typing. Use min 0,",
         "        max 1440 - step.",
@@ -138,8 +131,7 @@
                             "default": true,
                             "apply": "live",
                             "relevantWhen": {
-                                "key": "screensaverDir",
-                                "notEmpty": true
+                                "condition": "screensaverPhotos"
                             }
                         },
                         {
@@ -159,8 +151,7 @@
                                     "equals": true
                                 },
                                 {
-                                    "key": "screensaverDir",
-                                    "notEmpty": true
+                                    "condition": "screensaverPhotos"
                                 }
                             ]
                         },
@@ -180,8 +171,7 @@
                                     "equals": true
                                 },
                                 {
-                                    "key": "screensaverDir",
-                                    "notEmpty": true
+                                    "condition": "screensaverPhotos"
                                 }
                             ]
                         },
@@ -202,20 +192,17 @@
                                     "equals": true
                                 },
                                 {
-                                    "key": "screensaverDir",
-                                    "notEmpty": true
+                                    "condition": "screensaverPhotos"
                                 }
                             ]
                         },
                         {
-                            "key": "screensaverDir",
-                            "type": "string",
-                            "editor": "folder",
-                            "env": "TESLA_HOMEDASH_SCREENSAVER_DIR",
+                            "key": "screensaverImport",
+                            "type": "action",
                             "label": "Kuvakansio",
-                            "help": "Kansio, josta näytönsäästäjän käyttämät kuvat haetaan.",
-                            "nullable": true,
-                            "default": "",
+                            "details": "screensaverPhotos",
+                            "actionLabel": "Tuo USB:ltä",
+                            "requiresConnection": true,
                             "apply": "live"
                         },
                         {
@@ -252,7 +239,7 @@
                             "key": "nightMode",
                             "type": "enum",
                             "label": "Yötila",
-                            "help": "Näytönsäästäjä näyttää kuvat, tai mustan ruudun ilman kuvakansiota. Näyttö pois katkaisee taustavalon wlopm:llä kuten yllä oleva näytön sammutus.",
+                            "help": "Näytönsäästäjä näyttää kuvat, tai mustan ruudun, jos kuvia ei ole. Näyttö pois katkaisee taustavalon wlopm:llä kuten yllä oleva näytön sammutus.",
                             "options": [
                                 {"value": "off", "label": "Pois"},
                                 {"value": "screensaver", "label": "Näytönsäästäjä"},

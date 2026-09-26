@@ -14,6 +14,8 @@ behind several of these files are documented in `../../core/CLAUDE.md`:
 | `UpdatePanel.qml`, `UpdateBanner.qml` | `Updater` |
 | `ScreenPowerStatus.qml` | `Display` |
 | `TeslaFieldTable.qml` | `TeslaFields` |
+| `UsbImportPopup.qml` | `UsbImport` |
+| `ScreensaverPhotosDetails.qml` | `Photos` |
 | `SettingsIssues.qml` | reads `Server`, `SpotifyAuth`, `SpotifyDevice`, `Settings` |
 | everything else | `Settings` |
 
@@ -60,20 +62,18 @@ setting whose editor lives in the subsection's status widget; `updateChannel` is
 `status` is dropped, which is how the backend's `spotify` subsection — `spotifyDeviceId` /
 `spotifyDeviceName`, written only by the device scan — renders nothing while staying the write
 allow-list), **`details`** (a row-level live block under the label — see *Row details* below),
-**`relevantWhen`** (`{key, equals|notEquals|notEmpty}`, or a list of
-such rules that must ALL hold — `SettingRow`
+**`relevantWhen`** (`{key, equals|notEquals}` or `{condition}`, or a list of such rules that must
+ALL hold — `SettingRow`
 fades a row whose controlling setting makes it meaningless **and sets `enabled: false` on it**,
 since a control that changes a value with no effect is worse than one that visibly cannot be used;
-`enabled` propagates down the item tree, so no editor needs to know about relevance. `notEmpty`
-treats `""` and null alike, since a cleared nullable string can arrive as either. The screensaver
-card is the list form's consumer: the switch is unavailable until a photo folder is set, and its
-three tuning rows need the switch on *and* the folder. A setting that is a *precondition* for its
-controller — that photo folder — must NOT carry a rule, or it becomes unsettable exactly when it
-needs setting. Resolved through `Settings.valueOf()`, which reaches **both** halves, with
-`Settings.valuesRevision` read purely to make the binding live), **`editor: "folder"`** (opt-in on a
-`string` setting: the row becomes a tappable path that opens the folder browser instead of a text
-field, and honoured only for `origin === "local"` — the browser walks the FRONTEND's filesystem, so
-a backend key falls back to `SettingText` rather than silently browsing the wrong machine),
+`enabled` propagates down the item tree, so no editor needs to know about relevance. A `key` rule
+resolves through `Settings.valueOf()`, which reaches **both** halves, with
+`Settings.valuesRevision` read purely to make the binding live. A `condition` rule names a runtime
+fact no setting holds, resolved in `SettingRow.conditionHolds()` — `screensaverPhotos` is
+`Photos.count > 0`. The screensaver card is the consumer of both: the switch is unavailable until
+the photo folder holds photos, and its three tuning rows need the switch on *and* the photos. The
+row that FIXES a condition — *Kuvakansio*'s import button — must not carry the rule, or it becomes
+unusable exactly when it is needed),
 **`maxLabel`** (`SettingSlider` shows this text instead of the number at the slider's top stop — the
 graph point cap uses it for *rajoittamaton*, which really does disable decimation), **`secret`** (a
 `string` shown masked by `SettingText` except while it is being edited, and logged as `<hidden>` by
@@ -87,7 +87,7 @@ graph point cap uses it for *rajoittamaton*, which really does disable decimatio
 `SettingRow` dispatches on `setting.type` to
 `SettingSwitch` / `SettingNumber` / `SettingSlider` / `SettingText` / `SettingSelect` (the
 last subclasses `TripComboBox`, inheriting the dark styling and the #9/#19 dropdown fixes) /
-`SettingFolder`.
+`SettingAction`.
 
 **Numeric settings default to `SettingNumber` — a `[−] [typed value] [+]` stepper — and sliders are
 OPT-IN** via the schema's `editor: "slider"`. A slider only works when the exact number does not
@@ -105,9 +105,8 @@ for big jumps. **A hold steps a pending value that only the field shows and comm
 release** — every `Settings.setValue()` rebuilds `Settings.groups` (at once for a local key, on the
 schema broadcast for a backend one), which destroys the delegate and the press with it, so writing
 per step stopped every hold after one step and wrote `config.json` on each. `editor` is the
-general per-type control HINT, not a numeric one — `slider`, `folder` and `time` are its consumers
-today. **`editor: "time"`** keeps `SettingNumber` but reads the int as minutes since midnight
-(`HH:MM`), makes the ± buttons **wrap** past midnight (min 0, max 1440 − step) and the field
+general per-type control HINT, not a numeric one — `slider` and `time` are its consumers today.
+**`editor: "time"`** keeps `SettingNumber` but reads the int as minutes since midnight (`HH:MM`), makes the ± buttons **wrap** past midnight (min 0, max 1440 − step) and the field
 read-only: the number pad has no colon, and with wrapping, eight 15-minute steps back from 00:00
 reach 22:00. The night-mode window (`nightStartMin` / `nightEndMin`) is its consumer.
 
@@ -145,9 +144,12 @@ slide-in, well after focus moved.
 
 The row-level sibling of the subsection `status` hook below: **`details: "<id>"`** makes
 `SettingRow` load a component under the label, resolved against its own small table
-(`spotifyAuth` → `SpotifyAuthDetails`, `spotifyDevice` → `SpotifyDeviceDetails`). It is for facts
-that belong to one row without being its value — the two Spotify actions carry no `help`, and their
-details are the whole explanation. Both render through **`SettingDetails.qml`**: a status line led
+(`spotifyAuth` → `SpotifyAuthDetails`, `spotifyDevice` → `SpotifyDeviceDetails`,
+`screensaverPhotos` → `ScreensaverPhotosDetails`). It is for facts
+that belong to one row without being its value — these actions carry no `help`, and their
+details are the whole explanation. *Kuvakansio*'s is a single live line styled as the `help` it
+stands in for ("N kuvaa löydetty", from `Photos.count`). The two Spotify ones render through
+**`SettingDetails.qml`**: a status line led
 by a green / amber / red / grey dot, then label–value pairs. Grey means *could not be established*,
 which is kept apart from red on purpose.
 
@@ -186,8 +188,8 @@ the local sections from reading as a bug.
   reads backend state that is stale until it returns. Today's checks: backend unreachable →
   `backendHost`; Spotify grant broken, or valid for ≤ 30 more days → `spotifyReauth`; no Spotify
   device chosen, or chosen but not listed → `spotifyIdentifyDevice` (only with a working grant).
-  A missing screensaver folder is deliberately *not* an issue: the switch is unavailable without
-  one, so a user who wants no screensaver could never clear it. Add a check by pushing one more
+  An empty screensaver folder is deliberately *not* an issue: the switch is unavailable without
+  photos, so a user who wants no screensaver could never clear it. Add a check by pushing one more
   entry.
   The view refreshes `SpotifyDevice.configuredStatus` whenever it becomes current, since the device
   checks read it.
@@ -219,58 +221,17 @@ and port **together**. The verdict follows the SAVED values (what startup will a
 debounced 400 ms so editing host then port probes once against the final pair. Advisory only — the
 write is never blocked, since the backend legitimately may not be up yet.
 
-## Folder browser — `SettingFolder.qml` + `FolderPickerPopup.qml`
+## USB photo import — `UsbImportPopup.qml`
 
-**The folder browser** is `core/folderbrowser.{hh,cpp}`, the QML singleton **`Folders`**, with
-`items/settings/SettingFolder.qml` as the row editor and `items/settings/FolderPickerPopup.qml` as
-the dialog. It exists because `FolderListModel` is a fine lister and a poor navigator: it reports
-what is inside a directory it has already opened, and everything a picker needs *before* that —
-does this path still exist, may we read it, what is its parent, where do we open when nothing is
-configured, which removable volumes are mounted right now — has no QML type in this build at all
-(`Qt.labs.platform` is not linked, and `QStorageInfo` has no QML API in any build). Every method
-recomputes rather than caching: a stick can be plugged in while the Options view sits open.
-Load-bearing details, all measured against Qt 6.11.1:
-- **Navigation state is a plain path, never a URL.** `folder`, `parentFolder` and the `fileUrl`
-  role are URLs, and recovering a path from one by stripping `file://` yields the percent-encoded
-  form — `/media/pi/Kesäloma 2024` comes back mangled, `Settings.toFileUrl` then double-encodes it,
-  and the screensaver silently plays nothing. Rows navigate by the **`filePath`** role, which is
-  already an absolute decoded path, so no URL enters the state at all. It matters twice over that
-  `Settings::setValue` **rejects a QUrl outright** for a `string` setting ("odotettiin tekstiä"):
-  the most natural line to write fails at runtime with a toast and no folder saved.
-- **Never `parentFolder`.** It returns an EMPTY url at `/`, and feeding that back into `folder`
-  leaves the model pointing nowhere *and* computing every later parent from nothing — a permanently
-  blank dialog on a device with no keyboard. `Folders.parentOf()` returns `""` at the root and the
-  up button is simply inert there.
-- **A folder whose name contains `#`, `%` or `?` cannot be browsed or played.** `FolderListModel`
-  re-parses the decoded path as a URL internally, so `Loma#2024` truncates to `Loma` — status Null,
-  count 0, even from a correctly encoded URL. `Folders.isBrowsable()` mirrors that test
-  (`QUrl(path).path() == path`, a pure string parse, because the browser asks it once per visible
-  row) and such rows render dimmed and inert. This is also why the row needs no text field: a
-  hand-typed path to such a folder would not work either.
-- **The picker is instantiated permanently, not behind a `Loader`.** `~FileInfoThread` takes the
-  scan thread's mutex and `wait()`s for it while the scan holds that mutex for its whole directory
-  walk — so unloading mid-scan blocks the **GUI thread** until a stale mount or a spun-down disk
-  answers, and "Peruuta during a slow load" is exactly when a user taps. The cost is one listing of
-  the process's working directory at startup and one idle watcher.
-- **The image count is gated on `status`, not on `count` alone.** `count` is 0 while the background
-  walk runs, so a naive binding flashes the amber "no images here" warning on every descend,
-  including into folders that turn out to be full.
-- **The card reserves the DOCK's band.** A popup inside a view cannot cover the dock (the general
-  rule is in `frontend_v2/CLAUDE.md`), and the dock is also briefly on screen at startup. Measured
-  on the 1280×800 target: the dock occupies **y 684–780**, and a 690px card centred in the window
-  puts its button row at **y 681–725** — *Peruuta* and *Valitse tämä kansio* covered, with no way to
-  reach them. The card is therefore top-anchored and sized to end above that band (30px of
-  clearance, which still leaves ~8 directory rows). `SpotifyDevicePopup` escapes this only by being
-  content-sized and short; anything taller has to reserve the band deliberately.
-
-**Tapping anything only changes WHERE YOU ARE; the button at the bottom writes.** Nothing is ever
-"selected", so there is no tap-to-select vs. double-tap-to-open overload, and a leaf folder with no
-subdirectories — `DCIM/100CANON`, the usual case — is selectable at all, which a select-the-row
-design cannot manage. The confirm button's label and width are fixed for the same reason
-`SpotifyDevicePopup`'s are: a label naming the current folder would resize as the user navigates
-and slide *Peruuta* under a finger already reaching for it.
-
-**There is deliberately no text field.** It would not be an escape hatch: the only folders the
-browser cannot reach contain `#`, `%` or `?`, and `ScreenSaver.qml` uses the same `FolderListModel`,
-so it could not play them however the path was entered. (The in-app keyboard would make one
-typeable; it just has nothing to add.)
+The *Kuvakansio* row's *Tuo USB:ltä* opens it through `Settings.invokeAction` → `actionRequested` →
+`UsbImport.begin()`, the same route the Spotify dialogs take. There are three steps: the drive list,
+what the chosen drive's `tesla_homedash_screensaver` folder holds, then the copy. The backend does
+all of them (`core/CLAUDE.md`, under `UsbImport`). Load-bearing:
+- **Top-anchored and short.** A popup inside a view cannot cover the dock (y 684–780 on the target),
+  so the drive list scrolls past four entries rather than growing the card into that band.
+- **Buttons pinned to the card's edges.** The import button appears when the scan answers, which is
+  asynchronous, and a button joining a centred row would slide the others under a finger already
+  reaching for them.
+- **Leaving the view closes the dialog, which unmounts the stick — except mid-copy.** The home
+  return fires after minutes without a touch, which a long copy easily outlasts; the dialog is
+  simply still there on the way back.

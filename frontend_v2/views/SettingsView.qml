@@ -41,12 +41,14 @@ Rectangle {
         if (!isCurrent && SpotifyDevice.phase !== "idle")
             SpotifyDevice.cancel()
         // Same reasoning, cheaper stakes: ViewController keeps this view alive, so
-        // a browser left standing would still be there on return — a scrim over a
-        // stale listing of a stick that may since have been unplugged, with the
-        // settings underneath unreachable. The issues box and the spotlight go
-        // for the same reason.
+        // the issues box or the spotlight left standing would still be there on
+        // return, with the settings underneath unreachable. The USB import closes
+        // too (unmounting the stick) — but not mid-copy: the home return fires
+        // after minutes without a touch, which a long copy easily outlasts, and
+        // the dialog is simply still there on the way back.
         if (!isCurrent) {
-            folderPopup.close()
+            if (UsbImport.phase !== "copying")
+                UsbImport.close()
             issuesPopup.close()
             spotlight.dismiss()
         } else {
@@ -105,14 +107,8 @@ Rectangle {
                 SpotifyAuth.begin()
             else if (key === "spotifyIdentifyDevice")
                 SpotifyDevice.begin()
-        }
-
-        // Same idiom, different contract: a folder row edits a VALUE, so it comes
-        // through its own signal rather than through invokeAction (see
-        // Settings::requestFolderPick). The row that raises it sits four levels
-        // down inside a Repeater, which is exactly why the routing lives here.
-        function onFolderPickRequested(key, currentPath) {
-            folderPopup.open(key, currentPath)
+            else if (key === "screensaverImport")
+                UsbImport.begin()
         }
 
         function onWriteFailed(key, message) {
@@ -143,7 +139,7 @@ Rectangle {
         id: content
         anchors.fill: parent
 
-        layer.enabled: devicePopup.visible || folderPopup.visible || issuesPopup.visible
+        layer.enabled: devicePopup.visible || usbImportPopup.visible || issuesPopup.visible
                        || spotlight.active
         layer.effect: MultiEffect {
             blurEnabled: true
@@ -358,17 +354,10 @@ Rectangle {
         anchors.fill: parent
     }
 
-    // --- Folder picker ------------------------------------------------------
-    // Same placement rule and the same reasons as the device dialog: a folder is
-    // only ever picked from a settings row on this screen. Outside `content` so it
-    // is not swept into the blur it asks for, and last so it stacks over
-    // everything else here.
-    //
-    // Instantiated permanently rather than behind a Loader — see the note in
-    // FolderPickerPopup.qml: destroying a FolderListModel mid-scan blocks the GUI
-    // thread until the directory walk finishes.
-    FolderPickerPopup {
-        id: folderPopup
+    // The screensaver photo import, opened by the Kuvakansio row's "Tuo USB:ltä".
+    // Same placement rule and reasons as the device dialog.
+    UsbImportPopup {
+        id: usbImportPopup
         anchors.fill: parent
     }
 

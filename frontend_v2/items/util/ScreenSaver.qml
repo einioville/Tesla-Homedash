@@ -4,8 +4,8 @@ import Qt.labs.folderlistmodel
 import frontend_v2
 
 // Full-screen idle screensaver. After the inactivity timeout (or F10 for testing)
-// the screen fades to black and photos from the configured folder (Yleinen >
-// Näytönsäästäjä > Kuvakansio) are tossed onto a
+// the screen fades to black and photos from the screensaver folder
+// (~/.config/Tesla-Homedash/screensaver, the Photos singleton) are tossed onto a
 // pile — the newest lands on top in a white frame at a random tilt/offset, the
 // earlier ones peeking out underneath (up to Theme.screensaverStackCount kept),
 // like printed photos thrown on a table; the oldest fades out as a new one lands.
@@ -35,15 +35,8 @@ Item {
     // user reaches for the power.
     property bool inhibited: false
 
-    // The folder check is NOT redundant with `folderModel.count > 0`. Measured
-    // against Qt 6.11: a FolderListModel whose `folder` is EMPTY at component
-    // completion does not stay empty — it falls back to its documented default,
-    // "the application's working directory", and happily lists the images it
-    // finds there. So with no photo folder configured the pile would fill with
-    // whatever images happen to sit in the process's cwd. Gating on the setting
-    // itself is what actually delivers the documented "no folder, no
-    // screensaver" behaviour — by day. At night the photos are optional.
-    readonly property bool hasPhotos: Theme.screensaverDir.length > 0 && folderModel.count > 0
+    // No photos, no screensaver — by day. At night the photos are optional.
+    readonly property bool hasPhotos: folderModel.count > 0
     readonly property bool active: !root.inhibited
                                    && ((Theme.screensaverEnabled && root.hasPhotos
                                         && (Idle.idle || root.forceShow))
@@ -134,11 +127,11 @@ Item {
 
     FolderListModel {
         id: folderModel
-        // Live: changing the folder in the Options view refills the model without a
-        // restart. An unset folder yields an empty URL, so count stays 0 and
-        // `active` above never becomes true by day — which is exactly the
-        // documented "no folder, no screensaver" behaviour.
-        folder: Settings.toFileUrl(Theme.screensaverDir)
+        // The fixed folder, never empty: a FolderListModel whose `folder` is EMPTY
+        // at component completion falls back to the process's working directory
+        // and lists whatever images sit there (measured against Qt 6.11). The
+        // model watches the folder, so photos copied in appear without a restart.
+        folder: Photos.url
         showDirs: false
         sortField: FolderListModel.Name
         // Case-INSENSITIVE, and that is load-bearing rather than tidy:
@@ -148,11 +141,11 @@ Item {
         // camera photos would otherwise show nothing at all, with the toggle on
         // and the folder correct.
         caseSensitive: false
-        // From the Folders singleton rather than a literal here, because the
-        // Options view's folder picker counts images with the SAME filter to say
-        // "42 kuvaa". Two copies would drift, and the picker would then vouch for
-        // a folder this model renders as empty.
-        nameFilters: Folders.imageNameFilters
+        // From the Photos singleton rather than a literal here, because the
+        // Options view counts images with the SAME filter to say "42 kuvaa
+        // löydetty". Two copies would drift, and the count would then vouch for
+        // photos this model never shows.
+        nameFilters: Photos.imageNameFilters
     }
 
     // Advance to the next photo while active; frozen (stopped) otherwise.

@@ -161,10 +161,10 @@ _VALIDATORS: dict[str, Callable[[str], str]] = {
 #   unit      suffix rendered after the value (optional)
 #   min/max/step   numeric bounds (int/float only)
 #   relevantWhen
-#             {"key": <other setting>, "equals": <value>} (or "notEquals", or
-#             "notEmpty": True), or a list of such rules that must ALL hold — the
-#             row is faded and disabled while they do not. May name a setting in
-#             either half. Display only: the write itself is never refused.
+#             {"key": <other setting>, "equals": <value>} (or "notEquals"), or a
+#             list of such rules that must ALL hold — the row is faded and
+#             disabled while they do not. May name a setting in either half.
+#             Display only: the write itself is never refused.
 #   warnBelow / warnAbove / warnMessage
 #             advisory threshold: the row shows a caution when the current value
 #             crosses it. Never blocks the write — min/max are the hard bounds.

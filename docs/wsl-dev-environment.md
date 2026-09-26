@@ -365,12 +365,11 @@ cp /mnt/p/Tesla-Homedash/.env         ~/dev/Tesla-Homedash/.env
 cp /mnt/p/Tesla-Homedash/config.json  ~/dev/Tesla-Homedash/config.json
 ```
 
-### 6.1 `.env` — three values to rewrite
+### 6.1 `.env` — two values to rewrite
 
 | Key | Windows value today | WSL value |
 |---|---|---|
 | `CONFIG_PATH` | `P:\Tesla-Homedash\config.json` | `/home/<you>/dev/Tesla-Homedash/config.json` |
-| `TESLA_HOMEDASH_SCREENSAVER_DIR` | `E:/Luna` | `/mnt/e/Luna`, or copy the photos into WSL |
 | `INFLUX_TOKEN` | Windows InfluxDB token | the new token from §5.1 |
 
 The secrets — `API_KEY`, `VIN`, `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET`,
@@ -470,7 +469,8 @@ TESLA_HOMEDASH_FULLSCREEN=1 ./frontend_v2/build/appfrontend_v2   # fullscreen te
 
 Runtime environment variables (all optional, read via `Settings` → `AppConfig`):
 `TESLA_HOMEDASH_BACKEND_HOST` / `_PORT`, `_WINDOW_WIDTH` / `_HEIGHT`, `_FULLSCREEN`,
-`_LOG_LEVEL`, `_SETTINGS_FILE`, `_SCREENSAVER_DIR` / `_SCREENSAVER_TIMEOUT_MIN`.
+`_LOG_LEVEL`, `_SETTINGS_FILE`, `_SCREENSAVER_TIMEOUT_MIN`. The screensaver's photos go in
+`~/.config/Tesla-Homedash/screensaver` (copy them over from Windows, e.g. `cp /mnt/e/Luna/* …`).
 Precedence on this branch is `schema default < env/.env < saved user override`, so a
 setting you change in the Asetukset view wins over `.env` from then on.
 

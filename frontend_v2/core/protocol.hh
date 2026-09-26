@@ -237,6 +237,17 @@ inline constexpr quint8 UPDATE_STATE = 0xD1;      // B->F: status(1B) + len(4B) 
 inline constexpr quint8 UPDATE_APPLY = 0xD2;      // F->B: len(4B) + JSON {"channel","commit"}
 inline constexpr quint8 UPDATE_CANCEL = 0xD3;     // F->B: (empty)
 
+// ── Screensaver photo import from USB ──────────────────────────────────────
+// The backend lists the USB drives, mounts the chosen one and copies the images
+// in its tesla_homedash_screensaver folder into the screensaver folder; this side
+// only runs the dialog. Every request carries this side's flow epoch and every
+// USB_IMPORT_STATE echoes it, so a late reply from a closed dialog is dropped.
+inline constexpr quint8 USB_IMPORT_LIST = 0xE0;   // F->B: len(4B) + JSON {"flowId"}
+inline constexpr quint8 USB_IMPORT_SCAN = 0xE1;   // F->B: len(4B) + JSON {"flowId","device"}
+inline constexpr quint8 USB_IMPORT_START = 0xE2;  // F->B: len(4B) + JSON {"flowId","device"}
+inline constexpr quint8 USB_IMPORT_CLOSE = 0xE3;  // F->B: len(4B) + JSON {"flowId"}
+inline constexpr quint8 USB_IMPORT_STATE = 0xE4;  // B->F: status(1B) + len(4B) + JSON, flow client only
+
 // Receive-side defensive cap. NOTE the deliberate asymmetry: the backend caps a
 // single message at 1 MB (MAX_MSG_SIZE in protocol.py), but this client tolerates
 // up to 16 MB before treating the length prefix as corrupt and resetting the

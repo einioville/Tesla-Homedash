@@ -18,6 +18,7 @@ from .myenergi_service.myenergi_service import MyEnergiService
 from .server.server import Server
 from .system_service.debug_logging import DebugLogging
 from .system_service.system_status_service import SystemStatusService
+from .usb_import_service.usb_import_service import UsbImportService
 from .update_service.update_service import UpdateService
 from .tesla_service.property_editor import TeslaPropertyEditor
 from .tesla_service.telemetry import TelemetryHandler
@@ -830,6 +831,11 @@ async def main():
     display = DisplayService(server=server)
     logger.debug("Display service initialized")
 
+    # Screensaver photos from a USB stick. On demand only, no snapshot: the
+    # Options view's import dialog asks for everything it shows.
+    usb_import = UsbImportService(server=server)
+    logger.debug("USB import service initialized")
+
     # The Options view's maintenance dashboard. Request/response and registered
     # with no snapshot: a status page nobody has opened is not worth sampling
     # /proc for on every connect.
@@ -936,6 +942,10 @@ async def main():
     server.register_handler(protocol.HOST_REBOOT, config_service.handle_reboot)
     server.register_handler(protocol.TESLA_GET_PROPERTY_TABLE, property_editor.handle_get)
     server.register_handler(protocol.TESLA_SET_PROPERTY, property_editor.handle_set)
+    server.register_handler(protocol.USB_IMPORT_LIST, usb_import.handle_list)
+    server.register_handler(protocol.USB_IMPORT_SCAN, usb_import.handle_scan)
+    server.register_handler(protocol.USB_IMPORT_START, usb_import.handle_start)
+    server.register_handler(protocol.USB_IMPORT_CLOSE, usb_import.handle_close)
     services = [vehicle, mm, weather, spot_price_service, config_service, display,
                 spotify_auth, updater]
     if myenergi is not None:

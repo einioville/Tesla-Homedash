@@ -87,6 +87,9 @@ backend/                          # ★ orchestration, service contracts, .env +
     update_service/               # ★
       update_service.py           # UpdateService — in-place app updates (0xD0-0xD3): git fetch/checkout, uv sync,
                                   #   frontend rebuild, restart of both halves; two channels (main tip / newest v* tag)
+    usb_import_service/           # ★
+      usb_import_service.py       # UsbImportService — screensaver photos from a USB stick (0xE0-0xE4): lsblk,
+                                  #   udisksctl mount, copy into ~/.config/Tesla-Homedash/screensaver
     influxdb_service/             # ★
       influxdb_handler.py         # Async InfluxDB client — telemetry write + Flux history reads
     utils/                        # ★
@@ -407,8 +410,9 @@ second Options-view batch: navigation/home return, night mode, notification togg
 autoplay/resume, the temporary debug log, map imagery, and the self-closing Spotify consent window — plus
 the Media section's Spotify card redesign (per-row details, the grant record, device status, section
 order), the radio remembering its last station in place of a default-station setting, inline
-write results and the issues box with its fix spotlight — plus the Yleinen wording pass and the
-screensaver switch that stays unavailable until a photo folder is set. When you land a change that touches documented behaviour, update this line.
+write results and the issues box with its fix spotlight — plus the Yleinen wording pass, the
+screensaver's fixed photo folder with its USB import (the in-app folder browser is gone, #50), and
+the screensaver switch that stays unavailable until that folder holds photos. When you land a change that touches documented behaviour, update this line.
 
 ## 8. Session workflow — main checkout by default, worktree only for parallelism
 

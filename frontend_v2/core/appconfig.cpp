@@ -103,10 +103,7 @@ AppConfig::AppConfig(const Settings* settings, QObject* parent) : QObject(parent
     }
 
     // Screensaver: after `screensaverTimeoutMs` of no input the frontend fades to a
-    // photo slideshow. The photo FOLDER is not read here — it is a live setting
-    // (Settings/Theme.screensaverDir) that merely defaults to
-    // TESLA_HOMEDASH_SCREENSAVER_DIR, so reading it here too would be a second
-    // source of truth that goes stale the moment the user changes it on-device.
+    // photo slideshow from a fixed folder (ScreensaverPhotos).
     bool minsOk = false;
     const QVariant savedTimeout = saved("screensaverTimeoutMin");
     const int mins =

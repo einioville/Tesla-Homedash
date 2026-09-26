@@ -311,7 +311,6 @@ view — a value saved there wins, so they matter on a fresh install and stop ma
 - `TESLA_HOMEDASH_BACKEND_PORT` — backend TCP port (default `6969`).
 - `TESLA_HOMEDASH_FULLSCREEN` — set to `1` to open fullscreen on the touchscreen.
 - `TESLA_HOMEDASH_SCREENSAVER_TIMEOUT_MIN` — idle minutes before the screensaver (default `30`).
-- `TESLA_HOMEDASH_SCREENSAVER_DIR` — folder of photos for the screensaver.
 - `TESLA_HOMEDASH_SETTINGS_FILE` — override where the dashboard's own settings are written (default `~/.config/Tesla-Homedash/frontend_config.json`).
 - `TESLA_HOMEDASH_LOG_LEVEL` — `debug` / `info` / `warning` / `error` / `critical` (default `info`).
 
@@ -514,6 +513,36 @@ user, so the host has to grant that one right. Either of these works — the bac
   passwordless sudo — Raspberry Pi OS's default first user — needs nothing.)
 
 Without either, the button reports that the backend lacks the right, and nothing happens.
+
+### Screensaver photos (Näytönsäästäjä)
+
+The screensaver shows the photos in `~/.config/Tesla-Homedash/screensaver` (JPEG, PNG, BMP, WebP,
+GIF — subfolders are not shown). The folder is created on the dashboard's first start. There are
+two ways to fill it:
+
+- **Over the network:** `scp *.jpg pi@<pi>:~/.config/Tesla-Homedash/screensaver/`
+- **From a USB stick:** put the photos in a folder named `tesla_homedash_screensaver` in the root
+  of the stick, plug it into the Pi and open **Asetukset → Yleinen → Näytönsäästäjä → Kuvakansio →
+  Tuo USB:ltä**. Pick the stick, check the photo count, and import. The dashboard mounts the stick,
+  copies the photos and unmounts it again. Photos already in the folder are skipped, and a different
+  photo with a clashing name is saved as `name (2).jpg` rather than replacing anything.
+
+The screensaver switch stays unavailable until the folder holds at least one photo.
+
+The backend mounts the stick with `udisksctl` as your user. The desktop session may already mount
+sticks on its own, in which case nothing more is needed. If the import instead reports that the
+backend has no right to mount the stick, allow it with a polkit rule. Create
+`/etc/polkit-1/rules.d/50-tesla-homedash-usb.rules`, replacing `pi` with your user:
+
+```js
+polkit.addRule(function (action, subject) {
+    if ((action.id == "org.freedesktop.udisks2.filesystem-mount" ||
+         action.id == "org.freedesktop.udisks2.filesystem-mount-other-seat") &&
+        subject.user == "pi") {
+        return polkit.Result.YES;
+    }
+});
+```
 
 Reload the unit files, then enable and start everything:
 

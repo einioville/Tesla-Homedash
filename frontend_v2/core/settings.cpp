@@ -685,20 +685,6 @@ void Settings::restartApp() {
     QCoreApplication::exit(kRestartExitCode);
 }
 
-QString Settings::toFileUrl(const QString &path) const {
-    const QString trimmed = path.trimmed();
-    if (trimmed.isEmpty()) {
-        return {};
-    }
-    // Already a URL (a saved value copied from elsewhere) passes through; a bare
-    // path goes through QUrl so it is escaped and prefixed correctly rather than
-    // by string concatenation, which gets Windows drive letters wrong.
-    if (trimmed.startsWith(QLatin1String("file:"))) {
-        return trimmed;
-    }
-    return QUrl::fromLocalFile(trimmed).toString();
-}
-
 void Settings::invokeAction(const QString &key) {
     if (key == QLatin1String("restartApp")) {
         restartApp();
@@ -713,13 +699,6 @@ void Settings::invokeAction(const QString &key) {
         logger.info(QStringLiteral("Settings action delegated to the view: %1").arg(key));
         emit actionRequested(key);
     }
-}
-
-void Settings::requestFolderPick(const QString &key) {
-    // valueOf reaches BOTH halves, so this works for a backend folder setting as
-    // well as a local one — the write itself already routes correctly in setValue.
-    logger.info(QStringLiteral("Folder browser requested for %1").arg(key));
-    emit folderPickRequested(key, valueOf(key).toString());
 }
 
 void Settings::requestBackendRestart() {

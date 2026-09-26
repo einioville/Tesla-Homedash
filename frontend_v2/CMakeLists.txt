@@ -59,8 +59,10 @@ qt_add_executable(appfrontend_v2
     core/screenpower.cpp
     core/connectionprobe.hh
     core/connectionprobe.cpp
-    core/folderbrowser.hh
-    core/folderbrowser.cpp
+    core/screensaverphotos.hh
+    core/screensaverphotos.cpp
+    core/usbimport.hh
+    core/usbimport.cpp
     core/systemstatus.hh
     core/systemstatus.cpp
     core/appupdate.hh
@@ -118,7 +120,6 @@ qt_add_qml_module(appfrontend_v2
         items/settings/SettingAction.qml
         items/settings/SettingText.qml
         items/settings/SettingSelect.qml
-        items/settings/SettingFolder.qml
         items/settings/SettingsSidebar.qml
         items/settings/SettingsPane.qml
         items/settings/BackendProbeStatus.qml
@@ -130,12 +131,13 @@ qt_add_qml_module(appfrontend_v2
         items/settings/SettingDetails.qml
         items/settings/SpotifyAuthDetails.qml
         items/settings/SpotifyDeviceDetails.qml
+        items/settings/ScreensaverPhotosDetails.qml
         items/settings/SettingsIssues.qml
         items/settings/SettingsIssuesPopup.qml
         items/settings/SettingSpotlight.qml
         items/settings/SpotifyAuthPopup.qml
         items/settings/SpotifyDevicePopup.qml
-        items/settings/FolderPickerPopup.qml
+        items/settings/UsbImportPopup.qml
         items/settings/SpotifyGlowBorder.qml
         items/settings/SpotifyButton.qml
         items/settings/DialogButton.qml

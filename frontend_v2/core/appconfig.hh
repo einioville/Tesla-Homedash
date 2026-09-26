@@ -33,12 +33,6 @@ class Settings;
  *                                the keyless EOX Sentinel-2 basemap. Never in the
  *                                committed QML — the environment or the user's
  *                                settings file only.
- *   TESLA_HOMEDASH_SCREENSAVER_DIR         (string)  optional — a folder of photos
- *                                the screensaver cycles through. NOT read here: it
- *                                is the default for the Options-view setting of the
- *                                same meaning, which owns the value and can change
- *                                it live. Empty (unset) → nothing to show, and the
- *                                screensaver stays off.
  *   TESLA_HOMEDASH_SCREENSAVER_TIMEOUT_MIN (int)     minutes of inactivity before
  *                                the screensaver appears (default 30). Read by
  *                                main() and pushed to the IdleWatcher. Also an

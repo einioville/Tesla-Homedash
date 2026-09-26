@@ -342,6 +342,24 @@ UPDATE_APPLY = 0xD2       # F->B: len(4B) + UTF-8 JSON {"channel": <str>, "commi
                           #   resolves to what the user was shown, the run is refused
 UPDATE_CANCEL = 0xD3      # F->B: (empty) — kill the running step's process group
 
+# ── Screensaver photo import from USB (the Options view's "Kuvakansio" row) ──
+# Copies the images in a USB stick's tesla_homedash_screensaver folder into the
+# screensaver's fixed folder.  The BACKEND lists the drives, mounts the chosen one
+# and copies, because those are system calls; the frontend only walks the user
+# through it.  Every request carries the frontend's flow epoch and every state
+# echoes it, so a reply from a dialog that was closed can be told apart from the
+# live one.  One state packet carries the whole flow (the drive list, the scan
+# result and the copy progress), sent to the client running the flow only.
+USB_IMPORT_LIST = 0xE0    # F->B: len(4B) + UTF-8 JSON {"flowId"} — list the USB drives
+USB_IMPORT_SCAN = 0xE1    # F->B: len(4B) + UTF-8 JSON {"flowId", "device"} — mount the
+                          #   drive if needed and count the photos in its folder
+USB_IMPORT_START = 0xE2   # F->B: len(4B) + UTF-8 JSON {"flowId", "device"} — copy them
+USB_IMPORT_CLOSE = 0xE3   # F->B: len(4B) + UTF-8 JSON {"flowId"} — end the flow: stop a
+                          #   copy after the current file and unmount what it mounted
+USB_IMPORT_STATE = 0xE4   # B->F: status(1B, always OK) + len(4B) + UTF-8 JSON
+                          #   {flowId, phase, message, drives, device, found, count,
+                          #    bytes, copied, skipped, total, unmounted}
+
 # Maximum accepted size of a single incoming message (defensive cap)
 MAX_MSG_SIZE = 1024 * 1024  # 1 MB
 

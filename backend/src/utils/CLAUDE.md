@@ -90,6 +90,11 @@ Framing, byte order and the Tesla stream value types are in the root `CLAUDE.md`
 | `0xD1` | UPDATE_STATE | B→F | `status(1B) + len(4B) + JSON`, **broadcast** — `{available, reason, repoPath, remoteUrl, branch, dirty, dirtyFiles, fetchedMs, current{…}, channels{development{…},releases{…}}, tools{…}, job}`. `job` is `null` when idle and the whole progress report while a run is in flight, so there is no second progress code and a client connecting mid-update sees it in its snapshot |
 | `0xD2` | UPDATE_APPLY | F→B | `len(4B) + UTF-8 JSON` — `{"channel": "development"\|"releases", "commit": <40-hex>}`; the commit **fences** the request (a target that moved since the check is refused) |
 | `0xD3` | UPDATE_CANCEL | F→B | (empty) — kill the running step's process group; honoured only during fetch/deps/build (`job.cancellable`) |
+| `0xE0` | USB_IMPORT_LIST | F→B | `len(4B) + UTF-8 JSON` — `{flowId}`; takes the flow over and lists the USB drives |
+| `0xE1` | USB_IMPORT_SCAN | F→B | `len(4B) + UTF-8 JSON` — `{flowId, device}`; mount if needed, count the photos in `tesla_homedash_screensaver` |
+| `0xE2` | USB_IMPORT_START | F→B | `len(4B) + UTF-8 JSON` — `{flowId, device}`; copy them into the screensaver folder |
+| `0xE3` | USB_IMPORT_CLOSE | F→B | `len(4B) + UTF-8 JSON` — `{flowId}`; stop a copy after the current file, unmount what was mounted; nothing replied |
+| `0xE4` | USB_IMPORT_STATE | B→F | `status(1B, always 1) + len(4B) + JSON` — `{flowId, phase, message, drives[{device,label,size,fstype,model,mountpoint}], device, found, count, bytes, copied, skipped, total, unmounted}`; to the flow's client only. Every request carries the frontend's `flowId` and every state echoes it (`../usb_import_service/CLAUDE.md`) |
 
 (Trip codes `0x74`–`0x7D` — the Trips view — are omitted from this table; they mirror the History
 request/response shape. See the `frontend_v2` memory.)

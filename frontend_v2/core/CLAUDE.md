@@ -81,11 +81,26 @@ what a validation check may do. `Probe` opens a socket, waits 3 s, reports `reac
 different problems) and closes; a successful probe aborts the instant it connects, so the
 backend just sees a connection open and close.
 
-## `Folders` — `folderbrowser.{hh,cpp}`
+## `Photos` — `screensaverphotos.{hh,cpp}`
 
-Backs the screensaver folder picker. Its notes — plain-path navigation state, `parentOf()`,
-`isBrowsable()` and the shared image-extension list — sit with the picker in
-`../items/settings/CLAUDE.md`, because most of what they guard is `FolderListModel` behaviour.
+The screensaver's photo folder, **fixed** at `<GenericConfigLocation>/Tesla-Homedash/screensaver`
+(`~/.config/Tesla-Homedash/screensaver`, beside `frontend_config.json`) and created at startup.
+The backend's `usb_import_service` copies into the same path (`screensaver_dir()`), so neither half
+makes it configurable. `TESLA_HOMEDASH_SCREENSAVER_DIR` is no longer read; a deployment that still
+sets it gets a startup warning naming the folder to copy to. `count` is the number of images in the
+folder, kept live by a `QFileSystemWatcher` (debounced 500 ms, since a copy fires an event per
+file). It drives the *Kuvakansio* row's "N kuvaa löydetty" and the screensaver switch's
+`relevantWhen` condition. `imageNameFilters` is the one extension list: `ScreenSaver.qml` plays with
+it and the backend copies the same set.
+
+## `UsbImport` — `usbimport.{hh,cpp}`
+
+The Options view's photo import from a USB stick. The backend does every step
+(`backend/src/usb_import_service/CLAUDE.md`); this side sends the user's choices and exposes the one
+`USB_IMPORT_STATE` document it gets back (`phase`, `drives`, `device`, `found`, `count`, `copied`,
+…). Fenced like `SpotifyDevice`: every request carries `m_flowId`, a state with any other value is
+dropped, and `close()` advances the epoch so a state in flight cannot reopen the dialog. A lost
+connection ends the flow with an error rather than a dialog waiting forever.
 
 ## `Display` — `screenpower.{hh,cpp}`
 

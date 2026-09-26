@@ -36,11 +36,13 @@ Item {
     // particular value — the screensaver's dwell time means nothing with the
     // screensaver off. Such a row is faded AND inert — see `enabled` below.
     // `relevantWhen` is one rule or a list of rules that must ALL hold: the
-    // dwell time also means nothing while there is no photo folder, which
+    // dwell time also means nothing while the photo folder is empty, which
     // makes the screensaver switch itself unavailable.
     //
-    // The rule may name a setting in EITHER half, so the value is resolved via
-    // Settings.valueOf rather than Settings.values, which knows only local keys.
+    // A rule either names a setting (`key` + `equals` / `notEquals`), which may
+    // be in EITHER half, so it is resolved via Settings.valueOf rather than
+    // Settings.values, which knows only local keys — or names a runtime
+    // `condition`, resolved against the table in conditionHolds().
     // valuesRevision is read purely to make this binding re-evaluate: an
     // invokable call captures no property to depend on.
     readonly property bool relevant: {
@@ -48,10 +50,9 @@ Item {
         const rules = row.setting.relevantWhen
         if (rules === undefined || rules === null)
             return true
-        // A single rule is an object with a key. A list is tested by shape, not
-        // Array.isArray: it arrives from C++ as a QVariantList, which need not
-        // convert to a true JS array.
-        if (rules.key !== undefined)
+        // A list is told apart by its length, not Array.isArray: it arrives from
+        // C++ as a QVariantList, which need not convert to a true JS array.
+        if (rules.length === undefined)
             return row.ruleHolds(rules)
         for (const rule of rules) {
             if (!row.ruleHolds(rule))
@@ -61,18 +62,27 @@ Item {
     }
 
     function ruleHolds(dep) {
-        if (dep === undefined || dep === null || dep.key === undefined)
+        if (dep === undefined || dep === null)
+            return true
+        if (dep.condition !== undefined)
+            return row.conditionHolds(dep.condition)
+        if (dep.key === undefined)
             return true
         const current = Settings.valueOf(dep.key)
         if (dep.equals !== undefined)
             return current === dep.equals
         if (dep.notEquals !== undefined)
             return current !== dep.notEquals
-        // A cleared nullable string is "" locally but may arrive as null from
-        // the backend; both mean "not configured".
-        if (dep.notEmpty === true)
-            return current !== undefined && current !== null && String(current).length > 0
         return true
+    }
+
+    // Facts no setting holds. Read straight from their singletons, so a binding
+    // on `relevant` follows them.
+    function conditionHolds(name) {
+        switch (name) {
+        case "screensaverPhotos": return Photos.count > 0
+        default: return true
+        }
     }
 
     opacity: relevant ? 1.0 : Theme.settingIrrelevantOpacity
@@ -191,6 +201,7 @@ Item {
                 switch (row.setting.details) {
                 case "spotifyAuth": return spotifyAuthDetails
                 case "spotifyDevice": return spotifyDeviceDetails
+                case "screensaverPhotos": return screensaverPhotosDetails
                 default: return null
                 }
             }
@@ -243,15 +254,7 @@ Item {
             case "action":
                 return actionComponent
             default:
-                // Opt-in, exactly like editor: "slider" above, and gated to LOCAL
-                // settings: the browser walks THIS machine's filesystem, while a
-                // backend key's paths belong to the backend's host. They are the
-                // same host in this deployment, but backendHost is itself a
-                // user-editable setting, so a backend folder row falls back to the
-                // text field rather than silently browsing the wrong machine.
-                return row.setting.editor === "folder"
-                       && row.setting.origin === "local"
-                    ? folderComponent : textComponent
+                return textComponent
             }
         }
     }
@@ -277,10 +280,6 @@ Item {
         SettingText { setting: row.setting }
     }
     Component {
-        id: folderComponent
-        SettingFolder { setting: row.setting }
-    }
-    Component {
         id: actionComponent
         SettingAction { setting: row.setting }
     }
@@ -291,5 +290,9 @@ Item {
     Component {
         id: spotifyDeviceDetails
         SpotifyDeviceDetails {}
+    }
+    Component {
+        id: screensaverPhotosDetails
+        ScreensaverPhotosDetails {}
     }
 }
