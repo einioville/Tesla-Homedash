@@ -412,7 +412,9 @@ the Media section's Spotify card redesign (per-row details, the grant record, de
 order), the radio remembering its last station in place of a default-station setting, inline
 write results and the issues box with its fix spotlight — plus the Yleinen wording pass, the
 screensaver's fixed photo folder with its USB import (the in-app folder browser is gone, #50), and
-the screensaver switch that stays unavailable until that folder holds photos. When you land a change that touches documented behaviour, update this line.
+the screensaver switch that stays unavailable until that folder holds photos — plus the removal of
+the Yleinen › Ilmoitukset card pending its own section (#51).
+When you land a change that touches documented behaviour, update this line.
 
 ## 8. Session workflow — main checkout by default, worktree only for parallelism
 

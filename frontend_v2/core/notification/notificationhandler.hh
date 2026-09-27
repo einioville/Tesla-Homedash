@@ -30,10 +30,8 @@ class ServerClient;
  *
  * post() lets any other data handler (or QML) raise a notification directly.
  *
- * WHETHER a rule's notification is shown, and for how long, are Options-view
- * settings (Yleinen > Ilmoitukset) applied by items/util/NotificationLayer.qml,
- * keyed by the rule `id`. This class still emits every rule; the file carries no
- * display timing any more.
+ * How long a notification is shown is decided by items/util/NotificationLayer.qml;
+ * the file carries rules only, no display timing.
  */
 class NotificationHandler : public QObject {
     Q_OBJECT

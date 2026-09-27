@@ -292,41 +292,6 @@
                     ]
                 },
                 {
-                    "id": "notifications",
-                    "label": "Ilmoitukset",
-                    "help": "Näytön yläreunaan liukuvat ilmoitukset.",
-                    "settings": [
-                        {
-                            "key": "notifyLockState",
-                            "type": "bool",
-                            "label": "Lukituksen muutos",
-                            "help": "Kun auto lukitaan tai avataan.",
-                            "default": true,
-                            "apply": "live"
-                        },
-                        {
-                            "key": "notifyServerConnection",
-                            "type": "bool",
-                            "label": "Palvelinyhteys",
-                            "help": "Kun yhteys palvelimeen katkeaa tai palaa.",
-                            "default": true,
-                            "apply": "live"
-                        },
-                        {
-                            "key": "notificationDurationSec",
-                            "type": "int",
-                            "label": "Näyttöaika",
-                            "help": "Kuinka kauan ilmoitus pysyy näkyvissä.",
-                            "unit": "s",
-                            "min": 2,
-                            "max": 30,
-                            "step": 1,
-                            "default": 5,
-                            "apply": "live"
-                        }
-                    ]
-                },
-                {
                     "id": "extras",
                     "label": "Lisäasetukset",
                     "settings": [

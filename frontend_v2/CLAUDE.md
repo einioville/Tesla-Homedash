@@ -137,10 +137,10 @@ module installed. The only locale is `fi_FI`, which drops the language-switch ke
 ## Notifications
 
 `core/notification/notificationhandler.{hh,cpp}` (`Notifications`) turns the rules in
-`config/notifications.json` into `notify(id, message)`; `items/util/NotificationLayer.qml` shows them.
-Whether each rule shows — keyed by its `id` — and for how long are Options-view settings (Yleinen >
-Ilmoitukset) applied in the layer, so the file holds rules only (its old `graceMs` is gone). A rule
-id with no setting is shown: only an explicit `false` silences one.
+`config/notifications.json` into `notify(id, message)`; `items/util/NotificationLayer.qml` shows
+every one, each held for `Theme.notificationDurationMs`, so the file holds rules only. The Options
+view has no notification settings for now — they are due back in a notifications section of their
+own (#51).
 
 ## Logging (`core/logger.{hh,cpp}`)
 

@@ -22,15 +22,6 @@ Item {
     readonly property int slideMs: 320
     readonly property int graceMs: Theme.notificationDurationMs
 
-    // Per-rule switches from the Options view (Yleinen > Ilmoitukset), keyed by
-    // the rule `id` in config/notifications.json. An id missing here — a new
-    // rule, or one raised through Notifications.post() — is shown: only an
-    // explicit false silences a notification.
-    readonly property var enabledById: ({
-        "lock_state": Theme.notifyLockState,
-        "server_connection": Theme.notifyServerConnection
-    })
-
     // Pending messages and the one currently on screen.
     property var queue: []
     property string currentMessage: ""
@@ -49,8 +40,6 @@ Item {
     Connections {
         target: Notifications
         function onNotify(id, message) {
-            if (layer.enabledById[id] === false)
-                return
             layer.queue.push(message)
             // Kick the pipeline only when idle (not mid-show, not mid-gap).
             if (!layer.showing && !gapTimer.running)

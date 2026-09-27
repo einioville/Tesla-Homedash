@@ -57,11 +57,9 @@ QtObject {
     // How long the dock stays up after the last touch on it.
     readonly property int dockHideMs: Settings.values.dockHideSec * 1000
 
-    // Notifications (Yleinen > Ilmoitukset): per-rule on/off, keyed by the rule
-    // `id` in config/notifications.json, and how long each pill is held.
-    readonly property bool notifyLockState: Settings.values.notifyLockState
-    readonly property bool notifyServerConnection: Settings.values.notifyServerConnection
-    readonly property int notificationDurationMs: Settings.values.notificationDurationSec * 1000
+    // How long each notification pill is held. Fixed until the Options view
+    // grows a notifications section of its own.
+    readonly property int notificationDurationMs: 5000
 
     // Surfaces
     readonly property color appBackground: "#0f1115"
