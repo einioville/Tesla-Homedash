@@ -9,7 +9,7 @@ The photos come from one **fixed folder**, `~/.config/Tesla-Homedash/screensaver
 singleton, `../../core/CLAUDE.md`). It is filled over scp or by the Options view's USB import
 (`../settings/CLAUDE.md`). `FolderListModel.folder` binds to `Photos.url`, and the model watches the
 folder, so photos copied in appear without a restart. With no photos the screensaver does not start
-by day (`hasPhotos`); night mode's screensaver runs anyway, on a black screen.
+(`hasPhotos`).
 
 Two measured facts about `FolderListModel` still shape it. **An empty `folder` at component
 completion does NOT leave the model empty** — it falls back to *the application's working
@@ -24,21 +24,19 @@ update (`../../core/CLAUDE.md`, under `Updater`).
 
 ## `NightSchedule.qml` — night mode (Yleinen > Yötila)
 
-A decider with no machinery of its own. Inside the `nightStartMin`–`nightEndMin` window (local
-time; a window crossing midnight is the normal case, and start == end means none) it raises
-`screensaverActive` or `screenOffActive`, and `Main.qml` routes them into what already exists:
-- **`screensaver`** shortens `Idle.timeoutMs` to `nightWakeMin` and sets `ScreenSaver.nightMode`,
-  which lets the screensaver run **without the daytime toggle or a photo folder** — no folder means a
-  plain black overlay, a dark panel for a host where the backlight cannot be cut. `pushNext()`
-  therefore gates on `hasPhotos` rather than `folderModel.count`: with no folder the model lists
-  the working directory (above), and the night screensaver would show whatever images sit there.
-- **`screenOff`** arms `Display` with the short timeout even when the daytime power-off is off, so
-  it inherits wake-on-touch, the update inhibit and the `OUTPUT_LOST` handling (#43).
+A decider with no machinery of its own. With `nightModeEnabled` on and inside the
+`nightStartMin`–`nightEndMin` window (local time; a window crossing midnight is the normal case, and
+start == end means none) it raises `active`, and `Main.qml` routes it into what already exists: it
+**replaces the screensaver settings** — `ScreenSaver.inhibited` holds the screensaver back — and
+arms `Display` with `nightWakeMin` as the timeout even when the daytime power-off is off, so the
+panel goes straight to off and inherits wake-on-touch, the update inhibit and the `OUTPUT_LOST`
+handling (#43). **The screensaver is only held back where `Display.available`**: on a host without
+wlopm the panel cannot be powered off, and the screensaver is all there is.
 
-`IdleWatcher` and `ScreenPower` both restart their countdown on a timeout change, so the panel goes
-dark `nightWakeMin` after the window opens rather than at once. **The window closing counts as a
-touch** (`Idle.poke()`): that lifts a night screensaver and, through `Display`'s activity hook, wakes
-a dark panel whatever the daytime settings would leave it in. `nowMin` is seeded at construction —
+`ScreenPower` restarts its countdown on a timeout change, so the panel goes dark `nightWakeMin`
+after the window opens rather than at once. **The window closing counts as a touch**
+(`Idle.poke()`): through `Display`'s activity hook that wakes a dark panel whatever the daytime
+settings would leave it in. `nowMin` is seeded at construction —
 a placeholder 0 would put the window in effect for one tick and poke the panel awake on the way out.
 
 **Home return** (`homeReturnEnabled` / `homeReturnMin`, Yleinen > Navigointi) is a `Timer` in

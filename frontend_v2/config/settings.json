@@ -236,16 +236,11 @@
                     "help": "Pimentää näytön kellonaikojen välillä. Kosketus herättää näytön hetkeksi, ja aamulla näyttö herää itsestään.",
                     "settings": [
                         {
-                            "key": "nightMode",
-                            "type": "enum",
+                            "key": "nightModeEnabled",
+                            "type": "bool",
                             "label": "Yötila",
-                            "help": "Näytönsäästäjä näyttää kuvat, tai mustan ruudun, jos kuvia ei ole. Näyttö pois katkaisee taustavalon wlopm:llä kuten yllä oleva näytön sammutus.",
-                            "options": [
-                                {"value": "off", "label": "Pois"},
-                                {"value": "screensaver", "label": "Näytönsäästäjä"},
-                                {"value": "screenOff", "label": "Näyttö pois"}
-                            ],
-                            "default": "off",
+                            "help": "Korvaa näytönsäästäjän asetukset asetetulla aikavälillä ja sammuta näyttö suoraan asetetun ajan jälkeen.",
+                            "default": false,
                             "apply": "live"
                         },
                         {
@@ -259,8 +254,8 @@
                             "default": 1320,
                             "apply": "live",
                             "relevantWhen": {
-                                "key": "nightMode",
-                                "notEquals": "off"
+                                "key": "nightModeEnabled",
+                                "equals": true
                             }
                         },
                         {
@@ -274,8 +269,8 @@
                             "default": 390,
                             "apply": "live",
                             "relevantWhen": {
-                                "key": "nightMode",
-                                "notEquals": "off"
+                                "key": "nightModeEnabled",
+                                "equals": true
                             }
                         },
                         {
@@ -290,8 +285,8 @@
                             "default": 1,
                             "apply": "live",
                             "relevantWhen": {
-                                "key": "nightMode",
-                                "notEquals": "off"
+                                "key": "nightModeEnabled",
+                                "equals": true
                             }
                         }
                     ]

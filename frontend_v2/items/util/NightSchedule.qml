@@ -1,15 +1,15 @@
 import QtQuick
 import frontend_v2
 
-// Night mode (Yleinen > Yötila): between two clock times the panel goes dark
-// after a much shorter idle than by day, and wakes by itself when the window ends.
+// Night mode (Yleinen > Yötila): between two clock times the screensaver is set
+// aside and the panel powers off after a much shorter idle than by day, then
+// wakes by itself when the window ends.
 //
-// This only DECIDES. Main.qml routes the two flags into machinery that already
-// exists — `screensaverActive` shortens Idle's timeout and lets the screensaver
-// run without photos (a plain black screen), `screenOffActive` arms Display with
-// the short timeout — so night mode inherits every rule those already follow:
-// wake on touch, the update inhibit, the wlopm fault handling. Nothing here
-// talks to the backend or to the panel.
+// This only DECIDES. Main.qml routes `active` into machinery that already exists
+// — it holds the screensaver back and arms Display with the short timeout — so
+// night mode inherits every rule Display already follows: wake on touch, the
+// update inhibit, the wlopm fault handling. Nothing here talks to the backend or
+// to the panel.
 //
 // The clock is the FRONTEND's local time, which on the target is the same host
 // as the backend's timeZone setting.
@@ -33,9 +33,7 @@ Item {
         return start < end ? (nowMin >= start && nowMin < end)
                            : (nowMin >= start || nowMin < end)
     }
-    readonly property bool active: Theme.nightMode !== "off" && inWindow
-    readonly property bool screensaverActive: active && Theme.nightMode === "screensaver"
-    readonly property bool screenOffActive: active && Theme.nightMode === "screenOff"
+    readonly property bool active: Theme.nightModeEnabled && inWindow
 
     function minuteOfDay() {
         const now = new Date()
@@ -51,8 +49,8 @@ Item {
         onTriggered: root.nowMin = root.minuteOfDay()
     }
 
-    // Morning: the window ending counts as a touch. That lifts a night
-    // screensaver and — through Display's activity hook — powers a dark panel
-    // back on, whatever the daytime settings would otherwise leave it in.
+    // Morning: the window ending counts as a touch. Through Display's activity
+    // hook that powers a dark panel back on, whatever the daytime settings would
+    // otherwise leave it in.
     onActiveChanged: if (!active) Idle.poke()
 }

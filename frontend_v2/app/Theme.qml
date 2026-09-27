@@ -38,11 +38,11 @@ QtObject {
     readonly property bool screenOffEnabled: Settings.values.screenOffEnabled
     readonly property int screenOffMin: Settings.values.screenOffMin
 
-    // Night mode (Yleinen > Yötila) — between two clock times the panel goes
-    // dark after a much shorter idle than by day. items/util/NightSchedule.qml
-    // decides when; Main.qml routes it into the screensaver / Display machinery.
-    // "off" | "screensaver" | "screenOff".
-    readonly property string nightMode: Settings.values.nightMode
+    // Night mode (Yleinen > Yötila) — between two clock times the screensaver
+    // is set aside and the panel powers off after a much shorter idle than by
+    // day. items/util/NightSchedule.qml decides when; Main.qml routes it into
+    // the Display machinery.
+    readonly property bool nightModeEnabled: Settings.values.nightModeEnabled
     // Minutes since local midnight. start === end means no window at all.
     readonly property int nightStartMin: Settings.values.nightStartMin
     readonly property int nightEndMin: Settings.values.nightEndMin

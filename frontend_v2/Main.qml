@@ -127,8 +127,8 @@ Window {
         }
     }
 
-    // Night mode (Yleinen > Yötila). Decides only; the Bindings at the bottom of
-    // this file and the screensaver's `nightMode` act on it.
+    // Night mode (Yleinen > Yötila). Decides only; the screensaver's `inhibited`
+    // and the Display Bindings at the bottom of this file act on it.
     NightSchedule {
         id: nightSchedule
     }
@@ -266,8 +266,10 @@ Window {
         z: 300
         // An update takes minutes with no touch input; without this the photo
         // pile covers it and the panel then goes dark mid-rebuild.
-        inhibited: Updater.busy
-        nightMode: nightSchedule.screensaverActive
+        // Night mode sets the screensaver aside for a straight power-off — but
+        // only where the panel CAN be powered off: on a host without wlopm the
+        // screensaver is all there is, and night mode leaves it running.
+        inhibited: Updater.busy || (nightSchedule.active && Display.available)
         // Waking to a keyboard still up over a half-typed field is a trap.
         onActiveChanged: if (active) window.dismissKeyboard()
     }
@@ -332,15 +334,10 @@ Window {
     // at the IdleWatcher whenever it changes. AppConfig seeds the watcher with the
     // same value at construction (it also honours the env var), so this binding
     // only ever re-applies a user edit — it does not fight the startup value.
-    // Inside a night-mode screensaver window the much shorter wake time applies
-    // instead; IdleWatcher restarts its countdown on a change, so the panel
-    // goes dark that long after the window opens, not at once.
     Binding {
         target: Idle
         property: "timeoutMs"
-        value: nightSchedule.screensaverActive
-               ? Theme.nightWakeMs
-               : Settings.values.screensaverTimeoutMin * 60000
+        value: Settings.values.screensaverTimeoutMin * 60000
     }
 
     // Panel power-down: a longer step past the screensaver that cuts the backlight
@@ -353,15 +350,17 @@ Window {
         // Disarmed outright while an update runs: the screensaver is inhibited
         // above for the same reason, and a dark panel over a live rebuild is the
         // shape that gets a device power-cycled mid-checkout.
-        // Night mode's "Näyttö pois" arms it too, with the short night wake
-        // time, whether or not the daytime power-off is on.
-        value: (Settings.values.screenOffEnabled || nightSchedule.screenOffActive)
+        // Night mode arms it too, with the short night wake time, whether or
+        // not the daytime power-off is on. ScreenPower restarts its countdown
+        // on a timeout change, so the panel goes dark that long after the
+        // window opens, not at once.
+        value: (Settings.values.screenOffEnabled || nightSchedule.active)
                && !Updater.busy
     }
     Binding {
         target: Display
         property: "timeoutMs"
-        value: nightSchedule.screenOffActive
+        value: nightSchedule.active
                ? Theme.nightWakeMs
                : Settings.values.screenOffMin * 60000
     }
