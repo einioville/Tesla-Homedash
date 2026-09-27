@@ -98,7 +98,9 @@ Parsed once by `Config` and injected into every service. Keys:
   record `<spotifyCachePath>.grant.json` beside it. (`spotifyMarket` is gone: with a user token
   Spotify filters by the account's own country, so the parameter never had an effect. A leftover key
   in an existing `config.json` is ignored.)
-- `weatherPlace` — FMI place (e.g. `Tampere`); `timeZone` — IANA zone (e.g. `Europe/Helsinki`).
+- `weatherPlace` — FMI place (e.g. `Tampere`); `timeZone` — IANA zone (e.g. `Europe/Helsinki`), or
+  `"auto"` (the default when absent) for the host's own zone. `Config.timezone` / `zone_info` are
+  always the zone in effect, never `"auto"`.
 - `myenergi` (optional) — Zappi tunables: `zappiSerial` (`""` = auto-select the first Zappi),
   `pollIntervalIdleSeconds` / `pollIntervalActiveSeconds`, `minSessionEnergyKwh`, `sessionMergeMinutes`.
 - `trip` (optional) — trip-detection tunables: `min_stop_minutes`, `min_trip_distance_km`.

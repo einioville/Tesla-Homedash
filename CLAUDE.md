@@ -413,8 +413,8 @@ order), the radio remembering its last station in place of a default-station set
 write results and the issues box with its fix spotlight — plus the Yleinen wording pass, the
 screensaver's fixed photo folder with its USB import (the in-app folder browser is gone, #50), and
 the screensaver switch that stays unavailable until that folder holds photos — plus the removal of
-the Yleinen › Ilmoitukset card pending its own section (#51) and the Luna card (formerly
-Lisäasetukset) at the bottom of Yleinen.
+the Yleinen › Ilmoitukset card pending its own section (#51), the Luna card (formerly
+Lisäasetukset) at the bottom of Yleinen, and the timezone as a list defaulting to the host's zone.
 When you land a change that touches documented behaviour, update this line.
 
 ## 8. Session workflow — main checkout by default, worktree only for parallelism

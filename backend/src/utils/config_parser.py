@@ -18,11 +18,50 @@ import tempfile
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+import tzlocal
 from dotenv import load_dotenv
 
 logger = logging.getLogger("utils.config_parser")
 
 _env_loaded: bool = False
+
+# The timeZone value meaning "the host's own zone" rather than a named one. It is
+# also the default when the key is absent.
+AUTO_TIMEZONE = "auto"
+
+
+def system_timezone_name() -> str:
+    '''
+    Returns the host's own IANA zone name, through tzlocal (TZ, /etc/timezone,
+    the /etc/localtime link, or the Windows registry).  Falls back to "UTC" with
+    a warning when the host names no zone, or one that does not resolve: a
+    dashboard on the wrong clock is recoverable, a backend that refuses to start
+    over it is not.
+    '''
+    try:
+        name = tzlocal.get_localzone_name()
+        if name:
+            ZoneInfo(name)
+            return name
+        logger.warning("The host names no timezone; using UTC")
+    except (LookupError, OSError, ValueError) as e:
+        # ZoneInfoNotFoundError is a LookupError; tzlocal raises it too for
+        # conflicting or unresolvable host configuration.
+        logger.warning("Could not detect the system timezone (%s); using UTC", e)
+    return "UTC"
+
+
+def resolve_timezone(value: str) -> ZoneInfo:
+    '''
+    Builds the ZoneInfo a timeZone setting stands for.  Raises
+    ZoneInfoNotFoundError / ValueError for a named zone that does not resolve.
+    Arguments:
+        value (str): "auto" for the host's own zone, else an IANA name such as
+            "Europe/Helsinki".
+    '''
+    if value == AUTO_TIMEZONE:
+        return ZoneInfo(system_timezone_name())
+    return ZoneInfo(value)
 
 
 def default_config_path() -> str:
@@ -79,8 +118,8 @@ class Config:
     # bad boot instead of a systemd restart LOOP.
     BACKUP_SUFFIX = ".bak"
 
+    # timeZone is not required: absent means "auto" (see _load_and_validate).
     REQUIRED_KEYS = (
-        "timeZone",
         "tesla data",
         "calculated tesla data",
         "weatherPlace",
@@ -181,8 +220,8 @@ class Config:
 
         self.__path = config_path
         logger.info(
-            "Configuration loaded from %s (timeZone=%s)",
-            config_path, self.__data["timeZone"],
+            "Configuration loaded from %s (timeZone=%s, in effect %s)",
+            config_path, self.__data["timeZone"], self.__zone_info.key,
         )
 
     # ── Generic access ─────────────────────────────────────────────
@@ -208,8 +247,9 @@ class Config:
 
     @property
     def timezone(self) -> str:
-        '''IANA name as configured (e.g. "Europe/Helsinki").'''
-        return self.__data["timeZone"]
+        '''IANA name in effect (e.g. "Europe/Helsinki") — the host's own zone,
+        as detected at load, when timeZone is "auto".'''
+        return self.__zone_info.key
 
     @property
     def zone_info(self) -> ZoneInfo:
@@ -329,8 +369,8 @@ class Config:
     def _load_and_validate(cls, path: str) -> tuple[dict, ZoneInfo]:
         '''
         Parses one config file and validates it well enough to start services:
-        valid JSON, every REQUIRED_KEYS entry present, and a resolvable IANA
-        timezone.  Returns the parsed document and its pre-built ZoneInfo so
+        valid JSON, every REQUIRED_KEYS entry present, and a resolvable
+        timezone ("auto", the default, resolves to the host's own zone).  Returns the parsed document and its pre-built ZoneInfo so
         callers assign both together.  Raises rather than returning a partial
         result -- `__init__` turns a raise on the live file into a rollback.
         Arguments:
@@ -350,9 +390,12 @@ class Config:
 
         # Build the ZoneInfo once at load time so services can take it directly
         # without each re-parsing the IANA string.  Invalid zone names fail
-        # here, not deep inside a service's first scheduler call.
+        # here, not deep inside a service's first scheduler call.  The default
+        # is written into the document so the Options view reports "auto"
+        # rather than a missing value.
+        data.setdefault("timeZone", AUTO_TIMEZONE)
         try:
-            zone_info = ZoneInfo(data["timeZone"])
+            zone_info = resolve_timezone(data["timeZone"])
         except (ZoneInfoNotFoundError, ValueError) as e:
             raise ValueError(
                 f"Invalid timeZone in config: {data['timeZone']!r}"
@@ -393,7 +436,7 @@ class Config:
         # from it only pick the new zone up on the next process start (which is
         # why the schema marks timeZone as a restart-tier setting).
         if key_path == "timeZone":
-            self.__zone_info = ZoneInfo(value)
+            self.__zone_info = resolve_timezone(value)
 
     def save(self) -> None:
         '''

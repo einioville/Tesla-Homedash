@@ -403,7 +403,7 @@
     "spotifyDeviceName": "",
     "spotifyCachePath": "/home/youruser/spotify_cache",
     "spotifyRedirectUri": "http://127.0.0.1:8080/callback",
-    "timeZone": "Europe/Helsinki",
+    "timeZone": "auto",
     "electricityPriceEurPerKwh": null,
     "myenergi": {
         "zappiSerial": "",
