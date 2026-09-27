@@ -62,6 +62,7 @@
             "id": "general",
             "icon": "app",
             "label": "Yleinen",
+            "sectionOrder": ["display", "navigation", "screensaver", "night", "location", "luna"],
             "sections": [
                 {
                     "id": "display",
@@ -292,14 +293,14 @@
                     ]
                 },
                 {
-                    "id": "extras",
-                    "label": "Lisäasetukset",
+                    "id": "luna",
+                    "label": "Luna",
                     "settings": [
                         {
                             "key": "lunaEnabled",
                             "type": "bool",
                             "label": "Luna",
-                            "help": "Koiramuistomerkki kulkee työpöydän alalaidassa.",
+                            "help": "Muisto edesmenneestä Luna-koirastamme. Luna elelee kotinäytön alalaidassa.",
                             "default": false,
                             "apply": "live"
                         }
