@@ -536,20 +536,25 @@ Item {
         }
 
         // Two-finger touch → pinch-zoom + pan the x-window. target:null so we
-        // drive the view ourselves from the gesture, keeping the data point under
-        // the centroid fixed while scaling and panning as the centroid moves.
+        // drive the view ourselves from the gesture: zoom around the point under the
+        // starting centroid, pan as the centroid moves (applyPinch). This is the
+        // ONLY pan on a touchscreen — one finger inspects.
         PinchHandler {
             id: pinch
             target: null
             property real startMinX: 0
             property real startMaxX: 0
             property real startFocalT: 0
+            property real startFrac: 0
 
             onActiveChanged: {
                 if (active) {
                     startMinX = root.viewMinX
                     startMaxX = root.viewMaxX
-                    startFocalT = root.pixelToTime(root.clampToPlot(centroid.position.x))
+                    const a = graph.plotArea
+                    const x = root.clampToPlot(centroid.position.x)
+                    startFocalT = root.pixelToTime(x)
+                    startFrac = a.width > 0 ? (x - a.x) / a.width : 0
                 } else {
                     // Gesture ended: refresh detail for the final window now, don't wait out the debounce.
                     settleTimer.stop()
@@ -810,11 +815,15 @@ Item {
         const a = graph.plotArea
         if (a.width <= 0) return
         const startWidth = p.startMaxX - p.startMinX
-        // Sensitivity exponentiates the gesture's own scale, so 1.0 is exactly the
-        // finger-follows-the-data behaviour and higher values zoom further per pinch.
+        // Sensitivity exponentiates the gesture's own scale and multiplies the centroid's
+        // travel, so 1.0 is exactly the finger-follows-the-data behaviour (the point under
+        // the fingers stays under them) and higher values zoom further per pinch and pan
+        // further per stroke. Scaling only the zoom left the touchscreen's one pan at 1:1
+        // whatever the setting said.
         const newWidth = clampWidth(startWidth / Math.pow(p.activeScale, root.sensitivity))
         const curFrac = (clampToPlot(p.centroid.position.x) - a.x) / a.width
-        const newMin = p.startFocalT - curFrac * newWidth
+        const panFrac = p.startFrac + (curFrac - p.startFrac) * root.sensitivity
+        const newMin = p.startFocalT - panFrac * newWidth
         setView(newMin, newMin + newWidth)
     }
 
