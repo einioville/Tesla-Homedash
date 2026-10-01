@@ -232,8 +232,9 @@ QtObject {
         ({ low: 0.25, medium: 0.5, high: 1, xhigh: 2, max: 0 })[Settings.values.graphResolution] ?? 0.5
     // Multiplier on pan/zoom response — the 10" panel wants more than a desktop.
     // "normal" (1.0) is finger-exact: a drag moves the content 1:1 and a pinch
-    // scales it by exactly the pinch. The top reaches 4: on the Pi's panel, 2 still
-    // felt slow. ONE table for the graph and the map (mapSensitivity), so the same
+    // scales it by exactly the pinch. The top reaches 4 because the old slider's 3.0
+    // felt slow on the Pi's panel — though back then it scaled only the pinch zoom,
+    // not the pan. ONE table for the graph and the map (mapSensitivity), so the same
     // level name feels the same on both.
     readonly property var gestureSensitivityLevels: ({ low: 0.75, normal: 1, high: 1.5, xhigh: 2.5, max: 4 })
     readonly property real graphSensitivity:
