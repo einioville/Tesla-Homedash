@@ -25,12 +25,6 @@ Item {
     readonly property real maximum: setting.max !== undefined ? setting.max : 100
     readonly property real stepSize: setting.step !== undefined ? setting.step : (isInt ? 1 : 0.1)
 
-    // Optional text shown INSTEAD of the number at the slider's top stop, for a
-    // maximum that means something other than its numeric value — "rajoittamaton"
-    // for the graph point cap, where the top stop disables the cap entirely.
-    readonly property string maxLabel: setting.maxLabel !== undefined ? setting.maxLabel : ""
-    readonly property bool atMaxLabel: maxLabel.length > 0 && displayValue >= maximum
-
     // A nullable setting that is currently null means "not configured", which is
     // NOT the same as its minimum — the flat electricity tariff falling back to
     // null makes the Charging view show "—" rather than pricing energy at zero.
@@ -79,12 +73,12 @@ Item {
     }
 
     // Sized for the widest text the readout can show, so the track keeps its length
-    // while a drag adds a digit ("95 %" -> "100 %") or reaches the max label.
+    // while a drag adds a digit ("95 %" -> "100 %").
     TextMetrics {
         id: widest
         font: readout.font
         text: [control.format(control.minimum), control.format(control.maximum),
-               control.maxLabel, "—"].reduce((a, b) => b.length > a.length ? b : a, "")
+               "—"].reduce((a, b) => b.length > a.length ? b : a, "")
     }
 
     Row {
@@ -98,9 +92,7 @@ Item {
             anchors.verticalCenter: parent.verticalCenter
             width: Math.ceil(widest.advanceWidth)
             horizontalAlignment: Text.AlignRight
-            text: control.isUnset
-                  ? "—"
-                  : control.atMaxLabel ? control.maxLabel : control.format(control.displayValue)
+            text: control.isUnset ? "—" : control.format(control.displayValue)
             font.family: Theme.fontFamily
             font.pixelSize: 13
             color: control.isUnset ? Theme.dataLabelTitle : Theme.accent

@@ -116,16 +116,16 @@ Item {
     //    of the visible span. 0.5 → a half-screen pan or a ~2x zoom-out shows no empty edge
     //    before the settle rebuild catches up.
     //  settleMs — debounce after the last zoom/pan step before the detailed rebuild fires.
-    //  maxPoints — the most points drawn at once. Theme.graphMaxPointsUnlimited (the
-    //    setting's top stop) or anything <= 0 disables decimation entirely.
+    //  bucketsPerPx — render density: M4 buckets per pixel of the VISIBLE plot, each keeping
+    //    up to four points. 1.0 reproduces the line pixel-exactly; <= 0 disables decimation.
     //  sensitivity — multiplier on pan/zoom response. The 10" touch panel needs more
     //    travel per gesture than a mouse does; 1.0 is the pre-setting behaviour.
     // Defaults come from Theme, which binds them to the Options view's settings —
-    // the right values are hardware-dependent (the Pi wants a lower cap and a
+    // the right values are hardware-dependent (the Pi wants a coarser density and a
     // longer settle than a desktop). An instance can still override them locally.
     property real renderMarginFrac: Theme.graphRenderMarginFrac
     property int settleMs: Theme.graphSettleMs
-    property int maxPoints: Theme.graphMaxPoints
+    property real bucketsPerPx: Theme.graphBucketsPerPx
     property real sensitivity: Theme.graphSensitivity
 
     // Tightest allowed zoom: the visible window can never be narrower than this (ms). A flat
@@ -842,7 +842,8 @@ Item {
     }
 
     // Build the pixel-matched render subset for [windowStart, windowEnd] from rawPoints, via
-    // M4 decimation: the window is divided into ~1 bucket per plot pixel, and each bucket keeps
+    // M4 decimation: the window is divided into bucketsPerPx buckets per visible plot pixel (at
+    // 1.0, one bucket per pixel column), and each bucket keeps
     // its first, last, min-y and max-y points (deduped, x-ascending). This reproduces the
     // rasterized line at pixel resolution — spikes survive (a spike is its bucket's min/max), a
     // held value collapses to one flat point, and the first/last points keep linear slopes
@@ -876,13 +877,20 @@ Item {
             }
             R = lo
         }
-        // Early-out: a visible set already under the cap renders exactly (no decimation),
-        // keeping the small Trips / Charging graphs pixel-identical to the pre-LOD
-        // behaviour. Decimation only engages for the heavy History 1W / 1M case — and
-        // not at all at the setting's top stop, which means "no cap".
+        // Early-out: a visible set already under the bucket count renders exactly (no
+        // decimation), keeping the small Trips / Charging graphs pixel-identical to the
+        // pre-LOD behaviour. Decimation only engages for the heavy History 1W / 1M case —
+        // and not at all at the "max" resolution level (bucketsPerPx 0).
+        // The density is per VISIBLE pixel, so the count scales with how far this (build)
+        // window reaches past the view: otherwise a wider renderMarginFrac would quietly
+        // thin out what is on screen, and a smaller graph would get the same count as a
+        // full-width one.
         const plotW = Math.max(1, graph.plotArea.width)
+        const viewSpan = root.viewMaxX - root.viewMinX
         const startIdx = L < 0 ? 0 : L
-        const cap = root.maxPoints >= Theme.graphMaxPointsUnlimited ? 0 : root.maxPoints
+        const cap = root.bucketsPerPx > 0 && viewSpan > 0
+                  ? Math.ceil(root.bucketsPerPx * plotW * (windowEnd - windowStart) / viewSpan)
+                  : 0
         if (cap <= 0 || R - startIdx <= cap)
             return S.slice(startIdx, Math.min(R + 1, N))
 

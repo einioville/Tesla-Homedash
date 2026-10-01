@@ -414,7 +414,11 @@ write results and the issues box with its fix spotlight — plus the Yleinen wor
 screensaver's fixed photo folder with its USB import (the in-app folder browser is gone, #50), and
 the screensaver switch that stays unavailable until that folder holds photos — plus the removal of
 the Yleinen › Ilmoitukset card pending its own section (#51), the Luna card (formerly
-Lisäasetukset) at the bottom of Yleinen, and the timezone as a list defaulting to the host's zone.
+Lisäasetukset) at the bottom of Yleinen, and the timezone as a list defaulting to the host's zone —
+plus the Kuvaajat card as named-level dropdowns (resolution, gesture sensitivity, redraw delay,
+render margin; the gesture settings' Qt Graphs follow-up is #53), the map's Eleherkkyys and warp
+settings as named levels too, whole-step default zoom, and the map imagery choice and MML key out of
+the Options view (the key is `.env`-only).
 When you land a change that touches documented behaviour, update this line.
 
 ## 8. Session workflow — main checkout by default, worktree only for parallelism

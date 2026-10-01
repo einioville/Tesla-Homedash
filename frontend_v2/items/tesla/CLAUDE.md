@@ -2,13 +2,16 @@
 
 ## Map tuning and follow modes — `TeslaMap.qml`
 
-**Map tuning** is the *Kartta* card in **Datan visualisointi**, beside the *Graafit* card whose
-knobs it deliberately mirrors — `mapSensitivity` is `graphSensitivity`'s twin, and
-`mapFollowResumeSec` sits where `graphSettleMs` does. Seven schema entries plus seven
-`Theme.map*` bindings; **no protocol change and no C++ change at all**, since everything is
+**Map tuning** is the *Kartta* card in **Datan visualisointi**, beside the *Kuvaajat* card whose
+knobs it deliberately mirrors — its *Eleherkkyys* (`mapGestureSensitivity` → `Theme.mapSensitivity`)
+uses the graph's levels through ONE table, `Theme.gestureSensitivityLevels`, so a level feels the
+same on both, and `mapFollowResumeSec` sits where `graphSettleDelay` does. Seven schema entries plus
+seven `Theme.map*` bindings; **no protocol change and no C++ change at all**, since everything is
 consumed by `items/tesla/TeslaMap.qml` (the dashboard card AND the full-screen `MapView`).
-`mapSensitivity` alone also reaches `items/trip/TripMap.qml`, which carries the same
-pan/pinch/wheel handlers. Two facts verified against the Qt 6.11.1 sources on disk, both
+`Theme.mapSensitivity` alone also reaches `items/trip/TripMap.qml`, which carries the same
+pan/pinch/wheel handlers. The basemap is not a setting: `AppConfig` picks MML's orthophoto when
+`TESLA_HOMEDASH_MAP_API_KEY` is in the environment or `.env`, else EOX Sentinel-2
+(`frontend_v2/CLAUDE.md`). Two facts verified against the Qt 6.11.1 sources on disk, both
 load-bearing:
 - **`Map.bearing` works here only because the OSM plugin opts in.** The docs say changing it on
   a plugin that does not support bearing "will have no effect" — silently — and
@@ -25,8 +28,9 @@ Three details in the follow logic are load-bearing, and the first two are traps:
 - **The lead offset is CLAMPED below the dead-zone half-extent** (`× 0.8`). Warp parks the car
   behind centre, and the dead zone's *exit* is what triggers the next re-centre — so a lead
   larger than the zone would park the car already outside it and re-trigger on the very next
-  frame, forever. The schema ranges genuinely allow that (lead up to 30 %, zone down to 5 %), and
-  a cross-setting bound is not expressible in the schema, so the clamp lives in QML.
+  frame, forever. The levels genuinely allow that (*Katseluvara* *Erittäin suuri* is 30 %,
+  *Vapaa alue* *Erittäin pieni* 5 %), and a cross-setting bound is not expressible in the schema,
+  so the clamp lives in QML.
 - **Warp has to TAKE map.center away from the Map's own `center:` binding.** That binding tracks
   the car exactly — which *is* lock behaviour — so warp looks completely inert until some
   unrelated assignment happens to break it (historically, the user's first pan).

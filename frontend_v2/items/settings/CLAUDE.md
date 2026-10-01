@@ -73,9 +73,7 @@ fact no setting holds, resolved in `SettingRow.conditionHolds()` — `screensave
 `Photos.count > 0`. The screensaver card is the consumer of both: the switch is unavailable until
 the photo folder holds photos, and its three tuning rows need the switch on *and* the photos. The
 row that FIXES a condition — *Kuvakansio*'s import button — must not carry the rule, or it becomes
-unusable exactly when it is needed),
-**`maxLabel`** (`SettingSlider` shows this text instead of the number at the slider's top stop — the
-graph point cap uses it for *rajoittamaton*, which really does disable decimation), **`secret`** (a
+unusable exactly when it is needed), **`secret`** (a
 `string` shown masked by `SettingText` except while it is being edited, and logged as `<hidden>` by
 `Settings::setValue`; the saved file still holds it in clear, like `.env`. No setting carries it right
 now — the MML map key, its only consumer, moved to `.env` — but it stays as the guard the next
@@ -95,10 +93,9 @@ last subclasses `TripComboBox`, inheriting the dark styling and the #9/#19 dropd
 OPT-IN** via the schema's `editor: "slider"`. A slider only works when the exact number does not
 matter; most settings here are the opposite. Dispatching on `type` alone gave `backendPort`
 (1–65535) a slider whose 320px track is ~205 ports per pixel, and 13 of the 18 numeric settings were
-similarly undraggable. Only genuine coarse dials carry the hint — `screensaverStackCount`,
-`graphMaxPoints`, `graphSensitivity`, `graphRenderMarginFrac` and the map's `mapDefaultZoom`,
-`mapSensitivity`, `mapWarpDeadzonePct`, `mapWarpLeadPct` (check `config/settings.json` for the
-current set). **Rule of thumb: if the user knows the number they want, it is not a slider.** The slider is **one
+similarly undraggable. Only genuine coarse dials carry the hint — `screensaverStackCount` and the
+map's `mapDefaultZoom` (check
+`config/settings.json` for the current set). **Rule of thumb: if the user knows the number they want, it is not a slider.** The slider is **one
 line** — track, then the readout at its right, sized by `TextMetrics` for the widest text it can
 show so the track keeps its length mid-drag — because an editor must centre on the label like the
 others: a readout stacked above the track pushed the track ~8px below the label's centre line.
@@ -111,6 +108,14 @@ general per-type control HINT, not a numeric one — `slider` and `time` are its
 **`editor: "time"`** keeps `SettingNumber` but reads the int as minutes since midnight (`HH:MM`), makes the ± buttons **wrap** past midnight (min 0, max 1440 − step) and the field
 read-only: the number pad has no colon, and with wrapping, eight 15-minute steps back from 00:00
 reach 22:00. The night-mode window (`nightStartMin` / `nightEndMin`) is its consumer.
+
+**A dial whose real numbers are deliberately not shown is an `enum` of named levels**, rendered as
+a dropdown, with `Theme` mapping each level to its number — the whole *Kuvaajat* card:
+`graphResolution` (*Matala* … *Maksimi* → a bucket density), `graphGestureSensitivity` (*Matala* …
+*Maksimi* → a gesture multiplier on both the pinch's zoom and its pan), `graphSettleDelay` (*Hidas* … *Välitön* → a settle time)
+and `graphRenderMargin` (*Pieni* … *Erittäin suuri* → a margin fraction) — plus the *Kartta* card's
+`mapGestureSensitivity`, which shares the graph's sensitivity table (`Theme.gestureSensitivityLevels`),
+and its warp-mode `mapWarpDeadzone` / `mapWarpLead` (→ fractions of the map's shorter side).
 
 **`type: "action"` is a button, not a value.** `SettingAction.qml` renders it and calls
 `Settings::invokeAction(key)`; nothing is stored, persisted or sent as `CONFIG_SET`. Keeping

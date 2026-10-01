@@ -22,7 +22,7 @@
         "Per-subsection keys: id, label, help (optional, under the card title),\nstatus (optional: names a runtime status widget rendered in the card -\n'backendProbe' is the reachability check), settings.",
         "",
         "Per-setting keys: key, type (bool|int|float|string|enum|action), label, help,",
-        "unit, min/max/step (numeric), maxLabel (slider top-stop text), options\n(enum), default, apply, editor,\nwarnBelow/warnAbove + warnMessage (advisory caution, never blocks a write),\nrelevantWhen {key, equals|notEquals} or {condition} (a runtime fact named in\nSettingRow.conditionHolds), or a list of such rules that must ALL hold\n(fades and disables the row while they do not).",
+        "unit, min/max/step (numeric), options\n(enum), default, apply, editor,\nwarnBelow/warnAbove + warnMessage (advisory caution, never blocks a write),\nrelevantWhen {key, equals|notEquals} or {condition} (a runtime fact named in\nSettingRow.conditionHolds), or a list of such rules that must ALL hold\n(fades and disables the row while they do not).",
         "editor: a per-type CONTROL HINT, always opt-in, ignored when absent.",
         "        'slider' (int/float) replaces the default [-] value [+] stepper,",
         "        and only for coarse dials where the exact number does not matter",
@@ -347,56 +347,64 @@
             "sections": [
                 {
                     "id": "graphs",
-                    "label": "Graafit",
-                    "help": "Historia- ja matkagraafien piirto ja vuorovaikutus.",
+                    "label": "Kuvaajat",
                     "settings": [
                         {
-                            "key": "graphMaxPoints",
-                            "editor": "slider",
-                            "type": "int",
-                            "label": "Pisteitä graafissa",
-                            "help": "Enintään näin monta pistettä piirretään kerralla. Pienempi = kevyempi, karkeampi.",
-                            "min": 200,
-                            "max": 5000,
-                            "step": 100,
-                            "maxLabel": "rajoittamaton",
-                            "default": 1200,
+                            "key": "graphResolution",
+                            "type": "enum",
+                            "label": "Resoluutio",
+                            "help": "Kuvaajaan piirrettyjen pisteiden määrä.",
+                            "options": [
+                                {"value": "low", "label": "Matala"},
+                                {"value": "medium", "label": "Keskitaso"},
+                                {"value": "high", "label": "Korkea"},
+                                {"value": "xhigh", "label": "Erittäin korkea"},
+                                {"value": "max", "label": "Maksimi"}
+                            ],
+                            "default": "medium",
                             "apply": "live"
                         },
                         {
-                            "key": "graphSensitivity",
-                            "editor": "slider",
-                            "type": "float",
+                            "key": "graphGestureSensitivity",
+                            "type": "enum",
                             "label": "Eleherkkyys",
-                            "help": "Kuinka nopeasti graafi liikkuu ja zoomaa sormella.",
-                            "min": 0.5,
-                            "max": 3.0,
-                            "step": 0.1,
-                            "default": 1.0,
+                            "help": "Kuinka nopeasti kuvaaja liikkuu ja zoomaa.",
+                            "options": [
+                                {"value": "low", "label": "Matala"},
+                                {"value": "normal", "label": "Normaali"},
+                                {"value": "high", "label": "Korkea"},
+                                {"value": "xhigh", "label": "Erittäin korkea"},
+                                {"value": "max", "label": "Maksimi"}
+                            ],
+                            "default": "normal",
                             "apply": "live"
                         },
                         {
-                            "key": "graphSettleMs",
-                            "type": "int",
+                            "key": "graphSettleDelay",
+                            "type": "enum",
                             "label": "Zoomauksen viive",
-                            "help": "Odotus zoomauksen jälkeen ennen tarkkaa uudelleenpiirtoa.",
-                            "unit": "ms",
-                            "min": 0,
-                            "max": 1000,
-                            "step": 10,
-                            "default": 120,
+                            "help": "Odotus zoomauksen jälkeen ennen kuvaajan uudelleenpiirtoa.",
+                            "options": [
+                                {"value": "slow", "label": "Hidas"},
+                                {"value": "normal", "label": "Normaali"},
+                                {"value": "quick", "label": "Nopea"},
+                                {"value": "instant", "label": "Välitön"}
+                            ],
+                            "default": "normal",
                             "apply": "live"
                         },
                         {
-                            "key": "graphRenderMarginFrac",
-                            "editor": "slider",
-                            "type": "float",
+                            "key": "graphRenderMargin",
+                            "type": "enum",
                             "label": "Esipiirron marginaali",
                             "help": "Kuinka pitkälle näkyvän ikkunan ulkopuolelle piirretään valmiiksi.",
-                            "min": 0.0,
-                            "max": 2.0,
-                            "step": 0.1,
-                            "default": 0.5,
+                            "options": [
+                                {"value": "small", "label": "Pieni"},
+                                {"value": "normal", "label": "Normaali"},
+                                {"value": "large", "label": "Suuri"},
+                                {"value": "xlarge", "label": "Erittäin suuri"}
+                            ],
+                            "default": "normal",
                             "apply": "live"
                         }
                     ]
@@ -409,32 +417,34 @@
                         {
                             "key": "mapDefaultZoom",
                             "editor": "slider",
-                            "type": "float",
+                            "type": "int",
                             "label": "Oletuszoomaus",
-                            "help": "Zoomaustaso, johon kartta palaa auton seurannan jatkuessa. Suurempi = lähempänä.",
-                            "min": 10.0,
-                            "max": 19.0,
-                            "step": 0.5,
-                            "default": 15.0,
+                            "min": 10,
+                            "max": 19,
+                            "step": 1,
+                            "default": 15,
                             "apply": "live"
                         },
                         {
-                            "key": "mapSensitivity",
-                            "editor": "slider",
-                            "type": "float",
+                            "key": "mapGestureSensitivity",
+                            "type": "enum",
                             "label": "Eleherkkyys",
-                            "help": "Kuinka nopeasti kartta liikkuu ja zoomaa sormella. Arvolla 1,0 kartta seuraa sormea tarkalleen.",
-                            "min": 0.5,
-                            "max": 3.0,
-                            "step": 0.1,
-                            "default": 1.0,
+                            "help": "Kuinka nopeasti kartta liikkuu ja zoomaa.",
+                            "options": [
+                                {"value": "low", "label": "Matala"},
+                                {"value": "normal", "label": "Normaali"},
+                                {"value": "high", "label": "Korkea"},
+                                {"value": "xhigh", "label": "Erittäin korkea"},
+                                {"value": "max", "label": "Maksimi"}
+                            ],
+                            "default": "normal",
                             "apply": "live"
                         },
                         {
                             "key": "mapFollowResumeSec",
                             "type": "int",
-                            "label": "Seurannan palautusviive",
-                            "help": "Kuinka kauan kartan siirtämisen jälkeen odotetaan, ennen kuin se palaa seuraamaan autoa.",
+                            "label": "Keskitysviive",
+                            "help": "Kuinka nopeasti kartta palaa takaisin auton sijaintiin.",
                             "unit": "s",
                             "min": 2,
                             "max": 120,
@@ -446,7 +456,6 @@
                             "key": "mapOrientation",
                             "type": "enum",
                             "label": "Kartan suunta",
-                            "help": "Pysyykö pohjoinen aina ylhäällä, vai kääntyykö kartta ajosuuntaan niin että auto osoittaa aina ylös.",
                             "options": [
                                 {"value": "north", "label": "Pohjoinen ylös"},
                                 {"value": "heading", "label": "Ajosuunta ylös"}
@@ -458,7 +467,6 @@
                             "key": "mapFollowMode",
                             "type": "enum",
                             "label": "Seurantatapa",
-                            "help": "Lukittu pitää auton aina täsmälleen keskellä. Liukuva antaa auton liikkua vapaasti keskialueella ja keskittää sen pehmeästi vasta alueen reunalla.",
                             "options": [
                                 {"value": "lock", "label": "Lukittu"},
                                 {"value": "warp", "label": "Liukuva"}
@@ -467,16 +475,18 @@
                             "apply": "live"
                         },
                         {
-                            "key": "mapWarpDeadzonePct",
-                            "editor": "slider",
-                            "type": "int",
+                            "key": "mapWarpDeadzone",
+                            "type": "enum",
                             "label": "Vapaa alue",
                             "help": "Kuinka kauas keskeltä auto saa liikkua ennen uudelleenkeskitystä, osuutena kartan lyhyemmästä sivusta.",
-                            "unit": "%",
-                            "min": 5,
-                            "max": 45,
-                            "step": 1,
-                            "default": 25,
+                            "options": [
+                                {"value": "xsmall", "label": "Erittäin pieni"},
+                                {"value": "small", "label": "Pieni"},
+                                {"value": "normal", "label": "Normaali"},
+                                {"value": "large", "label": "Suuri"},
+                                {"value": "xlarge", "label": "Erittäin suuri"}
+                            ],
+                            "default": "normal",
                             "apply": "live",
                             "relevantWhen": {
                                 "key": "mapFollowMode",
@@ -484,16 +494,18 @@
                             }
                         },
                         {
-                            "key": "mapWarpLeadPct",
-                            "editor": "slider",
-                            "type": "int",
+                            "key": "mapWarpLead",
+                            "type": "enum",
                             "label": "Katseluvara edessä",
-                            "help": "Kuinka paljon auto jätetään keskikohdan taakse, jotta ajosuuntaan näkyy pidemmälle. Nolla keskittää auton tarkalleen.",
-                            "unit": "%",
-                            "min": 0,
-                            "max": 30,
-                            "step": 1,
-                            "default": 12,
+                            "help": "Kuinka paljon auto jätetään keskikohdan taakse, jotta ajosuuntaan näkyy pidemmälle. Ei lainkaan -valinnalla auto pysyy tarkalleen keskellä.",
+                            "options": [
+                                {"value": "none", "label": "Ei lainkaan"},
+                                {"value": "small", "label": "Pieni"},
+                                {"value": "normal", "label": "Normaali"},
+                                {"value": "large", "label": "Suuri"},
+                                {"value": "xlarge", "label": "Erittäin suuri"}
+                            ],
+                            "default": "normal",
                             "apply": "live",
                             "relevantWhen": {
                                 "key": "mapFollowMode",

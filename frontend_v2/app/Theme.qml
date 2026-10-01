@@ -223,15 +223,31 @@ QtObject {
     // Viewport-decimation and zoom-debounce knobs shared by every HistoryGraph
     // instance (History, Trips and Charging all reuse it). Exposed in the Options
     // view because the right values depend on the target hardware: the Pi wants a
-    // lower point cap and a longer settle than a desktop does.
-    // Cap on how many points a graph draws at once. The setting's TOP stop means
-    // no cap, so this sentinel must equal the schema's max for graphMaxPoints.
-    readonly property int graphMaxPointsUnlimited: 5000
-    readonly property int graphMaxPoints: Settings.values.graphMaxPoints
+    // coarser density and a longer settle than a desktop does.
+    // Render density, in M4 buckets per pixel of the VISIBLE plot (each bucket keeps
+    // up to four points). The Options view names levels and keeps these numbers
+    // internal: "high" is one bucket per pixel, where M4 reproduces the line
+    // pixel-exactly, and "max" (0) turns decimation off altogether.
+    readonly property real graphBucketsPerPx:
+        ({ low: 0.25, medium: 0.5, high: 1, xhigh: 2, max: 0 })[Settings.values.graphResolution] ?? 0.5
     // Multiplier on pan/zoom response — the 10" panel wants more than a desktop.
-    readonly property real graphSensitivity: Settings.values.graphSensitivity
-    readonly property int graphSettleMs: Settings.values.graphSettleMs
-    readonly property real graphRenderMarginFrac: Settings.values.graphRenderMarginFrac
+    // "normal" (1.0) is finger-exact: a drag moves the content 1:1 and a pinch
+    // scales it by exactly the pinch. The top reaches 4: on the Pi's panel, 2 still
+    // felt slow. ONE table for the graph and the map (mapSensitivity), so the same
+    // level name feels the same on both.
+    readonly property var gestureSensitivityLevels: ({ low: 0.75, normal: 1, high: 1.5, xhigh: 2.5, max: 4 })
+    readonly property real graphSensitivity:
+        gestureSensitivityLevels[Settings.values.graphGestureSensitivity] ?? 1
+    // Settle debounce before the detailed rebuild, also a named level. "instant" is
+    // a 0 ms Timer: it still fires asynchronously, once per event-loop pass, so the
+    // several setView() calls one pinch frame makes coalesce into a single rebuild.
+    readonly property int graphSettleMs:
+        ({ slow: 1000, normal: 500, quick: 200, instant: 0 })[Settings.values.graphSettleDelay] ?? 500
+    // How far past the visible window each side is pre-built, as a fraction of the
+    // visible span. Not free: the density is per visible pixel, so the points built
+    // grow with it — "xlarge" (2.0) builds five screens' worth.
+    readonly property real graphRenderMarginFrac:
+        ({ small: 0.25, normal: 0.5, large: 1, xlarge: 2 })[Settings.values.graphRenderMargin] ?? 0.5
     // Tightest zoom window. Fixed: a minute is short enough for any range the
     // History view loads, and nothing is gained by exposing it.
     readonly property int graphMinZoomSpanMs: 60000
@@ -242,10 +258,11 @@ QtObject {
     // same pan/pinch/wheel handlers.
     // Zoom the map returns to when auto-follow resumes after a gesture.
     readonly property real mapDefaultZoom: Settings.values.mapDefaultZoom
-    // Multiplier on pan/pinch/wheel response, exactly like graphSensitivity.
-    // At 1.0 a drag is EXACT 1:1 — the grabbed point stays under the finger —
-    // so any other value deliberately trades that away for reach.
-    readonly property real mapSensitivity: Settings.values.mapSensitivity
+    // Multiplier on pan/pinch/wheel response, the same levels as graphSensitivity.
+    // At "normal" (1.0) a drag is EXACT 1:1 — the grabbed point stays under the
+    // finger — so any other level deliberately trades that away for reach.
+    readonly property real mapSensitivity:
+        gestureSensitivityLevels[Settings.values.mapGestureSensitivity] ?? 1
     // Idle delay after the user stops moving the map before it snaps back to
     // the car. A map has no re-render step to debounce (QtLocation streams and
     // repaints tiles itself), so this is the only timeout the map really has.
@@ -258,10 +275,14 @@ QtObject {
     readonly property string mapFollowMode: Settings.values.mapFollowMode
     // Dead-zone half-extent — the distance from the centre the car may reach on
     // either axis — as a fraction of the map's SHORTER side, so the free area is
-    // square on any card. Warp mode only.
-    readonly property real mapWarpDeadzoneFrac: Settings.values.mapWarpDeadzonePct / 100.0
+    // square on any card. Warp mode only. A named level, like the lead below.
+    readonly property real mapWarpDeadzoneFrac:
+        ({ xsmall: 0.05, small: 0.15, normal: 0.25, large: 0.35, xlarge: 0.45 })[Settings.values.mapWarpDeadzone] ?? 0.25
     // How far behind centre the car is parked on a re-centre, opposite its
     // direction of travel, so the road ahead gets the larger share of the map.
     // Same fraction-of-shorter-side units as the dead zone. Warp mode only.
-    readonly property real mapWarpLeadFrac: Settings.values.mapWarpLeadPct / 100.0
+    // TeslaMap clamps it below 0.8 × the dead zone, so a large lead inside a
+    // small free area quietly shrinks (items/tesla/CLAUDE.md).
+    readonly property real mapWarpLeadFrac:
+        ({ none: 0, small: 0.06, normal: 0.12, large: 0.2, xlarge: 0.3 })[Settings.values.mapWarpLead] ?? 0.12
 }
