@@ -74,32 +74,22 @@ AppConfig::AppConfig(const Settings* settings, QObject* parent) : QObject(parent
         logger.warning(QStringLiteral("Unknown TESLA_HOMEDASH_LOG_LEVEL '%1'; using info").arg(rawLevel));
     }
 
-    // Map basemap: the `mapImagery` / `mapApiKey` settings (Datan visualisointi >
-    // Kartta), read as RESOLVED values — the key still defaults from
-    // TESLA_HOMEDASH_MAP_API_KEY through the schema's `env`, so an existing .env
-    // keeps working. Restart-tier: the OSM plugin reads its tile host once, when
-    // the map is created. "mml" without a key falls back to the keyless EOX
-    // imagery, which is also what a deployment with no key always got.
-    const QString imagery = settings != nullptr
-                                ? settings->valueOf(QStringLiteral("mapImagery")).toString()
-                                : QStringLiteral("mml");
-    const QString mapApiKey =
-        settings != nullptr
-            ? settings->valueOf(QStringLiteral("mapApiKey")).toString().trimmed()
-            : dotenv::valueOr("TESLA_HOMEDASH_MAP_API_KEY", QString()).trimmed();
-    if (imagery != QLatin1String("eox") && !mapApiKey.isEmpty()) {
+    // Map basemap: MML's 0.5 m orthophoto, keyed by TESLA_HOMEDASH_MAP_API_KEY from
+    // the environment or .env — a deployment secret like the backend's keys, so it
+    // is not an Options-view setting. The OSM plugin reads its tile host once, when
+    // the map is created, so a changed key needs a restart. Without a key the map
+    // falls back to the keyless EOX Sentinel-2 imagery (~10 m) rather than going
+    // blank, and says so.
+    const QString mapApiKey = dotenv::valueOr("TESLA_HOMEDASH_MAP_API_KEY", QString()).trimmed();
+    if (!mapApiKey.isEmpty()) {
         m_mapTilesUrl = kMmlTilesUrlTemplate.arg(mapApiKey);
         m_mapAttribution = kMmlAttribution;
         logger.info(QStringLiteral("Map basemap: MML orthophoto (0.5 m, keyed)"));
     } else {
         m_mapTilesUrl = kEoxTilesUrl;
         m_mapAttribution = kEoxAttribution;
-        if (imagery == QLatin1String("eox")) {
-            logger.info(QStringLiteral("Map basemap: EOX Sentinel-2 (selected)"));
-        } else {
-            logger.info(QStringLiteral("Map basemap: EOX Sentinel-2 (keyless fallback); set "
-                                       "the MML API key in the Options view for 0.5 m imagery"));
-        }
+        logger.warning(QStringLiteral("Map basemap: EOX Sentinel-2 (keyless fallback); set "
+                                      "TESLA_HOMEDASH_MAP_API_KEY in .env for MML's 0.5 m imagery"));
     }
 
     // Screensaver: after `screensaverTimeoutMs` of no input the frontend fades to a

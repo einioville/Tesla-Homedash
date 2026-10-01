@@ -499,33 +499,6 @@
                                 "key": "mapFollowMode",
                                 "equals": "warp"
                             }
-                        },
-                        {
-                            "key": "mapImagery",
-                            "type": "enum",
-                            "label": "Ilmakuva",
-                            "help": "Maanmittauslaitoksen 0,5 m ilmakuva vaatii ilmaisen API-avaimen. Ilman avainta käytetään Sentinel-2-satelliittikuvaa (noin 10 m).",
-                            "options": [
-                                {"value": "mml", "label": "Maanmittauslaitos"},
-                                {"value": "eox", "label": "Sentinel-2 (EOX)"}
-                            ],
-                            "default": "mml",
-                            "apply": "restart"
-                        },
-                        {
-                            "key": "mapApiKey",
-                            "type": "string",
-                            "secret": true,
-                            "env": "TESLA_HOMEDASH_MAP_API_KEY",
-                            "label": "MML:n API-avain",
-                            "help": "Maanmittauslaitoksen avoimen datan rajapinta-avain.",
-                            "nullable": true,
-                            "default": "",
-                            "apply": "restart",
-                            "relevantWhen": {
-                                "key": "mapImagery",
-                                "equals": "mml"
-                            }
                         }
                     ]
                 }

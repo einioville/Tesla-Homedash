@@ -52,10 +52,10 @@ All optional; defaults match the embedded target.
   `AppConfigLocation/settings.json` is copied over once on first run.
 - `TESLA_HOMEDASH_SCREENSAVER_DIR` — no longer read: the screensaver's photos live in a fixed
   folder (`core/CLAUDE.md`, under `Photos`), and a startup warning names it if this is still set.
-- `TESLA_HOMEDASH_MAP_API_KEY` — only the default for the `mapApiKey` setting (a
-  `secret`). `AppConfig` resolves the basemap from `mapImagery` + `mapApiKey` through `Settings`:
-  "mml" with a key → MML 0.5 m orthophoto, otherwise EOX Sentinel-2. Restart-tier — the OSM plugin
-  reads its tile host once.
+- `TESLA_HOMEDASH_MAP_API_KEY` — the MML open-data key, read by `AppConfig` straight from the
+  environment / `.env` (a deployment secret, not an Options-view setting). With it the map uses
+  MML's 0.5 m orthophoto; without it, the keyless EOX Sentinel-2 imagery plus a startup warning.
+  Takes a restart — the OSM plugin reads its tile host once.
 
 **Frontend settings file.** `frontend_v2/config/settings.json` is the *bundled schema*
 (defaults, types, bounds, Finnish labels) compiled into the binary; the user's overrides are

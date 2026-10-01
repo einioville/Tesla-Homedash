@@ -25,14 +25,13 @@ class Settings;
  *                                on-device change must not be silently ignored.
  *   TESLA_HOMEDASH_LOG_LEVEL     (string)  default "info"
  *                                (debug|info|warning|error|critical)
- *   TESLA_HOMEDASH_MAP_API_KEY   (string)  optional — a National Land Survey of
- *                                Finland (Maanmittauslaitos) open-data api-key.
- *                                NOT read here: it is the default for the
- *                                `mapApiKey` setting. With `mapImagery` "mml" and a
- *                                key the map uses MML's 0.5 m orthophoto; otherwise
- *                                the keyless EOX Sentinel-2 basemap. Never in the
- *                                committed QML — the environment or the user's
- *                                settings file only.
+ *   TESLA_HOMEDASH_MAP_API_KEY   (string)  a National Land Survey of Finland
+ *                                (Maanmittauslaitos) open-data api-key. With it the
+ *                                map uses MML's 0.5 m orthophoto; without it, the
+ *                                keyless EOX Sentinel-2 basemap (and a startup
+ *                                warning). A deployment secret: the environment or
+ *                                .env only, never the committed QML or the Options
+ *                                view.
  *   TESLA_HOMEDASH_SCREENSAVER_TIMEOUT_MIN (int)     minutes of inactivity before
  *                                the screensaver appears (default 30). Read by
  *                                main() and pushed to the IdleWatcher. Also an

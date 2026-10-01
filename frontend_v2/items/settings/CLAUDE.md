@@ -77,7 +77,9 @@ unusable exactly when it is needed),
 **`maxLabel`** (`SettingSlider` shows this text instead of the number at the slider's top stop — the
 graph point cap uses it for *rajoittamaton*, which really does disable decimation), **`secret`** (a
 `string` shown masked by `SettingText` except while it is being edited, and logged as `<hidden>` by
-`Settings::setValue` — the MML map key; the saved file still holds it in clear, like `.env`) and **`warnBelow`
+`Settings::setValue`; the saved file still holds it in clear, like `.env`. No setting carries it right
+now — the MML map key, its only consumer, moved to `.env` — but it stays as the guard the next
+secret needs) and **`warnBelow`
 / `warnAbove` + `warnMessage`** (issue
 #34: `SettingRow` shows an inline caution while the value crosses the threshold; advisory only,
 `min`/`max` remain the hard bounds — the myenergi idle poll interval is the first consumer).
