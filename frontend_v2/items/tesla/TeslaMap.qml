@@ -275,7 +275,15 @@ Item {
         // Left ungated by isCurrent: a camera update on a map nobody is
         // rendering is cheap, and it means returning to the view finds the
         // bearing already correct rather than spinning into place.
-        bearing: root.headingUp ? root.heading : 0
+        //
+        // North-up is biased to 0.001°, not 0, so the map glides instead of
+        // stepping. At a whole zoom level with no rotation, QGeoTiledMapScene
+        // samples tiles with Nearest filtering (m_linearScaling is false), so
+        // the imagery can only move in whole-pixel jumps while the smoothly
+        // filtered car arrow moves sub-pixel — a moving map visibly judders.
+        // ANY bearing > 0 flips it to Linear filtering; 0.001° shifts the
+        // corners by ~0.01 px, far below anything visible.
+        bearing: root.headingUp ? root.heading : 0.001
 
         // Hide the on-map provider attribution for a cleaner dashboard. The text
         // is still configured (osm.mapping.custom.mapcopyright above), so flip

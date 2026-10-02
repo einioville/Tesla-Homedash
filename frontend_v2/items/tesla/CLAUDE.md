@@ -23,6 +23,12 @@ load-bearing:
   identity matrix. So the car arrow is `rotation: heading - map.bearing`: that is plain `heading`
   at bearing 0 (north-up — exactly the original behaviour) and ~0 in heading-up, where the map
   has already turned under it. Binding it to `heading` alone would double-rotate the arrow.
+- **North-up is `bearing: 0.001`, never 0 — that is what makes the map glide.**
+  `QGeoTiledMapScene::updateSceneParameters` uses Linear tile filtering only when the zoom is
+  > 0.05 off a whole level or the camera `isTiltedOrRotated()` (`bearing() > 0.0`); at a whole
+  zoom and bearing 0 it uses Nearest, so a following map moves in whole-pixel jumps under the
+  sub-pixel car arrow. Measured: at bearing 0 the imagery steps 0 → 1 → 2 px while the centre
+  moves 0.1 px at a time; at 0.001° it tracks to ~0.05 px. The tilt is invisible (~0.01 px).
 
 Three details in the follow logic are load-bearing, and the first two are traps:
 - **The lead offset is CLAMPED below the dead-zone half-extent** (`× 0.8`). Warp parks the car

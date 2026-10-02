@@ -418,7 +418,8 @@ Lisäasetukset) at the bottom of Yleinen, and the timezone as a list defaulting 
 plus the Kuvaajat card as named-level dropdowns (resolution, gesture sensitivity, redraw delay,
 render margin; the gesture settings' Qt Graphs follow-up is #53), the map's Eleherkkyys and warp
 settings as named levels too, whole-step default zoom, and the map imagery choice and MML key out of
-the Options view (the key is `.env`-only).
+the Options view (the key is `.env`-only) — plus the north-up map's 0.001° bearing bias that makes
+it glide instead of stepping in whole pixels.
 When you land a change that touches documented behaviour, update this line.
 
 ## 8. Session workflow — main checkout by default, worktree only for parallelism
