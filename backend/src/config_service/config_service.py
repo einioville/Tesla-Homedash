@@ -483,7 +483,6 @@ SETTINGS_SCHEMA: list[dict] = [
             {
                 "id": "trips",
                 "label": "Matkojen tunnistus",
-                "help": "Milloin ajo lasketaan omaksi matkakseen.",
                 "settings": [
                     {
                         "key": "trip.min_stop_minutes",
@@ -501,27 +500,15 @@ SETTINGS_SCHEMA: list[dict] = [
                         "key": "trip.min_trip_distance_km",
                         "type": "float",
                         "label": "Matkan vähimmäispituus",
-                        "help": "Tätä lyhyemmät ajot jätetään listalta pois.",
+                        "help": "Tätä lyhyempiä ajoja ei tulkita matkoiksi.",
                         "unit": "km",
                         "min": 0.0,
                         "max": 50.0,
-                        "step": 0.1,
+                        "step": 0.5,
                         "apply": "hook",
                         "hooks": ["trip"],
                     },
                 ],
-            },
-            {
-                # The per-field flags of config.json's `tesla data` (issue #29).
-                # Not settings: a table with its own delegate family, served by
-                # tesla_service/property_editor.py over TESLA_*_PROPERTY codes,
-                # so the subsection is nothing but its status widget.
-                "id": "telemetryFields",
-                "label": "Telemetriakentät",
-                "help": "Mitkä kentät tallennetaan historiaan ja miten ne piirretään "
-                        "Historia-näkymän graafiin.",
-                "status": "teslaProperties",
-                "settings": [],
             },
         ],
     },

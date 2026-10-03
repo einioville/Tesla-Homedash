@@ -13,7 +13,7 @@ behind several of these files are documented in `../../core/CLAUDE.md`:
 | `SpotifyDeviceDetails.qml`, `SpotifyDevicePopup.qml` | `SpotifyDevice` |
 | `UpdatePanel.qml`, `UpdateBanner.qml` | `Updater` |
 | `ScreenPowerStatus.qml` | `Display` |
-| `TeslaFieldTable.qml` | `TeslaFields` |
+| `TeslaFieldTable.qml` (unused while the backend omits its subsection) | `TeslaFields` |
 | `UsbImportPopup.qml` | `UsbImport` |
 | `ScreensaverPhotosDetails.qml` | `Photos` |
 | `SettingsIssues.qml` | reads `Server`, `SpotifyAuth`, `SpotifyDevice`, `Settings` |

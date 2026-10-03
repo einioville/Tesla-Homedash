@@ -44,6 +44,10 @@
   (which owns Influx access).
 - **`property_editor.py`** (`TeslaPropertyEditor`, issue #29) serves the Options view's
   *Telemetriakentät* card over `TESLA_GET_PROPERTY_TABLE` / `TESLA_SET_PROPERTY` (`0x63`–`0x66`).
+  **The card is out of the schema for now** — it returns, reworked, with a later update's fuller
+  Tesla and Teslemetry options. The editor and its handlers stay registered meanwhile; restoring
+  the `telemetryFields` subsection (`status: "teslaProperties"`, no settings) in
+  `config_service.py`'s Tesla group is all it takes to bring the card back.
   **Only `log`, `line_mode` and `zero_based` are editable** — every other key of a `tesla data`
   entry is mirrored by the frontend's generated registry or the Teslemetry field names, and adding
   or removing a field stays a code change on both sides. A change goes through `Config.set` +

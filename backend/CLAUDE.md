@@ -133,7 +133,8 @@ Parsed once by `Config` and injected into every service. Keys:
 > data`, `calculated tesla data`, `radioMediaIds`) are deliberately NOT in the schema: the frontend
 > registry mirrors them, so editing them at runtime would desync the two halves. The one exception
 > is the display/logging flags of `tesla data` (`log`, `line_mode`, `zero_based`), which the
-> Telemetriakentät card edits through its own codes (`src/tesla_service/CLAUDE.md`, issue #29).
+> Telemetriakentät card edits through its own codes (`src/tesla_service/CLAUDE.md`, issue #29) —
+> a card that is out of the schema for now, so nothing in the UI reaches those codes.
 
 ## Python docstrings
 

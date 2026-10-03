@@ -50,7 +50,7 @@ backend/                          # ★ orchestration, service contracts, .env +
       telemetry.py                # Teslemetry stream client (teslemetry_stream) → Vehicle.on_telemetry_event
       vehicle.py                  # Vehicle state, telemetry handler, HVAC REST commands, rate limiting, snapshots
       vehicle_data_property.py    # VehicleDataProperty / CalculatedVehicleDataProperty — value store, formula eval, serialize
-      property_editor.py          # The Options view's telemetry-field table: log / line_mode / zero_based (0x63-0x66)
+      property_editor.py          # The telemetry-field table: log / line_mode / zero_based (0x63-0x66); its Options card is out of the schema for now
     media_service/                # ★
       base_media_player.py        # Abstract player interface
       media_manager.py            # Orchestrator — owns both players, routes controls, gates streaming to the active one
@@ -422,7 +422,9 @@ the Options view (the key is `.env`-only) — plus the north-up map's 0.001° be
 it glide instead of stepping in whole pixels — plus the sidebar's section rows reduced to icon and title, and dependent settings nested under the
 setting they belong to, hidden while it is off — plus the Sähkö section: the tariff as a
 *Kiinteä* / *Pörssi* dropdown with each tariff's rows nested under it, one Zappi poll interval, and
-the price source and Zappi serial out of the Options view (`config.json`-only).
+the price source and Zappi serial out of the Options view (`config.json`-only) — plus the Tesla
+section reduced to *Matkojen tunnistus* (the Telemetriakentät card is out of the schema until a later
+update's fuller Tesla options; its plumbing stays) with the trip distance stepping 0.5 km.
 When you land a change that touches documented behaviour, update this line.
 
 ## 8. Session workflow — main checkout by default, worktree only for parallelism

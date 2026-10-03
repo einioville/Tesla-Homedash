@@ -141,7 +141,9 @@ metric on the backend should not need a C++ change to display it.
 **The telemetry-field table** (issue #29) is `core/tesla/teslafieldeditor.{hh,cpp}`, the QML
 singleton **`TeslaFields`**, rendered by `items/settings/TeslaFieldTable.qml` as the
 `status: "teslaProperties"` widget of the backend's *Tesla → Telemetriakentät* subsection (a
-settings-free subsection, so it exists only while the backend is connected). **It holds no copy it
+settings-free subsection, so it exists only while the backend is connected). **That subsection is
+out of the backend's schema for now** (`backend/src/tesla_service/CLAUDE.md`), so nothing builds
+the table and the singleton sits idle until it returns. **It holds no copy it
 edits**: `setField()` sends `TESLA_SET_PROPERTY` and the rows re-render from the table the backend
 broadcasts after an accepted change, so two open panels can never disagree. A refusal comes back as
 `lastError` — the backend names the view that needs a field's history. The table is requested when
