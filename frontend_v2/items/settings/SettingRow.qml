@@ -32,58 +32,20 @@ Item {
 
     readonly property bool needsRestart: setting.apply === "restart"
 
-    // A setting can declare that it only MATTERS while another setting holds a
-    // particular value — the screensaver's dwell time means nothing with the
-    // screensaver off. Such a row is faded AND inert — see `enabled` below.
-    // `relevantWhen` is one rule or a list of rules that must ALL hold: the
-    // dwell time also means nothing while the photo folder is empty, which
-    // makes the screensaver switch itself unavailable.
-    //
-    // A rule either names a setting (`key` + `equals` / `notEquals`), which may
-    // be in EITHER half, so it is resolved via Settings.valueOf rather than
-    // Settings.values, which knows only local keys — or names a runtime
-    // `condition`, resolved against the table in conditionHolds().
-    // valuesRevision is read purely to make this binding re-evaluate: an
-    // invokable call captures no property to depend on.
+    // A setting can declare that it only MATTERS while its `relevantWhen` rules
+    // hold (SettingRules). A row nested under the setting a rule names is hidden
+    // by SettingsPane while that rule fails, so by the time it is on screen only
+    // its OTHER rules can fail — the screensaver's dwell time, nested under the
+    // switch, also means nothing while the photo folder is empty, which makes
+    // the switch itself unavailable. Such a row is faded AND inert — see
+    // `enabled` below. valuesRevision is read purely to make this binding
+    // re-evaluate.
     readonly property bool relevant: {
         const revision = Settings.valuesRevision
-        const rules = row.setting.relevantWhen
-        if (rules === undefined || rules === null)
-            return true
-        // A list is told apart by its length, not Array.isArray: it arrives from
-        // C++ as a QVariantList, which need not convert to a true JS array.
-        if (rules.length === undefined)
-            return row.ruleHolds(rules)
-        for (const rule of rules) {
-            if (!row.ruleHolds(rule))
-                return false
-        }
-        return true
+        return rules.allHold(row.setting.relevantWhen)
     }
 
-    function ruleHolds(dep) {
-        if (dep === undefined || dep === null)
-            return true
-        if (dep.condition !== undefined)
-            return row.conditionHolds(dep.condition)
-        if (dep.key === undefined)
-            return true
-        const current = Settings.valueOf(dep.key)
-        if (dep.equals !== undefined)
-            return current === dep.equals
-        if (dep.notEquals !== undefined)
-            return current !== dep.notEquals
-        return true
-    }
-
-    // Facts no setting holds. Read straight from their singletons, so a binding
-    // on `relevant` follows them.
-    function conditionHolds(name) {
-        switch (name) {
-        case "screensaverPhotos": return Photos.count > 0
-        default: return true
-        }
-    }
+    SettingRules { id: rules }
 
     opacity: relevant ? 1.0 : Theme.settingIrrelevantOpacity
     // Blocks every editor in the row at once: `enabled` propagates down the

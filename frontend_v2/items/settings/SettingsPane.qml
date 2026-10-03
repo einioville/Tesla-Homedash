@@ -156,6 +156,53 @@ Item {
                     readonly property var entries: modelData.settings !== undefined
                                                    ? modelData.settings : []
 
+                    // How the entries hang together, one {parent, rule, depth} per
+                    // entry. An entry is NESTED under the setting its first `key`
+                    // rule names when that setting sits earlier in this card with
+                    // nothing between them but its own nested entries — the timeout
+                    // under its switch. Anything looser (a later setting, another
+                    // card, a row in between) would draw the entry under the wrong
+                    // parent, so its rules only fade it, as SettingRow does for
+                    // every rule that is not the nesting one.
+                    readonly property var links: {
+                        const out = []
+                        for (let i = 0; i < entries.length; ++i) {
+                            let link = { parent: -1, rule: null, depth: 0 }
+                            for (const rule of rules.list(entries[i].relevantWhen)) {
+                                if (rule.key === undefined)
+                                    continue
+                                let p = -1
+                                for (let j = 0; j < i; ++j) {
+                                    if (entries[j].key === rule.key)
+                                        p = j
+                                }
+                                // Nested entries follow their parent as one block,
+                                // so the entry just above is the parent or inside it.
+                                let k = i - 1
+                                while (k >= 0 && k !== p)
+                                    k = out[k].parent
+                                if (p >= 0 && k === p) {
+                                    link = { parent: p, rule: rule, depth: out[p].depth + 1 }
+                                    break
+                                }
+                            }
+                            out.push(link)
+                        }
+                        return out
+                    }
+
+                    // Whether each entry is on screen: a nested entry is hidden
+                    // while its rule fails or its parent is hidden itself — a
+                    // value set for a feature that is off is no business of the
+                    // screen. Parents come first, so one pass resolves the chain.
+                    readonly property var shownEntries: {
+                        const revision = Settings.valuesRevision
+                        const out = []
+                        for (const link of links)
+                            out.push(link.parent < 0 || (out[link.parent] && rules.ruleHolds(link.rule)))
+                        return out
+                    }
+
                     // The header band is a translucent BLACK wash rather than a
                     // fixed colour: the card itself is translucent over the
                     // dashboard background, so darkening has to compose with
@@ -313,25 +360,89 @@ Item {
                                 Repeater {
                                     model: card.entries
 
-                                    Column {
+                                    // A nested entry is indented one step per level,
+                                    // beside a rail running down from its parent. The
+                                    // parent has no divider above its first nested
+                                    // entry, the nested entries are divided from each
+                                    // other only from the indent, and a full-width
+                                    // divider closes the block — so it reads as one
+                                    // unit with the setting it belongs to.
+                                    Item {
+                                        id: entry
+
                                         required property int index
                                         required property var modelData
 
+                                        readonly property int depth: card.links[index].depth
+                                        // The next entry actually on screen, or -1: it
+                                        // decides the divider and where the rails end.
+                                        readonly property int next: {
+                                            for (let j = index + 1; j < card.shownEntries.length; ++j) {
+                                                if (card.shownEntries[j])
+                                                    return j
+                                            }
+                                            return -1
+                                        }
+                                        readonly property int nextDepth: next >= 0 ? card.links[next].depth : 0
+                                        // The depth of the entry on screen just above,
+                                        // 0 at the top: it decides where the rails begin.
+                                        readonly property int prevDepth: {
+                                            for (let j = index - 1; j >= 0; --j) {
+                                                if (card.shownEntries[j])
+                                                    return card.links[j].depth
+                                            }
+                                            return 0
+                                        }
+
                                         width: cardContent.width
+                                        height: settingRow.height + (divider.visible ? 1 : 0)
+                                        // The Column skips a hidden entry outright.
+                                        visible: card.shownEntries[index] === true
+
+                                        // One rail per level. It runs through the
+                                        // divider to the next nested entry, and is
+                                        // inset by the row's 12px padding at BOTH ends
+                                        // of its block — flush at the top with only the
+                                        // bottom inset, it sat above the text it marks
+                                        // and made a lone nested row look low.
+                                        Repeater {
+                                            model: entry.depth
+
+                                            Rectangle {
+                                                required property int index
+
+                                                readonly property bool opens: entry.prevDepth <= index
+                                                readonly property bool closes: entry.next < 0 || entry.nextDepth <= index
+
+                                                x: index * Theme.settingChildIndent + 6
+                                                y: opens ? 12 : 0
+                                                width: 2
+                                                height: entry.height - y - (closes ? 12 : 0)
+                                                radius: 1
+                                                color: Theme.settingChildRail
+                                            }
+                                        }
 
                                         SettingRow {
-                                            width: parent.width
+                                            id: settingRow
+                                            x: entry.depth * Theme.settingChildIndent
+                                            width: parent.width - x
                                             feedback: pane.rowFeedback
                                             // Wider than the old two-column layout
                                             // allowed; a slider this size is comfortable
                                             // to drag with a fingertip.
                                             editorWidth: 320
-                                            setting: modelData
+                                            setting: entry.modelData
                                         }
 
+                                        // None above this entry's own first nested
+                                        // entry; otherwise from the next entry's indent.
                                         Rectangle {
-                                            visible: index < card.entries.length - 1
-                                            width: parent.width
+                                            id: divider
+                                            visible: entry.next >= 0 && entry.nextDepth <= entry.depth
+                                            anchors.bottom: parent.bottom
+                                            x: entry.nextDepth * Theme.settingChildIndent
+                                            width: parent.width - x
                                             height: 1
                                             color: "#1affffff"
                                         }
@@ -344,6 +455,9 @@ Item {
             }
         }
     }
+
+    // Evaluates the entries' `relevantWhen` rules for the nesting above.
+    SettingRules { id: rules }
 
     // The status widgets a subsection may name. Declared once here rather than
     // inline, so the Loader above is a lookup instead of a chain of conditions.

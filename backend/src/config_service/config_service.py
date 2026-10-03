@@ -218,9 +218,11 @@ def _timezone_options(current: str) -> list[dict]:
 #   min/max/step   numeric bounds (int/float only)
 #   relevantWhen
 #             {"key": <other setting>, "equals": <value>} (or "notEquals"), or a
-#             list of such rules that must ALL hold — the row is faded and
-#             disabled while they do not. May name a setting in either half.
-#             Display only: the write itself is never refused.
+#             list of such rules that must ALL hold. May name a setting in either
+#             half. A rule naming the setting directly above in the same
+#             subsection nests the row under it, hidden while the rule fails; any
+#             other failing rule fades and disables the row (the frontend's
+#             items/settings/CLAUDE.md). Display only: the write is never refused.
 #   warnBelow / warnAbove / warnMessage
 #             advisory threshold: the row shows a caution when the current value
 #             crosses it. Never blocks the write — min/max are the hard bounds.

@@ -64,17 +64,7 @@ setting whose editor lives in the subsection's status widget; `updateChannel` is
 `spotifyDeviceName`, written only by the device scan — renders nothing while staying the write
 allow-list), **`details`** (a row-level live block under the label — see *Row details* below),
 **`relevantWhen`** (`{key, equals|notEquals}` or `{condition}`, or a list of such rules that must
-ALL hold — `SettingRow`
-fades a row whose controlling setting makes it meaningless **and sets `enabled: false` on it**,
-since a control that changes a value with no effect is worse than one that visibly cannot be used;
-`enabled` propagates down the item tree, so no editor needs to know about relevance. A `key` rule
-resolves through `Settings.valueOf()`, which reaches **both** halves, with
-`Settings.valuesRevision` read purely to make the binding live. A `condition` rule names a runtime
-fact no setting holds, resolved in `SettingRow.conditionHolds()` — `screensaverPhotos` is
-`Photos.count > 0`. The screensaver card is the consumer of both: the switch is unavailable until
-the photo folder holds photos, and its three tuning rows need the switch on *and* the photos. The
-row that FIXES a condition — *Kuvakansio*'s import button — must not carry the rule, or it becomes
-unusable exactly when it is needed), **`secret`** (a
+ALL hold — it nests, hides or fades the row, see *Dependent rows* below), **`secret`** (a
 `string` shown masked by `SettingText` except while it is being edited, and logged as `<hidden>` by
 `Settings::setValue`; the saved file still holds it in clear, like `.env`. No setting carries it right
 now — the MML map key, its only consumer, moved to `.env` — but it stays as the guard the next
@@ -82,6 +72,37 @@ secret needs) and **`warnBelow`
 / `warnAbove` + `warnMessage`** (issue
 #34: `SettingRow` shows an inline caution while the value crosses the threshold; advisory only,
 `min`/`max` remain the hard bounds — the myenergi idle poll interval is the first consumer).
+
+## Dependent rows (`relevantWhen`)
+
+`SettingRules.qml` is the one evaluator of the rules; `SettingsPane` and `SettingRow` each act on a
+different part of them.
+
+- **Nested and hidden.** A row whose first `key` rule names a setting **earlier in the same card,
+  with nothing between them but that setting's own nested rows**, is nested under it (`card.links`
+  in `SettingsPane`): indented `Theme.settingChildIndent` per level beside a thin rail
+  (`Theme.settingChildRail`), no divider between the parent and its first nested row, dividers
+  between nested rows only from the indent, and a full-width one closing the block. It is **hidden
+  while that rule fails or its parent is hidden** — a dimmed row for a feature that is off only
+  asked what it belonged to. All of today's dependent rows nest this way: a switch's tuning rows,
+  and the warp rows under `mapFollowMode`. The looser placements (a later setting, another card, a
+  row in between) are deliberately not nested, since the indent would claim the wrong parent.
+- **Faded and disabled.** Every other failing rule — a `condition`, or a `key` rule that does not
+  nest — makes `SettingRow` fade the row **and set `enabled: false` on it**, since a control that
+  changes a value with no effect is worse than one that visibly cannot be used; `enabled`
+  propagates down the item tree, so no editor needs to know about relevance. A row on screen has
+  its nesting rule holding, so only these can fail there.
+- A `key` rule resolves through `Settings.valueOf()`, which reaches **both** halves, with
+  `Settings.valuesRevision` read purely to make the binding live. A `condition` rule names a
+  runtime fact no setting holds, resolved in `SettingRules.conditionHolds()` — `screensaverPhotos`
+  is `Photos.count > 0`. The screensaver card uses both: the switch is faded until the photo folder
+  holds photos (hiding it would hide the feature, and the fix is right below), and its three tuning
+  rows are nested under the switch *and* fade without photos.
+- The row that FIXES a condition — *Kuvakansio*'s import button — must not carry the rule, or it
+  becomes unusable exactly when it is needed. Likewise **an issue's fix row must never be a nested
+  row**: the spotlight could be sent to a row that is hidden.
+- Rows appear and disappear instantly. Every write rebuilds the cards, so an expand animation would
+  need to outlive the delegates it animates.
 
 ## Delegates
 

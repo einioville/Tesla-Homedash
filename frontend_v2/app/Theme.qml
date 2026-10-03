@@ -89,10 +89,14 @@ QtObject {
     // Motion (ms)
     readonly property int dockDuration: 260
     readonly property int pressDuration: 90
-    // Opacity of a settings row that a toggle has made irrelevant. Faded, never
-    // disabled — the value stays editable so you can set it BEFORE turning the
-    // feature on.
+    // Opacity of a settings row whose `relevantWhen` fails for a reason other
+    // than the setting it is nested under (that one hides it) — the row is
+    // disabled too.
     readonly property real settingIrrelevantOpacity: 0.45
+    // A settings row that depends on a setting above it in the same card is
+    // nested under it: indented this much per level, beside a thin rail.
+    readonly property int settingChildIndent: 24
+    readonly property color settingChildRail: "#38ffffff"
 
     // --- Dashboard (Widgets-frontend parity) -----------------------------
     readonly property string fontFamily: "Gotham Rounded Medium"

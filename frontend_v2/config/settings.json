@@ -22,7 +22,7 @@
         "Per-subsection keys: id, label, help (optional, under the card title),\nstatus (optional: names a runtime status widget rendered in the card -\n'backendProbe' is the reachability check), settings.",
         "",
         "Per-setting keys: key, type (bool|int|float|string|enum|action), label, help,",
-        "unit, min/max/step (numeric), options\n(enum), default, apply, editor,\nwarnBelow/warnAbove + warnMessage (advisory caution, never blocks a write),\nrelevantWhen {key, equals|notEquals} or {condition} (a runtime fact named in\nSettingRow.conditionHolds), or a list of such rules that must ALL hold\n(fades and disables the row while they do not).",
+        "unit, min/max/step (numeric), options\n(enum), default, apply, editor,\nwarnBelow/warnAbove + warnMessage (advisory caution, never blocks a write),\nrelevantWhen {key, equals|notEquals} or {condition} (a runtime fact named in\nSettingRules.conditionHolds), or a list of such rules that must ALL hold.\nA key rule naming the setting just above in the same subsection nests the row\nunder it, hidden while the rule fails; any other failing rule fades and\ndisables the row.",
         "editor: a per-type CONTROL HINT, always opt-in, ignored when absent.",
         "        'slider' (int/float) replaces the default [-] value [+] stepper,",
         "        and only for coarse dials where the exact number does not matter",

@@ -114,6 +114,7 @@ qt_add_qml_module(appfrontend_v2
         views/ChargingView.qml
         views/SettingsView.qml
         items/settings/SettingRow.qml
+        items/settings/SettingRules.qml
         items/settings/SettingSwitch.qml
         items/settings/SettingSlider.qml
         items/settings/SettingNumber.qml
