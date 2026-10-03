@@ -62,17 +62,6 @@ Rectangle {
 
             readonly property bool current: modelData.id === sidebar.currentId
 
-            // What this section actually contains. A section can now hold both
-            // local and backend subsections, so the row names them instead of
-            // claiming a single origin — origin is shown per card in the pane.
-            readonly property string sectionNames: {
-                const list = modelData.sections !== undefined ? modelData.sections : []
-                const names = []
-                for (let i = 0; i < list.length; ++i)
-                    names.push(list[i].label !== undefined ? list[i].label : list[i].id)
-                return names.join(" · ")
-            }
-
             width: ListView.view.width
             height: 52
             radius: 8
@@ -106,32 +95,20 @@ Rectangle {
                 tint: row.current ? Theme.dataLabelValue : Theme.dataLabelTitle
             }
 
-            Column {
+            // The title alone: a line listing the section's subsections was cut
+            // mid-word in this width, and the pane's cards name them anyway.
+            Text {
                 anchors.left: sectionIcon.right
                 anchors.leftMargin: 12
                 anchors.right: parent.right
                 anchors.rightMargin: 10
                 anchors.verticalCenter: parent.verticalCenter
-                spacing: 1
-
-                Text {
-                    text: row.modelData.label !== undefined ? row.modelData.label
-                                                            : row.modelData.id
-                    font.family: Theme.fontFamily
-                    font.pixelSize: 15
-                    color: row.current ? Theme.dataLabelValue : "#d0d4da"
-                    elide: Text.ElideRight
-                    width: parent.width
-                }
-
-                Text {
-                    text: row.sectionNames
-                    width: parent.width
-                    elide: Text.ElideRight
-                    font.family: Theme.fontFamily
-                    font.pixelSize: 10
-                    color: Theme.dataLabelTitle
-                }
+                text: row.modelData.label !== undefined ? row.modelData.label
+                                                        : row.modelData.id
+                font.family: Theme.fontFamily
+                font.pixelSize: 15
+                color: row.current ? Theme.dataLabelValue : "#d0d4da"
+                elide: Text.ElideRight
             }
 
             MouseArea {

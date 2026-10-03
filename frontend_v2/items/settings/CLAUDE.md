@@ -23,7 +23,8 @@ behind several of these files are documented in `../../core/CLAUDE.md`:
 
 Master/detail, three levels deep: `views/SettingsView.qml` is a sidebar + pane
 split: `items/settings/SettingsSidebar.qml` lists the sections (one per schema group, its row
-naming the subsections inside) and `SettingsPane.qml` renders the selected section as a stack
+the icon and title only — a second line naming the subsections was cut mid-word at the
+sidebar's width, and the cards name them anyway) and `SettingsPane.qml` renders the selected section as a stack
 of **one card per subsection** (issue #30) — the same card the sidebar itself carries. The pane
 is transparent; the cards are the containers, so nothing is nested inside a further border.
 Sections are general (Yleinen, Media, Datan visualisointi, Sähkö, Tesla, Ylläpito) and the
