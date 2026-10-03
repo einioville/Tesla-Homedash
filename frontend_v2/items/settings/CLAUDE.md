@@ -71,7 +71,7 @@ now — the MML map key, its only consumer, moved to `.env` — but it stays as 
 secret needs) and **`warnBelow`
 / `warnAbove` + `warnMessage`** (issue
 #34: `SettingRow` shows an inline caution while the value crosses the threshold; advisory only,
-`min`/`max` remain the hard bounds — the myenergi idle poll interval is the first consumer).
+`min`/`max` remain the hard bounds — the myenergi poll interval is the first consumer).
 
 ## Dependent rows (`relevantWhen`)
 
@@ -85,8 +85,10 @@ different part of them.
   between nested rows only from the indent, and a full-width one closing the block. It is **hidden
   while that rule fails or its parent is hidden** — a dimmed row for a feature that is off only
   asked what it belonged to. All of today's dependent rows nest this way: a switch's tuning rows,
-  and the warp rows under `mapFollowMode`. The looser placements (a later setting, another card, a
-  row in between) are deliberately not nested, since the indent would claim the wrong parent.
+  the warp rows under `mapFollowMode`, and the tariff rows under *Sähkösopimus* (`spotPrice.enabled`
+  — *Hinta* under *Kiinteä*, *Marginaali* and *Arvonlisävero* under *Pörssi*). The looser
+  placements (a later setting, another card, a row in between) are deliberately not nested, since
+  the indent would claim the wrong parent.
 - **Faded and disabled.** Every other failing rule — a `condition`, or a `key` rule that does not
   nest — makes `SettingRow` fade the row **and set `enabled: false` on it**, since a control that
   changes a value with no effect is worse than one that visibly cannot be used; `enabled`
@@ -126,7 +128,11 @@ for big jumps. **A hold steps a pending value that only the field shows and comm
 release** — every `Settings.setValue()` rebuilds `Settings.groups` (at once for a local key, on the
 schema broadcast for a backend one), which destroys the delegate and the press with it, so writing
 per step stopped every hold after one step and wrote `config.json` on each. `editor` is the
-general per-type control HINT, not a numeric one — `slider` and `time` are its consumers today.
+general per-type control HINT, not a numeric one — `slider`, `time` and `select` are its consumers today.
+**`editor: "select"`** renders a `bool` as `SettingSelect` over its two `options` (`false` / `true`)
+instead of a switch — for a choice between two named things rather than a feature on or off. The
+value stays a bool, so the backend validates and every consumer reads it unchanged. *Sähkösopimus*
+(`spotPrice.enabled`: *Kiinteä* / *Pörssi*) is its consumer.
 **`editor: "time"`** keeps `SettingNumber` but reads the int as minutes since midnight (`HH:MM`), makes the ± buttons **wrap** past midnight (min 0, max 1440 − step) and the field
 read-only: the number pad has no colon, and with wrapping, eight 15-minute steps back from 00:00
 reach 22:00. The night-mode window (`nightStartMin` / `nightEndMin`) is its consumer.

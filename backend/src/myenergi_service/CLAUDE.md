@@ -8,9 +8,11 @@ are in `../charging_service/CLAUDE.md`.
   measurement: `GridPower` + `ChargePower` **every poll** (gap-free for the past-hour graphs and the
   month home-import integral) and `ChargeAdded` (the session accumulator) **while charging**. Mirrors
   `WeatherService` (initial poll + APScheduler job, last frame cached for `stream_everything`), with
-  two poll cadences (idle/active, config-driven — default **60 s idle / 20 s active** to stay under
-  the myenergi cloud's rate limit; 10 s throttled us with 429s). `__apply_interval` is the single
-  place that reschedules the job: it picks the active/idle base then stretches it by a **capped
+  **one** poll cadence whether or not the car is charging (`pollIntervalSeconds`, default **60 s** to
+  stay under the myenergi cloud's rate limit; 10 s throttled us with 429s). There used to be a faster
+  one while charging, but session energy is the Zappi's own `ChargeAdded` accumulator, so polling
+  faster only refreshed the live display sooner. `__apply_interval` is the single place that
+  reschedules the job: it takes the configured base and stretches it by a **capped
   exponential backoff** (`2**consecutive_failures`, ≤ 5 min) whenever a poll fails, snapping back on
   the first success. This matters because every failed request flips pymyenergi's `do_query_asn` back
   on, so the next poll fires two requests (director + status) — polling a failing endpoint at full

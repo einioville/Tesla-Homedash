@@ -22,8 +22,8 @@ running system:
               reschedules / refetches where that is needed). Applied immediately.
   "restart" — no safe live path: the value is consumed once at construction to
               build something that cannot be rebuilt in place (APScheduler cron
-              jobs from timeZone, the resolved Zappi from zappiSerial, whether
-              SpotPriceService has a run task at all from spotPrice.enabled).
+              jobs from timeZone, whether SpotPriceService has a run task at all
+              from spotPrice.enabled).
               Written to config.json and picked up on the next process start.
 
 A "hook" setting whose service is absent (no Zappi configured -> no
@@ -66,20 +66,6 @@ _REBOOT_TIMEOUT_SECONDS = 15.0
 # Each returns the coerced value, or raises ValueError with a message shown
 # verbatim in the frontend. Referenced by name from the schema's "validator" key.
 
-def _validate_url(value: str) -> str:
-    '''
-    Checks that a string looks like an http(s) endpoint.  Not a full URL parse —
-    just enough to stop an obvious typo being written and silently breaking the
-    next price fetch.
-    Arguments:
-        value (str): Candidate base URL.
-    '''
-    url = value.strip()
-    if not url.startswith(("http://", "https://")):
-        raise ValueError("Osoitteen on alettava http:// tai https://")
-    return url
-
-
 def _validate_place(value: str) -> str:
     '''
     Checks a non-empty FMI place name.  FMI itself decides whether the place
@@ -96,8 +82,8 @@ def _validate_place(value: str) -> str:
 
 def _validate_spotify_device_id(value: str) -> str:
     '''
-    Refuses an empty Spotify Connect device id.  Unlike myenergi.zappiSerial,
-    where "" legitimately means "auto-select the first device", an empty id here
+    Refuses an empty Spotify Connect device id.  Unlike the config.json-only
+    myenergi.zappiSerial, where "" means "auto-select the first Zappi", an empty id here
     has no meaning at all: _target_device_id never matches a playing device, so
     Spotify never claims control and every transport button silently does
     nothing — with a success toast and not one warning in the log.  That is
@@ -113,7 +99,6 @@ def _validate_spotify_device_id(value: str) -> str:
 
 
 _VALIDATORS: dict[str, Callable[[str], str]] = {
-    "url": _validate_url,
     "place": _validate_place,
     "spotify_device_id": _validate_spotify_device_id,
 }
@@ -210,7 +195,7 @@ def _timezone_options(current: str) -> list[dict]:
 #   settings.
 #
 # Per-setting keys:
-#   key       dotted path into config.json ("myenergi.pollIntervalIdleSeconds")
+#   key       dotted path into config.json ("myenergi.pollIntervalSeconds")
 #   type      bool | int | float | string | enum
 #   label     Finnish row label
 #   help      Finnish one-liner shown under the row (optional)
@@ -227,13 +212,15 @@ def _timezone_options(current: str) -> list[dict]:
 #             advisory threshold: the row shows a caution when the current value
 #             crosses it. Never blocks the write — min/max are the hard bounds.
 #   nullable  True if the setting may be cleared to null
-#   options   enum choices; "dynamic" instead means built at schema time
+#   options   enum choices; "dynamic" instead means built at schema time. A bool
+#             may carry two (value False / True) with editor "select".
 #   validator name in _VALIDATORS (string only)
 #   editor    optional UI hint. Numeric settings render as a [-] value [+] stepper
 #             by default; "slider" opts into a slider, which is only usable when
 #             the exact number does not matter (a range spanning thousands of
-#             steps is undraggable). None of the settings below want one — a port,
-#             a tariff and a poll interval are all values you need to hit exactly.
+#             steps is undraggable) — only the volume wants one. "select" renders
+#             a bool as a dropdown of its two options instead of a switch, for a
+#             choice between two things rather than a feature on or off.
 #   guard     name of a register_guard() callable run before the write is
 #             persisted; raising ValueError rejects it with a message shown to
 #             the user (an audio stack that cannot switch outputs, say)
@@ -381,15 +368,49 @@ SETTINGS_SCHEMA: list[dict] = [
             {
                 "id": "pricing",
                 "label": "Hinnoittelu",
-                "help": "Kumpi hinnoittelu on käytössä ja millä lisillä.",
                 "settings": [
                     {
+                        # A bool shown as a two-way dropdown (editor "select"):
+                        # the choice is between two tariffs, not a feature that is
+                        # on or off. The rows below nest under it, each shown only
+                        # for its own tariff.
                         "key": "spotPrice.enabled",
                         "type": "bool",
-                        "label": "Pörssisähkön hinnoittelu",
-                        "help": "Pois päältä = kiinteä hinta alla.",
+                        "editor": "select",
+                        "options": [
+                            {"value": False, "label": "Kiinteä"},
+                            {"value": True, "label": "Pörssi"},
+                        ],
+                        "label": "Sähkösopimus",
                         "apply": "restart",
                         "hooks": [],
+                    },
+                    {
+                        # Still the per-hour fallback when spot pricing is on and
+                        # an hour has no spot price; only its row is hidden then.
+                        "key": "electricityPriceEurPerKwh",
+                        "relevantWhen": {"key": "spotPrice.enabled", "equals": False},
+                        "type": "float",
+                        "label": "Hinta",
+                        "unit": "€/kWh",
+                        "min": 0.0,
+                        "max": 2.0,
+                        "step": 0.001,
+                        "nullable": True,
+                        "apply": "hook",
+                        "hooks": ["charging"],
+                    },
+                    {
+                        "key": "spotPrice.marginCentsPerKwh",
+                        "relevantWhen": {"key": "spotPrice.enabled", "equals": True},
+                        "type": "float",
+                        "label": "Marginaali",
+                        "unit": "c/kWh",
+                        "min": 0.0,
+                        "max": 20.0,
+                        "step": 0.05,
+                        "apply": "hook",
+                        "hooks": ["spot_price"],
                     },
                     {
                         "key": "spotPrice.vatPercent",
@@ -403,54 +424,19 @@ SETTINGS_SCHEMA: list[dict] = [
                         "apply": "hook",
                         "hooks": ["spot_price"],
                     },
-                    {
-                        "key": "spotPrice.marginCentsPerKwh",
-                        "relevantWhen": {"key": "spotPrice.enabled", "equals": True},
-                        "type": "float",
-                        "label": "Myyjän marginaali",
-                        "help": "Lisätään pörssihintaan ennen alv:tä.",
-                        "unit": "c/kWh",
-                        "min": 0.0,
-                        "max": 20.0,
-                        "step": 0.05,
-                        "apply": "hook",
-                        "hooks": ["spot_price"],
-                    },
-                    {
-                        "key": "spotPrice.baseUrl",
-                        "relevantWhen": {"key": "spotPrice.enabled", "equals": True},
-                        "type": "string",
-                        "label": "Hintalähde",
-                        "help": "sähkötin.fi-yhteensopiva rajapinta.",
-                        "validator": "url",
-                        "apply": "hook",
-                        "hooks": ["spot_price"],
-                    },
-                    {
-                        "key": "electricityPriceEurPerKwh",
-                        "type": "float",
-                        "label": "Kiinteä sähkön hinta",
-                        "help": "Varahinta tunneille, joille ei saada pörssihintaa.",
-                        "unit": "€/kWh",
-                        "min": 0.0,
-                        "max": 2.0,
-                        "step": 0.001,
-                        "nullable": True,
-                        "apply": "hook",
-                        "hooks": ["charging"],
-                    },
                 ],
             },
             {
+                # myenergi.zappiSerial is deliberately not here: it is a
+                # config.json-only key (blank = the account's first Zappi).
                 "id": "charger",
                 "label": "Laturi",
-                "help": "myenergi Zappin kyselyväli ja latausistuntojen tunnistus.",
                 "settings": [
                     {
-                        "key": "myenergi.pollIntervalIdleSeconds",
+                        "key": "myenergi.pollIntervalSeconds",
                         "type": "int",
-                        "label": "Kyselyväli, lepotila",
-                        "help": "Kuinka usein Zappin tilaa kysytään lepotilassa.",
+                        "label": "Kyselyväli",
+                        "help": "Kuinka usein Zappin tila päivitetään.",
                         "unit": "s",
                         "min": 20,
                         "max": 900,
@@ -458,17 +444,6 @@ SETTINGS_SCHEMA: list[dict] = [
                         "warnBelow": 60,
                         "warnMessage": ("Alle minuutin kyselyväli ruuhkauttaa myenergi-pilven: "
                                         "429-vastaukset kasvattavat odotusta entisestään."),
-                        "apply": "hook",
-                        "hooks": ["myenergi"],
-                    },
-                    {
-                        "key": "myenergi.pollIntervalActiveSeconds",
-                        "type": "int",
-                        "label": "Kyselyväli, lataus käynnissä",
-                        "unit": "s",
-                        "min": 10,
-                        "max": 600,
-                        "step": 5,
                         "apply": "hook",
                         "hooks": ["myenergi"],
                     },
@@ -495,14 +470,6 @@ SETTINGS_SCHEMA: list[dict] = [
                         "step": 1,
                         "apply": "hook",
                         "hooks": ["charging"],
-                    },
-                    {
-                        "key": "myenergi.zappiSerial",
-                        "type": "string",
-                        "label": "Zappin sarjanumero",
-                        "help": "Tyhjä = valitse tilin ensimmäinen Zappi.",
-                        "apply": "restart",
-                        "hooks": [],
                     },
                 ],
             },

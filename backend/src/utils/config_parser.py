@@ -145,8 +145,7 @@ class Config:
     # here — only non-secret tunables belong in config.json.
     _MYENERGI_DEFAULTS = {
         "zappiSerial": "",
-        "pollIntervalIdleSeconds": 30,
-        "pollIntervalActiveSeconds": 10,
+        "pollIntervalSeconds": 60,
         "minSessionEnergyKwh": 0.5,
         "sessionMergeMinutes": 5,
     }
@@ -309,9 +308,11 @@ class Config:
         '''MyEnergi (Zappi) tunables, with defaults filled in for any missing key so
         a fully or partially absent "myenergi" block is safe:
         - zappiSerial: which Zappi to read when the account has more than one; ""
-          lets MyEnergiService auto-select the first discovered Zappi.
-        - pollIntervalIdleSeconds / pollIntervalActiveSeconds: cloud poll cadence
-          when no car is connected vs. while a session is active.
+          lets MyEnergiService auto-select the first discovered Zappi. Edited only
+          here, not from the Options view.
+        - pollIntervalSeconds: cloud poll cadence, the same whether or not a session
+          is active (session energy is the Zappi's own accumulator, so a faster
+          poll while charging would only refresh the live display sooner).
         - minSessionEnergyKwh: charging sessions that delivered less than this are
           dropped from the list (noise / a car charged away from this Zappi).
         - sessionMergeMinutes: a non-charging gap shorter than this is absorbed into
@@ -330,7 +331,8 @@ class Config:
         - marginCentsPerKwh: the seller's fixed margin (c/kWh) added to the raw spot
           price before VAT, approximating a real spot contract's energy price.
         - baseUrl: the sähkötin.fi range endpoint; config-driven so an alternate
-          no-key source (e.g. sahkonhintatanaan.fi) can be swapped in without code.'''
+          no-key source (e.g. sahkonhintatanaan.fi) can be swapped in without code.
+          Edited only here, not from the Options view.'''
         return {**self._SPOT_PRICE_DEFAULTS, **self.__data.get("spotPrice", {})}
 
     @property
@@ -408,7 +410,7 @@ class Config:
     def set(self, key_path: str, value: Any) -> None:
         '''
         Writes one value into the in-memory document by dotted key path
-        ("myenergi.pollIntervalIdleSeconds").  Missing intermediate blocks are
+        ("myenergi.pollIntervalSeconds").  Missing intermediate blocks are
         created: the optional "trip" / "myenergi" / "spotPrice" blocks are
         merged over defaults at read time, so a real config.json may legitimately
         not contain them yet.

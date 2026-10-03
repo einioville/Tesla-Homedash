@@ -27,8 +27,9 @@ write allow-list and the frontend's UI description, so adding a tunable is one e
 >   `_media()` (the manager's own `media` block), and `AudioService`. `SpotPriceProvider` needs no cache flush — it caches *raw* prices and
 >   applies VAT/margin on read.
 > - **`restart`** — the value builds something that cannot be rebuilt in place: `timeZone`
->   (APScheduler cron jobs), `myenergi.zappiSerial` (the Zappi resolved at connect),
->   `spotPrice.enabled` (whether `SpotPriceService` has a run task at all).
+>   (APScheduler cron jobs), `spotPrice.enabled` (whether `SpotPriceService` has a run task at
+>   all). `myenergi.zappiSerial` (the Zappi resolved at connect) would be one too, but it is
+>   `config.json`-only and not in the schema, like `spotPrice.baseUrl`.
 >
 > A `hook` setting whose hooks are all **unregistered** (no Zappi → no `MyEnergiService`) is
 > reported to the frontend as `restart`, because that is what it truly is for that deployment.

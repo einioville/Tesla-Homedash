@@ -101,8 +101,10 @@ Parsed once by `Config` and injected into every service. Keys:
 - `weatherPlace` — FMI place (e.g. `Tampere`); `timeZone` — IANA zone (e.g. `Europe/Helsinki`), or
   `"auto"` (the default when absent) for the host's own zone. `Config.timezone` / `zone_info` are
   always the zone in effect, never `"auto"`.
-- `myenergi` (optional) — Zappi tunables: `zappiSerial` (`""` = auto-select the first Zappi),
-  `pollIntervalIdleSeconds` / `pollIntervalActiveSeconds`, `minSessionEnergyKwh`, `sessionMergeMinutes`.
+- `myenergi` (optional) — Zappi tunables: `zappiSerial` (`""` = auto-select the first Zappi; set
+  here only, not in the Options view), `pollIntervalSeconds` (one cadence, charging or not; default
+  60), `minSessionEnergyKwh`, `sessionMergeMinutes`. (The old `pollIntervalIdleSeconds` /
+  `pollIntervalActiveSeconds` pair is gone; a leftover key in an existing `config.json` is ignored.)
 - `trip` (optional) — trip-detection tunables: `min_stop_minutes`, `min_trip_distance_km`.
 - `electricityPriceEurPerKwh` (optional) — flat €/kWh tariff for the Charging view's cost tiles
   (`Latauskulut` = charging cost, `Sähkölasku` = total home electricity cost); `null`/absent → "—".
@@ -110,7 +112,8 @@ Parsed once by `Config` and injected into every service. Keys:
 - `spotPrice` (optional, issue #12) — Nord Pool FI hourly spot pricing for the cost tiles + the live
   price tile: `enabled` (master switch; `false` → flat-tariff pricing, no live service),
   `vatPercent` (Finnish electricity VAT, default `25.5`), `marginCentsPerKwh` (seller margin c/kWh
-  added before VAT), `baseUrl` (the no-key sähkötin.fi range endpoint; swappable for another source).
+  added before VAT), `baseUrl` (the no-key sähkötin.fi range endpoint, the default; swappable for
+  another source here only, not in the Options view).
   All-in €/kWh for an hour = `(spot + marginCentsPerKwh/100) × (1 + vatPercent/100)`. Prices are
   fetched on demand (no self-logging) — historical hours price past sessions retroactively.
 - `media` (optional) — `autoplayRadio` (start the radio at backend start) and

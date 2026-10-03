@@ -198,12 +198,17 @@ Item {
         id: editorLoader
         anchors.right: parent.right
         anchors.verticalCenter: parent.verticalCenter
-        width: row.setting.type === "bool" ? 56 : row.editorWidth
+        // A bool with editor: "select" is a choice between two named things
+        // (fixed vs spot tariff), not a feature on or off, so it gets the
+        // dropdown and the full editor width instead of a switch.
+        readonly property bool asSwitch: row.setting.type === "bool" && row.setting.editor !== "select"
+
+        width: asSwitch ? 56 : row.editorWidth
 
         sourceComponent: {
             switch (row.setting.type) {
             case "bool":
-                return switchComponent
+                return asSwitch ? switchComponent : selectComponent
             case "int":
             case "float":
                 // Sliders are OPT-IN. They only work when the exact number does

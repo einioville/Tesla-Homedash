@@ -115,7 +115,7 @@ flat held line across the whole range instead of "no data". Only a genuinely abs
 `CONFIG_SET` *also broadcasts* a fresh `CONFIG_SCHEMA` so a second frontend refreshes its
 displayed values. Bodies are `len(4B) + UTF-8 JSON` (the `CHARGER_RAW_JSON` idiom) rather than
 a packed layout — the schema is variable-shaped and these packets are rare. Keys are dotted
-paths into `config.json` (`myenergi.pollIntervalIdleSeconds`). `CONFIG_SET_RESULT.applied` is
+paths into `config.json` (`myenergi.pollIntervalSeconds`). `CONFIG_SET_RESULT.applied` is
 `hook` (a service re-snapshotted), `restart` (written but only live after a restart) or
 `unchanged` (the value already matched, so nothing was written or broadcast).
 

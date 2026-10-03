@@ -420,7 +420,9 @@ render margin; the gesture settings' Qt Graphs follow-up is #53), the map's Eleh
 settings as named levels too, whole-step default zoom, and the map imagery choice and MML key out of
 the Options view (the key is `.env`-only) — plus the north-up map's 0.001° bearing bias that makes
 it glide instead of stepping in whole pixels — plus the sidebar's section rows reduced to icon and title, and dependent settings nested under the
-setting they belong to, hidden while it is off.
+setting they belong to, hidden while it is off — plus the Sähkö section: the tariff as a
+*Kiinteä* / *Pörssi* dropdown with each tariff's rows nested under it, one Zappi poll interval, and
+the price source and Zappi serial out of the Options view (`config.json`-only).
 When you land a change that touches documented behaviour, update this line.
 
 ## 8. Session workflow — main checkout by default, worktree only for parallelism

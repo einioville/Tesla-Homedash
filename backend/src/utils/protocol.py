@@ -195,7 +195,7 @@ SPOT_PRICE_STREAM = 0x88    # B->F: status(1B) + hour_start_ms(8B) + spot_eur_pe
 # CONFIG_SCHEMA's JSON is {"groups": [{"id", "label", "settings": [...]}]} where each
 # setting carries key/type/label/default/value plus per-type bounds (min/max/step,
 # options) and an "apply" tier — see config_service.SETTINGS_SCHEMA. Keys are dotted
-# paths into config.json ("myenergi.pollIntervalIdleSeconds").
+# paths into config.json ("myenergi.pollIntervalSeconds").
 #
 # The "apply" tier tells the frontend what a write actually did:
 #   live    — services read the value on demand; the in-memory Config mutation is enough

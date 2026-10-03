@@ -8,9 +8,9 @@ per-tick exceptions APScheduler logs and swallows (self-healing). Like weather, 
 last broadcast frame is cached and replayed to any newly connected client via
 stream_everything so its charger UI populates immediately.
 
-Two cadences (config-driven): a slow idle poll and a faster one while a session is
-active, switched by rescheduling the job — the same idea as SpotifyPlayer's 10s/2s.
-All myenergi cloud access is through pymyenergi; all InfluxDB access is through the
+One cadence (config-driven), whether or not the car is charging: session energy comes
+from the Zappi's own accumulator, so polling faster during a session would only refresh
+the live display sooner. All myenergi cloud access is through pymyenergi; all InfluxDB access is through the
 injected InfluxDBHandler.
 '''
 import asyncio
@@ -67,7 +67,7 @@ _GRID_POWER_ID = "GridPower"
 # (5xx), and every failure also flips pymyenergi's do_query_asn back on, so the *next*
 # poll fires two requests (director ASN + status) instead of one — polling a failing
 # endpoint at the normal cadence therefore deepens a throttle. On consecutive failures the
-# interval is stretched by 2**failures (capped), snapping back to the normal idle/active
+# interval is stretched by 2**failures (capped), snapping back to the configured
 # cadence on the first poll that succeeds.
 _BACKOFF_FACTOR_CAP = 4         # cap the multiplier at 2**4 = 16x the base interval
 _BACKOFF_MAX_INTERVAL_S = 300   # ...and never back off slower than once every 5 minutes
@@ -123,17 +123,16 @@ class MyEnergiService:
         myenergi_config = config.myenergi_config
         # Blank zappiSerial -> auto-select the first Zappi discovered on the account.
         self.__zappi_serial = myenergi_config["zappiSerial"] or None
-        self.__idle_interval = int(myenergi_config["pollIntervalIdleSeconds"])
-        self.__active_interval = int(myenergi_config["pollIntervalActiveSeconds"])
+        self.__interval = int(myenergi_config["pollIntervalSeconds"])
 
         self.__scheduler = AsyncIOScheduler(timezone=config.zone_info)
         self.__connection: Connection | None = None
         self.__zappi: Zappi | None = None
         self.__job = None
         self.__current_interval: int | None = None
-        # Cadence inputs for __apply_interval: whether the last successful poll saw the
-        # charger charging (active vs idle base), and how many polls have failed in a row
-        # (drives the backoff). Reset to 0 on the first poll that succeeds.
+        # Whether the last successful poll saw the charger charging (reported by
+        # health()), and how many polls have failed in a row (drives the backoff in
+        # __apply_interval). Reset to 0 on the first poll that succeeds.
         self.__is_charging = False
         self.__consecutive_failures = 0
 
@@ -148,13 +147,13 @@ class MyEnergiService:
     async def run(self) -> None:
         '''
         Starts the service: opens the pymyenergi connection, performs an initial poll,
-        then schedules the periodic poll at the idle cadence and returns (the job owns
+        then schedules the periodic poll at the configured cadence and returns (the job owns
         the ongoing work). Digest auth needs no async handshake — director discovery
         happens on the first request inside the poll.
         '''
         logger.info(
-            "MyEnergi service starting: zappi_serial=%s idle=%ds active=%ds",
-            self.__zappi_serial or "<auto>", self.__idle_interval, self.__active_interval,
+            "MyEnergi service starting: zappi_serial=%s interval=%ds",
+            self.__zappi_serial or "<auto>", self.__interval,
         )
         self.__connection = Connection(username=self.__hub_serial, password=self.__api_key)
         logger.info("Performing initial charger poll")
@@ -162,9 +161,9 @@ class MyEnergiService:
         self.__scheduler.start()
         self.__job = self.__scheduler.add_job(
             func=self.__poll,
-            trigger=IntervalTrigger(seconds=self.__idle_interval),
+            trigger=IntervalTrigger(seconds=self.__interval),
         )
-        self.__current_interval = self.__idle_interval
+        self.__current_interval = self.__interval
 
     def health(self) -> dict:
         '''
@@ -354,31 +353,25 @@ class MyEnergiService:
         zappiSerial is deliberately NOT re-read: the Zappi is resolved once when
         the service connects, so changing it is a restart-tier setting.
         '''
-        myenergi_config = self.__config.myenergi_config
-        idle = int(myenergi_config["pollIntervalIdleSeconds"])
-        active = int(myenergi_config["pollIntervalActiveSeconds"])
-        if idle == self.__idle_interval and active == self.__active_interval:
+        interval = int(self.__config.myenergi_config["pollIntervalSeconds"])
+        if interval == self.__interval:
             return
-        logger.info(
-            "MyEnergi poll cadence changed: idle %ss -> %ss, active %ss -> %ss",
-            self.__idle_interval, idle, self.__active_interval, active,
-        )
-        self.__idle_interval = idle
-        self.__active_interval = active
+        logger.info("MyEnergi poll cadence changed: %ss -> %ss", self.__interval, interval)
+        self.__interval = interval
         self.__apply_interval()
 
     def __apply_interval(self) -> None:
         '''
         Sets the poll cadence to the desired interval by rescheduling the job, a no-op
-        when it already matches. The base cadence is the active interval while charging or
-        the idle interval otherwise; consecutive failures then stretch it by a capped
+        when it already matches. The base cadence is the configured interval; consecutive
+        failures stretch it by a capped
         exponential backoff (2**failures, bounded by _BACKOFF_MAX_INTERVAL_S) so a
         sustained cloud throttle (429) or outage is not hammered — and because each failure
         also forces pymyenergi to re-query the director next poll, backing off is what
         actually lets a throttle clear. The first successful poll resets the failure count,
-        snapping the cadence straight back to idle/active.
+        snapping the cadence straight back to the configured interval.
         '''
-        base = self.__active_interval if self.__is_charging else self.__idle_interval
+        base = self.__interval
         if self.__consecutive_failures:
             factor = 2 ** min(self.__consecutive_failures, _BACKOFF_FACTOR_CAP)
             desired = min(base * factor, _BACKOFF_MAX_INTERVAL_S)
