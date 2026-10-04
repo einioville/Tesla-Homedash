@@ -89,6 +89,21 @@ QtObject {
     // Motion (ms)
     readonly property int dockDuration: 260
     readonly property int pressDuration: 90
+    // ToggleSwitch: the knob's leading edge reaches the far end first, then its
+    // tail follows and it is a circle again.
+    readonly property int switchStretchDuration: 110
+    readonly property int switchSettleDuration: 140
+    // Reveal: content slides out from under the item above it while set back,
+    // then comes forward to level; each following item starts a stagger later.
+    readonly property int revealSlideDuration: 150
+    readonly property int revealLiftDuration: 110
+    readonly property int revealStagger: 45
+    readonly property int concealDuration: 120
+    readonly property real revealSetBackScale: 0.94
+    readonly property real revealSetBackOpacity: 0.45
+    // ElasticFlickable: how long content dragged or flicked past an end takes to
+    // come back.
+    readonly property int reboundDuration: 320
     // Opacity of a settings row whose `relevantWhen` fails for a reason other
     // than the setting it is nested under (that one hides it) — the row is
     // disabled too.

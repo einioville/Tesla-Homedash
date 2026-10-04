@@ -27,6 +27,7 @@ resources/      # fonts, icons, styles, Luna
 | The Options view's QML — layout, schema keys, delegates, status widgets, folder picker | `items/settings/CLAUDE.md` |
 | The map — `items/tesla/TeslaMap.qml` (full-screen in `views/MapView.qml`; `items/trip/TripMap.qml` shares its gesture handlers) | `items/tesla/CLAUDE.md` |
 | `items/util/ScreenSaver.qml` | `items/util/CLAUDE.md` |
+| A new control or anything that moves — reuse `ToggleSwitch`, `Reveal`, `ElasticFlickable`, `WheelStepArea`, `HoldRepeatArea` (timings are `Theme` *Motion* tokens) | `items/util/CLAUDE.md` |
 | The wire format of anything `ServerClient` parses | `backend/src/utils/CLAUDE.md` |
 
 A feature that spans C++ and QML is documented once, beside the file holding most of its

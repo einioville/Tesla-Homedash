@@ -169,6 +169,10 @@ qt_add_qml_module(appfrontend_v2
         items/util/TintedIcon.qml
         items/util/GlowIcon.qml
         items/util/HoldRepeatArea.qml
+        items/util/WheelStepArea.qml
+        items/util/ToggleSwitch.qml
+        items/util/Reveal.qml
+        items/util/ElasticFlickable.qml
         items/util/RoundedImage.qml
         items/util/GlassPanel.qml
         items/util/NotificationLayer.qml

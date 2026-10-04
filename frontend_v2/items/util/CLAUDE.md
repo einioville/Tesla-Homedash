@@ -52,6 +52,44 @@ drag steps nothing; a hold repeats after a 400 ms delay, and the release ending 
 extra step (a naive `onClicked` + running `Timer` stepped twice on any slightly long tap).
 `canStep` false stops the repeat and swallows the tap, so a held button stops at its limit instead
 of hammering it. `finished()` fires once per press however it ended, for callers that batch steps:
-**`SettingNumber` must**, because a settings write rebuilds its own delegate
-(`../settings/CLAUDE.md`), whereas the climate arrows can send every step — `Vehicle.plus_temp` only
-moves the local setpoint and nothing reaches the car until climate is next toggled.
+**`SettingNumber` must**, because every settings write is a disk write (`../settings/CLAUDE.md`),
+whereas the climate arrows can send every step — `Vehicle.plus_temp` only moves the local setpoint
+and nothing reaches the car until climate is next toggled.
+
+## Shared motion and controls — use these, don't re-draw them
+
+Four pieces exist so every future control moves and responds the same way. Their timings are
+`Theme` tokens (*Motion*), so retuning one retunes every use.
+
+- **`ToggleSwitch.qml`** — the on/off switch. `checked` in, `toggled()` out; the caller writes the
+  value wherever it lives and the knob follows `checked`, whoever changed it. On a change the
+  knob's **leading edge runs to the far end first** (`switchStretchDuration`), making it a pill
+  across the track, then the tail follows (`switchSettleDuration`) and it is a circle again. The
+  two edges are separate properties animated in sequence from wherever they are, so a second tap
+  mid-change turns the knob around instead of jumping it. It never animates at construction.
+  Sized with `trackWidth` / `trackHeight` (`touchMargin` widens the press area of a small one —
+  `TeslaFieldTable`'s compact switch). It does not fade itself when disabled: the settings row
+  already fades, and a second fade on top would leave it at about a sixth of full opacity.
+- **`Reveal.qml`** — content that appears **slides out from under the item above it**, set back
+  (`revealSetBackScale` / `revealSetBackOpacity`), then comes forward to level; hiding folds it back.
+  The box grows from 0 to `fullHeight` while the content travels down from one full height above,
+  clipped to the box — so in a Column it emerges from the shared edge and pushes everything below
+  down. Clipping is what makes "under" work without drawing anything on top: the settings cards are
+  translucent and rows have no background to hide behind. **Imperative on purpose**:
+  `show(delay)` / `hide(delay)` / `snap(shown)`, because only the caller knows the order — the
+  domino stagger (`revealStagger`) is the caller ranking what appeared in one change
+  (`SettingsPane`'s `card.animateShown()`). Children go inside; they lay out at `fullHeight`.
+  **It needs a delegate that outlives the change** — a Repeater recreating its items on every model
+  update leaves nothing to animate (`../settings/CLAUDE.md`, *Rows survive a write*).
+- **`ElasticFlickable.qml`** — a vertical Flickable with soft ends: dragged past the top or bottom it
+  follows at half the finger's distance (measured in Qt 6.11's `qquickflickable.cpp`), a fast flick
+  overshoots, and on release it springs back over `reboundDuration`. `VerticalFlick` rather than
+  the default, so a short page still gives under the finger and never moves sideways. Use it for
+  any scrolling page in place of a bare Flickable. (A ListView is its own Flickable: give it the
+  same `boundsBehavior` and `rebound` to match.)
+- **`WheelStepArea.qml`** — mouse wheel → value steps, the wheel's counterpart to
+  `HoldRepeatArea` with the same contract: `stepped(direction)` per notch (120 units, touchpad
+  deltas added up), `settled()` once the wheel has been still for `settleDelay`. Lay it over the
+  whole control: `acceptedButtons: Qt.NoButton` lets presses and drags through, and it accepts
+  every wheel event it gets, so the page does not start scrolling when the value hits its limit. A
+  disabled control disables it too, and then the wheel scrolls the page as usual.
