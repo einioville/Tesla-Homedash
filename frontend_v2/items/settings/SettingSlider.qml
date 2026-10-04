@@ -14,7 +14,8 @@ import frontend_v2
 // frame (each of which the backend persists to config.json and answers with a
 // schema broadcast). So the drag only moves a local display value, and the write
 // happens once the finger lifts — or, for keyboard/step changes that never touch
-// `pressed`, after a short idle debounce.
+// `pressed`, after a short idle debounce. A mouse wheel over the slider steps the
+// display value one step per notch and commits once the wheel settles.
 Item {
     id: control
 
@@ -53,6 +54,14 @@ Item {
         return (control.isInt ? Math.round(value)
                               : value.toFixed(control.stepSize < 0.1 ? 3 : 2))
                + (control.setting.unit !== undefined ? " " + control.setting.unit : "")
+    }
+
+    // Moves the display value `direction` steps along the step grid, clamped.
+    function stepBy(direction) {
+        const steps = Math.round((control.displayValue - control.minimum) / control.stepSize) + direction
+        const value = Math.min(control.maximum, Math.max(control.minimum,
+                                                         control.minimum + steps * control.stepSize))
+        control.displayValue = control.isInt ? Math.round(value) : Number(value.toFixed(6))
     }
 
     function commit() {
@@ -183,5 +192,13 @@ Item {
             border.width: 1
             border.color: Theme.tripCardBorder
         }
+    }
+
+    // Over the track and the readout; it takes only the wheel, so a drag still
+    // reaches the slider beneath it.
+    WheelStepArea {
+        anchors.fill: parent
+        onStepped: (direction) => control.stepBy(direction)
+        onSettled: control.commit()
     }
 }

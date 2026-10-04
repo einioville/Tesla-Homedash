@@ -427,7 +427,9 @@ section reduced to *Matkojen tunnistus* (the Telemetriakentät card is out of th
 update's fuller Tesla options; its plumbing stays) with the trip distance stepping 0.5 km — plus
 Ylläpito: the *Päivitys* card out of the schema pending a release-only updater (#56), the port as a
 plain typed field, the help lines cut from the connection and restart cards, and restart badges that
-name the half (*sovelluksen* / *palvelimen uudelleenkäynnistys*).
+name the half (*sovelluksen* / *palvelimen uudelleenkäynnistys*) — plus the shared motion pieces in
+`items/util/` (stretching `ToggleSwitch`, domino `Reveal` for nested rows, `ElasticFlickable`,
+`WheelStepArea`) and settings rows that survive a write.
 When you land a change that touches documented behaviour, update this line.
 
 ## 8. Session workflow — main checkout by default, worktree only for parallelism

@@ -49,47 +49,12 @@ Item {
     readonly property int switchColumn: 76
     readonly property int modeColumn: 150
 
-    // A compact version of SettingSwitch, driven by a value rather than a setting.
-    component MiniSwitch: Item {
-        id: miniSwitch
-
-        property bool checked: false
-        signal toggled()
-
-        implicitWidth: 46
-        implicitHeight: 26
+    // The shared switch, compact; the press area reaches past it for a finger.
+    component MiniSwitch: ToggleSwitch {
+        trackWidth: 44
+        trackHeight: 24
+        touchMargin: 8
         opacity: enabled ? 1.0 : 0.35
-
-        Rectangle {
-            id: track
-            anchors.centerIn: parent
-            width: 44
-            height: 24
-            radius: height / 2
-            color: miniSwitch.checked ? Theme.accent : Theme.tripComboBg
-            border.width: 1
-            border.color: miniSwitch.checked ? Theme.accent : Theme.tripCardBorder
-
-            Rectangle {
-                width: 18
-                height: 18
-                radius: height / 2
-                color: Theme.dataLabelValue
-                anchors.verticalCenter: parent.verticalCenter
-                x: miniSwitch.checked ? track.width - width - 3 : 3
-
-                Behavior on x {
-                    NumberAnimation { duration: Theme.pressDuration; easing.type: Easing.OutCubic }
-                }
-            }
-        }
-
-        MouseArea {
-            // A finger-sized target around the small visual.
-            anchors.fill: parent
-            anchors.margins: -8
-            onClicked: miniSwitch.toggled()
-        }
     }
 
     // One half of the step | linear toggle.

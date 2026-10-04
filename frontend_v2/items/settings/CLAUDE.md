@@ -32,6 +32,16 @@ subsections carry the detail.
 
 Load-bearing:
 
+- **Rows survive a write.** Every write replaces `Settings.groups` (at once for a local key, on
+  the schema broadcast for a backend one), and a Repeater handed a new array recreates every
+  delegate — which is why nothing in a row could animate past a write: a switch reappeared already
+  moved and nested rows popped in. So `SettingsPane` builds the cards from **`layout`**, replaced
+  only when the section's **shape** changes (`shapeOf()`: the sections with each entry's `value` and
+  the local `modified` flag dropped, as JSON), and each row reads its current entry by key from
+  **`liveEntries`**. A value write leaves the shape alone, so the delegates stay and their bindings
+  carry the value in; a section switch, a schema with other entries, a changed option list or apply
+  tier rebuilds as before. Every editor re-syncs on `onSettingChanged`, which is what lets a row
+  take a new value in place. Measured offscreen: the toggled row is the same object afterwards.
 - **Selection is a group ID, and it is sticky.** The section list grows from 3 entries to 8
   when the backend's schema arrives and shrinks again if the connection drops, so an index
   would silently select a different section. `currentSectionId` holds what the user *chose*
@@ -103,15 +113,23 @@ different part of them.
 - The row that FIXES a condition — *Kuvakansio*'s import button — must not carry the rule, or it
   becomes unusable exactly when it is needed. Likewise **an issue's fix row must never be a nested
   row**: the spotlight could be sent to a row that is hidden.
-- Rows appear and disappear instantly. Every write rebuilds the cards, so an expand animation would
-  need to outlive the delegates it animates.
+- **Appearing and going are animated** (`../util/Reveal.qml`; each entry is a `Reveal`). An entry
+  that appears slides out from under the row above it, set back, then comes forward to level; the
+  card ranks the entries that appeared in one change and staggers them top first
+  (`Theme.revealStagger`), so a switch that reveals three rows drops them like dominoes. Entries
+  that go fold back up, bottom first, at half the stagger. `card.animateShown()` does the ranking
+  by diffing `shownEntries` against `lastShown`; an entry built with its card is `snap()`ped into
+  place, so opening a section animates nothing. This only works because rows survive a write
+  (*Layout*, above).
 
 ## Delegates
 
 `SettingRow` dispatches on `setting.type` to
 `SettingSwitch` / `SettingNumber` / `SettingSlider` / `SettingText` / `SettingSelect` (the
 last subclasses `TripComboBox`, inheriting the dark styling and the #9/#19 dropdown fixes) /
-`SettingAction`.
+`SettingAction`. `SettingSwitch` is only the shared `../util/ToggleSwitch.qml` bound to a setting,
+and the pane scrolls in `../util/ElasticFlickable.qml` (soft ends, spring back on release) — the
+motion and the reusable pieces are documented in `../util/CLAUDE.md`.
 
 **Numeric settings default to `SettingNumber` — a `[−] [typed value] [+]` stepper — and sliders are
 OPT-IN** via the schema's `editor: "slider"`. A slider only works when the exact number does not
@@ -125,9 +143,12 @@ show so the track keeps its length mid-drag — because an editor must centre on
 others: a readout stacked above the track pushed the track ~8px below the label's centre line.
 `SettingNumber`'s ± buttons hold-to-repeat (`../util/HoldRepeatArea.qml`), and it accepts typing
 for big jumps. **A hold steps a pending value that only the field shows and commits it once, on
-release** — every `Settings.setValue()` rebuilds `Settings.groups` (at once for a local key, on the
-schema broadcast for a backend one), which destroys the delegate and the press with it, so writing
-per step stopped every hold after one step and wrote `config.json` on each. `editor` is the
+release** — each write is a disk write (a backend one a `config.json` save, apply hooks and a schema
+broadcast), so writing per step made one hold dozens of them; it also stopped every hold after one
+step back when a write still rebuilt the delegate. **A mouse wheel steps it the same way**
+(`../util/WheelStepArea.qml`): one step per notch into the pending value, one commit once the wheel
+has been still for 400 ms. `SettingSlider` takes the wheel too, along its step grid. The plain
+`field` editor has no steps, so it takes no wheel and the wheel scrolls the pane. `editor` is the
 general per-type control HINT, not a numeric one — `slider`, `time`, `field` and `select` are its consumers today.
 **`editor: "field"`** drops `SettingNumber`'s ± buttons and leaves the typed field, left-aligned like
 `SettingText` — for a number that is an identifier rather than a quantity, which nobody nudges a
@@ -200,15 +221,16 @@ which is kept apart from red on purpose.
 - **`SpotifyDeviceDetails`** — name (type) and id of the configured device. Amber when Spotify does
   not list it: Spotify lists only devices that are up, so *switched off* and *wrong id* look the
   same, and the text says both. It asks for `SpotifyDevice.configuredStatus` on construction; the
-  row is rebuilt on every settings write, so the request is throttled in C++ (`core/CLAUDE.md`).
+  row is rebuilt every time its section is shown, so the request is throttled in C++
+  (`core/CLAUDE.md`).
 
 ## Write results
 
 **A write's result is shown beside the title of the row that made it** — "Tallennettu" in
 green for 2.5 s, a rejection in red for 6 s — not in a banner elsewhere on the screen. The state
-lives in `SettingsView.rowFeedback`, passed down through `SettingsPane`, **not in the row**: every
-write rebuilds `Settings.groups`, which destroys the row that made the write before its result
-arrives. A result with no row to sit beside — a keyless `CONFIG_SET_RESULT` (a refused restart or
+lives in `SettingsView.rowFeedback`, passed down through `SettingsPane`, **not in the row**: a
+write that changes the section's shape still rebuilds the cards (*Layout*), and the row that made
+it may not outlive it. A result with no row to sit beside — a keyless `CONFIG_SET_RESULT` (a refused restart or
 reboot), a lost connection, a hidden setting — goes to the app's
 notification pill (`Notifications.post("settings", …)`) instead. A restart-tier write gets no extra
 wording: the row's badge and the restart banner already say it.
@@ -248,8 +270,9 @@ the local sections from reading as a bug.
   sharp. **A press on the copy dismisses and is not accepted**, so it reaches the real row beneath
   (tapping the highlighted *Kirjaudu* works first time); a press anywhere else is swallowed, so a
   blind tap on the blur cannot flip a switch nobody could see. The row is found by key on every
-  80 ms tick (rows name themselves `settingRow:<key>`, `SettingsPane.rowItem()`), because a write
-  rebuilds every row and a status widget settling can move one; the first ticks also scroll it to
+  80 ms tick (rows name themselves `settingRow:<key>`, `SettingsPane.rowItem()`), because a shape
+  change rebuilds every row and a status widget settling or a row revealing can move one; the first
+  ticks also scroll it to
   the middle of the pane, since the section may only just have been built. The copy is not drawn
   before the first tick: a just-selected section has not been laid out yet.
 

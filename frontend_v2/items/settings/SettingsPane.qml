@@ -18,13 +18,67 @@ Item {
     property var groupData
 
     // The last write result, {key, text, error}, shown beside that row's title.
-    // Held by the view rather than by the row: a write rebuilds Settings.groups,
-    // which destroys the row that made it before the result arrives.
+    // Held by the view rather than by the row: a schema change that alters the
+    // cards' shape rebuilds them (see `layout`), and the row that made the write
+    // may not outlive it.
     property var rowFeedback: ({ key: "", text: "", error: false })
 
     readonly property bool hasData: groupData !== undefined && groupData !== null
     readonly property var sections: hasData && groupData.sections !== undefined
                                     ? groupData.sections : []
+
+    // --- Rows that survive a write ------------------------------------------
+    // Every write rebuilds Settings.groups — at once for a local key, on the
+    // schema broadcast for a backend one — and a Repeater handed a new array
+    // destroys and recreates every delegate. Rebuilt rows cannot animate: a
+    // switch would reappear already moved, and nested rows would pop in.
+    //
+    // So the cards are built from `layout`, which is replaced only when the
+    // section's SHAPE changes — a different section, a schema with other
+    // entries, options or tiers — and each row reads its current entry by key
+    // from `liveEntries`. A write changes only `value` (and the local `modified`
+    // flag), so it leaves the shape alone, the delegates stay, and their
+    // bindings carry the new value in.
+    property var layout: []
+    property string layoutShape: ""
+
+    readonly property var liveEntries: {
+        const out = {}
+        for (let i = 0; i < sections.length; ++i) {
+            const entries = sections[i].settings !== undefined ? sections[i].settings : []
+            for (let j = 0; j < entries.length; ++j)
+                out[entries[j].key] = entries[j]
+        }
+        return out
+    }
+
+    function shapeOf(list) {
+        const out = []
+        for (let i = 0; i < list.length; ++i) {
+            const section = Object.assign({}, list[i])
+            const entries = section.settings !== undefined ? section.settings : []
+            section.settings = []
+            for (let j = 0; j < entries.length; ++j) {
+                const entry = Object.assign({}, entries[j])
+                delete entry.value
+                delete entry.modified
+                section.settings.push(entry)
+            }
+            out.push(section)
+        }
+        return JSON.stringify(out)
+    }
+
+    function syncLayout() {
+        const shape = pane.shapeOf(pane.sections)
+        if (shape === pane.layoutShape)
+            return
+        pane.layoutShape = shape
+        pane.layout = pane.sections
+    }
+
+    onSectionsChanged: syncLayout()
+    Component.onCompleted: syncLayout()
 
     // --- On-screen keyboard -------------------------------------------------
     // The keyboard (Main.qml) covers the bottom half of the screen, which is where
@@ -123,7 +177,7 @@ Item {
     }
 
     // --- Subsection cards -------------------------------------------------
-    Flickable {
+    ElasticFlickable {
         id: flick
         anchors.left: parent.left
         anchors.right: parent.right
@@ -138,7 +192,6 @@ Item {
         // No ScrollBar: flicking is a Flickable behaviour, and a scroll bar is
         // mouse chrome on a device that only ever gets fingers. The clipped card
         // edge is the cue that there is more below.
-        boundsBehavior: Flickable.StopAtBounds
 
         Column {
             id: cards
@@ -146,7 +199,7 @@ Item {
             spacing: 10
 
             Repeater {
-                model: pane.sections
+                model: pane.layout
 
                 Rectangle {
                     id: card
@@ -202,6 +255,40 @@ Item {
                             out.push(link.parent < 0 || (out[link.parent] && rules.ruleHolds(link.rule)))
                         return out
                     }
+
+                    // What was on screen before the latest change, to tell which
+                    // entries just appeared or went.
+                    property var lastShown: []
+
+                    // Entries that appear slide out from under the row above them
+                    // one after another, top first, like dominoes; entries that go
+                    // fold back up, bottom first. Ranked per change, so the first
+                    // revealed entry starts at once however far down it sits.
+                    function animateShown() {
+                        const now = card.shownEntries
+                        const was = card.lastShown
+                        card.lastShown = now
+                        if (was.length !== now.length)
+                            return
+                        let rank = 0
+                        const going = []
+                        for (let i = 0; i < now.length; ++i) {
+                            if (now[i] === was[i])
+                                continue
+                            const item = entryRepeater.itemAt(i)
+                            if (item === null)
+                                continue
+                            if (now[i])
+                                item.show(rank++ * Theme.revealStagger)
+                            else
+                                going.push(item)
+                        }
+                        for (let k = 0; k < going.length; ++k)
+                            going[going.length - 1 - k].hide(k * Theme.revealStagger / 2)
+                    }
+
+                    onShownEntriesChanged: animateShown()
+                    Component.onCompleted: lastShown = shownEntries
 
                     // The header band is a translucent BLACK wash rather than a
                     // fixed colour: the card itself is translucent over the
@@ -358,6 +445,7 @@ Item {
                                 }
 
                                 Repeater {
+                                    id: entryRepeater
                                     model: card.entries
 
                                     // A nested entry is indented one step per level,
@@ -367,7 +455,10 @@ Item {
                                     // other only from the indent, and a full-width
                                     // divider closes the block — so it reads as one
                                     // unit with the setting it belongs to.
-                                    Item {
+                                    // A Reveal, so an entry whose parent setting
+                                    // turns on slides out from under it instead of
+                                    // popping in (the card orders them, above).
+                                    Reveal {
                                         id: entry
 
                                         required property int index
@@ -395,9 +486,10 @@ Item {
                                         }
 
                                         width: cardContent.width
-                                        height: settingRow.height + (divider.visible ? 1 : 0)
-                                        // The Column skips a hidden entry outright.
-                                        visible: card.shownEntries[index] === true
+                                        fullHeight: settingRow.height + (divider.visible ? 1 : 0)
+                                        // Placed without animating when the card is
+                                        // built; only later changes animate.
+                                        Component.onCompleted: snap(card.shownEntries[index] === true)
 
                                         // One rail per level. It runs through the
                                         // divider to the next nested entry, and is
@@ -417,7 +509,7 @@ Item {
                                                 x: index * Theme.settingChildIndent + 6
                                                 y: opens ? 12 : 0
                                                 width: 2
-                                                height: entry.height - y - (closes ? 12 : 0)
+                                                height: entry.fullHeight - y - (closes ? 12 : 0)
                                                 radius: 1
                                                 color: Theme.settingChildRail
                                             }
@@ -432,7 +524,13 @@ Item {
                                             // allowed; a slider this size is comfortable
                                             // to drag with a fingertip.
                                             editorWidth: 320
-                                            setting: entry.modelData
+                                            // The current entry, by key: the
+                                            // delegate outlives writes, its
+                                            // modelData does not change with them.
+                                            setting: {
+                                                const live = pane.liveEntries[entry.modelData.key]
+                                                return live !== undefined ? live : entry.modelData
+                                            }
                                         }
 
                                         // None above this entry's own first nested

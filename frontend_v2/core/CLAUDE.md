@@ -222,7 +222,7 @@ screen. Four things are load-bearing:
   `SpotifyDeviceDetails.qml`, and is handled *before* the `m_flowActive` fence — the backend
   broadcasts it after any panel's successful select. `refreshStatus()` is **throttled to one
   request per 15 s** unless forced: each costs the backend a Spotify device-list call, and the row
-  that asks is rebuilt on every settings write, since `Settings.groups` is replaced wholesale. It
+  that asks is rebuilt every time its section is shown or the schema's shape changes. It
   re-asks on reconnect (forced) once anything has asked, and clears `statusPending` on disconnect
   so the row does not read "checking" forever.
 - **The button row's membership is constant** across a `hasDevice` transition, and the guide and

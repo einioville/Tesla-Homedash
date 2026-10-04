@@ -13,13 +13,13 @@ import frontend_v2
 //
 // The field accepts typing for a big jump; the ± buttons (with hold-to-repeat)
 // handle nudging without a keyboard, which is what the 10" touch panel needs.
+// A mouse wheel over the control steps it too, through the same pending value.
 //
-// A held button steps a PENDING value that only the field shows, and the press
-// commits it once, on release. Committing per step cannot work here: every
-// Settings.setValue() rebuilds Settings.groups — at once for a local key, on the
-// schema broadcast for a backend one — which destroys this delegate and the
-// press with it, so a hold stopped after one step. And each step was a disk
-// write (a backend CONFIG_SET is a config.json save plus apply hooks).
+// A held button (or a spun wheel) steps a PENDING value that only the field
+// shows, and commits it once, on release (or once the wheel settles). Every
+// write is a disk write — a backend CONFIG_SET is a config.json save plus apply
+// hooks and a schema broadcast — so writing per step would make one hold dozens
+// of them.
 //
 // `editor: "time"` reuses the same stepper for a time of day stored as minutes
 // since midnight: the value reads as HH:MM, the ± buttons WRAP past midnight
@@ -91,9 +91,9 @@ Item {
         const rounded = control.isInt
                         ? Math.round(clamped)
                         : Number(clamped.toFixed(control.decimals))
-        // BEFORE the write, not after: Settings.setValue() rebuilds
-        // Settings.groups, which destroys and rebuilds this very delegate,
-        // so any statement after it evaluates in a dead context and throws.
+        // BEFORE the write, not after: a write that changes the section's shape
+        // (a time zone outside the list adds itself as an option) rebuilds the
+        // cards, and any statement after it would evaluate in a dead context.
         field.text = control.formatted(rounded)
         if (rounded !== control.setting.value)
             Settings.setValue(control.setting.key, rounded)
@@ -129,7 +129,7 @@ Item {
     }
 
     // Commits what the press stepped to, once. Clears the pending value first,
-    // because commit() may destroy this delegate.
+    // because commit() can destroy this delegate (see commit()).
     function commitPending() {
         if (control.pendingValue === null)
             return
@@ -289,5 +289,14 @@ Item {
                 onFinished: control.commitPending()
             }
         }
+    }
+
+    // Over everything, but it takes only the wheel: presses reach the buttons
+    // and the field beneath it.
+    WheelStepArea {
+        anchors.fill: parent
+        enabled: control.hasSteppers
+        onStepped: (direction) => control.stepPending(direction)
+        onSettled: control.commitPending()
     }
 }

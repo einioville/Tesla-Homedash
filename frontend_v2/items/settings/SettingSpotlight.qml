@@ -14,8 +14,8 @@ import frontend_v2
 // swallowed, so a blind tap on the blur cannot flip a switch it could not see.
 //
 // The row is looked up by key (SettingsPane.rowItem) on every tick rather than
-// held: Settings.groups is replaced on any write, which destroys and rebuilds
-// every row, and a status widget settling can move one.
+// held: a write that changes the section's shape rebuilds every row (rows
+// survive an ordinary value write), and a status widget settling can move one.
 Item {
     id: spotlight
 

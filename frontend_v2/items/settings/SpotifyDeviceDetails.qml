@@ -18,7 +18,7 @@ SettingDetails {
     // A grant that starts or stops working changes what the backend can see.
     readonly property bool authorized: SpotifyAuth.authorized
     onAuthorizedChanged: SpotifyDevice.refreshStatus(true)
-    // Throttled in C++: this row is rebuilt on every settings write.
+    // Throttled in C++: this row is rebuilt every time its section is shown.
     Component.onCompleted: SpotifyDevice.refreshStatus()
 
     level: {
