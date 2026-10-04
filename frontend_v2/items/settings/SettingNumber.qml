@@ -25,6 +25,11 @@ import frontend_v2
 // since midnight: the value reads as HH:MM, the ± buttons WRAP past midnight
 // (22:00 is eight steps back from 00:00, not eighty-eight forward), and the field
 // takes no typing — the number pad has no colon.
+//
+// `editor: "field"` drops the ± buttons and leaves just the typed field, laid
+// out like SettingText. It is for an identifier that happens to be a number, which
+// nobody nudges one step at a time: the backend port sits right under the
+// address field and is typed the same way.
 Item {
     id: control
 
@@ -32,6 +37,7 @@ Item {
 
     readonly property bool isInt: setting.type === "int"
     readonly property bool isTime: setting.editor === "time"
+    readonly property bool hasSteppers: setting.editor !== "field"
     readonly property real minimum: setting.min !== undefined ? setting.min : -Infinity
     readonly property real maximum: setting.max !== undefined ? setting.max : Infinity
     readonly property real stepSize: setting.step !== undefined ? setting.step : (isInt ? 1 : 0.1)
@@ -143,6 +149,7 @@ Item {
         // --- minus -------------------------------------------------------
         Rectangle {
             id: minusButton
+            visible: control.hasSteppers
             width: 40
             height: control.height
             radius: 8
@@ -175,7 +182,9 @@ Item {
         // --- value -------------------------------------------------------
         Rectangle {
             // Whatever is left after the two 40px buttons and the two gaps.
-            width: control.width - minusButton.width - plusButton.width - 2 * row.spacing
+            width: control.hasSteppers
+                   ? control.width - minusButton.width - plusButton.width - 2 * row.spacing
+                   : control.width
             height: control.height
             radius: 8
             color: field.activeFocus ? Theme.tripComboPressed : Theme.tripComboBg
@@ -192,7 +201,10 @@ Item {
                 font.family: Theme.fontFamily
                 font.pixelSize: 15
                 color: Theme.dataLabelValue
-                horizontalAlignment: TextInput.AlignHCenter
+                // Centred between the steppers; without them it reads as a
+                // plain text field, aligned like SettingText.
+                horizontalAlignment: control.hasSteppers ? TextInput.AlignHCenter
+                                                         : TextInput.AlignLeft
                 verticalAlignment: TextInput.AlignVCenter
                 selectByMouse: !control.isTime
                 // A time is stepped, never typed (see the header).
@@ -252,6 +264,7 @@ Item {
         // --- plus --------------------------------------------------------
         Rectangle {
             id: plusButton
+            visible: control.hasSteppers
             width: 40
             height: control.height
             radius: 8

@@ -8,6 +8,11 @@ including a run already in flight — without asking. The dashboard runs from a 
 the whole thing lives here rather than in the UI. (The sync comes after the build on purpose —
 see the step-order note below.)
 
+**Its card is out of the Options view for now** (`frontend_v2/core/CLAUDE.md`, under `Updater`):
+#56 reworks this into a release-only updater that can install any `v*` release and drops the
+`development` channel. The service is still registered and serves the protocol, so nothing here
+changed; with no card, nothing sends `UPDATE_APPLY`.
+
 **Two channels, one comparison.** `development` targets the tip of `origin/main`; `releases`
 targets the newest `v*` tag (`--sort=-v:refname`, git's own version order, dereferenced with
 `^{commit}` — a bare `rev-parse` on an annotated tag yields the TAG object and finds no ancestry

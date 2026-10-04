@@ -101,7 +101,10 @@ Item {
             // Restart badge. Deliberately per-row rather than one banner: which
             // settings are restart-tier depends on the deployment (the backend
             // downgrades a hook setting to restart when its service is absent),
-            // so the honest place to say it is next to the value itself.
+            // so the honest place to say it is next to the value itself. It names
+            // WHICH half restarts, since the two are separate restarts with
+            // separate buttons: a local setting is read once by this app, a
+            // backend one by the server's services.
             Rectangle {
                 visible: row.needsRestart
                 anchors.verticalCenter: parent.verticalCenter
@@ -115,7 +118,9 @@ Item {
                 Text {
                     id: badgeText
                     anchors.centerIn: parent
-                    text: qsTr("uudelleenkäynnistys")
+                    text: row.setting.origin === "backend"
+                          ? qsTr("palvelimen uudelleenkäynnistys")
+                          : qsTr("sovelluksen uudelleenkäynnistys")
                     font.family: Theme.fontFamily
                     font.pixelSize: 10
                     color: "#ffd48a"

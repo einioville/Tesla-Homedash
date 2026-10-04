@@ -288,7 +288,7 @@ SettingRow delegate → Settings.setValue(key, value)
   apply tier "restart": banner → CONFIG_RESTART → ConfigService.run → os._exit(42) → systemd
 ```
 
-**App update (the Options view's Päivitys card)**
+**App update (the Options view's Päivitys card — out of the schema until the release-only rework, #56)**
 ```
 UpdatePanel opens → Updater.active → UPDATE_GET_STATE{fetch:true}
   → UpdateService.__refresh → git fetch (throttled) → resolve both channels
@@ -424,7 +424,10 @@ setting they belong to, hidden while it is off — plus the Sähkö section: the
 *Kiinteä* / *Pörssi* dropdown with each tariff's rows nested under it, one Zappi poll interval, and
 the price source and Zappi serial out of the Options view (`config.json`-only) — plus the Tesla
 section reduced to *Matkojen tunnistus* (the Telemetriakentät card is out of the schema until a later
-update's fuller Tesla options; its plumbing stays) with the trip distance stepping 0.5 km.
+update's fuller Tesla options; its plumbing stays) with the trip distance stepping 0.5 km — plus
+Ylläpito: the *Päivitys* card out of the schema pending a release-only updater (#56), the port as a
+plain typed field, the help lines cut from the connection and restart cards, and restart badges that
+name the half (*sovelluksen* / *palvelimen uudelleenkäynnistys*).
 When you land a change that touches documented behaviour, update this line.
 
 ## 8. Session workflow — main checkout by default, worktree only for parallelism

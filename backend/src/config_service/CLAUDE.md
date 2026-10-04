@@ -59,8 +59,8 @@ write there would leave the reply and the disk disagreeing. **Talks to:** `Confi
 
 **Restart vetoes.** `register_restart_veto(name, callable)` is the sibling of `register_guard`:
 a callable returning a non-empty Finnish reason refuses a `CONFIG_RESTART` before it is armed.
-`UpdateService` registers one, because the restart buttons sit three rows below the update card
-and killing the backend mid-checkout is exactly what everything else there exists to prevent.
+`UpdateService` registers one, because killing the backend mid-checkout is exactly what
+everything else in the updater exists to prevent.
 `request_restart(force=True)` skips the vetoes — the updater's own final restart IS the thing
 they protect.
 

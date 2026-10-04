@@ -401,8 +401,8 @@ ExecStart=%h/.local/bin/uv run python run.py
 # not, because this unit is wanted by default.target rather than
 # graphical-session.target. Drop this line if you do not use that setting.
 Environment=WAYLAND_DISPLAY=wayland-1
-# The Options view's update card rebuilds the dashboard from source, and this
-# unit is what runs that build. A --user unit inherits none of your login shell's
+# The in-app updater rebuilds the dashboard from source, and this unit is what
+# runs that build (its card is out of the Options view for now, see #56). A --user unit inherits none of your login shell's
 # environment, so point it at the Qt kit you installed. Drop this line only if
 # the kit is in ~/Qt/<version>/gcc_arm64, which is found automatically.
 Environment=QTDIR=%h/Qt/6.8.0/gcc_arm64
@@ -468,22 +468,20 @@ WantedBy=graphical-session.target
 > with no keyboard. The same section restarts the backend, and both buttons need a second
 > tap to confirm.
 
-### Updating from the dashboard
+### Updating
 
-Once both units are running, the **Asetukset → Ylläpito → Päivitys** card updates the
-installation in place, so a release does not need an SSH session. It has two channels:
+The Options view has no update card for now. The in-app updater is being reworked so that it
+installs **release versions only**, and lets you pick any release rather than just the newest
+one ([#56](https://github.com/einioville/Tesla-Homedash/issues/56)). Until then, update over SSH:
 
-- **Kehitys** — track the tip of `origin/main`.
-- **Julkaisut** — track the newest `v*` release tag.
-
-Both resolve to a *commit*, and the card compares it against the one that is checked out —
-so moving between channels works in both directions, including back to an older release.
-Pressing the button (twice, to confirm) fetches, checks the target out detached, rebuilds the
-frontend, runs `uv sync --locked` and restarts both units. It refuses to start if
-the working tree has modified tracked files, if the host is missing `uv`, a Qt kit or disk
-space, or if the target version does not itself contain the update card — that last one
-would be a one-way trip on a panel with no keyboard. Anything that fails after the checkout
-puts the working tree back where it started.
+```bash
+cd ~/Tesla-Homedash
+git fetch --tags
+git checkout --detach v1.0.0        # the release to install
+./scripts/build-frontend.sh --config Release
+(cd backend && ~/.local/bin/uv sync --locked)
+systemctl --user restart tesla-homedash-backend.service tesla-homedash-frontend.service
+```
 
 `config.json`, `.env` and the dashboard's own settings file are all outside the repository
 or gitignored, so an update never touches them.

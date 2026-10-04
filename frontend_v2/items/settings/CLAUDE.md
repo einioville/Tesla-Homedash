@@ -11,7 +11,7 @@ behind several of these files are documented in `../../core/CLAUDE.md`:
 | `SystemStatusPanel.qml` | `System` |
 | `SpotifyAuthDetails.qml`, `SpotifyAuthPopup.qml`, `SpotifyAuthAlert.qml`, `DialogButton.qml` | `SpotifyAuth` |
 | `SpotifyDeviceDetails.qml`, `SpotifyDevicePopup.qml` | `SpotifyDevice` |
-| `UpdatePanel.qml`, `UpdateBanner.qml` | `Updater` |
+| `UpdatePanel.qml` (unused while the *Päivitys* card is out of the schema, #56), `UpdateBanner.qml` | `Updater` |
 | `ScreenPowerStatus.qml` | `Display` |
 | `TeslaFieldTable.qml` (unused while the backend omits its subsection) | `TeslaFields` |
 | `UsbImportPopup.qml` | `UsbImport` |
@@ -58,8 +58,8 @@ Load-bearing:
 
 Beyond the basics (`key`, `type`, `label`, `help`, `unit`, `min`/`max`/`step`, `nullable`,
 `options`): **`hidden`** (kept out of the rendered rows while stored and persisted normally — for a
-setting whose editor lives in the subsection's status widget; `updateChannel` is the example —
-`core/CLAUDE.md`, under `Updater`. A subsection whose entries are ALL hidden and that names no
+setting whose editor lives in the subsection's status widget, or that only a flow writes; filtered
+in `Settings::decorateSections`. A subsection whose entries are ALL hidden and that names no
 `status` is dropped, which is how the backend's `spotify` subsection — `spotifyDeviceId` /
 `spotifyDeviceName`, written only by the device scan — renders nothing while staying the write
 allow-list), **`details`** (a row-level live block under the label — see *Row details* below),
@@ -128,7 +128,11 @@ for big jumps. **A hold steps a pending value that only the field shows and comm
 release** — every `Settings.setValue()` rebuilds `Settings.groups` (at once for a local key, on the
 schema broadcast for a backend one), which destroys the delegate and the press with it, so writing
 per step stopped every hold after one step and wrote `config.json` on each. `editor` is the
-general per-type control HINT, not a numeric one — `slider`, `time` and `select` are its consumers today.
+general per-type control HINT, not a numeric one — `slider`, `time`, `field` and `select` are its consumers today.
+**`editor: "field"`** drops `SettingNumber`'s ± buttons and leaves the typed field, left-aligned like
+`SettingText` — for a number that is an identifier rather than a quantity, which nobody nudges a
+step at a time. `backendPort` is its consumer: it sits under the address field and is typed the
+same way.
 **`editor: "select"`** renders a `bool` as `SettingSelect` over its two `options` (`false` / `true`)
 instead of a switch — for a choice between two named things rather than a feature on or off. The
 value stays a bool, so the backend validates and every consumer reads it unchanged. *Sähkösopimus*
@@ -205,9 +209,16 @@ green for 2.5 s, a rejection in red for 6 s — not in a banner elsewhere on the
 lives in `SettingsView.rowFeedback`, passed down through `SettingsPane`, **not in the row**: every
 write rebuilds `Settings.groups`, which destroys the row that made the write before its result
 arrives. A result with no row to sit beside — a keyless `CONFIG_SET_RESULT` (a refused restart or
-reboot), a lost connection, a hidden setting such as `updateChannel` — goes to the app's
+reboot), a lost connection, a hidden setting — goes to the app's
 notification pill (`Notifications.post("settings", …)`) instead. A restart-tier write gets no extra
 wording: the row's badge and the restart banner already say it.
+
+**The restart badge names the half that restarts**: *sovelluksen uudelleenkäynnistys* on a local
+restart-tier row (read once by `AppConfig` — today the backend address and port), *palvelimen
+uudelleenkäynnistys* on a backend one (read once by a backend service — `timeZone`,
+`spotPrice.enabled`, a hook setting whose service is absent). `SettingRow` picks it from the
+entry's `origin`. They are two separate restarts with separate banner buttons, so a bare
+*uudelleenkäynnistys* left the user guessing which one to press.
 
 ## Issues and the fix spotlight
 
@@ -247,7 +258,8 @@ the local sections from reading as a bug.
 The hook is a **subsection-level `status` key**: a subsection may name a runtime status widget,
 which `SettingsPane` renders in the card via a `Loader` above the rows, resolving the name against a
 small component table (`backendProbe`, `systemStatus`, `appUpdate`, `screenPower`,
-`teslaProperties`). `active:` gates construction,
+`teslaProperties`; `appUpdate` and `teslaProperties` are unused while their subsections are out of
+the schema). `active:` gates construction,
 which is what keeps the probe from firing for a card that did not ask
 for it. A subsection carrying a `status` but **no settings** is legitimate and is exempted from the
 empty-section filter: the system-status card is entirely a status widget. It exists because not

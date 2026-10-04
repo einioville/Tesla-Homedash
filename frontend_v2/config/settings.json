@@ -30,15 +30,17 @@
         "        'time' (int) renders minutes since midnight as HH:MM on the same",
         "        stepper, wrapping past midnight, with no typing. Use min 0,",
         "        max 1440 - step.",
+        "        'field' (int/float) drops the [-] [+] buttons and leaves the typed",
+        "        field, for a number nobody nudges a step at a time (the port).",
         "",
         "secret: true (string) masks the value while the field is not being",
         "        edited and keeps it out of the log line a write produces.",
         "",
         "hidden: true keeps a setting out of the rendered rows while still",
         "        storing, coercing and persisting it normally. For a setting whose",
-        "        editor lives inside the subsection's status widget - the update",
-        "        channel belongs above the verdict it decides, not in a row under",
-        "        it - and readable as always through Settings.values / valueOf().",
+        "        editor lives inside the subsection's status widget, or that only a",
+        "        flow writes (the backend's Spotify device id); readable as always",
+        "        through Settings.values / valueOf().",
         "",
         "type 'action' is a BUTTON, not a value: nothing is stored or persisted.",
         "It carries actionLabel and optionally requiresConnection, and its key names",
@@ -46,7 +48,9 @@
         "",
         "apply: 'live'    - a QML binding through Theme picks it up immediately;",
         "       'restart' - consumed once at startup (AppConfig), so it needs an app",
-        "                   restart. The view badges these rows.",
+        "                   restart. The view badges these rows 'sovelluksen",
+        "                   uudelleenkäynnistys' (a backend restart-tier row reads",
+        "                   'palvelimen uudelleenkäynnistys').",
         "",
         "A setting may also declare 'env': the named environment variable (or .env",
         "entry) supplies that setting's DEFAULT, so an existing deployment keeps",
@@ -534,30 +538,9 @@
             "label": "Ylläpito",
             "sections": [
                 {
-                    "id": "update",
-                    "label": "Päivitys",
-                    "help": "Päivittää sovelluksen siitä git-varastosta, josta se on asennettu: hakee muutokset, vaihtaa version, päivittää riippuvuudet, kääntää käyttöliittymän ja käynnistää molemmat puolet uudelleen. Vie useita minuutteja.",
-                    "status": "appUpdate",
-                    "settings": [
-                        {
-                            "key": "updateChannel",
-                            "type": "enum",
-                            "hidden": true,
-                            "label": "Päivityskanava",
-                            "help": "Kehitys seuraa main-haaran uusinta tilaa, Julkaisut uusinta julkaisua.",
-                            "options": [
-                                {"value": "development", "label": "Kehitys"},
-                                {"value": "releases", "label": "Julkaisut"}
-                            ],
-                            "default": "development",
-                            "apply": "live"
-                        }
-                    ]
-                },
-                {
                     "id": "connection",
                     "label": "Yhteydet",
-                    "help": "Mihin taustapalveluun tämä näyttö yhdistää.",
+                    "help": "Määritä käytettävän palvelimen tiedot",
                     "status": "backendProbe",
                     "settings": [
                         {
@@ -565,7 +548,6 @@
                             "type": "string",
                             "env": "TESLA_HOMEDASH_BACKEND_HOST",
                             "label": "Palvelimen osoite",
-                            "help": "Vaatii sovelluksen uudelleenkäynnistyksen.",
                             "default": "127.0.0.1",
                             "apply": "restart"
                         },
@@ -574,7 +556,7 @@
                             "type": "int",
                             "env": "TESLA_HOMEDASH_BACKEND_PORT",
                             "label": "Portti",
-                            "help": "Vaatii sovelluksen uudelleenkäynnistyksen.",
+                            "editor": "field",
                             "min": 1,
                             "max": 65535,
                             "step": 1,
@@ -586,13 +568,11 @@
                 {
                     "id": "restart",
                     "label": "Uudelleenkäynnistys",
-                    "help": "Vahvistus toisella painalluksella.",
                     "settings": [
                         {
                             "key": "restartApp",
                             "type": "action",
                             "label": "Käynnistä sovellus uudelleen",
-                            "help": "Ottaa käyttöön yhteysasetukset. Palvelunhallinta käynnistää näytön heti uudelleen.",
                             "actionLabel": "Käynnistä",
                             "apply": "live"
                         },
@@ -600,7 +580,6 @@
                             "key": "restartBackend",
                             "type": "action",
                             "label": "Käynnistä palvelin uudelleen",
-                            "help": "Ottaa käyttöön palvelimen uudelleenkäynnistystä vaativat asetukset.",
                             "actionLabel": "Käynnistä",
                             "requiresConnection": true,
                             "apply": "live"
@@ -609,7 +588,6 @@
                             "key": "rebootHost",
                             "type": "action",
                             "label": "Käynnistä laite uudelleen",
-                            "help": "Käynnistää koko laitteen uudelleen. Palvelin tarvitsee siihen oikeuden (polkit-sääntö tai sudoers-rivi, ks. README).",
                             "actionLabel": "Käynnistä",
                             "requiresConnection": true,
                             "apply": "live"

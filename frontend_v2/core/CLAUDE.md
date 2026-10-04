@@ -233,20 +233,23 @@ screen. Four things are load-bearing:
 ## `Updater` — `appupdate.{hh,cpp}`
 
 **In-place app updates** are `core/appupdate.{hh,cpp}`, the QML singleton **`Updater`**, rendered by
-`items/settings/UpdatePanel.qml` as the `status: "appUpdate"` widget of the *Päivitys* subsection —
-**first in the Ylläpito group**, which it gets for free because local subsections are folded in
-before backend ones. **This side runs no process**: the backend does the git work, the dependency
+`items/settings/UpdatePanel.qml` as the `status: "appUpdate"` widget of a *Päivitys* subsection.
+**That subsection is out of `config/settings.json` for now**: the updater is being reworked into a
+release-only one that can install any release, with the development channel cut (#56). The
+singleton, the banner, the screensaver inhibit and the backend service all stay wired, so
+restoring the card is one schema entry — first in Ylläpito, which a local subsection gets for free
+because local ones are folded in before backend ones. **This side runs no process**: the backend does the git work, the dependency
 sync and the rebuild (`backend/src/update_service/CLAUDE.md`), and the singleton picks a channel,
 shows what comes back, and restarts the app when told. The whole `UPDATE_STATE` document is carried
 as an opaque `QVariantMap`, like `SystemStatus`'s, so a field added on the backend reaches the
 screen with no C++ change. Five things are load-bearing:
-- **`updateChannel` is a `hidden` schema entry** — a new per-setting key that keeps a setting out
-  of the RENDERED rows while it is stored, coerced, persisted and readable through
-  `Settings.values` / `valueOf()` exactly like any other. Filtered in `Settings::decorateSections`,
-  the rendering boundary, so the empty-subsection drop still counts correctly and nothing that
-  persists a value (all of which walks `m_localSchema`) is touched. It exists because the channel
-  decides what the verdict beneath it says — it has to come *first*, not in a row underneath — and
-  a two-way choice on a touch panel is a segmented control, not a dropdown.
+- **The channel was the `hidden` schema entry `updateChannel`**, which `UpdatePanel` still reads
+  (an absent value falls to its default). `hidden` keeps a setting out of the RENDERED rows while
+  it is stored, coerced, persisted and readable through `Settings.values` / `valueOf()` like any
+  other — filtered in `Settings::decorateSections`, the rendering boundary, so the empty-subsection
+  drop still counts correctly and nothing that persists a value (all of which walks
+  `m_localSchema`) is touched. It existed because the channel decides what the verdict beneath it
+  says, so it had to come *first*, in the panel, not in a row underneath. #56 removes the channel.
 - **The restart is routed through a signal, not a call.** `restartRequested()` is connected in
   `Main.qml` to `Settings.restartApp()` — the `actionRequested` idiom, and app-level for the
   `SpotifyAuthAlert` reason: a rebuild takes minutes and the user is free to walk back to the
