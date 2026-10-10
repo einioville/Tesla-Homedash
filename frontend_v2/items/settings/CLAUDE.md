@@ -350,9 +350,10 @@ old status card in Ylläpito is retired — this section shows it all.
   would rebuild every card.
 - **Temperature**'s headline gives the window's peak. A host with no sensor (`temp_available: false`,
   WSL2) shows *Tällä laitteella ei ole lämpötila-anturia* in place of the graph.
-- **Every dialog swallows the mouse wheel** on its scrim (`onWheel` accepting it): a MouseArea with no
-  wheel handler lets the wheel through, which scrolled the page behind an open dialog. A list inside
-  the card still scrolls, since it sits above the scrim.
+- **Every dialog is a `ModalDialog`** — the opaque card over a scrim that takes every press and wheel
+  turn beside it (a MouseArea with no wheel handler lets the wheel through, which scrolled the page
+  behind an open dialog; a list inside the card still scrolls, since it sits above the scrim). A new
+  dialog is built on it, not on another scrim and card.
 
 - **Disk is graphed as I/O** (read / write rates) with the free space as the card's headline: space
   changes too slowly over ten minutes to be a line, and disk-full is still the failure worth seeing.
