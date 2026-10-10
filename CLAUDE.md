@@ -104,8 +104,6 @@ backend/                          # ★ orchestration, service contracts, .env +
       atomic_write.py             # write_atomic(): every whole-file rewrite (temp + fsync + replace)
       timeline.py                 # collapse_transitions() + segment(): trips and charging sessions
       logger_configurator.py      # Shared stdout logging setup
-    ui/plot/
-      dataplot.py                 # Optional standalone PySide6/pyqtgraph plot (not used at runtime)
 
 frontend_v2/                      # ★ Qt Quick/QML frontend — the live target (Main.qml, main.cpp)
   app/                            # Theme.qml (design tokens + settings façade), ViewController.qml
