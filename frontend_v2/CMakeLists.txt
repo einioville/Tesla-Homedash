@@ -129,6 +129,7 @@ qt_add_qml_module(appfrontend_v2
         items/settings/SettingsPane.qml
         items/settings/BackendProbeStatus.qml
         items/settings/ScreenPowerStatus.qml
+        items/settings/EqualizerPanel.qml
         items/settings/TeslaFieldTable.qml
         items/settings/SystemStatusSection.qml
         items/settings/SystemOverviewCard.qml
