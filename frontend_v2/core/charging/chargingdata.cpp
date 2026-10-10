@@ -2,6 +2,7 @@
 
 #include "../logger.hh"
 #include "../protocol.hh"
+#include "../seriesbounds.hh"
 #include "../serverclient.hh"
 
 #include <QDataStream>
@@ -11,7 +12,6 @@
 #include <QJsonObject>
 #include <QPointF>
 #include <QString>
-#include <limits>
 
 namespace {
 const Logger logger = Logger::get("charging");
@@ -217,44 +217,26 @@ void ChargingData::parseMonth(const QByteArray &payload) {
 void ChargingData::parseChargerHistory(const QByteArray &payload) {
     QDataStream stream(payload);
     stream.setByteOrder(QDataStream::BigEndian);
-    QIODevice *device = stream.device();
 
-    if (device->bytesAvailable() < 2) {
+    QString id;
+    if (!protocol::readString(stream, id)) {
         logger.warning(QStringLiteral("Charger-history frame too short (id)"));
         return;
     }
-    quint16 idLen;
-    stream >> idLen;
-    if (device->bytesAvailable() < idLen) {
-        logger.warning(QStringLiteral("Charger-history frame too short (id body)"));
-        return;
-    }
-    QByteArray idBytes(idLen, '\0');
-    stream.readRawData(idBytes.data(), idLen);
-    const QString id = QString::fromUtf8(idBytes);
-
-    if (device->bytesAvailable() < 5) {
+    const auto series = protocol::readSeries(stream);
+    if (!series) {
         logger.warning(QStringLiteral("Charger-history frame too short (header)"));
         return;
     }
-    quint8 status;
-    stream >> status;
-    quint32 count;
-    stream >> count;
-
+    if (series->truncated) {
+        logger.warning(
+            QStringLiteral("Truncated charger-history points at %1").arg(series->points.size()));
+    }
+    const quint8 status = series->status;
     QVariantList points;
-    if (status == 1) {
-        points.reserve(static_cast<int>(count));
-        for (quint32 i = 0; i < count; ++i) {
-            if (device->bytesAvailable() < 16) {
-                logger.warning(QStringLiteral("Truncated charger-history points at %1").arg(i));
-                break;
-            }
-            qint64 ts;
-            double value;
-            stream >> ts >> value;
-            points.append(QVariant::fromValue(QPointF(static_cast<double>(ts), value)));
-        }
+    points.reserve(series->points.size());
+    for (const QPointF &point : series->points) {
+        points.append(QVariant::fromValue(point));
     }
 
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
@@ -296,33 +278,11 @@ void ChargingData::appendLive(Series &s, double value, qint64 nowMs) {
 }
 
 void ChargingData::rollBounds(Series &s, qint64 nowMs) {
-    const double left = static_cast<double>(nowMs - kWindowMs);
-    // Drop points older than the left edge, but keep the last one before it as the
-    // boundary so the value held at the edge is still known (the step line needs it).
-    int firstInside = 0;
-    while (firstInside < s.points.size() && s.points[firstInside].toPointF().x() < left) {
-        ++firstInside;
-    }
-    const int dropCount = firstInside > 0 ? firstInside - 1 : 0;
-    if (dropCount > 0) {
-        s.points.remove(0, dropCount);
-    }
-    s.minX = left;
-    s.maxX = static_cast<double>(nowMs);
-    double minY = std::numeric_limits<double>::max();
-    double maxY = std::numeric_limits<double>::lowest();
-    for (const QVariant &p : s.points) {
-        const double y = p.toPointF().y();
-        minY = qMin(minY, y);
-        maxY = qMax(maxY, y);
-    }
-    if (s.points.isEmpty()) {
-        s.minY = 0.0;
-        s.maxY = 1.0;
-    } else {
-        s.minY = minY;
-        s.maxY = maxY;
-    }
+    const SeriesBounds bounds = rollLiveWindow(s.points, kWindowMs, nowMs);
+    s.minX = bounds.minX;
+    s.maxX = bounds.maxX;
+    s.minY = bounds.minY;
+    s.maxY = bounds.maxY;
 }
 
 QVariantMap ChargingData::seriesMap(const Series &s) {
@@ -337,16 +297,9 @@ QVariantMap ChargingData::seriesMap(const Series &s) {
 }
 
 void ChargingData::sendHistoryRequest(const QString &id) {
-    QByteArray payload;
-    QDataStream stream(&payload, QIODevice::WriteOnly);
-    stream.setByteOrder(QDataStream::BigEndian);
-    stream << static_cast<quint8>(protocol::HISTORY_RANGE_1H);
-    const QByteArray idBytes = id.toUtf8();
-    stream << static_cast<quint16>(idBytes.size());
-    stream.writeRawData(idBytes.constData(), static_cast<int>(idBytes.size()));
-    // Preset range ignores the bounds; send zeros to keep the fixed wire layout.
-    stream << static_cast<qint64>(0) << static_cast<qint64>(0);
-    m_server->sendPacket(protocol::frame(protocol::CHARGER_GET_HISTORY, payload));
+    m_server->sendPacket(protocol::frame(
+        protocol::CHARGER_GET_HISTORY,
+        protocol::historyRequestBody(protocol::HISTORY_RANGE_1H, id, 0, 0)));
 }
 
 void ChargingData::startLive() {

@@ -2,6 +2,7 @@
 
 #include "../logger.hh"
 #include "../protocol.hh"
+#include "../seriesbounds.hh"
 #include "../serverclient.hh"
 #include "tesladata.hh"
 
@@ -11,7 +12,6 @@
 #include <QPointF>
 #include <QTimer>
 #include <QVariantMap>
-#include <limits>
 
 namespace {
 const Logger logger = Logger::get("tesla.history");
@@ -127,38 +127,11 @@ void TeslaHistory::onLiveTick() {
 }
 
 void TeslaHistory::recomputeBounds(qint64 nowMs) {
-    const double left = static_cast<double>(nowMs - m_liveWindowMs);
-    // Roll the window: drop points older than the left edge, but keep the last one
-    // before it as the boundary so the value held at the edge is still known (the
-    // step line needs it to draw the left portion of the window correctly).
-    int firstInside = 0;
-    while (firstInside < m_points.size()
-           && m_points[firstInside].toPointF().x() < left) {
-        ++firstInside;
-    }
-    const int dropCount = firstInside > 0 ? firstInside - 1 : 0;
-    if (dropCount > 0) {
-        m_points.remove(0, dropCount);
-    }
-    m_minX = left;
-    m_maxX = static_cast<double>(nowMs);
-    // y-bounds over the retained points (used only as a fallback when the visible
-    // window has no points; a degenerate single-value range is fine — HistoryGraph
-    // pads y via yPad). Neutral [0,1] when empty.
-    double minY = std::numeric_limits<double>::max();
-    double maxY = std::numeric_limits<double>::lowest();
-    for (const QVariant &p : m_points) {
-        const double y = p.toPointF().y();
-        minY = qMin(minY, y);
-        maxY = qMax(maxY, y);
-    }
-    if (m_points.isEmpty()) {
-        m_minY = 0.0;
-        m_maxY = 1.0;
-    } else {
-        m_minY = minY;
-        m_maxY = maxY;
-    }
+    const SeriesBounds bounds = rollLiveWindow(m_points, m_liveWindowMs, nowMs);
+    m_minX = bounds.minX;
+    m_maxX = bounds.maxX;
+    m_minY = bounds.minY;
+    m_maxY = bounds.maxY;
 }
 
 void TeslaHistory::requestProperties() {
@@ -174,17 +147,10 @@ void TeslaHistory::requestHistory(const QString &id, int rangeCode,
     m_currentId = id;
     setLoading(true);
 
-    QByteArray payload;
-    QDataStream stream(&payload, QIODevice::WriteOnly);
-    stream.setByteOrder(QDataStream::BigEndian);
-    const QByteArray idBytes = id.toUtf8();
-    stream << static_cast<quint8>(rangeCode);
-    stream << static_cast<quint16>(idBytes.size());
-    stream.writeRawData(idBytes.constData(), idBytes.size());
-    stream << static_cast<qint64>(startMs);
-    stream << static_cast<qint64>(endMs);
-
-    m_server->sendPacket(protocol::frame(protocol::TESLA_GET_HISTORY, payload));
+    m_server->sendPacket(protocol::frame(
+        protocol::TESLA_GET_HISTORY,
+        protocol::historyRequestBody(static_cast<quint8>(rangeCode), id,
+                                     static_cast<qint64>(startMs), static_cast<qint64>(endMs))));
     logger.info(QStringLiteral("History requested | id=%1 range=%2").arg(id).arg(rangeCode));
 }
 
@@ -199,21 +165,6 @@ void TeslaHistory::onPacket(quint8 type, const QByteArray &payload) {
         default:
             break;  // not ours
     }
-}
-
-bool TeslaHistory::readString(QDataStream &stream, QIODevice *device, QString &out) {
-    if (device->bytesAvailable() < 2) {
-        return false;
-    }
-    quint16 length;
-    stream >> length;
-    if (device->bytesAvailable() < length) {
-        return false;
-    }
-    QByteArray raw(length, Qt::Uninitialized);
-    stream.readRawData(raw.data(), length);
-    out = QString::fromUtf8(raw);
-    return true;
 }
 
 void TeslaHistory::parseProperties(const QByteArray &payload) {
@@ -234,8 +185,8 @@ void TeslaHistory::parseProperties(const QByteArray &payload) {
         QString unit;
         QString category;
         QString lineMode;
-        if (!readString(stream, device, id) || !readString(stream, device, unit) ||
-            !readString(stream, device, category) || !readString(stream, device, lineMode)) {
+        if (!protocol::readString(stream, id) || !protocol::readString(stream, unit) ||
+            !protocol::readString(stream, category) || !protocol::readString(stream, lineMode)) {
             logger.warning(QStringLiteral("Truncated graph-properties frame at entry %1").arg(i));
             return;
         }
@@ -264,10 +215,9 @@ void TeslaHistory::parseProperties(const QByteArray &payload) {
 void TeslaHistory::parseHistory(const QByteArray &payload) {
     QDataStream stream(payload);
     stream.setByteOrder(QDataStream::BigEndian);
-    QIODevice *device = stream.device();
 
     QString id;
-    if (!readString(stream, device, id)) {
+    if (!protocol::readString(stream, id)) {
         logger.warning(QStringLiteral("Truncated history frame (id)"));
         return;
     }
@@ -276,63 +226,27 @@ void TeslaHistory::parseHistory(const QByteArray &payload) {
         logger.debug(QStringLiteral("Dropping stale history reply for %1").arg(id));
         return;
     }
-    if (device->bytesAvailable() < 5) {
+    const auto series = protocol::readSeries(stream);
+    if (!series) {
         logger.warning(QStringLiteral("Truncated history frame (header)"));
         return;
     }
-    quint8 status;
-    stream >> status;
-    quint32 count;
-    stream >> count;
+    if (series->truncated) {
+        logger.warning(QStringLiteral("Truncated history points at %1").arg(series->points.size()));
+    }
+    const quint8 status = series->status;
 
     QVariantList points;
-    double minX = std::numeric_limits<double>::max();
-    double maxX = std::numeric_limits<double>::lowest();
-    double minY = std::numeric_limits<double>::max();
-    double maxY = std::numeric_limits<double>::lowest();
-
-    if (status == 1) {
-        points.reserve(static_cast<int>(count));
-        for (quint32 i = 0; i < count; ++i) {
-            if (device->bytesAvailable() < 16) {
-                logger.warning(QStringLiteral("Truncated history points at %1").arg(i));
-                break;
-            }
-            qint64 timestamp;
-            stream >> timestamp;
-            double value;
-            stream >> value;
-            const double x = static_cast<double>(timestamp);
-            points.append(QVariant::fromValue(QPointF(x, value)));
-            minX = qMin(minX, x);
-            maxX = qMax(maxX, x);
-            minY = qMin(minY, value);
-            maxY = qMax(maxY, value);
-        }
+    points.reserve(series->points.size());
+    for (const QPointF &point : series->points) {
+        points.append(QVariant::fromValue(point));
     }
-
     m_points = points;
-    if (points.isEmpty()) {
-        // Neutral, valid axis bounds so the empty graph still renders.
-        m_minX = 0.0;
-        m_maxX = 1.0;
-        m_minY = 0.0;
-        m_maxY = 1.0;
-    } else {
-        m_minX = minX;
-        m_maxX = maxX;
-        m_minY = minY;
-        m_maxY = maxY;
-        // A single point (or several sharing one timestamp) leaves m_minX == m_maxX
-        // — a zero-width x-range. A QML ValueAxis with min == max divides by zero
-        // mapping data to pixels and crashes QtGraphs, so pad to a non-zero span
-        // centred on the point. (A degenerate y-range is harmless: HistoryGraph pads
-        // it via yPad when auto-fitting, so only x needs guarding here.)
-        if (m_maxX <= m_minX) {
-            m_minX -= 60000.0;  // +/- 1 min in ms
-            m_maxX += 60000.0;
-        }
-    }
+    const SeriesBounds bounds = seriesBounds(series->points);
+    m_minX = bounds.minX;
+    m_maxX = bounds.maxX;
+    m_minY = bounds.minY;
+    m_maxY = bounds.maxY;
     // Live seed: this reply seeds the rolling window. Override the bounds to the
     // live window [now-size, now] (so the axis shows the whole window, not just the
     // seeded data extent), then start the per-second timer. historyReady still

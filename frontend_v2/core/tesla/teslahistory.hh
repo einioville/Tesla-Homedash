@@ -8,8 +8,6 @@
 
 class ServerClient;
 class TeslaData;
-class QDataStream;
-class QIODevice;
 class QTimer;
 
 /**
@@ -86,7 +84,6 @@ private:
     void setLoading(bool loading);
     void parseProperties(const QByteArray &payload);
     void parseHistory(const QByteArray &payload);
-    static bool readString(QDataStream &stream, QIODevice *device, QString &out);
 
     // Live helpers.
     static QString qmlNameForId(const QString &id);  // id -> Tesla Q_PROPERTY name

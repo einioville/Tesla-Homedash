@@ -2,10 +2,15 @@
 
 `ServerClient` (socket + frame demux), `protocol.hh` (the mirror of `backend/src/utils/protocol.py`
 — change both together), `Logger`, `AppConfig`, `dotenv`, and the singletons below; per-domain data
-models live in the subdirectories. Every JSON packet goes through `protocol.hh`:
-`protocol::jsonRequestBody()` builds a request body and `protocol::readJsonReply()` reads a reply
-(nothing for a short, truncated, malformed or non-object one) — don't parse the header by hand. Several singletons back Options-view widgets whose QML notes are
+models live in the subdirectories. Several singletons back Options-view widgets whose QML notes are
 in `../items/settings/CLAUDE.md`.
+
+**Wire shapes have one reader and one writer each, in `protocol.hh`** — reuse them rather than
+parsing a header by hand: `jsonRequestBody()` / `readJsonReply()` (nothing for a short, truncated,
+malformed or non-object reply), `writeString()` / `readString()` (len(2B) + UTF-8 ids),
+`historyRequestBody()`, and `readSeries()` (the series block of `TESLA_HISTORY`, `CHARGER_HISTORY`
+and `TRIP_SERIES`). A graph's axis bounds come from `seriesbounds.hh`: `seriesBounds()` for a static
+series, `rollLiveWindow()` for a live one.
 
 ## `Settings` — `settings.{hh,cpp}`
 

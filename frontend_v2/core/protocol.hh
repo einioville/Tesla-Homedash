@@ -2,8 +2,13 @@
 #define FRONTEND_V2_PROTOCOL_HH
 
 #include <QByteArray>
+#include <QDataStream>
+#include <QIODevice>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QList>
+#include <QPointF>
+#include <QString>
 #include <QtEndian>
 #include <QtGlobal>
 
@@ -323,6 +328,86 @@ inline std::optional<JsonReply> readJsonReply(const QByteArray &payload) {
         return std::nullopt;
     }
     return JsonReply{static_cast<quint8>(payload.at(0)), doc.object()};
+}
+
+/**
+ * Writes a len(2B) + UTF-8 string, the shape of every property id on the wire.
+ * (`stream << QByteArray` would write a 4-byte length instead.)
+ */
+inline void writeString(QDataStream &stream, const QString &text) {
+    const QByteArray raw = text.toUtf8();
+    stream << static_cast<quint16>(raw.size());
+    stream.writeRawData(raw.constData(), static_cast<int>(raw.size()));
+}
+
+/** Reads a len(2B) + UTF-8 string; false when the payload ends first. */
+inline bool readString(QDataStream &stream, QString &out) {
+    QIODevice *device = stream.device();
+    if (device->bytesAvailable() < 2) {
+        return false;
+    }
+    quint16 length;
+    stream >> length;
+    if (device->bytesAvailable() < length) {
+        return false;
+    }
+    QByteArray raw(length, Qt::Uninitialized);
+    stream.readRawData(raw.data(), length);
+    out = QString::fromUtf8(raw);
+    return true;
+}
+
+/**
+ * The TESLA_GET_HISTORY / CHARGER_GET_HISTORY body: range(1B) + id + start_ms(8B) +
+ * end_ms(8B). The bounds count only for HISTORY_RANGE_CUSTOM.
+ */
+inline QByteArray historyRequestBody(quint8 rangeCode, const QString &id, qint64 startMs,
+                                     qint64 endMs) {
+    QByteArray payload;
+    QDataStream stream(&payload, QIODevice::WriteOnly);
+    stream.setByteOrder(QDataStream::BigEndian);
+    stream << rangeCode;
+    writeString(stream, id);
+    stream << startMs << endMs;
+    return payload;
+}
+
+/**
+ * The series block of TESLA_HISTORY, CHARGER_HISTORY and TRIP_SERIES (protocol.py
+ * _pack_series): status(1B) + count(4B) + count x (ts_ms i64, value f64). Status 0
+ * means no data and carries no points.
+ */
+struct Series {
+    quint8 status = 0;
+    QList<QPointF> points;
+    // The payload ended before `count` points; the ones before that are kept.
+    bool truncated = false;
+};
+
+/** Reads a series block, or nothing when the payload ends inside its header. */
+inline std::optional<Series> readSeries(QDataStream &stream) {
+    QIODevice *device = stream.device();
+    if (device->bytesAvailable() < 5) {
+        return std::nullopt;
+    }
+    Series series;
+    quint32 count;
+    stream >> series.status >> count;
+    if (series.status != 1) {
+        return series;
+    }
+    series.points.reserve(static_cast<qsizetype>(qMin<qint64>(count, device->bytesAvailable() / 16)));
+    for (quint32 i = 0; i < count; ++i) {
+        if (device->bytesAvailable() < 16) {
+            series.truncated = true;
+            break;
+        }
+        qint64 timestamp;
+        double value;
+        stream >> timestamp >> value;
+        series.points.append(QPointF(static_cast<double>(timestamp), value));
+    }
+    return series;
 }
 
 }  // namespace protocol
