@@ -23,16 +23,12 @@ from .weather_view import WeatherViewBuilder
 
 logger = logging.getLogger("weather_service.weather_service")
 
-# Hard per-request ceiling on an FMI WFS fetch.  fmiopendata's own helper
-# (`wfs.download_stored_query` → `utils.read_url`) calls `requests.get(url)` with
-# NO timeout and exposes no way to pass one, and nothing here sets
-# socket.setdefaulttimeout.  A server that accepts the connection, sends a
-# partial body and then goes silent — no FIN, no RST — therefore parks the caller
-# in read() forever.  That happened in production: the socket sat ESTABLISHED for
-# 16 days, permanently burning an executor thread and (via max_instances=1)
-# gating every later run of the refresh job, so weather silently stopped
-# updating while the rest of the backend stayed healthy.  We now issue the GET
-# ourselves so the timeout is enforced at the socket layer.
+# Hard per-request ceiling on an FMI WFS fetch, enforced at the socket layer.
+# The GET is issued here rather than through fmiopendata's own helper
+# (`wfs.download_stored_query` → `utils.read_url`), which calls
+# `requests.get(url)` with NO timeout and no way to pass one: a server that
+# accepts the connection, sends a partial body and then goes silent — no FIN,
+# no RST — parks the caller in read() forever (weather_service/CLAUDE.md).
 _FMI_TIMEOUT = aiohttp.ClientTimeout(total=30, sock_connect=10, sock_read=20)
 
 # Belt-and-braces deadline around the whole fetch-and-parse coroutine, covering
@@ -83,12 +79,9 @@ class ForecastHour:
         Arguments:
             time (datetime): UTC-naive (or UTC-aware) datetime for this hour.
             data (dict): Mapping of field name → {"value": ..., "units": ...}.
-            display_tz (ZoneInfo): Timezone to express the forecast hour in,
-                sourced from the configured `timeZone` in config.json.  Was
-                previously hardcoded to Europe/Helsinki — would break for any
-                non-Helsinki timezone in config.
+            display_tz (ZoneInfo): Timezone to express the forecast hour in
+                (the configured timeZone).
         '''
-        # Treat incoming time as UTC and convert to the configured display tz
         self.__hours = time.replace(tzinfo=ZoneInfo("UTC")).astimezone(display_tz).hour
 
         self.__data = {}
@@ -189,9 +182,9 @@ class WeatherService:
 
     async def run(self) -> None:
         '''
-        Starts the weather service: performs an initial combined fetch (current-
-        hour observation + upcoming forecast), then schedules periodic refreshes
-        every 15 minutes.
+        Starts the weather service: schedules the 15-minute refresh, then
+        performs an initial combined fetch (current-hour observation + upcoming
+        forecast).
         '''
         logger.info("Weather service starting: place=%s", self.__place)
         # Schedule BEFORE the initial fetch: the periodic refresh must exist even
@@ -221,9 +214,10 @@ class WeatherService:
 
     def health(self) -> dict:
         '''
-        Reports forecast health for the status view.  A cached frame is the
-        honest signal: this service once deadlocked on the Pi for sixteen days
-        (CLAUDE.md 5.2.4) while looking perfectly alive from the outside.
+        Reports forecast health for the status view: "warn" until a forecast
+        frame is cached (at startup, or right after a place change).  A refresh
+        that stalls after that keeps the old frame, so the Päivitetty row's age
+        is what shows it (weather_service/CLAUDE.md).
         '''
         config = [["Paikkakunta", self.__place], ["Päivitysväli", "10 min"],
                   ["Lähde", "Ilmatieteen laitos"]]
@@ -257,7 +251,7 @@ class WeatherService:
         if forecast_hours:
             logger.info("Forecast fetched: %d hours", len(forecast_hours))
 
-        # The forecast now starts at the current hour. Split off its current-hour
+        # The forecast starts at the current hour. Split off its current-hour
         # row: it backfills the banner's precipitation + cloud cover (the
         # observation station reports neither), while temperature + wind stay from
         # the real observation. The remaining rows are the future forecast cards.
@@ -422,8 +416,7 @@ class WeatherService:
         start_str = current_hour_start.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
         end_str = end_time.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
-        # NOTE: confirmed stored query for 10-minute surface weather
-        # observations; returns air temp, wind speed, precipitation, cloud cover.
+        # Stored query for 10-minute surface weather observations.
         data = await self.__download_stored_query(
             query_id="fmi::observations::weather::multipointcoverage",
             params={
@@ -459,10 +452,10 @@ class WeatherService:
 
         # fmiopendata's multipointcoverage pads the most recent 10-minute slot(s)
         # with NaN — the coverage grid reaches the query end even before an
-        # observation exists. Blindly taking max(keys) then handed the current-
-        # hour banner an all-NaN slot, which get_value() turns into zeros. Walk
-        # the timestamps newest→oldest and use the most recent slot that actually
-        # carries a valid air-temperature reading.
+        # observation exists — so max(keys) can be an all-NaN slot, which
+        # get_value() would turn into zeros on the banner. Walk the timestamps
+        # newest→oldest and use the most recent slot that actually carries a
+        # valid air-temperature reading.
         normalized: dict = {}
         for timestamp in sorted(data.data.keys(), reverse=True):
             raw_location_data = next(iter(data.data[timestamp].values()))

@@ -27,8 +27,8 @@ _LINE_MODES = ("step", "linear")
 # Fields whose STORED history another view reads back, so their logging must
 # not be switched off from here: the view would silently stop getting new data.
 # Turning logging ON is always allowed.  Keep in step with the readers:
-# trip_service/trip_loader.py, charging_service/charging_loader.py and
-# charging_session.py; calculated-field sources are added from config.json.
+# trip_service/trip.py and trip_loader.py, charging_service/charging_loader.py
+# and charging_session.py; calculated-field sources are added from config.json.
 _REQUIRED_LOGGED = {
     "Gear": "Matkat",
     "Location": "Matkat",
@@ -56,8 +56,6 @@ class TeslaPropertyEditor:
         self.__config = config
         self.__vehicle = vehicle
         self.__server = server
-
-    # ── Protocol handlers ─────────────────────────────────────────
 
     async def handle_get(self, _payload: bytes, writer) -> None:
         '''
@@ -89,8 +87,6 @@ class TeslaPropertyEditor:
         await self.__reply(writer, True, request, "")
         if changed:
             await self.__server.broadcast(await self.__table_frame())
-
-    # ── Internals ─────────────────────────────────────────────────
 
     async def __write(self, request: dict) -> bool:
         '''

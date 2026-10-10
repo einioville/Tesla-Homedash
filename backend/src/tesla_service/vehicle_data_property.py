@@ -370,8 +370,8 @@ class VehicleDataProperty:
         '''
         Builds an InfluxDB point from the current value stamped with the given
         timestamp (ms since epoch, UTC) rather than the last telemetry event
-        time.  Used by the midnight snapshot job so there is always a record
-        at the start of the day/month for period-boundary queries.
+        time.  Used by the midnight snapshot job
+        (Vehicle.__snapshot_logged_properties).
         Arguments:
             timestamp_ms (int): Epoch milliseconds to tag the point with.
         '''
@@ -545,8 +545,6 @@ class CalculatedVehicleDataProperty(VehicleDataProperty):
         startup via init_async_dependent().  I/O is performed outside the lock
         so telemetry updates are never blocked during the database roundtrip.
         '''
-        # Fetch the period baseline OUTSIDE the lock — this is an async I/O
-        # operation and must not hold _async_lock while it runs.
         if self.__period == "month":
             new_base = await self._vehicle.get_first_data_this_month(
                 self.__source_data_id
@@ -588,7 +586,6 @@ class CalculatedVehicleDataProperty(VehicleDataProperty):
             value: Raw telemetry value from the Teslemetry stream.
             timestamp: Event timestamp in milliseconds (epoch).
         '''
-        # super() stores the formula-converted raw value under its own lock.
         await super().update(value, timestamp)
 
         # Re-acquire the lock so the calculation formula application is atomic

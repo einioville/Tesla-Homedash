@@ -14,7 +14,8 @@ class TelemetryHandler:
 
     Reconnection on network loss is handled entirely by the TeslemetryStream library using
     exponential backoff (up to 600 s between retries). This class only manages the
-    ClientSession lifetime and shutdown signalling via close().
+    ClientSession lifetime, shutdown signalling via close(), and the stream standing
+    that health() reports.
     Arguments:
         access_token (str): Teslemetry API access token
         server (str): Teslemetry server hostname (e.g. eu.teslemetry.com)
@@ -37,10 +38,10 @@ class TelemetryHandler:
         '''
         Start the telemetry stream listener. Blocks until close() is called.
 
-        The TeslemetryStream library spawns an internal asyncio task (via async_add_listener)
-        that iterates the SSE stream and reconnects automatically on any network error — no
-        outer retry loop is needed here. The ClientSession stays alive for the full duration
-        so the library can reuse it when reconnecting.
+        async_add_listener spawns the library's internal listen() task, which connects on its
+        first iteration and reconnects automatically on any network error — no outer retry
+        loop is needed here. The ClientSession stays alive for the full duration so the
+        library can reuse it when reconnecting.
         '''
         async with ClientSession() as session:
             self.__stream = TeslemetryStream(
@@ -52,9 +53,6 @@ class TelemetryHandler:
             )
 
             self.__stream.async_add_connection_listener(self.__on_connection_change)
-
-            # async_add_listener starts the internal listen() task which calls connect()
-            # on first iteration and reconnects automatically after any disconnect.
             self.__stream.async_add_listener(self.__on_event)
 
             logger.info("Teslemetry stream listener started")
@@ -108,6 +106,5 @@ class TelemetryHandler:
         '''
         logger.info("Telemetry stream close requested")
         if self.__stream is not None:
-            # disconnect() = active=False + close(), which stops the listen() task cleanly
             self.__stream.disconnect()
         self.__close_event.set()

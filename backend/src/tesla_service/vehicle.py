@@ -52,12 +52,10 @@ class Vehicle:
         self.__condition_next_handle: int = 0
         self.__load_data_properties()
         self.__temperature_updated = False
-        # HVAC rate-limit state. Reset is armed once per cooldown window: when
-        # any successful command increments the counter and no reset is
-        # currently scheduled, schedule one and set the flag.  __reset_requests
-        # clears the flag after firing.  This is order-independent and survives
-        # any interleaving — pre-fix, the equality check missed when the
-        # counter stepped past 4 and the limiter latched permanently.
+        # HVAC rate limit: 5 commands per 5-minute window, shared by climate
+        # toggles and temperature pushes. Whichever command opens the window
+        # arms its one reset job (__reset_scheduled), which zeroes the counter
+        # and the flag when it fires (see __rate_limit_reserve).
         self.__requests_used = 0
         self.__reset_scheduled = False
         self.__rate_limit_lock = asyncio.Lock()
@@ -87,9 +85,6 @@ class Vehicle:
         logger.debug("Loaded %d vehicle data properties", len(self.__data))
 
     async def init_async_dependent(self) -> None:
-        # Scheduler is pinned to the configured timezone so naive run_dates
-        # we build with `datetime.now(self.__timezone)` line up with how the
-        # scheduler interprets them.
         self.__scheduler = AsyncIOScheduler(timezone=self.__timezone)
         self.__scheduler.start()
         logger.info(
@@ -122,10 +117,6 @@ class Vehicle:
             )
             await self.__data[data_property_id].update_calculate_value()
 
-        # Midnight snapshot of every logged property. Without this, a new
-        # calendar day (or month) can start with no InfluxDB record inside the
-        # first-of-period window, which would make CalculatedVehicleDataProperty
-        # reset queries return None and force a fallback to the live value.
         self.__scheduler.add_job(
             func=self.__snapshot_logged_properties,
             trigger=CronTrigger(hour=0, minute=0, timezone=self.__timezone),
@@ -137,7 +128,8 @@ class Vehicle:
         Writes the current value of every logged data property to InfluxDB
         with the current timestamp.  Runs daily at 00:00 in the configured
         timezone so the first-of-day / first-of-month baseline queries used
-        by CalculatedVehicleDataProperty always find a record.
+        by CalculatedVehicleDataProperty always find a record; without one
+        they return None and the baseline falls back to the live value.
         """
         # Stamp explicitly in UTC: InfluxDB stores absolute UTC moments, and
         # the configured `timeZone` is only used at query time / for cron
@@ -267,15 +259,13 @@ class Vehicle:
         '''
         Forces every property that defines a sleep_default to its asleep value
         (clearing any pending value-lock) and broadcasts the ones that actually
-        changed.  Invoked when a state event reports the vehicle is no longer
-        online: the Teslemetry stream stops sending on sleep, so without this
-        volatile fields (speed, gear, HVAC, charging power) stay frozen at their
-        last live reading.  Safe to call on every offline event — properties
-        already at their default report no change and are not re-broadcast, and
-        the periodic offline events also self-heal a reset that lost a race with
-        a replayed telemetry frame on (re)connect.  Logged fields are NOT
-        written to InfluxDB here by design — the reset is display-only and must
-        not fabricate history points.
+        changed.  Runs from __on_sleep, once per online→offline transition (the
+        VehicleOnline value-callback is edge-triggered): the Teslemetry stream
+        stops sending on sleep, so without this volatile fields (speed, gear,
+        HVAC, charging power) stay frozen at their last live reading.
+        Properties already at their default report no change and are not
+        re-broadcast.  Logged fields are NOT written to InfluxDB here by design
+        — the reset is display-only and must not fabricate history points.
         Arguments:
             timestamp: Epoch milliseconds of the state (sleep) event.
         '''
@@ -631,7 +621,6 @@ class Vehicle:
             await self.stream_data_property(data_property)
             logger.info("Climate switch accepted: now %s", target_state)
         else:
-            # Abort the placeholder, restore the previous state and refund the slot.
             await data_property.clear_value_lock(previous_state)
             await self.stream_data_property(data_property)
             await self.__rate_limit_refund()
