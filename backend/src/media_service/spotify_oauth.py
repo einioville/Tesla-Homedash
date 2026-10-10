@@ -18,6 +18,7 @@ import time
 
 from spotipy.oauth2 import SpotifyOAuth, SpotifyOauthError
 
+from ..utils.atomic_write import write_atomic
 from ..utils.config_parser import Config, get_env
 
 logger = logging.getLogger("media_service.spotify_oauth")
@@ -173,12 +174,7 @@ def write_grant_record(config: Config, profile: dict | None) -> None:
         "displayName": profile.get("displayName") or "",
         "userId": profile.get("id") or "",
     }
-    path = _grant_record_path(config)
-    tmp = path + ".tmp"
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8") as f:
-        json.dump(record, f, ensure_ascii=False)
-    os.replace(tmp, path)
+    write_atomic(_grant_record_path(config), json.dumps(record, ensure_ascii=False), mode=0o600)
 
 
 def scope_covers(required: str, granted: str | None) -> bool:

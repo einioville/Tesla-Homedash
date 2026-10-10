@@ -19,6 +19,7 @@ import os
 
 from ..utils import logger_configurator as logs
 from ..utils import protocol
+from ..utils.atomic_write import write_atomic
 
 logger = logging.getLogger("system_service.log_files")
 
@@ -139,10 +140,7 @@ class LogFiles:
                 with open(path, "r", encoding="utf-8", errors="replace") as fh:
                     kept = filter_warnings(fh)
                 if kept:
-                    temp = path + ".tmp"
-                    with open(temp, "w", encoding="utf-8") as fh:
-                        fh.writelines(kept)
-                    os.replace(temp, path)
+                    write_atomic(path, "".join(kept))
                     continue
             os.remove(path)
 

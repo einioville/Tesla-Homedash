@@ -11,6 +11,10 @@
   and **reaps** the child (the whole process group with `new_session=True`) and raises
   `asyncio.TimeoutError`, which callers must catch **before** `OSError` — it is a subclass since
   Python 3.11. The updater's streaming build runner is the exception: it reads output live.
+- **`atomic_write.py`**: `write_atomic(path, text, mode)` — every whole-file rewrite (`config.json`,
+  the Spotify grant record, the error store, kept log backups): a temp file in the same directory,
+  fsynced, then `os.replace`d, and removed on any failure. `mode` is applied through the umask;
+  pass `0o600` for anything private.
 - **`logger_configurator.py`**: `configure_logging(level=None)` resolves the level from
   `TESLA_HOMEDASH_LOG_LEVEL` (default **INFO**, not DEBUG) and wires the shared stdout formatter
   (`LEVEL | YYYY-MM-DD | HH:MM:SS | name | message`) onto an allow-list of top-level loggers.

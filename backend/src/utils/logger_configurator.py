@@ -7,6 +7,8 @@ import threading
 
 from dotenv import load_dotenv
 
+from .atomic_write import write_atomic
+
 # ── Logger name constants ─────────────────────────────────────────────────────
 
 TESLA_SERVICE = "tesla_service"
@@ -210,11 +212,8 @@ class ErrorLog(logging.Handler):
 
     def __rewrite(self) -> None:
         '''Writes the in-memory entries back as the whole file, atomically.'''
-        temp = self.__path + ".tmp"
-        with open(temp, "w", encoding="utf-8") as fh:
-            for entry in self.__entries:
-                fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
-        os.replace(temp, self.__path)
+        write_atomic(self.__path, "".join(
+            json.dumps(entry, ensure_ascii=False) + "\n" for entry in self.__entries))
         self.__lines_on_disk = len(self.__entries)
 
     def entries(self, match=None) -> list[dict]:

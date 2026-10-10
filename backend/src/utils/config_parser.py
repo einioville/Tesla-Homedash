@@ -14,13 +14,13 @@ import json
 import logging
 import os
 import shutil
-import tempfile
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import tzlocal
 from dotenv import load_dotenv
 
+from .atomic_write import write_atomic
 from .logger_configurator import LEVEL_CHOICES, default_level_name
 
 logger = logging.getLogger("utils.config_parser")
@@ -466,13 +466,8 @@ class Config:
         - the previous on-disk file is copied to `<path>.bak` first, which is
           what `__init__` rolls back to if a write ever produces an unusable
           config (otherwise a restart-tier setting could restart-loop systemd);
-        - the new document is written to a temp file in the SAME directory,
-          flushed + fsynced, then `os.replace`d onto the real path.  Same
-          directory because os.replace is only atomic within a filesystem, and
-          fsync because a rename can otherwise land before the data does.
+        - the new document replaces the file through write_atomic(), owner-only.
         '''
-        directory = os.path.dirname(self.__path) or "."
-
         if os.path.isfile(self.__path):
             try:
                 shutil.copyfile(self.__path, self.__path + self.BACKUP_SUFFIX)
@@ -481,23 +476,7 @@ class Config:
                 # the write -- the user asked for this change.
                 logger.warning("Could not write config backup: %s", e)
 
-        fd, tmp_path = tempfile.mkstemp(
-            prefix=".config-", suffix=".tmp", dir=directory
-        )
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
-                json.dump(self.__data, f, indent=4, ensure_ascii=False)
-                f.write("\n")
-                f.flush()
-                os.fsync(f.fileno())
-            os.replace(tmp_path, self.__path)
-        except BaseException:
-            # Leave the live config untouched on any failure, including
-            # cancellation, and never leak the temp file.
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
-            raise
+        write_atomic(self.__path, json.dumps(self.__data, indent=4, ensure_ascii=False) + "\n",
+                     mode=0o600)
 
         logger.info("Configuration saved to %s", self.__path)
