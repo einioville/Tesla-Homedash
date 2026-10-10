@@ -23,12 +23,6 @@ from spotipy.oauth2 import SpotifyOAuth
 from ...utils.config_parser import Config, default_config_path, get_env
 from ..spotify_oauth import SPOTIFY_AUTH_SCOPE, write_grant_record
 
-# Re-exported so this script keeps its old name for the value, while the one
-# authoritative definition lives beside the player that depends on it. This is an
-# ISSUER, so it asks for the wider SPOTIFY_AUTH_SCOPE the Options view's re-auth
-# asks for; a scope NARROWER than the reader's would silently invalidate the grant.
-SCOPE = SPOTIFY_AUTH_SCOPE
-
 MAX_ATTEMPTS = 3
 
 
@@ -61,7 +55,10 @@ def _run_oauth(config: Config, client_id: str, client_secret: str) -> SpotifyOAu
         client_secret=client_secret,
         redirect_uri=config.spotify_redirect_uri,
         cache_path=config.spotify_cache_path,
-        scope=SCOPE,
+        # An ISSUER asks for the wider SPOTIFY_AUTH_SCOPE, like the Options view's
+        # re-auth; a scope NARROWER than the reader's would silently invalidate
+        # the grant.
+        scope=SPOTIFY_AUTH_SCOPE,
         open_browser=False,
     )
 

@@ -20,7 +20,6 @@ import os
 import secrets
 import shutil
 import signal
-import time
 import urllib.parse
 
 import requests
@@ -123,7 +122,6 @@ class SpotifyAuthService:
         pending = {
             "state": nonce,
             "oauth": oauth,
-            "created": time.monotonic(),
             "writer": writer,
             "server": None,
             "timer": None,

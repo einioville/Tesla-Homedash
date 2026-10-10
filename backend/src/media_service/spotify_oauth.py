@@ -80,14 +80,12 @@ class NonInteractiveSpotifyOAuth(SpotifyOAuth):
         )
 
 
-def build_oauth(config: Config, interactive: bool = False,
-                scope: str = SPOTIFY_SCOPE) -> SpotifyOAuth:
+def build_oauth(config: Config, scope: str = SPOTIFY_SCOPE) -> SpotifyOAuth:
     '''
-    Builds a SpotifyOAuth from the .env credentials and the config.json paths.
+    Builds a non-interactive SpotifyOAuth from the .env credentials and the
+    config.json paths.
     Arguments:
         config (Config): Loaded backend configuration (redirect URI, cache path).
-        interactive (bool): True only for the one-off CLI setup helper, which is
-            allowed to prompt.  Every in-process caller passes False.
         scope (str): Scope to request.  SPOTIFY_SCOPE for anything that READS
             the cache; SPOTIFY_AUTH_SCOPE only for a manager that ISSUES a new
             grant (see SPOTIFY_AUTH_SCOPE for why the two differ).
@@ -108,8 +106,7 @@ def build_oauth(config: Config, interactive: bool = False,
                 "Could not create the Spotify cache directory %s: %s", cache_dir, e
             )
 
-    cls = SpotifyOAuth if interactive else NonInteractiveSpotifyOAuth
-    return cls(
+    return NonInteractiveSpotifyOAuth(
         client_id=get_env("SPOTIFY_CLIENT_ID"),
         client_secret=get_env("SPOTIFY_CLIENT_SECRET"),
         redirect_uri=config.spotify_redirect_uri,

@@ -50,16 +50,6 @@ class MediaManager:
         self.__autoplay_radio = bool(media.get("autoplayRadio"))
         self.__resume_radio_after_spotify = bool(media.get("resumeRadioAfterSpotify"))
 
-    async def play(self) -> None:
-        logger.debug("Media command: play")
-        if self.__active_player:
-            await self.__active_player.play()
-
-    async def pause(self) -> None:
-        logger.debug("Media command: pause")
-        if self.__active_player:
-            await self.__active_player.pause()
-
     async def pause_play(self) -> None:
         logger.debug("Media command: pause_play")
         if self.__active_player:

@@ -5,11 +5,11 @@ import struct
 import aiohttp
 import requests
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from spotipy import Spotify, SpotifyBaseException, SpotifyException
+from spotipy import Spotify, SpotifyBaseException
 from spotipy.oauth2 import SpotifyOauthError
 
 from ..utils import protocol
-from ..utils.config_parser import Config, get_env
+from ..utils.config_parser import Config
 from .base_media_player import BaseMediaPlayer
 from .media_manager import MediaManager
 from .spotify_oauth import build_oauth
@@ -71,7 +71,6 @@ class SpotifyPlayer(BaseMediaPlayer):
         # spotipy does not clear its cache on rejection, so an unguarded poller
         # would retry a dead token every 10 s forever, for nothing.
         self._auth_error: str | None = None
-        self._auth_error_code: str | None = None
         # Awaited when _auth_error changes, so the dashboard hears about it at once
         # rather than at the next client reconnect.
         self._auth_listener = None
@@ -103,7 +102,6 @@ class SpotifyPlayer(BaseMediaPlayer):
         '''
         resumed = self._auth_error is not None
         self._auth_error = None
-        self._auth_error_code = None
         if resumed:
             logger.info("Spotify grant replaced — resuming polling")
             await self._notify_auth_change()
@@ -355,7 +353,6 @@ class SpotifyPlayer(BaseMediaPlayer):
         if self._auth_error == reason:
             return
         self._auth_error = reason
-        self._auth_error_code = code
         logger.error(
             "Spotify authorization is no longer valid (%s): %s — polling stopped "
             "until it is renewed", code or "?", message,
