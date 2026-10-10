@@ -110,14 +110,7 @@ class VehicleDataProperty:
                     )
                     return
                 # Target arrived — release lock and fall through to commit.
-                if (
-                    self.__lock_timeout_task is not None
-                    and not self.__lock_timeout_task.done()
-                ):
-                    self.__lock_timeout_task.cancel()
-                self.__lock_timeout_task = None
-                self.__locked_target = None
-                self.__lock_generation += 1
+                self.__drop_lock()
 
             previous_value = self._value
             self._value = new_value
@@ -176,6 +169,20 @@ class VehicleDataProperty:
             self.__id, placeholder_value, target_value, timeout_seconds,
         )
 
+    def __drop_lock(self) -> None:
+        '''
+        Releases the value lock: cancels its timeout and bumps the generation so a
+        timeout already in flight finds it stale.  Caller holds _async_lock.
+        '''
+        if (
+            self.__lock_timeout_task is not None
+            and not self.__lock_timeout_task.done()
+        ):
+            self.__lock_timeout_task.cancel()
+        self.__lock_timeout_task = None
+        self.__locked_target = None
+        self.__lock_generation += 1
+
     async def __lock_timeout_handler(self, generation: int, seconds: int) -> None:
         try:
             await asyncio.sleep(seconds)
@@ -212,14 +219,7 @@ class VehicleDataProperty:
                 current value untouched.
         '''
         async with self._async_lock:
-            if (
-                self.__lock_timeout_task is not None
-                and not self.__lock_timeout_task.done()
-            ):
-                self.__lock_timeout_task.cancel()
-            self.__lock_timeout_task = None
-            self.__locked_target = None
-            self.__lock_generation += 1
+            self.__drop_lock()
             if value is not None:
                 self._value = value
 
@@ -241,14 +241,7 @@ class VehicleDataProperty:
         async with self._async_lock:
             # Drop any in-flight value-lock (e.g. an HvacPower toggle still
             # showing "Pending"): it can never be confirmed while asleep.
-            if (
-                self.__lock_timeout_task is not None
-                and not self.__lock_timeout_task.done()
-            ):
-                self.__lock_timeout_task.cancel()
-            self.__lock_timeout_task = None
-            self.__locked_target = None
-            self.__lock_generation += 1
+            self.__drop_lock()
 
             if self.__value_type is None:
                 self.__value_type = self.__infer_value_type(self.__sleep_default)
@@ -513,6 +506,21 @@ class CalculatedVehicleDataProperty(VehicleDataProperty):
 
         self.__period = period
 
+    def __calculate(self, latest) -> float:
+        '''
+        Evaluates calculation_formula with x = the period baseline, y = latest.
+        Arguments:
+            latest: The formula-converted reading (y).
+        '''
+        return float(
+            self.__calculation_sympy_expr.subs(
+                {
+                    self.__calculation_sympy_x: self.__calculate_value,
+                    self.__calculation_sympy_y: latest,
+                }
+            ).evalf()
+        )
+
     async def lock_value_until(self, *args, **kwargs):
         # Calculated properties overwrite _value after super().update() with the
         # calculation formula, which would defeat the lock.  No use case exists
@@ -579,14 +587,7 @@ class CalculatedVehicleDataProperty(VehicleDataProperty):
             self.__unable_to_retrieve_value = False
             # Derived value resets to zero at the period boundary
             # (e.g. DrivenToday = 0 at midnight): formula(base, base) = base - base = 0.
-            self._value = float(
-                self.__calculation_sympy_expr.subs(
-                    {
-                        self.__calculation_sympy_x: self.__calculate_value,
-                        self.__calculation_sympy_y: self.__calculate_value,
-                    }
-                ).evalf()
-            )
+            self._value = self.__calculate(self.__calculate_value)
 
         await self._vehicle.stream_data_property(self)
         
@@ -611,14 +612,7 @@ class CalculatedVehicleDataProperty(VehicleDataProperty):
                 self.__calculate_value = self._value
                 self.__unable_to_retrieve_value = False
 
-            self._value = float(
-                self.__calculation_sympy_expr.subs(
-                    {
-                        self.__calculation_sympy_x: self.__calculate_value,
-                        self.__calculation_sympy_y: self._value,
-                    }
-                ).evalf()
-            )
+            self._value = self.__calculate(self._value)
 
         logger.debug(
             "Calculated property updated: id=%s, base=%s, raw=%s, derived=%s",

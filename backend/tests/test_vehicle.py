@@ -95,7 +95,8 @@ def test_climate_target_steps_and_bounds():
         right = await vehicle.get_data_property("HvacRightTemperatureRequest")
         results = []
         for start, step, expected in ((20.0, "plus", 20.5), (20.0, "minus", 19.5),
-                                      (28.0, "plus", 28.0), (15.0, "minus", 15.0)):
+                                      (28.0, "plus", 28.0), (15.0, "minus", 15.0),
+                                      (30.0, "minus", 29.5), (14.0, "plus", 14.5)):
             await left.update(start, 1_000)
             await right.update(start, 1_000)
             vehicle._Vehicle__temperature_updated = False

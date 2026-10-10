@@ -15,6 +15,20 @@ from datetime import datetime, timedelta, timezone
 logger = logging.getLogger("tesla_service.vehicle")
 
 
+def _stream_batch(stream_data) -> bytes:
+    '''
+    Frames each property's stream data as one MSG_STREAM packet and joins them
+    into a single write; properties without a value (None) are skipped.
+    Arguments:
+        stream_data (Iterable[bytes | None]): get_stream_data() results.
+    '''
+    return b"".join(
+        protocol.frame(protocol.MSG_STREAM, entry)
+        for entry in stream_data
+        if entry is not None
+    )
+
+
 class Vehicle:
     def __init__(
         self,
@@ -239,11 +253,7 @@ class Vehicle:
 
             stream_data = await asyncio.gather(*stream_tasks)
 
-            framed = b"".join(
-                protocol.frame(protocol.MSG_STREAM, entry)
-                for entry in stream_data
-                if entry is not None
-            )
+            framed = _stream_batch(stream_data)
             if framed:
                 await self.__server.broadcast(framed)
 
@@ -276,11 +286,7 @@ class Vehicle:
         if not changed:
             return
         stream_data = await asyncio.gather(*(p.get_stream_data() for p in changed))
-        framed = b"".join(
-            protocol.frame(protocol.MSG_STREAM, entry)
-            for entry in stream_data
-            if entry is not None
-        )
+        framed = _stream_batch(stream_data)
         if framed:
             await self.__server.broadcast(framed)
         logger.info("Applied sleep defaults to %d field(s) on sleep", len(changed))
@@ -398,11 +404,7 @@ class Vehicle:
         async with self.__async_lock:
             properties = list(self.__data.values())
         stream_data = await asyncio.gather(*(p.get_stream_data() for p in properties))
-        framed = b"".join(
-            protocol.frame(protocol.MSG_STREAM, entry)
-            for entry in stream_data
-            if entry is not None
-        )
+        framed = _stream_batch(stream_data)
         if framed:
             await self.__server.send_to(client, framed)
 
@@ -685,31 +687,31 @@ class Vehicle:
         self.__temperature_updated = False
 
     async def minus_temp(self) -> None:
-        left = await self.get_data_property("HvacLeftTemperatureRequest")
-        right = await self.get_data_property("HvacRightTemperatureRequest")
-
-        value_left = await left.get_value()
-        value_left -= 0.5
-
-        if value_left < 15.0:
-            logger.warning("Temperature decrease blocked: minimum 15.0°C reached")
-            return
-
-        await left.update(value_left, None)
-        await right.update(value_left, None)
-        await self.stream_data_property(left)
-        await self.stream_data_property(right)
-
-        self.__temperature_updated = True
+        await self.__step_target_temp(-0.5)
 
     async def plus_temp(self) -> None:
+        await self.__step_target_temp(0.5)
+
+    async def __step_target_temp(self, step: float) -> None:
+        '''
+        Moves both seats' target temperature by one step, never past 15 or 28 °C,
+        and streams it.  Only the local setpoint moves; it reaches the car the next
+        time climate is toggled.
+        Arguments:
+            step (float): +0.5 or -0.5 °C.
+        '''
         left = await self.get_data_property("HvacLeftTemperatureRequest")
         right = await self.get_data_property("HvacRightTemperatureRequest")
 
         value_left = await left.get_value()
-        value_left += 0.5
+        value_left += step
 
-        if value_left > 28.0:
+        # Each bound stops only the step towards it, so a setpoint the car reports
+        # outside the range can still be stepped back into it.
+        if step < 0 and value_left < 15.0:
+            logger.warning("Temperature decrease blocked: minimum 15.0°C reached")
+            return
+        if step > 0 and value_left > 28.0:
             logger.warning("Temperature increase blocked: maximum 28.0°C reached")
             return
 
