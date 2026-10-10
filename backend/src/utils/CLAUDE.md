@@ -15,7 +15,7 @@
   the Spotify grant record, the error store, kept log backups): a temp file in the same directory,
   fsynced, then `os.replace`d, and removed on any failure. `mode` is applied through the umask;
   pass `0o600` for anything private.
-- **`logger_configurator.py`**: `configure_logging(level=None)` resolves the level from
+- **`logger_configurator.py`**: `configure_logging()` resolves the level from
   `TESLA_HOMEDASH_LOG_LEVEL` (default **INFO**, not DEBUG) and wires the shared stdout formatter
   (`LEVEL | YYYY-MM-DD | HH:MM:SS | name | message`) onto an allow-list of top-level loggers.
   **Every service's logger prefix must be in `_SERVICE_LOGGERS`** (`tesla_service`, `media_service`,
@@ -49,7 +49,6 @@ Framing, byte order and the Tesla stream value types are in the root `CLAUDE.md`
 
 | Byte | Name | Dir | Payload |
 |------|------|-----|---------|
-| `0x01` | MSG_JSON | F→B | JSON body |
 | `0x03` | MSG_TERMINATE | F→B | (empty) |
 | `0x04` | MSG_STREAM | B→F | `stream_id(2B) + value_type(1B) + value + timestamp(8B)` |
 | `0x14` | MEDIA_STREAM_IMAGE | B→F | Raw image bytes (JPEG/PNG) |

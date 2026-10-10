@@ -11,8 +11,6 @@ import struct
 
 
 # Frontend-to-backend and backend-to-frontend Tesla-data framing
-MSG_JSON = 0x01
-MSG_LIST = 0x02
 MSG_TERMINATE = 0x03
 MSG_STREAM = 0x04
 

@@ -17,8 +17,6 @@
 namespace protocol {
 
 // Tesla-data framing (both directions)
-inline constexpr quint8 MSG_JSON = 0x01;       // reserved/legacy — unused by this client
-inline constexpr quint8 MSG_LIST = 0x02;       // reserved/legacy — unused by this client
 inline constexpr quint8 MSG_TERMINATE = 0x03;
 inline constexpr quint8 MSG_STREAM = 0x04;
 

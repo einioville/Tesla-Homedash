@@ -296,24 +296,19 @@ def log_file_handler() -> logging.handlers.RotatingFileHandler | None:
     return _file_handler
 
 
-def configure_logging(level: int | None = None) -> None:
+def configure_logging() -> None:
     '''
-    Configures all service loggers with a shared StreamHandler and formatter.
+    Configures all service loggers with a shared StreamHandler and formatter, at
+    the level TESLA_HOMEDASH_LOG_LEVEL names (INFO when unset or invalid).
     Must be called once at application startup before any service is initialised.
-    Arguments:
-        level (int): Minimum log level for all service loggers.  When None (the
-            default) the level comes from TESLA_HOMEDASH_LOG_LEVEL, falling back
-            to INFO.
     '''
     global _base_level
-    invalid: str | None = None
-    if level is None:
-        # `.env` is normally loaded lazily by config_parser.get_env, whose first
-        # call happens *after* logging is configured — so load it here too.
-        # load_dotenv is idempotent and does not override real env vars, which is
-        # what lets systemd's Environment= win over a stale `.env` on the Pi.
-        load_dotenv()
-        level, invalid = _resolve_level()
+    # `.env` is normally loaded lazily by config_parser.get_env, whose first
+    # call happens *after* logging is configured — so load it here too.
+    # load_dotenv is idempotent and does not override real env vars, which is
+    # what lets systemd's Environment= win over a stale `.env` on the Pi.
+    load_dotenv()
+    level, invalid = _resolve_level()
 
     global _file_handler, _stdout_handler
     _base_level = level
