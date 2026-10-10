@@ -37,8 +37,7 @@ logger = logging.getLogger("start_services")
 # Env vars required before any service is constructed.  Missing any of these
 # produces surprising mid-startup failures (spotipy NoneType errors, Influx
 # auth 401s), so we fail fast with one clear message instead.
-# CONFIG_PATH is NOT here: it now defaults to default_config_path(), so only a
-# deployment that keeps its config.json elsewhere needs to set it.
+# CONFIG_PATH is not required: it defaults to default_config_path().
 REQUIRED_ENV_VARS = (
     "VIN",
     "API_KEY",
@@ -398,7 +397,7 @@ def _register_handlers(
 
     async def _get_history(payload: bytes, writer) -> None:
         '''
-        Reads a property's downsampled history for the requested range and replies
+        Reads a property's raw history for the requested range and replies
         to the requesting client only.  A bad id or unreachable InfluxDB yields a
         status=0 (no data) frame rather than no reply, so the UI never hangs.
         '''
@@ -731,28 +730,24 @@ async def main():
     )
     logger.debug("Vehicle initialized")
 
-    # Trip detection (issue #5/#6): reads Gear/Location/VehicleSpeed history out of
-    # InfluxDB on demand to serve the Trips view. Stateless — no run task, purely
-    # request/response via the handlers below.
+    # Trip detection (issue #5/#6): stateless request/response, so no run task and
+    # no snapshot.
     trip_loader = TripLoader(influx_handler, config)
     logger.debug("Trip loader initialized")
 
-    # Spot pricing (issue #12): shared fetch/cache/convert core for Nord Pool FI prices.
-    # Constructed unconditionally (independent of the charger) — the live price tile and
-    # the on-demand cost path both use it; when disabled in config every method no-ops and
-    # cost falls back to the flat tariff.
+    # Spot pricing (issue #12). Constructed whether or not there is a charger: the live
+    # price tile and the on-demand cost path both use it, and when it is disabled every
+    # method no-ops and cost falls back to the flat tariff.
     spot_provider = SpotPriceProvider(config)
     logger.debug("Spot price provider initialized")
 
-    # Charging-loss analysis (myenergi): stateless, reads DetailedChargeState +
-    # myenergi_data history from InfluxDB on demand. Constructed unconditionally so the
-    # charging handlers always answer (an empty list when no charger data exists). The spot
-    # provider prices its sessions + month cost (flat tariff fallback).
+    # Charging-loss analysis: stateless, and constructed unconditionally so the charging
+    # handlers always answer (an empty list when no charger data exists).
     charging_loader = ChargingLoader(influx_handler, config, spot_provider=spot_provider)
     logger.debug("Charging loader initialized")
 
-    # Live spot price broadcast (the Charging view's current-price tile). Always-on (works
-    # without a Zappi); run() no-ops when spot pricing is disabled.
+    # The Charging view's live price tile; works without a Zappi, and run() no-ops when
+    # spot pricing is disabled.
     spot_price_service = SpotPriceService(server=server, config=config, provider=spot_provider)
     logger.debug("Spot price service initialized")
 
@@ -778,9 +773,8 @@ async def main():
             "charger streaming + logging disabled"
         )
 
-    # Spotify re-authorization from the Options view. The client secret stays
-    # here; the frontend only renders the page and reports back the one-shot
-    # authorization code.
+    # Spotify re-authorization from the Options view. The client secret, the
+    # redirect listener and every token stay in the backend.
     spotify_auth = SpotifyAuthService(config=config, server=server, media_manager=mm)
     # Let the player announce a dead or renewed grant immediately, instead of the
     # dashboard finding out at its next reconnect.
@@ -794,8 +788,6 @@ async def main():
     audio = AudioService(config=config)
     logger.debug("Audio service initialized")
 
-    # Panel power. The frontend decides WHEN (it is the only side that sees touch
-    # input); this side does the switching, because system calls belong here.
     display = DisplayService(server=server)
     logger.debug("Display service initialized")
 
@@ -1019,9 +1011,8 @@ async def main():
     t4 = weather.get_run_task()
     t5 = spot_price_service.get_run_task()
 
-    # Waits for a CONFIG_RESTART, then raises SystemExit(RESTART_EXIT_CODE) out
-    # of the gather below so the service manager restarts the process. Without a
-    # request it never returns, so gathering it unconditionally is harmless.
+    # Ends only by exiting the process (os._exit) after a CONFIG_RESTART, so
+    # gathering it unconditionally is harmless.
     t6 = config_service.get_run_task()
 
     # Audio detects its stack then refreshes the device list forever; display

@@ -74,7 +74,7 @@ def default_config_path() -> str:
     Deliberately the SAME directory the frontend writes its own
     frontend_config.json into, so both halves of the configuration sit together
     rather than in the repo root and an app-name directory nobody can guess.
-    CONFIG_PATH still wins when set, so existing deployments are untouched.
+    CONFIG_PATH still wins when set.
     '''
     base = os.environ.get("XDG_CONFIG_HOME") or os.path.join(
         os.path.expanduser("~"), ".config")
@@ -108,9 +108,8 @@ class Config:
     In-memory configuration loaded once from a JSON file.
 
     Validated on construction: missing required keys raise immediately so
-    services do not start in an unusable state.  Currently read-only; the
-    API is shaped to support future writes (`set` + `save`) without
-    breaking callers.
+    services do not start in an unusable state.  Written at runtime only
+    through set() + save() (the Options view).
     Arguments:
         config_path (str): Absolute path to the JSON config file.
     '''
@@ -152,12 +151,6 @@ class Config:
         "sessionMergeMinutes": 5,
     }
 
-    # Spot-price tunables (issue #12). Like the myenergi block, not a REQUIRED_KEY: a
-    # gitignored config.json may omit it and the stack must still start. A partial
-    # "spotPrice" block is merged over these per-key (see spot_price_config). No secret
-    # here — the sähkötin.fi source needs no API key. When "enabled" is false (or the
-    # block is absent) the Charging view falls back to the flat electricityPriceEurPerKwh
-    # tariff. All-in €/kWh for an hour = (spot + marginCentsPerKwh/100) * (1 + vatPercent/100).
     # Host audio tunables.  Like the trip block this is NOT a required key: an
     # existing config.json will not have it and the stack must still start.
     # outputDevice "" means "leave the host's own default alone", which is not
@@ -174,6 +167,12 @@ class Config:
         "bassBoost": 0,
     }
 
+    # Spot-price tunables (issue #12). Like the myenergi block, not a REQUIRED_KEY: a
+    # gitignored config.json may omit it and the stack must still start. A partial
+    # "spotPrice" block is merged over these per-key (see spot_price_config). No secret
+    # here — the sähkötin.fi source needs no API key. When "enabled" is false the
+    # Charging view prices with the flat electricityPriceEurPerKwh tariff.
+    # All-in €/kWh for an hour = (spot + marginCentsPerKwh/100) * (1 + vatPercent/100).
     _SPOT_PRICE_DEFAULTS = {
         "enabled": True,
         "vatPercent": 25.5,
@@ -181,9 +180,8 @@ class Config:
         "baseUrl": "https://sahkotin.fi/prices",
     }
 
-    # Media playback behaviour.  Both off by default, which is exactly how the
-    # stack behaved before the keys existed: the radio is loaded but silent at
-    # startup, and stays silent when Spotify lets go of playback.
+    # Media playback behaviour.  Both off by default: the radio is loaded but
+    # silent at startup, and stays silent when Spotify lets go of playback.
     _MEDIA_DEFAULTS = {
         "autoplayRadio": False,
         "resumeRadioAfterSpotify": False,
@@ -208,7 +206,7 @@ class Config:
             raise FileNotFoundError(f"Config file not found: {config_path}")
 
         # Load the live config, rolling back to the backup copy if it is
-        # unusable.  This file is now written at RUNTIME by the Options view
+        # unusable.  This file is written at runtime by the Options view
         # (see config_service), and applying a restart-tier setting exits the
         # process for systemd to restart -- so a structurally bad write would
         # otherwise be a restart LOOP.  save() snapshots the previous good file
@@ -246,11 +244,9 @@ class Config:
     @property
     def path(self) -> str:
         '''
-        Absolute path of the live config.json, as resolved from CONFIG_PATH at
-        construction.  Reported to the frontend in the CONFIG_SCHEMA document so
-        the Options view can show WHICH file its remote half is editing — the
-        path is deployment-specific (a worktree copy, the Pi's own), and without
-        it the user has no way to tell from the screen.
+        Absolute path of the live config.json, as resolved at construction.
+        Sent as the CONFIG_SCHEMA document's "path" and shown on the Palvelin
+        status card: it is deployment-specific (a worktree copy, the Pi's own).
         '''
         return self.__path
 
@@ -300,8 +296,8 @@ class Config:
     @property
     def electricity_price_eur_per_kwh(self) -> float | None:
         '''Flat electricity tariff (EUR/kWh) for the Charging view's cost estimate, or
-        None when not configured (the cost tile then shows "—"). Optional and non-secret;
-        spot/hourly pricing is a separate future feature.'''
+        None when not configured (the cost tile then shows "—"). With spot pricing on,
+        it prices only the hours that have no spot price.'''
         value = self.get("electricityPriceEurPerKwh")
         return float(value) if value is not None else None
 

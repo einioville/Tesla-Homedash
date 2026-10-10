@@ -1,9 +1,8 @@
 '''
-Shared binary protocol constants used by the TCP server and the media layer.
-Keeping these in a single module prevents silent divergence between the
-backend's outgoing byte values and the ones the frontend expects.  All
-values are single bytes unless noted otherwise.  See CLAUDE.md
-"Binary Protocol Reference" for the authoritative specification.
+The binary protocol's constants and framing helpers — the single source of
+truth for the backend; frontend_v2/core/protocol.hh mirrors it.  All values
+are single bytes unless noted otherwise.  The message table is in
+utils/CLAUDE.md.
 '''
 
 import json
@@ -181,8 +180,8 @@ CHARGING_MONTH = 0x85      # B->F: status(1B) + 13*double(8B): charger_kwh, car_
 
 # Charger (myenergi) telemetry history — the Charging view's past-hour power graphs.
 # Request/response, replied to the requesting client only. Same shape as TESLA_HISTORY,
-# but read from the "myenergi_data" measurement (GridPower / ChargePower), which is now
-# logged every poll so the series is gap-free.
+# but read from the "myenergi_data" measurement (GridPower / ChargePower), which is
+# logged every poll, so the series is gap-free.
 CHARGER_GET_HISTORY = 0x86  # F->B: range_code(1B) + id(len(2B)+UTF-8) + start_ms(8B) + end_ms(8B)
 CHARGER_HISTORY = 0x87      # B->F: id(len(2B)+UTF-8) + status(1B) + count(4B) + count*(ts_ms(8B)+value(8B double))
 
@@ -205,22 +204,23 @@ SPOT_PRICE_STREAM = 0x88    # B->F: status(1B) + hour_start_ms(8B) + spot_eur_pe
 # rather than a packed layout: the schema is variable-shaped and these packets are
 # rare (a settings screen, not a stream), so self-describing beats compact here.
 #
-# CONFIG_SCHEMA's JSON is {"groups": [{"id", "label", "settings": [...]}]} where each
-# setting carries key/type/label/default/value plus per-type bounds (min/max/step,
-# options) and an "apply" tier — see config_service.SETTINGS_SCHEMA. Keys are dotted
-# paths into config.json ("myenergi.pollIntervalSeconds").
+# CONFIG_SCHEMA's JSON is {"path", "startedAt", "groups": [{"id", "label", "icon",
+# "sections": [{"id", "label", "settings": [...]}]}]} where each setting carries
+# key/type/label/default/value plus per-type bounds (min/max/step, options) and an
+# "apply" tier — see config_service.SETTINGS_SCHEMA. Keys are dotted paths into
+# config.json ("myenergi.pollIntervalSeconds").
 #
-# The "apply" tier tells the frontend what a write actually did:
-#   live    — services read the value on demand; the in-memory Config mutation is enough
-#   hook    — a service hook ran (rescheduled a poll job, forced a refresh)
-#   restart — written to config.json, but only picked up on the next process start
+# CONFIG_SET_RESULT's "applied" tells the frontend what a write actually did:
+#   hook      — a service hook ran (rescheduled a poll job, forced a refresh)
+#   restart   — written to config.json, but only picked up on the next process start
+#   unchanged — the value already matched; nothing was written
 CONFIG_GET_SCHEMA = 0x90    # F->B: (empty) — request the editable-settings schema + values
 CONFIG_SCHEMA = 0x91        # B->F: status(1B) + len(4B) + UTF-8 JSON
 CONFIG_SET = 0x92           # F->B: len(4B) + UTF-8 JSON {"key": <dotted>, "value": <json>}
 CONFIG_SET_RESULT = 0x93    # B->F: status(1B) + len(4B) + UTF-8 JSON
-                            #       {"key", "value", "applied": live|hook|restart, "message"}
-CONFIG_RESTART = 0x94       # F->B: (empty) — exit the process so systemd restarts it
-                            #       (needs Restart=always in the unit; see README)
+                            #       {"key", "value", "applied": hook|restart|unchanged, "message"}
+CONFIG_RESTART = 0x94       # F->B: (empty) — exit with code 42 so systemd's
+                            #       Restart=on-failure brings the process back (README)
 HOST_REBOOT = 0x95          # F->B: (empty) — reboot the whole host (issue #40). Nothing
                             #       is replied when it starts; a refusal (a veto, or no
                             #       privilege on the host) comes back as CONFIG_SET_RESULT
@@ -232,11 +232,8 @@ CONFIG_STATUS_OK = 1
 
 # ── Spotify re-authorisation (the Options view's "refresh token" action) ────
 # Request/response like CONFIG_*: the backend replies to the requesting client
-# only. The frontend never holds the client secret — it only shows the page the
-# backend hands it and posts back the authorisation code it intercepted.
-# Only the short-lived AUTHORIZATION CODE ever crosses the wire — never a token.
-# The code is useless without SPOTIFY_CLIENT_SECRET, which stays in the backend's
-# .env, and Spotify invalidates it on first use (and after ~10 minutes).
+# only. The frontend only starts a flow and hears how it ended: the client secret,
+# the authorization code and every token stay in the backend.
 #
 # The backend opens the authorize URL in the host's real browser and catches the
 # redirect on its own loopback listener at the redirect URI's host/port, so the
@@ -252,9 +249,8 @@ SPOTIFY_AUTH_GET_URL = 0xA1   # F->B: (empty) — start a flow, replacing any pe
 SPOTIFY_AUTH_URL = 0xA2       # B->F: status(1B) + len(4B) + UTF-8 JSON
                               #   ok:    {"url", "redirectUri", "state"}
                               #   error: {"message"}
-# 0xA3 is retired. It carried the redirect URL back from the embedded WebView;
-# the consent page now opens in the host's real browser and the backend catches
-# the redirect on its own loopback listener, so nothing produces one.
+# 0xA3 is retired: the backend catches the redirect on its own loopback listener,
+# so nothing sends one.
 SPOTIFY_AUTH_RESULT = 0xA4    # B->F: status(1B) + len(4B) + UTF-8 JSON, requester only
                               #   {"ok", "message", "scope", "expiresAt"}
 
@@ -270,8 +266,7 @@ SPOTIFY_AUTH_OK = 1
 #
 # The problem this solves: spotifyDeviceId decides which Spotify Connect device
 # this backend claims playback from, and a wrong value makes every transport
-# control silently do nothing. Until now the only fix was SSHing in and running
-# media_service/setup/spotify_setup.py. The scan asks the user to start playing
+# control silently do nothing. The scan asks the user to start playing
 # on the device they want, polls Spotify for what is playing anywhere, and shows
 # the device + track so the choice can be confirmed before it is written.
 #
@@ -340,9 +335,9 @@ DISPLAY_POWER_STATE = 0xC1    # B->F: available(1B) + on(1B) + fault(1B) — ava
 # DISPLAY_POWER_STATE fault codes: why the panel is not doing what was asked.
 DISPLAY_FAULT_NONE = 0
 DISPLAY_FAULT_REFUSED = 1      # wlopm exited non-zero (a VNC server holding the output)
-DISPLAY_FAULT_OUTPUT_LOST = 2  # wlopm --on "worked" but the output is gone or still off
-                               # (the labwc 0.20 / wlroots 0.20 wedge); sticky, and
-                               # power-off is refused until the backend restarts
+DISPLAY_FAULT_OUTPUT_LOST = 2  # wlopm --on exited 0 but the output is gone from the
+                               # compositor (the labwc 0.20 / wlroots 0.20 wedge); sticky,
+                               # and power-off is refused until the backend restarts
 
 # ── App update (the Options view's "Päivitys" card) ─────────────────────────
 # Updates the checkout this backend and the dashboard are running FROM, in place:
