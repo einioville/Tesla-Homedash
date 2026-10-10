@@ -1,6 +1,5 @@
 import QtQuick
 import QtQuick.Layouts
-import QtQuick.Controls
 import frontend_v2
 
 // Time-range picker: 1h / 1d / 1vk / 1kk presets plus a custom range that reveals

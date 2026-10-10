@@ -32,12 +32,6 @@ QtObject {
     // Press F10 to toggle it on demand for testing.
     readonly property bool screensaverEnabled: Settings.values.screensaverEnabled
 
-    // Panel power-down — a step BEYOND the screensaver: the screensaver keeps the
-    // backlight on to show photos, this cuts it. Main.qml pushes both at the C++
-    // ScreenPower (`Display`), which shells out to wlopm.
-    readonly property bool screenOffEnabled: Settings.values.screenOffEnabled
-    readonly property int screenOffMin: Settings.values.screenOffMin
-
     // Night mode (Yleinen > Yötila) — between two clock times the screensaver
     // is set aside and the panel powers off after a much shorter idle than by
     // day. items/util/NightSchedule.qml decides when; Main.qml routes it into
@@ -63,20 +57,14 @@ QtObject {
 
     // Surfaces
     readonly property color appBackground: "#0f1115"
-    readonly property color dockBackground: "#cc1b2230"
     readonly property color dockBorder: "#22ffffff"
     readonly property color accent: "#4aa8ff"
     readonly property color iconPlaceholder: "#000000"
     readonly property color homeIndicator: "#ffffffff"
     readonly property color viewLabel: "#e8edf5"
 
-    // Per-view backgrounds. The dashboard mirrors the Widgets frontend's
-    // #121212 base; the others remain placeholder tints.
+    // Per-view backgrounds; the dashboard mirrors the Widgets frontend's #121212 base.
     readonly property color dashboardBackground: "#121212"
-    readonly property color mediaBackground: "#1b2a1f"
-    readonly property color mapBackground: "#2a1f2b"
-    readonly property color climateBackground: "#241f15"
-    readonly property color weatherBackground: "#15232b"
     readonly property color tripBackground: "#121212"
 
     // Metrics
@@ -128,7 +116,6 @@ QtObject {
     readonly property color cardShadowColor: "#96000000"    // rgba(0, 0, 0, 150)
 
     // Tesla data-entry labels.
-    readonly property color dataLabelBg: "#5c5c5c"
     readonly property color dataLabelTitle: "#c0c0c0"
     readonly property color dataLabelValue: "#ffffff"
     readonly property color separator: "#ffffff"
@@ -152,7 +139,6 @@ QtObject {
     readonly property color spotifyRim: "#3a3a3a"       // hairline around a surface
 
     // Media card.
-    readonly property color mediaFallbackColor: "#1e3a8a"
     readonly property color sliderGroove: "#66333333"       // rgba(51, 51, 51, 102)
     readonly property color sliderFill: "#ffffff"
 
@@ -163,7 +149,6 @@ QtObject {
     readonly property color glowMinus: "#0000ff"
     readonly property color glowPlus: "#ff0000"
     readonly property color seatHeat: "#ff0000"
-    readonly property color seatCool: "#0000ff"
     readonly property color iconTint: "#ffffff"
 
     // "Liquid glass" surface — shared by the notification pill and the dock

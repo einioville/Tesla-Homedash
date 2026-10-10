@@ -165,7 +165,6 @@ qt_add_qml_module(appfrontend_v2
         items/trip/TripMarker.qml
         items/trip/TripStatCard.qml
         items/trip/TripStatsGrid.qml
-        items/trip/TripPropertySelector.qml
         items/trip/TripGraphCard.qml
         items/charging/ChargingGraphCard.qml
         items/charging/ChargingStatsGrid.qml

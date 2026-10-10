@@ -1,5 +1,4 @@
 import QtQuick
-import QtQuick.Controls
 import frontend_v2
 
 // Action editor: a button, for schema entries of type "action".
