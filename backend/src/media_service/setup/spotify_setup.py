@@ -1,15 +1,18 @@
 '''
 Guided one-off Spotify setup helper for Tesla-Homedash.
 
-Walks the user through the two manual Spotify steps that the running backend
-expects to already be done:
+Walks the user through the two Spotify steps the backend needs, from a
+terminal:
   1. Completing the Spotify OAuth handshake so spotipy has a refresh token
-     cached at the path `config.json` points to (`spotifyCachePath`).
+     cached at the path `config.json` points to (`spotifyCachePath`), and
+     writing the grant record beside it.
   2. Identifying the Spotify Connect device ID that should be set as
      `spotifyDeviceId` in `config.json`.
 
-The script does NOT edit `config.json` — it prints the device ID and the user
-pastes it in by hand. Run from the `backend/` directory:
+The Options view's "Tunnistaudu uudelleen" and "Tunnista laite" rows do the
+same on a running dashboard.  This script does NOT edit `config.json` — it
+prints the device ID and the user pastes it in by hand. Run from the
+`backend/` directory:
 
     uv run python -m src.media_service.setup.spotify_setup
 '''

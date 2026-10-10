@@ -1,17 +1,16 @@
 '''
 Spotify re-authorization driven from the Options view.
 
-Refreshing the OAuth grant used to mean SSHing to the Pi and running
-`media_service/setup/spotify_setup.py` by hand.  This serves the same handshake
-over the protocol so it can be done from the dashboard itself, which is the only
-interface the deployment actually has — the panel is fullscreen and keyboard-less.
+Serves the OAuth handshake over the protocol, so the grant can be renewed from
+the dashboard — the only interface the deployment has, the panel being
+fullscreen and keyboard-less — rather than by running
+`media_service/setup/spotify_setup.py` over SSH.
 
-The split keeps the secret where it belongs: the BACKEND builds the authorize URL
-and performs the token exchange (it holds SPOTIFY_CLIENT_SECRET), while the
-frontend only renders the page and reports back the authorization code Spotify
-redirects to.  That code is single-use, expires in about ten minutes, and is
-worthless without the secret — so the plain TCP link never carries an access or
-refresh token, only the code.
+The BACKEND does every step that touches a secret: it builds the authorize URL,
+opens it in the host's browser, catches Spotify's redirect on its own loopback
+listener and performs the token exchange (it holds SPOTIFY_CLIENT_SECRET).  The
+frontend only starts the flow and shows the outcome, so neither the
+authorization code nor any token ever crosses the TCP link.
 '''
 
 import asyncio
@@ -64,9 +63,10 @@ def _browser_profile_dir() -> str:
 
 class SpotifyAuthService:
     '''
-    Serves the SPOTIFY_AUTH_* codes: hands the frontend an authorize URL,
-    exchanges the authorization code it intercepts, writes the resulting grant to
-    the spotipy token cache, and reports the current grant state.
+    Serves the SPOTIFY_AUTH_* codes: opens the authorize URL in the host's
+    browser, exchanges the authorization code its loopback listener catches,
+    writes the resulting grant to the spotipy token cache, and reports the
+    current grant state.
 
     Registered with the Server both as a handler target and as a snapshot source,
     exactly like ConfigService.  Stateless apart from one pending flow, so it has
@@ -92,8 +92,9 @@ class SpotifyAuthService:
 
     async def handle_get_url(self, _payload: bytes, writer) -> None:
         '''
-        SPOTIFY_AUTH_GET_URL handler: starts a flow and replies with the URL the
-        frontend should open.
+        SPOTIFY_AUTH_GET_URL handler: starts a flow (listener up, consent page
+        opened in the host's browser) and replies with the authorize URL, which
+        is informational — the page is already open.
         Arguments:
             _payload (bytes): Unused; the request carries no body.
             writer (StreamWriter): The requesting client.
@@ -134,16 +135,12 @@ class SpotifyAuthService:
         }
         self.__pending = pending
 
-        # The external-browser path (RFC 8252 §7.3, Loopback Interface
-        # Redirection): hand the consent page to the host's real browser and catch
-        # the redirect ourselves. Spotify's login sits behind reCAPTCHA Enterprise,
-        # which an embedded browser does not get past, and RFC 8252 §8.12 says
-        # native apps MUST NOT use an embedded user-agent for authorization anyway.
-        #
-        # There is no fallback left to degrade to, so either half failing is a hard
-        # error the user has to see: without a listener the code cannot be caught,
-        # and without a browser the page cannot be reached. Failing loudly here
-        # beats a dialog that waits forever for a redirect nobody can produce.
+        # The host's real browser plus our own redirect catcher (RFC 8252 §7.3):
+        # an embedded browser does not get past Spotify's reCAPTCHA Enterprise,
+        # and §8.12 forbids one for authorization anyway. Either half failing is a
+        # hard error — without a listener the code cannot be caught, without a
+        # browser the page cannot be reached, and a dialog waiting forever for a
+        # redirect nobody can produce is worse than a message.
         try:
             pending["server"] = await self.__start_callback_server(pending)
         except OSError as e:
@@ -186,9 +183,9 @@ class SpotifyAuthService:
         off the screen and pasted back by hand.
 
         This does NOT reintroduce the hazard `NonInteractiveSpotifyOAuth` exists to
-        prevent (§5.2.8d): spotipy's version blocks a worker thread forever on
+        prevent: spotipy's version blocks a worker thread forever on
         `handle_request()`. This one is an asyncio server on the main loop, bound
-        to loopback only, torn down on the first hit or at `_FLOW_TTL_SECONDS`.
+        to loopback only, torn down when the flow ends or at `_FLOW_TTL_SECONDS`.
         Arguments:
             pending (dict): The flow this listener belongs to.
         '''
@@ -240,11 +237,10 @@ class SpotifyAuthService:
             # A browser opens MORE than one connection to this port: a speculative
             # preconnect before the navigation, and a /favicon.ico fetch the moment
             # the page below renders. Neither carries the redirect's parameters, and
-            # treating "no code" as fatal cancelled the flow WHILE the real exchange
-            # was still in flight — reporting a failure for an authorization that had
-            # already succeeded and written its token. So only a request actually
-            # carrying `code` or `error` is allowed to decide anything; everything
-            # else is answered and ignored.
+            # treating "no code" as fatal would cancel the flow WHILE the real
+            # exchange is still in flight, reporting a failure for an authorization
+            # that succeeded. So only a request carrying `code` or `error` decides
+            # anything; everything else is answered and ignored.
             if code is None and error is None:
                 await respond(http_writer, b"204 No Content")
                 return
@@ -405,10 +401,8 @@ class SpotifyAuthService:
         Deliberately does NOT await `Server.wait_closed()`. Since CPython 3.12.1
         that waits for every active connection to drop as well — and this is
         normally reached from INSIDE the callback handler, which is itself one of
-        those connections. Awaiting it there deadlocks the handler, so the exchange
-        completes and writes the token but its success reply never reaches the
-        frontend: the dashboard sits on "käynnissä" forever, or shows whatever
-        earlier failure did get through. `close()` releases the listening socket on
+        those connections, so it would deadlock there and the exchange's reply
+        would never reach the frontend. `close()` releases the listening socket on
         its own, which is all a retry needs.
         '''
         pending = self.__pending
@@ -449,8 +443,8 @@ class SpotifyAuthService:
     async def __exchange_and_reply(self, pending: dict, code: str,
                                    returned_state, writer) -> None:
         '''
-        Verifies the state, redeems the code and reports the outcome.  Shared by
-        the loopback listener and the legacy SPOTIFY_AUTH_CODE handler.
+        Verifies the state, redeems the code and reports the outcome.  Called by
+        the loopback listener once a redirect carries a code.
         Arguments:
             pending (dict): The flow the code belongs to.
             code (str): Authorization code from the redirect.
@@ -592,9 +586,9 @@ class SpotifyAuthService:
         }
 
         # The player's verdict outranks the file's existence: a cached refresh
-        # token that Spotify has stopped accepting still sits happily on disk, and
-        # since the 6-month refresh-token expiry that is a scheduled certainty.
-        # Only the player has actually tried to use it.
+        # token that Spotify has stopped accepting — routinely, at its 6-month
+        # expiry — still sits happily on disk. Only the player has actually tried
+        # to use it.
         player_error = self.__media_manager.spotify_auth_error()
         if player_error:
             status["reason"] = player_error
@@ -618,13 +612,9 @@ class SpotifyAuthService:
             return status
 
         status["scope"] = token.get("scope", "")
-        # NOTE: this is the ACCESS token's expiry — always within the next hour,
-        # and refreshed silently long before the user could notice. It is NOT when
-        # the authorization runs out. Do not render it as one: it would imply the
-        # grant dies within the hour (it does not) while hiding the only expiry
-        # that ever needs the user, the refresh token's 6 months. Spotify does not
-        # expose the grant's issue date; the real "valid until" is validUntil,
-        # derived from the timestamp this app records at each exchange.
+        # The ACCESS token's expiry — always within the hour, refreshed silently.
+        # NOT when the authorization runs out, and never to be rendered as one;
+        # that is validUntil, from the grant record.
         status["expiresAt"] = token.get("expires_at")
         # Not attached in the no-token branch above: with no grant on disk the
         # record describes one that is gone.
@@ -676,7 +666,7 @@ class SpotifyAuthService:
     async def __reply_result(self, writer, ok: bool, message: str,
                              scope: str = "", expires_at=None) -> None:
         '''
-        Replies to a SPOTIFY_AUTH_CODE exchange.
+        Sends a flow's outcome as SPOTIFY_AUTH_RESULT.
         Arguments:
             writer (StreamWriter): The requesting client.
             ok (bool): Whether the exchange succeeded.

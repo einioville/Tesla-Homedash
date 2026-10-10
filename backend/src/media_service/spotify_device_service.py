@@ -4,9 +4,9 @@ Spotify Connect device detection driven from the Options view.
 `spotifyDeviceId` decides which Connect device this backend claims playback
 from.  Get it wrong and nothing announces the mistake: the Spotify player simply
 never claims control, so every transport button on the dashboard does nothing at
-all and the radio keeps playing.  Until now the only fix was SSHing to the Pi and
-running `media_service/setup/spotify_setup.py` — which is not an interface the
-deployment actually has, since the panel is fullscreen and keyboard-less.
+all and the radio keeps playing.  The panel is fullscreen and keyboard-less, so
+the other route — SSHing in to run `media_service/setup/spotify_setup.py` — is
+not one the deployment has.
 
 So this serves the same discovery over the protocol.  The user starts playing on
 the device they want, the backend polls Spotify for what is playing ANYWHERE (not
@@ -23,12 +23,10 @@ frontend-generated `scanId` epoch, so a state or result still in flight from a
 cancelled scan cannot repopulate the dialog of the one that replaced it.
 
 Two boundaries are deliberate.  Every Spotify API call goes through the player
-via MediaManager, which owns the client, the auth latch and the executor pattern
-(the same route SpotifyAuthService takes through `spotify_auth_error()`).  And
-the write goes through `ConfigService.apply_write()` rather than touching
-config.json here, so the id lands on disk through the one validated path — schema
-coercion, atomic save with its .bak snapshot, rollback on failure, apply hooks and
-the schema re-broadcast that keeps a second dashboard honest.
+via MediaManager, which owns the client, the auth latch and the executor pattern.
+And the write goes through `ConfigService.apply_write()` rather than touching
+config.json here, so the id gets the same validation, atomic save, apply hooks and
+schema re-broadcast a CONFIG_SET does.
 '''
 
 import asyncio
@@ -97,8 +95,7 @@ class SpotifyDeviceService:
         polling Spotify for the device the user is about to start playing on.
         Arguments:
             payload (bytes): len(4B) + UTF-8 JSON {"scanId": <uint>}.  A missing
-                or malformed body is read as scan id 0 rather than refused — the
-                epoch is a fence, not a credential.
+                or malformed body reads as scan id 0 rather than being refused.
             writer (StreamWriter): The requesting client; every state goes to it
                 alone, never a broadcast.  It also becomes the scan's OWNER: no
                 other client may stop it or select from it.
@@ -180,10 +177,9 @@ class SpotifyDeviceService:
         playback it silenced.  Nothing is replied — the frontend closed its
         dialog and has already stopped listening.
 
-        Acts only for the client that OWNS the scan.  Several panels can be on
-        the Options view at once, and a Peruuta on one of them must not cancel a
-        live scan on another, which would hang that dialog on the guide text
-        with nothing ever arriving to close it.
+        Acts only for the client that OWNS the scan: a Peruuta on one panel must
+        not cancel another panel's live scan, which would hang that dialog on the
+        guide text with nothing ever arriving to close it.
         Arguments:
             _payload (bytes): Unused; the command carries no body.
             writer (StreamWriter): The requesting client.
@@ -248,16 +244,12 @@ class SpotifyDeviceService:
         if not result.get("ok"):
             message = result.get("message") or "Laitteen tallennus epäonnistui"
             logger.warning("Could not save spotifyDeviceId: %s", message)
-            # The scan deliberately stays LIVE, and the radio stays silent with
-            # it.  A failed save does not close the dialog: it keeps the device
-            # on screen with "Valitse laite" still armed, because the realistic
-            # failure here is transient (the atomic save meeting a full or
-            # read-only filesystem) and retrying is the whole point of leaving
-            # that button reachable.  Ending the scan would answer every retry
-            # with "Haku on vanhentunut", turning the button into a dead control
-            # — and would resume the radio underneath a dialog that is still
-            # asking for silence.  The silence is released the ordinary way
-            # instead: Peruuta, the TTL, or the client going away.
+            # The scan deliberately stays LIVE, and the radio silent with it: the
+            # realistic failure is transient (a full or read-only filesystem), so
+            # "Valitse laite" stays armed for a retry.  Ending the scan would
+            # answer every retry with "Haku on vanhentunut" and resume the radio
+            # under a dialog still asking for silence.  The silence is released
+            # the ordinary way instead: Peruuta, the TTL, or the client going away.
             await self.__reply_result(writer, False, message, device_id, name, scan_id)
             return
 
@@ -324,7 +316,8 @@ class SpotifyDeviceService:
         device that is missing is either switched off or a wrong id; the two
         cannot be told apart from here, and the row says so.
         '''
-        # The PLAYER's target, not Config's: it is what claiming actually uses.
+        # The PLAYER's target, not Config's: it is what claiming actually uses
+        # (the spotify hook re-snapshots it on every write, so the two agree).
         configured = self.__media_manager.spotify_target_device_id() or ""
         stored_name = str(self.__config.get("spotifyDeviceName") or "")
         status = {
@@ -417,8 +410,7 @@ class SpotifyDeviceService:
                     await self.__resume_playback(scan)
                     return
 
-                # The grant can die mid-scan (the refresh token's 6-month expiry
-                # is a scheduled certainty). Report it rather than polling a dead
+                # The grant can die mid-scan. Report it rather than polling a dead
                 # grant for the rest of the TTL.
                 auth_error = self.__media_manager.spotify_auth_error()
                 if auth_error is not None:
@@ -439,8 +431,6 @@ class SpotifyDeviceService:
                                  type(e).__name__, e)
 
                 self.__remember_device(playback)
-                # Kept so a selection can tell whether the chosen device was
-                # already playing, which decides if the radio comes back.
                 scan["playback"] = playback
                 state = self.__build_state(True, "", playback, scan, scan["scan_id"])
                 now = time.monotonic()
@@ -495,9 +485,8 @@ class SpotifyDeviceService:
         playback is paused "tunnistuksen ajaksi" — for the duration of the
         identification — and nothing else in the stack keeps that promise.
 
-        A failed WRITE is deliberately not on that list: it leaves the scan
-        running so the save can be retried, so the silence still has an owner
-        and is released by whichever of the above ends that scan.
+        A failed WRITE is deliberately not on that list: the scan stays running
+        for a retry (handle_select), so the silence still has an owner.
 
         A no-op when the scan never stopped anything that was actually playing;
         the flag is cleared first so no path can resume twice.
@@ -565,9 +554,6 @@ class SpotifyDeviceService:
         '''
         device = (playback or {}).get("device")
         track = (playback or {}).get("track")
-        # Read from the PLAYER, not from Config: the player's target is what
-        # actually decides claiming, and it is what a stale value would break.
-        # (They agree — the spotify hook re-snapshots it on every write.)
         configured = self.__media_manager.spotify_target_device_id() or ""
         return {
             "scanId": scan_id,

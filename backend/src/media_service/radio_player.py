@@ -80,12 +80,11 @@ class RadioPlayer(BaseMediaPlayer):
         reloads whatever station is current.)
 
         Written straight through Config, not ConfigService: this is state the radio
-        owns, not a setting — it is in no schema, has no hook to run, and is valid
-        by construction, being always a radioMediaIds key.  Saved at once rather
-        than debounced: each skip already waits on a stream fetch, so writes cannot
-        outpace a finger, and a debounce window is a window in which a power cut
-        loses the station.  A failed save is logged and the station still changes;
-        the value stays in memory and rides along with the next successful save.
+        owns, not a setting (in no schema, always a radioMediaIds key).  Saved at
+        once rather than debounced, so a power cut cannot lose the station
+        (media_service/CLAUDE.md).  A failed save is logged and the station still
+        changes; the value stays in memory and rides along with the next
+        successful save.
         '''
         if self.__config.media_config.get("lastRadioStation") == self.__channel:
             return
@@ -238,10 +237,10 @@ class RadioPlayer(BaseMediaPlayer):
         '''
         Whether VLC is currently producing audio.
 
-        Needed by the Spotify device scan, which silences the radio while the
-        user picks a device and restores it afterwards: resuming must not START
-        audio that was not playing to begin with, and only VLC knows which it
-        was.  Stays synchronous — it reads a libVLC flag and awaits nothing.
+        Read before the radio is stopped for a Spotify device scan or a Spotify
+        claim: resuming afterwards must not START audio that was not playing to
+        begin with, and only VLC knows which it was.  Synchronous — it reads a
+        libVLC flag and awaits nothing.
         '''
         return bool(self.__vlc_player.is_playing())
 
@@ -249,7 +248,6 @@ class RadioPlayer(BaseMediaPlayer):
         self.__vlc_player.pause()
 
     async def play(self) -> None:
-        # If no media is loaded, do a full load first
         if not self.__vlc_player.get_media():
             await self.load_player()
         self.__vlc_player.play()

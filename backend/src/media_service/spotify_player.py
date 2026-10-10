@@ -35,10 +35,9 @@ class SpotifyPlayer(BaseMediaPlayer):
     def __init__(self, media_manager: MediaManager, config: Config):
         super().__init__(media_manager=media_manager)
 
-        # NON-interactive on purpose. A missing or scope-mismatched cache used to
-        # send spotipy into its browser/local-server handshake inside this
-        # player's executor thread, where it blocks forever and silently kills
-        # every later poll; build_oauth raises instead. See spotify_oauth.py.
+        # Non-interactive: a missing or scope-mismatched cache raises rather than
+        # starting spotipy's handshake inside this player's executor thread
+        # (spotify_oauth.NonInteractiveSpotifyOAuth).
         self._auth_manager = build_oauth(config)
 
         self._spotify = Spotify(auth_manager=self._auth_manager)
@@ -54,22 +53,16 @@ class SpotifyPlayer(BaseMediaPlayer):
         self._claimed: bool = False
         self._poll_interval: int = self._POLL_IDLE
 
-        # Strong references to fire-and-forget tasks.  The event loop keeps only
-        # a WEAK one, so an unreferenced task can be garbage-collected mid-flight
-        # and its exception never retrieved — the same pattern Server uses for
-        # its handler tasks.
+        # Strong references to _spawn()'s tasks (see _spawn for why).
         self._background_tasks: set[asyncio.Task] = set()
 
-        # Serialises state updates. _update_state runs both on the poll timer
-        # and inline after every control command, so without this two runs
-        # could interleave and double-fire claim/release.
+        # Serialises state updates (see _update_state).
         self._state_lock = asyncio.Lock()
 
         # Set when Spotify rejects the grant outright — most commonly the refresh
-        # token's 6-month expiry, which is now a scheduled certainty rather than an
-        # incident. While it is set this player makes NO network calls at all:
-        # spotipy does not clear its cache on rejection, so an unguarded poller
-        # would retry a dead token every 10 s forever, for nothing.
+        # token's 6-month expiry. While it is set this player makes NO network
+        # calls at all: spotipy does not clear its cache on rejection, so an
+        # unguarded poller would retry a dead token every 10 s forever.
         self._auth_error: str | None = None
         # Awaited when _auth_error changes, so the dashboard hears about it at once
         # rather than at the next client reconnect.
@@ -113,19 +106,14 @@ class SpotifyPlayer(BaseMediaPlayer):
 
     def apply_config(self) -> None:
         '''
-        Re-reads the runtime-editable Spotify settings after the Options view
-        writes them.
+        Re-reads spotifyDeviceId after the Options view's "Tunnista laite" scan
+        writes it.  It decides which Connect device this player claims playback
+        from, so a change is re-evaluated at once rather than at the next poll:
+        the claim (or release) then happens while the user is still looking at
+        the screen that caused it.
 
-        spotifyDeviceId IS re-read here.  It used not to be — it was produced by
-        the one-off setup helper and was not exposed in the Options view at all —
-        but the view's "Tunnista laite" scan now writes it, and it is the value
-        that decides which Connect device this player claims playback from.  A
-        stale one makes every transport control silently no-op, which is exactly
-        the failure the scan exists to fix, so the change is re-evaluated at once
-        rather than at the next poll: the claim (or release) then happens while
-        the user is still looking at the screen that caused it.
-
-        Stays synchronous because ConfigService calls it as a plain hook.
+        Synchronous because its caller, the MediaManager.apply_config_spotify()
+        hook, calls it as a plain function.
         '''
         new_device_id = self._config.spotify_device_id
         if new_device_id != self._target_device_id:
@@ -302,8 +290,6 @@ class SpotifyPlayer(BaseMediaPlayer):
             func (callable): The spotipy method to call
         '''
         if self._auth_error is not None:
-            # The grant is dead. Nothing can succeed until it is replaced, so do
-            # not spend a request finding that out again.
             return _FAILED
         try:
             return await self._loop.run_in_executor(
@@ -315,11 +301,11 @@ class SpotifyPlayer(BaseMediaPlayer):
             await self._note_auth_failure(e)
             return _FAILED
         except (SpotifyBaseException, requests.exceptions.RequestException, OSError) as e:
-            # SpotifyBaseException covers both SpotifyException (API 4xx/5xx) and
-            # SpotifyOauthError, which is NOT a SpotifyException and would
-            # otherwise escape into the caller. RequestException →
-            # connection/timeout from the underlying requests client, OSError →
-            # low-level socket errors that sometimes escape requests.
+            # SpotifyBaseException → SpotifyException (API 4xx/5xx), the one
+            # subclass left once SpotifyOauthError is handled above.
+            # RequestException → connection/timeout from the underlying requests
+            # client, OSError → low-level socket errors that sometimes escape
+            # requests.
             logger.error("Spotify API call failed: %s — %s: %s", func.__name__, type(e).__name__, e)
             return _FAILED
 
@@ -485,7 +471,6 @@ class SpotifyPlayer(BaseMediaPlayer):
             self._spotify.current_playback, additional_types="episode"
         )
 
-        # API error — skip this cycle
         if playback is _FAILED:
             return
 
@@ -611,8 +596,8 @@ class SpotifyPlayer(BaseMediaPlayer):
                               self._artist_text(self._song_details), client)
 
     async def _stream_image(self, client=None) -> None:
-        # Bounded: a slow CDN response would otherwise stall the poll cycle,
-        # queueing every subsequent _update_state() behind it.
+        # Bounded: on the poll path this runs under _state_lock, and every poll
+        # is skipped while that is held, so a slow CDN would otherwise stall it.
         await self._send_image(self._image_url(self._song_details), client,
                                timeout=_IMAGE_FETCH_TIMEOUT)
 
