@@ -162,7 +162,6 @@ void TripsData::clearSummaryAndSeries() {
     m_seriesTripId = 0;
     m_seriesEndMs = 0;
     m_seriesReqPropertyId.clear();
-    m_seriesPropertyId.clear();
     m_seriesPoints.clear();
     // Neutral (non-degenerate) axis bounds — see parseTripSeries: a zero-width range
     // crashes QtGraphs when the (empty) graph resets its view on clear.
@@ -495,7 +494,6 @@ void TripsData::parseTripSeries(const QByteArray &payload) {
         points.append(point);
     }
     m_seriesPoints = points;
-    m_seriesPropertyId = propertyId;
     const SeriesBounds bounds = seriesBounds(series->points);
     m_seriesMinX = bounds.minX;
     m_seriesMaxX = bounds.maxX;

@@ -35,7 +35,6 @@ class SystemStatus : public QObject {
     // The open warning/error list of one service card (SYSTEM_GET_LOG).
     Q_PROPERTY(bool logOpen READ logOpen NOTIFY logChanged)
     Q_PROPERTY(bool logLoading READ logLoading NOTIFY logChanged)
-    Q_PROPERTY(QString logService READ logService NOTIFY logChanged)
     Q_PROPERTY(QString logLabel READ logLabel NOTIFY logChanged)
     // [{t, level, logger, message}], newest first.
     Q_PROPERTY(QVariantList logEntries READ logEntries NOTIFY logChanged)
@@ -49,7 +48,6 @@ public:
 
     bool logOpen() const { return m_logOpen; }
     bool logLoading() const { return m_logLoading; }
-    QString logService() const { return m_logService; }
     QString logLabel() const { return m_logLabel; }
     QVariantList logEntries() const { return m_logEntries; }
 

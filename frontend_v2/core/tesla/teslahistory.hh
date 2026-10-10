@@ -30,7 +30,6 @@ class TeslaHistory : public QObject {
     Q_OBJECT
     Q_PROPERTY(QVariantList properties READ properties NOTIFY propertiesChanged)
     Q_PROPERTY(QVariantList points READ points NOTIFY historyChanged)
-    Q_PROPERTY(QString currentPropertyId READ currentPropertyId NOTIFY historyChanged)
     Q_PROPERTY(int pointCount READ pointCount NOTIFY historyChanged)
     Q_PROPERTY(double minX READ minX NOTIFY historyChanged)
     Q_PROPERTY(double maxX READ maxX NOTIFY historyChanged)
@@ -44,7 +43,6 @@ public:
 
     QVariantList properties() const { return m_properties; }
     QVariantList points() const { return m_points; }
-    QString currentPropertyId() const { return m_currentId; }
     int pointCount() const { return static_cast<int>(m_points.size()); }
     double minX() const { return m_minX; }
     double maxX() const { return m_maxX; }

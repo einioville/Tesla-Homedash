@@ -21,7 +21,6 @@ TeslaHistory::TeslaHistory(ServerClient *server, TeslaData *tesla, QObject *pare
     : QObject(parent), m_server(server), m_tesla(tesla) {
     connect(server, &ServerClient::packetReceived, this, &TeslaHistory::onPacket);
     m_liveTimer = new QTimer(this);
-    m_liveTimer->setInterval(1000);  // 1 s, per the live-graph spec
     connect(m_liveTimer, &QTimer::timeout, this, &TeslaHistory::onLiveTick);
 }
 

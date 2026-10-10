@@ -29,32 +29,20 @@ class ServerClient;
  */
 class ChargingData : public QObject {
     Q_OBJECT
-    // Live charger state (CHARGER_STREAM).
-    Q_PROPERTY(bool hasLiveState READ hasLiveState NOTIFY liveStateChanged)
+    // Live charger state (CHARGER_STREAM): the fields the view shows.
     Q_PROPERTY(int status READ status NOTIFY liveStateChanged)
-    Q_PROPERTY(int plugStatus READ plugStatus NOTIFY liveStateChanged)
-    Q_PROPERTY(int mode READ mode NOTIFY liveStateChanged)
     Q_PROPERTY(double chargePowerW READ chargePowerW NOTIFY liveStateChanged)
     Q_PROPERTY(double gridPowerW READ gridPowerW NOTIFY liveStateChanged)
-    Q_PROPERTY(double generatedPowerW READ generatedPowerW NOTIFY liveStateChanged)
     Q_PROPERTY(double sessionEnergyKwh READ sessionEnergyKwh NOTIFY liveStateChanged)
-    Q_PROPERTY(double supplyVoltage READ supplyVoltage NOTIFY liveStateChanged)
-    Q_PROPERTY(double supplyFrequency READ supplyFrequency NOTIFY liveStateChanged)
-    Q_PROPERTY(int l1Phase READ l1Phase NOTIFY liveStateChanged)
-    Q_PROPERTY(QVariantMap raw READ raw NOTIFY liveStateChanged)
 
-    // Live Nord Pool spot price (SPOT_PRICE_STREAM). `hasSpotPrice` stays false until the
-    // first status=1 frame (or when spot pricing is disabled backend-side). price is the
-    // VAT+margin all-in €/kWh the tiles use; rawPrice is the wholesale €/kWh; hourStartMs
-    // is the UTC start of the priced hour.
+    // Live Nord Pool spot price (SPOT_PRICE_STREAM): the VAT+margin all-in €/kWh the
+    // tiles use. `hasSpotPrice` stays false until the first status=1 frame (or when spot
+    // pricing is disabled backend-side).
     Q_PROPERTY(bool hasSpotPrice READ hasSpotPrice NOTIFY spotPriceChanged)
     Q_PROPERTY(double spotPriceEurPerKwh READ spotPriceEurPerKwh NOTIFY spotPriceChanged)
-    Q_PROPERTY(double spotRawEurPerKwh READ spotRawEurPerKwh NOTIFY spotPriceChanged)
-    Q_PROPERTY(double spotHourStartMs READ spotHourStartMs NOTIFY spotPriceChanged)
 
     // Month-to-date aggregate (CHARGING_MONTH): `valid` + the 12 fields (NaN -> "—").
     Q_PROPERTY(QVariantMap monthSummary READ monthSummary NOTIFY monthChanged)
-    Q_PROPERTY(bool monthLoading READ monthLoading NOTIFY monthLoadingChanged)
 
     // Past-hour power series, each { points: [{x,y}], minX, maxX, minY, maxY, count }.
     Q_PROPERTY(QVariantMap gridSeries READ gridSeries NOTIFY gridChanged)
@@ -64,24 +52,13 @@ class ChargingData : public QObject {
 public:
     explicit ChargingData(ServerClient *server, QObject *parent = nullptr);
 
-    bool hasLiveState() const { return m_hasLiveState; }
     int status() const { return m_status; }
-    int plugStatus() const { return m_plugStatus; }
-    int mode() const { return m_mode; }
     double chargePowerW() const { return m_chargePowerW; }
     double gridPowerW() const { return m_gridPowerW; }
-    double generatedPowerW() const { return m_generatedPowerW; }
     double sessionEnergyKwh() const { return m_sessionEnergyKwh; }
-    double supplyVoltage() const { return m_supplyVoltage; }
-    double supplyFrequency() const { return m_supplyFrequency; }
-    int l1Phase() const { return m_l1Phase; }
-    QVariantMap raw() const { return m_raw; }
     bool hasSpotPrice() const { return m_hasSpotPrice; }
     double spotPriceEurPerKwh() const { return m_spotPriceEurPerKwh; }
-    double spotRawEurPerKwh() const { return m_spotRawEurPerKwh; }
-    double spotHourStartMs() const { return m_spotHourStartMs; }
     QVariantMap monthSummary() const { return m_month; }
-    bool monthLoading() const { return m_monthLoading; }
     QVariantMap gridSeries() const { return seriesMap(m_grid); }
     QVariantMap chargeSeries() const { return seriesMap(m_charge); }
     bool historyLoading() const { return m_historyLoading; }
@@ -100,7 +77,6 @@ signals:
     void spotPriceChanged();
     void monthChanged();
     void monthReady();
-    void monthLoadingChanged();
     void gridChanged();
     void gridReady();  // fresh grid seed -> HistoryGraph.reloadFull()
     void gridTick();   // live grid append -> HistoryGraph.advanceLive()
@@ -135,34 +111,22 @@ private:
     void appendLive(Series &s, double value, qint64 nowMs);
     void rollBounds(Series &s, qint64 nowMs);
     static QVariantMap seriesMap(const Series &s);
-    void setMonthLoading(bool loading);
     void setHistoryLoading(bool loading);
 
     ServerClient *m_server;
 
     // Live charger state.
-    bool m_hasLiveState = false;
     int m_status = 0;
-    int m_plugStatus = 0;
-    int m_mode = 0;
     double m_chargePowerW = 0.0;
     double m_gridPowerW = 0.0;
-    double m_generatedPowerW = 0.0;
     double m_sessionEnergyKwh = 0.0;
-    double m_supplyVoltage = 0.0;
-    double m_supplyFrequency = 0.0;
-    int m_l1Phase = 0;
-    QVariantMap m_raw;
 
     // Live spot price (SPOT_PRICE_STREAM).
     bool m_hasSpotPrice = false;
     double m_spotPriceEurPerKwh = 0.0;
-    double m_spotRawEurPerKwh = 0.0;
-    double m_spotHourStartMs = 0.0;
 
     // Month aggregate + reconnect-retry flag.
     QVariantMap m_month;
-    bool m_monthLoading = false;
     bool m_monthRequested = false;
 
     // Rolling graph series + whether the live stream is currently extending them.

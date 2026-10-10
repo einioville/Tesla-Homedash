@@ -117,9 +117,6 @@ public:
     // for a stream id, or -1 if the id is not in the registry.
     static int valueTypeForStream(quint16 streamId);
 
-    // Unit string for a property's QML name, or "" if unknown/unitless.
-    Q_INVOKABLE QString unitOf(const QString &propertyName) const;
-
 signals:
     void aCChargingPowerChanged();
     void batteryLevelChanged();

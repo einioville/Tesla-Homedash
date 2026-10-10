@@ -4,8 +4,8 @@ Code generator for the Tesla data layer.
 
 Reads tesla_properties.json (the field registry) and emits a TeslaDataGen
 QObject base class with one typed Q_PROPERTY (+ NOTIFY + getter + seeded
-member) per field, plus three lookups used by the hand-written TeslaData
-subclass: valueTypeForStream(), unitOf() and applyValue().
+member) per field, plus two lookups used by the hand-written TeslaData
+subclass: valueTypeForStream() and applyValue().
 
 Generated files are committed to the source tree; re-run after editing the
 registry (CMake target: regen_tesla_data). Usage:
@@ -101,8 +101,6 @@ def generate_header(fields) -> str:
         + "    // Expected protocol value_type (0=double,1=string,2=bool,3=location)\n"
         + "    // for a stream id, or -1 if the id is not in the registry.\n"
         + "    static int valueTypeForStream(quint16 streamId);\n\n"
-        + "    // Unit string for a property's QML name, or \"\" if unknown/unitless.\n"
-        + "    Q_INVOKABLE QString unitOf(const QString &propertyName) const;\n\n"
         + "signals:\n"
         + "\n".join(signals) + "\n\n"
         + "protected:\n"
@@ -122,15 +120,11 @@ def generate_source(fields) -> str:
     Arguments:
         fields (list): Validated registry field dicts.
     '''
-    vt_cases, unit_entries, apply_cases = [], [], []
+    vt_cases, apply_cases = [], []
     for field in fields:
         qn = qml_name(field["name"])
         info = TYPE_MAP[field["type"]]
         vt_cases.append(f"        case {field['streamId']}: return {info['vt']};")
-        if field["unit"]:
-            unit_entries.append(
-                f"        {{ QStringLiteral(\"{qn}\"), QStringLiteral(\"{field['unit']}\") }},"
-            )
         apply_cases.append(
             f"        case {field['streamId']}: m_{qn} = value.{info['variant']}();"
             f" emit {qn}Changed(); return true;"
@@ -139,18 +133,11 @@ def generate_source(fields) -> str:
     return (
         HEADER_BANNER
         + "#include \"tesladata_gen.hh\"\n\n"
-        + "#include <QHash>\n\n"
         + "int TeslaDataGen::valueTypeForStream(quint16 streamId) {\n"
         + "    switch (streamId) {\n"
         + "\n".join(vt_cases) + "\n"
         + "        default: return -1;\n"
         + "    }\n"
-        + "}\n\n"
-        + "QString TeslaDataGen::unitOf(const QString &propertyName) const {\n"
-        + "    static const QHash<QString, QString> units = {\n"
-        + "\n".join(unit_entries) + "\n"
-        + "    };\n"
-        + "    return units.value(propertyName);\n"
         + "}\n\n"
         + "bool TeslaDataGen::applyValue(quint16 streamId, const QVariant &value) {\n"
         + "    switch (streamId) {\n"

@@ -4,8 +4,6 @@
 
 #include "tesladata_gen.hh"
 
-#include <QHash>
-
 int TeslaDataGen::valueTypeForStream(quint16 streamId) {
     switch (streamId) {
         case 0: return 0;
@@ -57,33 +55,6 @@ int TeslaDataGen::valueTypeForStream(quint16 streamId) {
         case 46: return 0;
         default: return -1;
     }
-}
-
-QString TeslaDataGen::unitOf(const QString &propertyName) const {
-    static const QHash<QString, QString> units = {
-        { QStringLiteral("aCChargingPower"), QStringLiteral("W") },
-        { QStringLiteral("batteryLevel"), QStringLiteral("%") },
-        { QStringLiteral("chargeAmps"), QStringLiteral("A") },
-        { QStringLiteral("chargeLimitSoc"), QStringLiteral("%") },
-        { QStringLiteral("chargeRateMilePerHour"), QStringLiteral("km/h") },
-        { QStringLiteral("chargerVoltage"), QStringLiteral("V") },
-        { QStringLiteral("energyRemaining"), QStringLiteral("kWh") },
-        { QStringLiteral("estimatedHoursToChargeTermination"), QStringLiteral("h") },
-        { QStringLiteral("hvacLeftTemperatureRequest"), QStringLiteral("°C") },
-        { QStringLiteral("hvacRightTemperatureRequest"), QStringLiteral("°C") },
-        { QStringLiteral("insideTemp"), QStringLiteral("°C") },
-        { QStringLiteral("lifetimeEnergyUsed"), QStringLiteral("kWh") },
-        { QStringLiteral("odometer"), QStringLiteral("km") },
-        { QStringLiteral("outsideTemp"), QStringLiteral("°C") },
-        { QStringLiteral("ratedRange"), QStringLiteral("km") },
-        { QStringLiteral("timeToFullCharge"), QStringLiteral("h") },
-        { QStringLiteral("vehicleSpeed"), QStringLiteral("km/h") },
-        { QStringLiteral("drivenToday"), QStringLiteral("km") },
-        { QStringLiteral("drivenThisMonth"), QStringLiteral("km") },
-        { QStringLiteral("estBatteryRange"), QStringLiteral("km") },
-        { QStringLiteral("aCChargingEnergyIn"), QStringLiteral("kWh") },
-    };
-    return units.value(propertyName);
 }
 
 bool TeslaDataGen::applyValue(quint16 streamId, const QVariant &value) {

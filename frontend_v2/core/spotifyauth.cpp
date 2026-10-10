@@ -88,8 +88,6 @@ void SpotifyAuth::onPacket(quint8 type, const QByteArray &payload) {
         // of the grant, sent on every connect, and the card must always show it.
         m_authorized = body.value(QStringLiteral("authorized")).toBool();
         m_reason = body.value(QStringLiteral("reason")).toString();
-        m_scope = body.value(QStringLiteral("scope")).toString();
-        m_cachePath = body.value(QStringLiteral("cachePath")).toString();
         m_email = body.value(QStringLiteral("email")).toString();
         m_displayName = body.value(QStringLiteral("displayName")).toString();
         // Epoch seconds on the wire (null when unknown) -> ms for a QML Date.

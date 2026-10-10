@@ -259,8 +259,8 @@ screen. Four things are load-bearing:
   broadcasts it after any panel's successful select. `refreshStatus()` is **throttled to one
   request per 15 s** unless forced: each costs the backend a Spotify device-list call, and the row
   that asks is rebuilt every time its section is shown or the schema's shape changes. It
-  re-asks on reconnect (forced) once anything has asked, and clears `statusPending` on disconnect
-  so the row does not read "checking" forever.
+  re-asks on reconnect (forced) once anything has asked, and drops its pending flag on disconnect:
+  that reply died with the socket, and a flag left set would refuse every later unforced refresh.
 - **The button row's membership is constant** across a `hasDevice` transition, and the guide and
   detail blocks share one container with a floor height. On a 10" touch panel a control that
   changes position between reach and tap mis-routes the tap — here, onto *Peruuta*, which would

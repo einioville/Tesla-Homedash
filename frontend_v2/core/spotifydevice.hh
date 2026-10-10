@@ -53,7 +53,6 @@ class SpotifyDevice : public QObject {
     // the whole point of the dialog is that the user recognises the device by the
     // track coming out of it, so both halves change together.
     Q_PROPERTY(bool hasDevice READ hasDevice NOTIFY deviceChanged)
-    Q_PROPERTY(QString deviceId READ deviceId NOTIFY deviceChanged)
     Q_PROPERTY(QString deviceName READ deviceName NOTIFY deviceChanged)
     Q_PROPERTY(QString deviceType READ deviceType NOTIFY deviceChanged)
     // -1 when the device reports no volume, so "unknown" stays distinct from 0 %.
@@ -61,7 +60,6 @@ class SpotifyDevice : public QObject {
     // False for a restricted device: Spotify gives it no id, so there is nothing
     // that could be written to spotifyDeviceId.
     Q_PROPERTY(bool deviceSelectable READ deviceSelectable NOTIFY deviceChanged)
-    Q_PROPERTY(bool trackPlaying READ trackPlaying NOTIFY deviceChanged)
     Q_PROPERTY(QString trackName READ trackName NOTIFY deviceChanged)
     Q_PROPERTY(QString trackArtists READ trackArtists NOTIFY deviceChanged)
     Q_PROPERTY(QString trackAlbum READ trackAlbum NOTIFY deviceChanged)
@@ -77,8 +75,6 @@ class SpotifyDevice : public QObject {
     // backend reaches QML without a change here. `detected` is null when the
     // backend could not look. Empty until the first reply.
     Q_PROPERTY(QVariantMap configuredStatus READ configuredStatus NOTIFY configuredStatusChanged)
-    // True while a status request is unanswered.
-    Q_PROPERTY(bool statusPending READ statusPending NOTIFY configuredStatusChanged)
 
 public:
     explicit SpotifyDevice(QObject *parent = nullptr);
@@ -87,12 +83,10 @@ public:
     QString message() const { return m_message; }
     bool flowActive() const { return m_flowActive; }
     bool hasDevice() const { return m_hasDevice; }
-    QString deviceId() const { return m_deviceId; }
     QString deviceName() const { return m_deviceName; }
     QString deviceType() const { return m_deviceType; }
     int deviceVolume() const { return m_deviceVolume; }
     bool deviceSelectable() const { return m_deviceSelectable; }
-    bool trackPlaying() const { return m_trackPlaying; }
     QString trackName() const { return m_trackName; }
     QString trackArtists() const { return m_trackArtists; }
     QString trackAlbum() const { return m_trackAlbum; }
@@ -101,7 +95,6 @@ public:
     QString currentDeviceName() const { return m_currentDeviceName; }
     bool isCurrent() const { return m_isCurrent; }
     QVariantMap configuredStatus() const { return m_configuredStatus; }
-    bool statusPending() const { return m_statusPending; }
 
     void attachServer(ServerClient *client);
 
@@ -156,7 +149,6 @@ private:
     int m_deviceVolume = -1;
     bool m_hasDevice = false;
     bool m_deviceSelectable = false;
-    bool m_trackPlaying = false;
     bool m_isCurrent = false;
     // True only between begin() and the flow ending. Without it a reply that
     // lands after cancel() reopens the dialog on a scan nobody is running any

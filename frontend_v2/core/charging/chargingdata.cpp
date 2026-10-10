@@ -8,8 +8,6 @@
 #include <QDataStream>
 #include <QDateTime>
 #include <QIODevice>
-#include <QJsonDocument>
-#include <QJsonObject>
 #include <QPointF>
 #include <QString>
 
@@ -62,21 +60,18 @@ void ChargingData::parseStream(const QByteArray &payload) {
                 if (device->bytesAvailable() < 1) { stop = true; break; }
                 { quint8 v; stream >> v; m_status = v; }
                 break;
+            // Sent but not shown: read past them.
             case protocol::CHARGER_PLUG_STATUS:
-                if (device->bytesAvailable() < 1) { stop = true; break; }
-                { quint8 v; stream >> v; m_plugStatus = v; }
-                break;
             case protocol::CHARGER_MODE:
-                if (device->bytesAvailable() < 1) { stop = true; break; }
-                { quint8 v; stream >> v; m_mode = v; }
-                break;
             case protocol::CHARGER_L1_PHASE:
-                if (device->bytesAvailable() < 1) { stop = true; break; }
-                { quint8 v; stream >> v; m_l1Phase = v; }
+                stop = stream.skipRawData(1) != 1;
                 break;
             case protocol::CHARGER_SUPPLY_VOLTAGE:
-                if (device->bytesAvailable() < 2) { stop = true; break; }
-                { quint16 v; stream >> v; m_supplyVoltage = v; }
+                stop = stream.skipRawData(2) != 2;
+                break;
+            case protocol::CHARGER_GENERATED_POWER:
+            case protocol::CHARGER_SUPPLY_FREQUENCY:
+                stop = stream.skipRawData(8) != 8;
                 break;
             case protocol::CHARGER_CHARGE_POWER:
                 if (device->bytesAvailable() < 8) { stop = true; break; }
@@ -90,27 +85,10 @@ void ChargingData::parseStream(const QByteArray &payload) {
                 if (device->bytesAvailable() < 8) { stop = true; break; }
                 { double v; stream >> v; m_gridPowerW = v; }
                 break;
-            case protocol::CHARGER_GENERATED_POWER:
-                if (device->bytesAvailable() < 8) { stop = true; break; }
-                { double v; stream >> v; m_generatedPowerW = v; }
+            case protocol::CHARGER_RAW_JSON:
+                // The last field, so nothing after it needs reaching.
+                stop = true;
                 break;
-            case protocol::CHARGER_SUPPLY_FREQUENCY:
-                if (device->bytesAvailable() < 8) { stop = true; break; }
-                { double v; stream >> v; m_supplyFrequency = v; }
-                break;
-            case protocol::CHARGER_RAW_JSON: {
-                if (device->bytesAvailable() < 4) { stop = true; break; }
-                quint32 len;
-                stream >> len;
-                if (static_cast<quint32>(device->bytesAvailable()) < len) { stop = true; break; }
-                QByteArray rawBytes(static_cast<int>(len), Qt::Uninitialized);
-                stream.readRawData(rawBytes.data(), static_cast<int>(len));
-                const QJsonDocument doc = QJsonDocument::fromJson(rawBytes);
-                if (doc.isObject()) {
-                    m_raw = doc.object().toVariantMap();
-                }
-                break;
-            }
             default:
                 stop = true;  // unknown width — cannot skip, stop the frame
                 break;
@@ -120,7 +98,6 @@ void ChargingData::parseStream(const QByteArray &payload) {
         }
     }
 
-    m_hasLiveState = true;
     emit liveStateChanged();
 
     // Extend the rolling power graphs from this frame while the view is live.
@@ -154,8 +131,6 @@ void ChargingData::parseSpotPrice(const QByteArray &payload) {
     // status 0 => no price this hour (fetch failed / unpublished): drop to "no price" so
     // the tile shows "—" rather than a stale value.
     m_hasSpotPrice = (status == 1);
-    m_spotHourStartMs = static_cast<double>(hourStartMs);
-    m_spotRawEurPerKwh = spot;
     m_spotPriceEurPerKwh = allIn;
     emit spotPriceChanged();
 }
@@ -168,7 +143,6 @@ void ChargingData::parseMonth(const QByteArray &payload) {
     // status(1) + 13*double(8) = 105 bytes.
     if (device->bytesAvailable() < 105) {
         logger.warning(QStringLiteral("Charging-month frame too short"));
-        setMonthLoading(false);
         return;
     }
     quint8 status;
@@ -208,7 +182,6 @@ void ChargingData::parseMonth(const QByteArray &payload) {
 
     m_month = month;
     m_monthRequested = false;
-    setMonthLoading(false);
     emit monthChanged();
     emit monthReady();
     logger.debug(QStringLiteral("Charging-month applied | status=%1").arg(status));
@@ -316,7 +289,6 @@ void ChargingData::stopLive() {
 
 void ChargingData::requestMonth() {
     m_monthRequested = true;
-    setMonthLoading(true);
     m_server->sendPacket(protocol::frame(protocol::CHARGING_GET_MONTH));
     logger.info(QStringLiteral("Month charging summary requested"));
 }
@@ -335,14 +307,6 @@ void ChargingData::onConnectedChanged() {
         logger.info(QStringLiteral("Reconnected — re-requesting month charging summary"));
         m_server->sendPacket(protocol::frame(protocol::CHARGING_GET_MONTH));
     }
-}
-
-void ChargingData::setMonthLoading(bool loading) {
-    if (m_monthLoading == loading) {
-        return;
-    }
-    m_monthLoading = loading;
-    emit monthLoadingChanged();
 }
 
 void ChargingData::setHistoryLoading(bool loading) {

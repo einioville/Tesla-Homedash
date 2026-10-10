@@ -52,9 +52,6 @@ class Settings : public QObject {
     // Unified UI description: local groups followed by the backend's, each
     // setting carrying its current value, bounds, label and origin.
     Q_PROPERTY(QVariantList groups READ groups NOTIFY groupsChanged)
-    // True once a backend schema has arrived; the view hides the remote sections
-    // (rather than showing empty ones) until then.
-    Q_PROPERTY(bool backendAvailable READ backendAvailable NOTIFY groupsChanged)
     // True when a restart-tier BACKEND setting currently differs from the value
     // the running backend process consumed — drives the "restart required"
     // banner. Derived from a baseline diff, not latched on write, so putting a
@@ -81,7 +78,6 @@ public:
 
     QQmlPropertyMap *values() { return &m_values; }
     QVariantList groups() const { return m_groups; }
-    bool backendAvailable() const { return !m_backendGroups.isEmpty(); }
     bool restartPending() const { return m_restartPending; }
     bool appRestartPending() const { return m_appRestartPending; }
     QString storagePath() const { return m_storagePath; }
@@ -106,10 +102,6 @@ public:
     // the file and notifies immediately; a backend key is sent as CONFIG_SET and
     // takes effect when the backend's reply + re-broadcast arrive.
     Q_INVOKABLE void setValue(const QString &key, const QVariant &value);
-
-    // Restores one setting to its schema default (local keys only — the backend's
-    // defaults live in its own config and are not part of the wire schema).
-    Q_INVOKABLE void resetToDefault(const QString &key);
 
     // Asks the backend to exit so its service manager restarts it, applying every
     // restart-tier setting written since. No-op while disconnected.

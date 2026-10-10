@@ -626,23 +626,6 @@ void Settings::setValue(const QString &key, const QVariant &value) {
         protocol::frame(protocol::CONFIG_SET, protocol::jsonRequestBody(request)));
 }
 
-void Settings::resetToDefault(const QString &key) {
-    const auto schemaIt = m_localSchema.constFind(key);
-    if (schemaIt == m_localSchema.constEnd()) {
-        logger.warning(QStringLiteral("resetToDefault on non-local key %1").arg(key));
-        return;
-    }
-    m_values.insert(key, schemaIt.value().value(QStringLiteral("default")).toVariant());
-    m_overridden.remove(key);
-    saveLocalValues();
-    rebuildGroups();
-    // resetToDefault bypasses setLocal, and resetting backendPort to its default
-    // is itself a revert that must clear the banner.
-    refreshAppRestartPending();
-    logger.info(QStringLiteral("Setting %1 reset to default").arg(key));
-    emit writeSucceeded(key, schemaIt.value().value(QStringLiteral("apply")).toString());
-}
-
 void Settings::restartApp() {
     logger.warning(QStringLiteral("Restarting the dashboard (exit %1) at the user's request")
                        .arg(kRestartExitCode));

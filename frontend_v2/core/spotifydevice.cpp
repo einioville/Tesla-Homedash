@@ -177,7 +177,6 @@ void SpotifyDevice::clearDevice() {
     m_deviceType.clear();
     m_deviceVolume = -1;
     m_deviceSelectable = false;
-    m_trackPlaying = false;
     m_trackName.clear();
     m_trackArtists.clear();
     m_trackAlbum.clear();
@@ -220,7 +219,6 @@ void SpotifyDevice::applyState(const QJsonObject &body) {
         m_trackArtists = track.value(QStringLiteral("artists")).toString();
         m_trackAlbum = track.value(QStringLiteral("album")).toString();
         m_trackImageUrl = track.value(QStringLiteral("imageUrl")).toString();
-        m_trackPlaying = track.value(QStringLiteral("isPlaying")).toBool();
     }
 
     const QJsonObject current = body.value(QStringLiteral("current")).toObject();
