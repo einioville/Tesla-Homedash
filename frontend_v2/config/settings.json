@@ -17,7 +17,10 @@
         "that ends up with no subsections at all is hidden.",
         "",
         "Per-group keys: id, label, icon (a semantic name mapped to a resource by",
-        "SettingsSidebar, not a file path), sections.",
+        "SettingsSidebar, not a file path), sections, and optionally view: a screen",
+        "SettingsPane renders INSTEAD of cards (resolved in its view table), for a",
+        "section that shows something rather than setting it - such a group is kept",
+        "with no sections at all ('systemStatus', the graphs).",
         "",
         "Per-subsection keys: id, label, help (optional, under the card title),\nstatus (optional: names a runtime status widget rendered in the card -\n'backendProbe' is the reachability check), settings.",
         "",
@@ -44,7 +47,11 @@
         "",
         "type 'action' is a BUTTON, not a value: nothing is stored or persisted.",
         "It carries actionLabel and optionally requiresConnection, and its key names",
-        "a handler in Settings::invokeAction.",
+        "a handler in Settings::invokeAction. confirm: false runs it on the first tap,",
+        "for an action whose own dialog is the confirmation.",
+        "",
+        "onSelect (enum): {value: action} - choosing that value runs the action",
+        "        INSTEAD of writing it; the dialog it opens writes the value itself.",
         "",
         "apply: 'live'    - a QML binding through Theme picks it up immediately;",
         "       'restart' - consumed once at startup (AppConfig), so it needs an app",
@@ -593,15 +600,15 @@
                             "apply": "live"
                         }
                     ]
-                },
-                {
-                    "id": "status",
-                    "label": "Järjestelmän tila",
-                    "help": "Päivittyy viiden sekunnin välein vain tämän osion ollessa auki.",
-                    "status": "systemStatus",
-                    "settings": []
                 }
             ]
+        },
+        {
+            "id": "systemStatus",
+            "icon": "status",
+            "label": "Järjestelmän tila",
+            "view": "systemStatus",
+            "sections": []
         }
     ]
 }

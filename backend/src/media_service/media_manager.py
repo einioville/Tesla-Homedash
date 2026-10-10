@@ -316,6 +316,28 @@ class MediaManager:
             return {"state": "ok", "detail": "Radio"}
         return {"state": "warn", "detail": "Ei aktiivista soitinta"}
 
+    def radio_health(self) -> dict:
+        '''The radio's standing and settings, for the Järjestelmän tila card.'''
+        info = self.__radio_player.describe()
+        active = self.__active_player is self.__radio_player
+        if info["error"]:
+            state, detail = "warn", info["error"]
+        elif not active:
+            state, detail = "ok", "Spotify ohjaa toistoa"
+        else:
+            state, detail = "ok", "Soi" if self.__radio_player.is_playing() else "Pysäytetty"
+        return {"state": state, "detail": detail, "config": [
+            ["Asema", info["channel"]],
+            ["Asemia", str(info["stations"])],
+            ["Käynnistys", "Soi heti" if self.__autoplay_radio else "Hiljaa"],
+            ["Spotifyn jälkeen", "Jatkaa" if self.__resume_radio_after_spotify else "Hiljaa"],
+        ]}
+
+    def spotify_state(self) -> dict:
+        '''The Spotify player's polling and playback facts, plus whether it owns playback.'''
+        return {**self.__spotify_player.describe(),
+                "active": self.__active_player is self.__spotify_player}
+
     def get_run_task(self) -> asyncio.Task:
         '''
         Returns an asyncio Task that starts the media manager.

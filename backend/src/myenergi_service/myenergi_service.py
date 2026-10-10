@@ -177,12 +177,24 @@ class MyEnergiService:
             state = "warn"
         else:
             state = "ok"
-        detail = f"{self.__current_interval} s" if self.__current_interval else ""
         if self.__consecutive_failures:
-            detail += f" · {self.__consecutive_failures} epäonnistunutta kyselyä"
-        elif self.__is_charging:
-            detail += " · lataa"
-        return {"state": state, "detail": detail}
+            detail = f"{self.__consecutive_failures} epäonnistunutta kyselyä peräkkäin"
+        elif self.__last_frame is None:
+            detail = "Odottaa ensimmäistä kyselyä"
+        else:
+            detail = "Lataa" if self.__is_charging else "Ei lataa"
+        block = self.__config.myenergi_config
+        config = [["Kyselyväli", f"{self.__interval} s"]]
+        if self.__current_interval and self.__current_interval != self.__interval:
+            # The backoff is stretching it after failures.
+            config.append(["Kyselyväli nyt", f"{self.__current_interval} s"])
+        serial = self.__zappi.serial_number if self.__zappi is not None else None
+        config += [
+            ["Zappi", str(serial) if serial else (self.__zappi_serial or "Automaattinen")],
+            ["Pienin lataus", f"{float(block['minSessionEnergyKwh']):.1f} kWh"],
+            ["Latausten yhdistäminen", f"{int(block['sessionMergeMinutes'])} min"],
+        ]
+        return {"state": state, "detail": detail, "config": config}
 
     def get_run_task(self) -> asyncio.Task:
         '''Returns an asyncio Task that starts the MyEnergi service.'''

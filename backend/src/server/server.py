@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import struct
+import time
 from typing import Awaitable, Callable
 
 from ..utils import protocol
@@ -44,6 +45,8 @@ class Server:
         self.__handlers: dict[int, Handler] = {}
         self.__services: list = []  # duck-typed: any object with async stream_everything(client)
         self.__server: asyncio.Server | None = None
+        # Who each connection is, for the status view's client list.
+        self.__peers: dict[asyncio.StreamWriter, dict] = {}
 
     # ── Wiring ────────────────────────────────────────────────────────
 
@@ -80,6 +83,13 @@ class Server:
     def client_count(self) -> int:
         '''Number of currently connected frontends (the status view reports it).'''
         return len(self.__active_connections)
+
+    def clients(self) -> list[dict]:
+        '''
+        The connected frontends as {"address", "port", "since_ms"}, oldest
+        first, for the status view.
+        '''
+        return sorted(self.__peers.values(), key=lambda peer: peer["since_ms"])
 
     async def broadcast(self, packet: bytes) -> None:
         '''
@@ -133,6 +143,11 @@ class Server:
     ) -> None:
         peer = writer.get_extra_info("peername")
         self.__active_connections[writer] = set()
+        # peername is (host, port) for IPv4 and (host, port, flow, scope) for IPv6.
+        address, port = (peer[0], peer[1]) if isinstance(peer, tuple) and len(peer) >= 2 \
+            else (str(peer), 0)
+        self.__peers[writer] = {"address": address, "port": port,
+                                "since_ms": int(time.time() * 1000)}
         logger.info("Client connected: %s", peer)
 
         # Snapshot pass: deliver every service's full state to the new
@@ -229,6 +244,7 @@ class Server:
             )
 
     async def __cleanup_client(self, writer: asyncio.StreamWriter) -> None:
+        self.__peers.pop(writer, None)
         pending = self.__active_connections.pop(writer, None)
         if pending:
             for task in pending:

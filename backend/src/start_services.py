@@ -16,7 +16,10 @@ from .media_service.spotify_auth_service import SpotifyAuthService
 from .media_service.spotify_device_service import SpotifyDeviceService
 from .myenergi_service.myenergi_service import MyEnergiService
 from .server.server import Server
-from .system_service.debug_logging import DebugLogging
+from .system_service.log_level import LogLevel
+from .system_service.log_files import LogFiles
+from .system_service import system_metrics
+from .system_service.system_history import SystemHistory
 from .system_service.system_status_service import SystemStatusService
 from .usb_import_service.usb_import_service import UsbImportService
 from .update_service.update_service import UpdateService
@@ -26,7 +29,7 @@ from .tesla_service.vehicle import Vehicle
 from .trip_service.trip_loader import TripLoader
 from .utils import protocol
 from .utils.config_parser import Config, default_config_path, get_env
-from .utils.logger_configurator import configure_logging, error_counter
+from .utils.logger_configurator import configure_logging, error_log
 from .weather_service.weather_service import WeatherService
 
 logger = logging.getLogger("start_services")
@@ -836,38 +839,105 @@ async def main():
     usb_import = UsbImportService(server=server)
     logger.debug("USB import service initialized")
 
-    # The Options view's maintenance dashboard. Request/response and registered
-    # with no snapshot: a status page nobody has opened is not worth sampling
-    # /proc for on every connect.
-    system_status = SystemStatusService(
-        server=server, config=config, error_counter=error_counter()
-    )
-    system_status.register_probe("clients", "Yhteydet", lambda: {
-        "state": "ok" if server.client_count else "warn",
-        "detail": f"{server.client_count} näyttöä",
-    })
-    async def _influx_health() -> dict:
-        '''Pings InfluxDB. Async, so the probe registry awaits it under a timeout
-        rather than letting a wedged database hang the whole status reply.'''
-        ok = await influx_handler.connected()
-        return {"state": "ok" if ok else "error",
-                "detail": "" if ok else "Ei yhteyttä tietokantaan"}
+    # The Options view's maintenance dashboard and the Järjestelmän tila cards.
+    # Request/response and registered with no snapshot: a status page nobody has
+    # opened is not worth sampling /proc for on every connect. Each probe claims
+    # the loggers whose warnings and errors its card counts; the server card
+    # takes every logger nobody else claims, so no warning goes unlisted. The
+    # order here is the cards' order.
+    log_files = LogFiles(server=server)
+    system_status = SystemStatusService(server=server, error_log=error_log())
+    started_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
 
-    system_status.register_probe("influx", "InfluxDB", _influx_health)
-    system_status.register_probe("media", "Media", mm.health)
+    def _server_health() -> dict:
+        '''The backend process and the frontends connected to it.'''
+        count = server.client_count
+        return {
+            "state": "ok" if count else "warn",
+            "detail": "1 näyttö yhdistetty" if count == 1 else f"{count} näyttöä yhdistetty",
+            "config": [
+                ["Portti", str(server.PORT)],
+                ["Käynnistetty", {"time": started_ms}],
+                ["Muisti", {"bytes": system_metrics.read_process_rss_bytes()}],
+                ["Asetukset", config.path],
+            ],
+            "items": server.clients(),
+        }
+
+    system_status.register_probe(
+        "server", "Palvelin", _server_health, catch_all=True,
+        loggers=("server", "start_services", "utils", "config_service", "system_service",
+                 "usb_import_service"))
+
+    async def _tesla_health() -> dict:
+        '''The Teslemetry stream. `telemetry` is built further down, before the
+        server starts — and nothing can ask for a probe before that.'''
+        return await telemetry.health()
+
+    system_status.register_probe("tesla", "Tesla", _tesla_health, loggers=("tesla_service",))
+    system_status.register_probe("influx", "InfluxDB", influx_handler.health,
+                                 loggers=("influxdb_service",))
+    system_status.register_probe("radio", "Radio", mm.radio_health,
+                                 loggers=("media_service.radio_player", "media_service.media_manager"))
+
     def _spotify_health() -> dict:
-        '''Reports whether a usable Spotify grant is on disk.'''
+        '''The Spotify grant, the device it plays on and the player's polling.'''
         status = spotify_auth.build_status()
-        if status["authorized"]:
-            return {"state": "ok", "detail": "Tunnistautunut"}
-        return {"state": "warn", "detail": status["reason"]}
+        player = mm.spotify_state()
+        device = config.get("spotifyDeviceName") or config.spotify_device_id
+        config_rows = [
+            ["Tili", status.get("email") or status.get("displayName") or "—"],
+            ["Laite", device or "Ei valittu"],
+            ["Kyselyväli", f"{player['poll_s']} s"],
+        ]
+        if status.get("validUntil"):
+            config_rows.append(["Tunnistus voimassa", {"time": int(status["validUntil"]) * 1000}])
+        if not status["authorized"]:
+            return {"state": "error" if status.get("needsReauth") else "warn",
+                    "detail": status["reason"], "config": config_rows}
+        if not device:
+            return {"state": "warn", "detail": "Laitetta ei ole valittu", "config": config_rows}
+        detail = ("Soittaa" if player["playing"] else "Ohjaa toistoa") if player["active"] \
+            else "Odottaa toistoa laitteella"
+        return {"state": "ok", "detail": detail, "config": config_rows}
 
-    system_status.register_probe("spotify", "Spotify", _spotify_health)
-    system_status.register_probe("weather", "Sää", weather.health)
-    system_status.register_probe("spot_price", "Pörssihinta", spot_price_service.health)
+    system_status.register_probe("spotify", "Spotify", _spotify_health,
+                                 loggers=("media_service.spotify_player", "media_service.spotify_auth",
+                                          "media_service.spotify_device", "media_service.spotify_oauth",
+                                          "spotipy"))
+    system_status.register_probe("weather", "Sää", weather.health, loggers=("weather_service",))
     if myenergi is not None:
-        system_status.register_probe("myenergi", "Laturi", myenergi.health)
+        system_status.register_probe("myenergi", "Laturi", myenergi.health,
+                                     loggers=("myenergi_service",))
+    else:
+        system_status.register_probe("myenergi", "Laturi", lambda: {
+            "state": "off", "detail": "myenergi-tunnukset puuttuvat (.env)"},
+            loggers=("myenergi_service",))
+    system_status.register_probe("spot_price", "Pörssisähkö", spot_price_service.health,
+                                 loggers=("charging_service.spot_price", "charging_service.spot_price_service"))
+
+    def _history_health() -> dict:
+        '''The Trips and Charging views' detection settings; both read InfluxDB
+        on request and keep no running state of their own.'''
+        trip = config.trip_config
+        charger = config.myenergi_config
+        return {"state": "ok", "detail": "Haetaan tietokannasta pyydettäessä", "config": [
+            ["Matkan katkaiseva pysähdys", f"{trip['min_stop_minutes']} min"],
+            ["Lyhin matka", f"{float(trip['min_trip_distance_km']):g} km"],
+            ["Pienin lataus", f"{float(charger['minSessionEnergyKwh']):.1f} kWh"],
+            ["Latausten yhdistäminen", f"{int(charger['sessionMergeMinutes'])} min"],
+        ]}
+
+    system_status.register_probe("history", "Matkat ja lataukset", _history_health,
+                                 loggers=("trip_service", "charging_service.charging_loader",
+                                          "charging_service.charging_session"))
+    system_status.register_probe("audio", "Ääni", audio.health, loggers=("audio_service",))
+    system_status.register_probe("display", "Näyttö", display.health, loggers=("display_service",))
     logger.debug("System status service initialized")
+
+    # The Järjestelmän tila graphs: unlike the status document, sampled all the
+    # time, because a graph needs the minutes before anyone opened it.
+    system_history = SystemHistory(server=server)
 
     # Runtime configuration (the Options view). Every service snapshots its
     # config at construction and never re-reads it, so applying a change means
@@ -894,12 +964,13 @@ async def main():
         config_service.register_hook("myenergi", myenergi.apply_config)
     logger.debug("Config service initialized")
 
-    # The Options view's temporary debug log. Applied once now, so a debug log
-    # left on across a restart comes back on — for one more duration only.
-    debug_logging = DebugLogging(config=config, config_service=config_service)
-    config_service.register_hook("logging", debug_logging.apply_config)
-    debug_logging.apply_config()
-    system_status.register_probe("logging", "Loki", debug_logging.health)
+    # The log level (Ylläpito › Lokit). Applied once now, so a DEBUG left on
+    # across a restart comes back on — for one more duration only.
+    log_level = LogLevel(config=config, config_service=config_service, log_files=log_files)
+    config_service.register_hook("logging", log_level.apply_config)
+    config_service.register_runtime("logging.level", log_level.runtime_info)
+    log_level.apply_config()
+    system_status.register_probe("logging", "Loki", log_level.health)
 
     # The Options view's "Tunnista laite" scan. Constructed AFTER config_service
     # because it writes spotifyDeviceId through it: the id is in SETTINGS_SCHEMA,
@@ -917,7 +988,7 @@ async def main():
     # the updater rewrites the checkout underneath us and then has to come back
     # on the new code, which is the same exit CONFIG_RESTART performs.
     updater = UpdateService(server=server, config_service=config_service)
-    system_status.register_probe("update", "Versio", updater.health)
+    system_status.register_probe("update", "Versio", updater.health, loggers=("update_service",))
     logger.debug("Update service initialized")
 
     # The Options view's telemetry-field table: log / line_mode / zero_based per
@@ -936,6 +1007,9 @@ async def main():
     server.register_handler(protocol.SPOTIFY_DEVICE_SELECT, spotify_devices.handle_select)
     server.register_handler(protocol.SPOTIFY_DEVICE_GET_STATUS, spotify_devices.handle_get_status)
     server.register_handler(protocol.SYSTEM_GET_STATUS, system_status.handle_get_status)
+    server.register_handler(protocol.SYSTEM_GET_HISTORY, system_history.handle_get_history)
+    server.register_handler(protocol.SYSTEM_GET_LOG, system_status.handle_get_log)
+    server.register_handler(protocol.LOG_CLEAR, log_files.handle_clear)
     server.register_handler(protocol.UPDATE_GET_STATE, updater.handle_get_state)
     server.register_handler(protocol.UPDATE_APPLY, updater.handle_apply)
     server.register_handler(protocol.UPDATE_CANCEL, updater.handle_cancel)
@@ -974,8 +1048,9 @@ async def main():
     # makes its assumed-on state true and returns.
     # The updater's run task only locates the checkout and publishes the first
     # state; the runs themselves are started by a client and own their own task.
+    # The system history samples forever and swallows its own failures.
     tasks = [t1, t2, t3, t4, t5, t6, audio.get_run_task(), display.get_run_task(),
-             updater.get_run_task()]
+             updater.get_run_task(), system_history.get_run_task()]
     if myenergi is not None:
         tasks.append(myenergi.get_run_task())
 

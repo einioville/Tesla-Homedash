@@ -62,12 +62,15 @@ class SpotPriceService:
 
     def __init__(self, server: Server, config: Config, provider: SpotPriceProvider):
         self.__server = server
+        self.__config = config
         self.__provider = provider
         self.__zone_info = config.zone_info
         self.__scheduler = AsyncIOScheduler(timezone=self.__zone_info)
         # Most recent framed price packet, replayed verbatim to a newly connected client so
         # its price tile populates immediately without waiting for the next hourly tick.
         self.__last_frame: bytes | None = None
+        # The all-in €/kWh in that packet, for the status view (None on a fetch miss).
+        self.__last_all_in: float | None = None
 
     async def run(self) -> None:
         '''
@@ -93,10 +96,17 @@ class SpotPriceService:
     def health(self) -> dict:
         '''Reports spot-price availability, or that pricing is switched off.'''
         if not self.__provider.enabled:
-            return {"state": "off", "detail": "Pörssihinnoittelu pois käytöstä"}
+            flat = self.__config.electricity_price_eur_per_kwh
+            return {"state": "off", "detail": "Kiinteä sähkösopimus",
+                    "config": [["Hinta", f"{flat * 100.0:.2f} c/kWh" if flat is not None else "—"]]}
+        config = [["Sähkösopimus", "Pörssi"]] + self.__provider.describe()
+        if self.__last_all_in is not None:
+            config.append(["Hinta nyt", f"{self.__last_all_in * 100.0:.2f} c/kWh"])
         if self.__last_frame is None:
-            return {"state": "warn", "detail": "Ei hintaa"}
-        return {"state": "ok", "detail": "Hinta haettu"}
+            return {"state": "warn", "detail": "Ei hintaa", "config": config}
+        if self.__last_all_in is None:
+            return {"state": "warn", "detail": "Tämän tunnin hinta puuttuu", "config": config}
+        return {"state": "ok", "detail": "Hinta haettu", "config": config}
 
     def get_run_task(self) -> asyncio.Task:
         '''Returns an asyncio Task that starts the spot price service.'''
@@ -114,6 +124,7 @@ class SpotPriceService:
         all_in = await self.__provider.price_at(now_ms)
         spot = self.__provider.raw_price_at(now_ms)
         self.__last_frame = _build_spot_price_frame(hour_ms, spot, all_in)
+        self.__last_all_in = all_in
         logger.info(
             "Broadcasting spot price: hour=%s all_in=%s €/kWh",
             datetime.fromtimestamp(hour_ms / 1000, tz=timezone.utc).isoformat(),

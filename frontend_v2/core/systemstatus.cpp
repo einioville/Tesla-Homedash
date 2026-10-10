@@ -1,5 +1,6 @@
 #include "systemstatus.hh"
 
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QtEndian>
@@ -28,24 +29,72 @@ void SystemStatus::attachServer(ServerClient *client) {
     // A reconnect while the panel is open should resume immediately rather than
     // wait out a poll interval.
     connect(client, &ServerClient::connectedChanged, this, [this, client]() {
-        if (client->connected() && m_active) {
+        if (client->connected() && active()) {
             refresh();
         }
     });
 }
 
-void SystemStatus::setActive(bool active) {
-    if (active == m_active) {
-        return;
-    }
-    m_active = active;
-    emit activeChanged();
-    if (m_active) {
+void SystemStatus::retain() {
+    if (++m_consumers == 1) {
+        emit activeChanged();
         refresh();
         m_timer.start();
-    } else {
-        m_timer.stop();
     }
+}
+
+void SystemStatus::release() {
+    if (m_consumers == 0) {
+        logger.warning(QStringLiteral("release() without a matching retain()"));
+        return;
+    }
+    if (--m_consumers == 0) {
+        m_timer.stop();
+        emit activeChanged();
+    }
+}
+
+void SystemStatus::openLog(const QString &service, const QString &label) {
+    m_logOpen = true;
+    m_logService = service;
+    m_logLabel = label;
+    m_logEntries.clear();
+    m_logLoading = m_server != nullptr && m_server->connected();
+    emit logChanged();
+    if (!m_logLoading) {
+        return;
+    }
+    const QByteArray body =
+        QJsonDocument(QJsonObject{{QStringLiteral("service"), service}}).toJson(QJsonDocument::Compact);
+    QByteArray payload(4, '\0');
+    qToBigEndian<quint32>(static_cast<quint32>(body.size()), payload.data());
+    payload.append(body);
+    m_server->sendPacket(protocol::frame(protocol::SYSTEM_GET_LOG, payload));
+}
+
+void SystemStatus::closeLog() {
+    if (!m_logOpen) {
+        return;
+    }
+    m_logOpen = false;
+    m_logLoading = false;
+    m_logEntries.clear();
+    emit logChanged();
+}
+
+void SystemStatus::onLogPacket(const QByteArray &payload) {
+    if (payload.size() < 5) {
+        return;
+    }
+    const quint32 length = qFromBigEndian<quint32>(payload.constData() + 1);
+    const QJsonObject doc = QJsonDocument::fromJson(payload.mid(5, static_cast<int>(length))).object();
+    // A reply for a list since closed, or for another card, is stale.
+    if (!m_logOpen || doc.value(QStringLiteral("service")).toString() != m_logService) {
+        return;
+    }
+    m_logEntries = doc.value(QStringLiteral("entries")).toArray().toVariantList();
+    m_logLoading = false;
+    emit logChanged();
 }
 
 void SystemStatus::refresh() {
@@ -56,6 +105,10 @@ void SystemStatus::refresh() {
 }
 
 void SystemStatus::onPacket(quint8 type, const QByteArray &payload) {
+    if (type == protocol::SYSTEM_LOG) {
+        onLogPacket(payload);
+        return;
+    }
     if (type != protocol::SYSTEM_STATUS) {
         return;
     }

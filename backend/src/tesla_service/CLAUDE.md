@@ -2,7 +2,10 @@
 
 - **`telemetry.py`** (`TelemetryHandler`) wraps `teslemetry_stream.TeslemetryStream`, registers
   `vehicle.on_telemetry_event` as the listener, and blocks on a close event. Reconnection is the
-  library's job (exponential backoff). **Talks to:** Teslemetry stream → `Vehicle`.
+  library's job (exponential backoff). It stamps each event's arrival and tracks the connection
+  listener's state for its `health()` — the *Tesla* status card: a dropped stream is `warn`, not an
+  outage, since the library reconnects; the card also shows whether the car is awake
+  (`Vehicle.is_online()`, from `VehicleOnline`). **Talks to:** Teslemetry stream → `Vehicle`.
 - **`vehicle.py`** (`Vehicle`) loads a `VehicleDataProperty` per `config.json` field.
   `init_async_dependent` starts the APScheduler, builds the `CalculatedVehicleDataProperty`s and
   their period-reset jobs, and registers the **midnight snapshot** job (writes every logged property

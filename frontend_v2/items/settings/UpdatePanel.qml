@@ -78,7 +78,7 @@ Item {
     implicitHeight: content.implicitHeight
 
     // Asking is gated on being on screen: the check contacts the remote, and a
-    // settings section nobody opened must not do that. Mirrors SystemStatusPanel.
+    // settings section nobody opened must not do that.
     onVisibleChanged: Updater.active = visible
     Component.onCompleted: Updater.active = visible
     Component.onDestruction: Updater.active = false

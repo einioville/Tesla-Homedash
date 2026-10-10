@@ -78,7 +78,9 @@ Item {
             anchors.fill: parent
             enabled: control.available
             onClicked: {
-                if (control.armed) {
+                // An action that opens a dialog of its own (`confirm: false`)
+                // has its confirmation there.
+                if (control.armed || control.setting.confirm === false) {
                     control.armed = false
                     disarm.stop()
                     Settings.invokeAction(control.setting.key)

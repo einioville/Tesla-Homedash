@@ -1,83 +1,88 @@
 '''
-The Options view's maintenance dashboard: how the host and the backend are doing.
+The Järjestelmän tila service cards: how each backend service is doing.
 
 Request/response rather than a broadcast, deliberately.  The Options view is open
-a fraction of the time the dashboard is running, and sampling /proc for every
-connected client every few seconds to feed a screen nobody is looking at would be
-pure waste.  Nothing here runs until someone asks.
+a fraction of the time the dashboard is running, and polling every service for
+every connected client every few seconds to feed a screen nobody is looking at
+would be pure waste.  Nothing here runs until someone asks.  (The host's graphs
+are system_history.py's, sampled continuously.)
 
 Per-service health comes from duck-typed `health()` methods — the same pattern as
 `stream_everything()` and `apply_config()` — so each service answers for itself
 from state it already keeps, and this module knows nothing about any of them.
+Beside the verdict a probe may return its settings in effect (`config`, label /
+value pairs) and a list (`items`, the connected clients); each row also gets the
+warning and error counts of the loggers its probe claims, from the persistent
+ErrorLog, whose entries SYSTEM_GET_LOG lists per card.
 '''
 
 import asyncio
 import inspect
 import json
 import logging
-import os
 import time
 from typing import Any, Callable
 
 from ..utils import protocol
-from . import system_metrics as metrics
 
 logger = logging.getLogger("system_service")
 
-# Older than this and the stored counter sample says nothing about "now" — it
-# would report the average since the pane was last open, which may be hours.
-_MAX_DELTA_SECONDS = 30.0
-# The window used instead, when the stored sample is stale or missing.
-_FRESH_SAMPLE_SECONDS = 0.25
 # A wedged probe (InfluxDB's awaits a real ping) must not hang the whole reply.
 _PROBE_TIMEOUT_SECONDS = 2.0
+# The most entries one card's list sends; the store keeps up to 2000 in all.
+_LOG_LIST_LIMIT = 500
 
 
 class SystemStatusService:
     '''
-    Serves SYSTEM_GET_STATUS by sampling the host and polling every registered
-    service probe.
+    Serves SYSTEM_GET_STATUS by polling every registered service probe, and
+    SYSTEM_GET_LOG from the persistent warning/error store.
 
     Deliberately NOT registered with Server.register_service: a status page
-    nobody has opened is not worth snapshotting to every connecting client.
+    nobody has opened is not worth polling for every connecting client.
     Arguments:
         server (Server): TCP server, used only to reply to the requesting client.
-        config (Config): Shared configuration; supplies config.path so the disk
-            report covers wherever the configuration actually lives.
-        error_counter (ErrorCounter): The counting log handler from
-            logger_configurator, read for the WARNING+ tallies.
+        error_log (ErrorLog): The persistent WARNING+ store from
+            logger_configurator, read for the per-card counts and lists.
     '''
 
-    def __init__(self, server, config, error_counter):
+    def __init__(self, server, error_log):
         self.__server = server
-        self.__config = config
-        self.__errors = error_counter
-        # probe id -> (Finnish label, callable returning a health dict)
-        self.__probes: dict[str, tuple[str, Callable[[], Any]]] = {}
-        self.__prev_cpu: tuple[int, int] | None = None
-        self.__prev_net: tuple[int, int] | None = None
-        self.__prev_sample_ms: float | None = None
-        self.__start_ms = int(time.time() * 1000)
+        self.__errors = error_log
+        # probe id -> (Finnish label, callable returning a health dict, logger
+        # name prefixes whose warnings and errors are this card's)
+        self.__probes: dict[str, tuple[str, Callable[[], Any], tuple[str, ...]]] = {}
+        # The probe that answers for every logger no other probe claims, so no
+        # warning is ever invisible.
+        self.__catch_all: str | None = None
 
     # ── Wiring ────────────────────────────────────────────────────
 
-    def register_probe(self, probe_id: str, label: str, probe: Callable[[], Any]) -> None:
+    def register_probe(self, probe_id: str, label: str, probe: Callable[[], Any],
+                       loggers: tuple[str, ...] = (), catch_all: bool = False) -> None:
         '''
         Registers one service's health probe.
         Arguments:
             probe_id (str): Stable id used as the row key.
             label (str): Finnish row label for the status view.
             probe (Callable): Returns a dict with "state" ("ok"/"warn"/"error"/
-                "off") and optionally "detail"; may be async.
+                "off") and optionally "detail", "config" ([[label, value]], the
+                settings in effect, as display strings) and "items"; may be async.
+            loggers (tuple[str, ...]): Logger names (prefixes, matched at a dot)
+                whose warnings and errors this card counts and lists.
+            catch_all (bool): This card also takes every logger no other probe
+                claims.
         '''
-        self.__probes[probe_id] = (label, probe)
+        self.__probes[probe_id] = (label, probe, tuple(loggers))
+        if catch_all:
+            self.__catch_all = probe_id
 
     # ── Protocol handler ──────────────────────────────────────────
 
     async def handle_get_status(self, _payload: bytes, writer) -> None:
         '''
-        SYSTEM_GET_STATUS handler: builds the status document and replies to the
-        requesting client only.  Any failure still produces a reply, so the view
+        SYSTEM_GET_STATUS handler: polls the probes and replies to the requesting
+        client only.  Any failure still produces a reply, so the view
         never hangs waiting for one.
         Arguments:
             _payload (bytes): Unused; the request carries no body.
@@ -95,70 +100,58 @@ class SystemStatusService:
         payload = bytes((status,)) + len(body).to_bytes(4, "big") + body
         await self.__server.send_to(writer, protocol.frame(protocol.SYSTEM_STATUS, payload))
 
+    async def handle_get_log(self, payload: bytes, writer) -> None:
+        '''
+        SYSTEM_GET_LOG handler: one card's warnings and errors, newest first, to
+        the requesting client only.
+        Arguments:
+            payload (bytes): len(4B) + JSON {"service": <probe id>}.
+            writer (StreamWriter): The requesting client.
+        '''
+        try:
+            length = int.from_bytes(payload[:4], "big")
+            service = str(json.loads(payload[4:4 + length].decode("utf-8")).get("service", ""))
+        except (ValueError, UnicodeDecodeError, AttributeError):
+            service = ""
+        probe = self.__probes.get(service)
+        if probe is None:
+            document = {"service": service, "label": "", "entries": []}
+            status = protocol.CONFIG_STATUS_ERROR
+        else:
+            entries = self.__errors.entries(self.__matcher(service))
+            document = {"service": service, "label": probe[0],
+                        "entries": entries[:_LOG_LIST_LIMIT]}
+            status = protocol.CONFIG_STATUS_OK
+        body = json.dumps(document, ensure_ascii=False).encode("utf-8")
+        reply = bytes((status,)) + len(body).to_bytes(4, "big") + body
+        await self.__server.send_to(writer, protocol.frame(protocol.SYSTEM_LOG, reply))
+
     # ── Internals ─────────────────────────────────────────────────
 
+    @staticmethod
+    def __claims(prefixes: tuple[str, ...], name: str) -> bool:
+        '''Whether a logger name is one of the prefixes or below one of them.'''
+        return any(name == p or name.startswith(p + ".") for p in prefixes)
+
+    def __matcher(self, probe_id: str) -> Callable[[str], bool]:
+        '''
+        The logger test for one card: its own prefixes, plus — for the catch-all
+        card — every name no other card claims.
+        Arguments:
+            probe_id (str): The card.
+        '''
+        own = self.__probes[probe_id][2]
+        if probe_id != self.__catch_all:
+            return lambda name: self.__claims(own, name)
+        others = tuple(p for pid, (_, _, prefixes) in self.__probes.items()
+                       if pid != probe_id for p in prefixes)
+        return lambda name: self.__claims(own, name) or not self.__claims(others, name)
+
     async def __build(self) -> dict:
-        '''Samples the host, polls every probe, and assembles the document.'''
-        cpu_now = metrics.read_cpu_sample()
-        net_now = metrics.read_net_sample()
-        now_ms = time.monotonic() * 1000
-
-        stale = (self.__prev_sample_ms is None
-                 or (now_ms - self.__prev_sample_ms) > _MAX_DELTA_SECONDS * 1000)
-        if stale:
-            # First request after the pane opens. Reusing a half-hour-old sample
-            # would report the average over that half hour, which is not what
-            # "CPU now" means — so take a fresh short window instead.
-            await asyncio.sleep(_FRESH_SAMPLE_SECONDS)
-            prev_cpu, prev_net = cpu_now, net_now
-            window_s = _FRESH_SAMPLE_SECONDS
-            cpu_now = metrics.read_cpu_sample()
-            net_now = metrics.read_net_sample()
-        else:
-            prev_cpu, prev_net = self.__prev_cpu, self.__prev_net
-            window_s = (now_ms - self.__prev_sample_ms) / 1000.0
-
-        self.__prev_cpu, self.__prev_net = cpu_now, net_now
-        self.__prev_sample_ms = time.monotonic() * 1000
-
-        rx_per_s = tx_per_s = None
-        if prev_net is not None and net_now is not None and window_s > 0:
-            rx_per_s = max(0.0, (net_now[0] - prev_net[0]) / window_s)
-            tx_per_s = max(0.0, (net_now[1] - prev_net[1]) / window_s)
-
-        memory = metrics.read_meminfo()
-        load = metrics.load_average()
-        now_wall_ms = int(time.time() * 1000)
-
+        '''Polls every probe and assembles the document.'''
         return {
-            "host": {
-                "uptime_s": metrics.read_uptime_seconds(),
-                "cpu_pct": metrics.cpu_percent(prev_cpu, cpu_now),
-                "cpu_count": os.cpu_count(),
-                "cpu_temp_c": metrics.read_cpu_temp_c(),
-                "load": list(load) if load else None,
-                "mem_total_b": memory.get("MemTotal"),
-                "mem_available_b": memory.get("MemAvailable"),
-                "swap_total_b": memory.get("SwapTotal"),
-                "swap_free_b": memory.get("SwapFree"),
-                "net_rx_bytes_per_s": rx_per_s,
-                "net_tx_bytes_per_s": tx_per_s,
-                "net_rx_total_b": net_now[0] if net_now else None,
-                "net_tx_total_b": net_now[1] if net_now else None,
-                "disks": metrics.disk_usages(
-                    ("/", os.path.dirname(self.__config.path), "/var/lib/influxdb2")
-                ),
-            },
-            "backend": {
-                "started_ms": self.__start_ms,
-                "uptime_s": (now_wall_ms - self.__start_ms) / 1000.0,
-                "rss_b": metrics.read_process_rss_bytes(),
-                "pid": os.getpid(),
-            },
             "services": await self.__collect_services(),
-            "errors": self.__errors.snapshot(),
-            "sampled_ms": now_wall_ms,
-            "window_s": window_s,
+            "sampled_ms": int(time.time() * 1000),
         }
 
     async def __collect_services(self) -> list[dict]:
@@ -168,7 +161,7 @@ class SystemStatusService:
         to show what is wrong, so it has to survive things being wrong.
         '''
         rows = []
-        for probe_id, (label, probe) in self.__probes.items():
+        for probe_id, (label, probe, _loggers) in self.__probes.items():
             try:
                 result = probe()
                 if inspect.isawaitable(result):
@@ -179,5 +172,6 @@ class SystemStatusService:
                 result = {"state": "error", "detail": f"{type(e).__name__}: {e}"}
             if not isinstance(result, dict):
                 result = {"state": "off"}
-            rows.append({"id": probe_id, "label": label, **result})
+            rows.append({"id": probe_id, "label": label, **result,
+                         "errors": self.__errors.counts(self.__matcher(probe_id))})
         return rows

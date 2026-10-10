@@ -208,6 +208,16 @@ inline constexpr quint8 SPOTIFY_AUTH_OK = 1;
 // ── System status (the maintenance dashboard) ──────────────────────────────
 inline constexpr quint8 SYSTEM_GET_STATUS = 0xB0;
 inline constexpr quint8 SYSTEM_STATUS = 0xB1;
+// The Järjestelmän tila graphs: sampled by the backend all the time, fetched
+// incrementally while the graphs are on screen.
+inline constexpr quint8 SYSTEM_GET_HISTORY = 0xB2;  // F->B: since_ms(8B, signed) — 0 = everything
+inline constexpr quint8 SYSTEM_HISTORY = 0xB3;      // B->F: status(1B) + len(4B) + UTF-8 JSON {…, reset, samples[]}
+// One service card's warnings and errors, for its list dialog.
+inline constexpr quint8 SYSTEM_GET_LOG = 0xB4;      // F->B: len(4B) + JSON {"service"}
+inline constexpr quint8 SYSTEM_LOG = 0xB5;          // B->F: status(1B) + len(4B) + JSON {service, label, entries[]}
+// The app's own log files (Ylläpito > Lokit). Each half clears its own.
+inline constexpr quint8 LOG_CLEAR = 0xB6;           // F->B: len(4B) + JSON {"keep": "warnings" | "none"}
+inline constexpr quint8 LOG_CLEAR_RESULT = 0xB7;    // B->F: status(1B) + len(4B) + JSON {ok, freedBytes, message}
 
 // ── Display power ──────────────────────────────────────────────────────────
 // This side decides WHEN (it sees the touch events); the backend does the actual

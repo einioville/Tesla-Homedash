@@ -21,6 +21,8 @@
 #include "core/settings.hh"
 #include "core/spotifyauth.hh"
 #include "core/spotifydevice.hh"
+#include "core/logcontrol.hh"
+#include "core/systemhistory.hh"
 #include "core/systemstatus.hh"
 #include "core/usbimport.hh"
 #include "core/tesla/tesladata.hh"
@@ -66,6 +68,12 @@ int main(int argc, char* argv[]) {
 
     AppConfig config(&settings);
     Logger::install(config.logLevel());
+    // The app's own log file, beside the backend's: what the Options view's DEBUG
+    // log writes to, and what its Lokit card clears.
+    if (!Logger::openFile(Logger::defaultDirectory())) {
+        logger.warning(QStringLiteral("No log file in %1; logging to stdout only")
+                           .arg(Logger::defaultDirectory()));
+    }
     logger.info(QStringLiteral("Starting frontend_v2 | backend=%1:%2")
                     .arg(config.backendHost())
                     .arg(config.backendPort()));
@@ -78,25 +86,28 @@ int main(int argc, char* argv[]) {
     // Now that the socket exists, let Settings serve the backend half of the
     // Options view (CONFIG_SCHEMA / CONFIG_SET / CONFIG_RESTART).
     settings.attachServer(&serverClient);
-    // The temporary debug log (Ylläpito > Vianetsintä) is ONE backend setting for
-    // both halves: follow logging.debugEnabled from the backend's schema, and
-    // return to the configured level when it clears — which the backend does by
-    // itself once the duration is up (backend/src/system_service/debug_logging.py).
+    // The log level (Ylläpito > Lokit) is ONE backend setting for both halves:
+    // follow logging.level from the backend's schema — DEBUG included, which the
+    // backend returns from by itself once its duration is up
+    // (backend/src/system_service/log_level.py). The file takes the level as it
+    // is; stdout (the journal) never goes below INFO unless the app was started
+    // at DEBUG, the backend's rule. With no backend schema, the configured level.
     QObject::connect(&settings, &Settings::groupsChanged, &app,
-                     [&settings, &config, debugOn = false]() mutable {
-                         const bool wanted =
-                             settings.valueOf(QStringLiteral("logging.debugEnabled")).toBool();
-                         if (wanted == debugOn) {
+                     [&settings, &config, applied = QString()]() mutable {
+                         const QString wanted =
+                             settings.valueOf(QStringLiteral("logging.level")).toString();
+                         if (wanted == applied) {
                              return;
                          }
-                         debugOn = wanted;
-                         if (wanted) {
-                             Logger::install(Logger::Level::Debug);
-                             logger.warning(QStringLiteral("Debug logging ON (Vianetsintäloki)"));
-                         } else {
-                             logger.warning(QStringLiteral("Debug logging OFF"));
-                             Logger::install(config.logLevel());
-                         }
+                         applied = wanted;
+                         const Logger::Level startup = config.logLevel();
+                         const Logger::Level file =
+                             wanted.isEmpty() ? startup : Logger::parseLevel(wanted, startup);
+                         const Logger::Level floor = qMin(startup, Logger::Level::Info);
+                         Logger::setLevels(qMax(file, floor), file);
+                         logger.info(QStringLiteral("Log level %1 (Options view)")
+                                         .arg(wanted.isEmpty() ? QStringLiteral("as configured")
+                                                               : wanted));
                      });
     TeslaData teslaData(&serverClient);
     // History reads live values off the Tesla singleton (by property id) for the
@@ -138,6 +149,14 @@ int main(int argc, char* argv[]) {
     // screen, so a settings screen nobody opened costs nothing.
     SystemStatus systemStatus;
     systemStatus.attachServer(&serverClient);
+    // The Järjestelmän tila graphs. The backend samples all the time; this side
+    // fetches only while the graphs are on screen.
+    SystemHistory systemHistory;
+    systemHistory.attachServer(&serverClient);
+    // Ylläpito > Lokit: clears this half's log files itself and asks the
+    // backend to clear its own.
+    LogControl logControl;
+    logControl.attachServer(&serverClient);
     // Spotify re-authorization. Entirely the backend's job — it opens the consent
     // page in the host browser and catches the redirect — so this side only tracks
     // progress for the dialog.
@@ -188,6 +207,8 @@ int main(int argc, char* argv[]) {
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "Photos", &screensaverPhotos);
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "UsbImport", &usbImport);
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "System", &systemStatus);
+    qmlRegisterSingletonInstance("frontend_v2", 1, 0, "SystemHistory", &systemHistory);
+    qmlRegisterSingletonInstance("frontend_v2", 1, 0, "Logs", &logControl);
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "SpotifyAuth", &spotifyAuth);
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "SpotifyDevice", &spotifyDevice);
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "Updater", &appUpdate);

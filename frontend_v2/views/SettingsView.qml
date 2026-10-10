@@ -51,6 +51,9 @@ Rectangle {
                 UsbImport.close()
             issuesPopup.close()
             spotlight.dismiss()
+            debugPopup.close()
+            logClearPopup.close()
+            System.closeLog()
         } else {
             // The device checks in SettingsIssues read this; throttled in C++.
             SpotifyDevice.refreshStatus()
@@ -76,9 +79,13 @@ Rectangle {
 
     function showFeedback(key, message, isError) {
         // A result with no row to sit beside — a refused restart, a lost
-        // connection — goes to the app's notification pill instead.
+        // connection — goes to the app's notification pill instead. Only a
+        // failure, though: a hidden setting's successful write (the DEBUG
+        // duration, written by its dialog beside the level) is the visible
+        // row's business, and a second "Tallennettu" in the pill is noise.
         if (key.length === 0 || pane.rowItem(key) === null) {
-            Notifications.post("settings", message)
+            if (isError)
+                Notifications.post("settings", message)
             return
         }
         rowFeedback = { key: key, text: message, error: isError }
@@ -95,6 +102,15 @@ Rectangle {
         id: issueDetector
     }
 
+    // The log clear's one combined outcome (both halves), beside its row.
+    Connections {
+        target: Logs
+
+        function onFinished(ok, message) {
+            view.showFeedback("logClear", message, !ok)
+        }
+    }
+
     Connections {
         target: Settings
 
@@ -109,6 +125,10 @@ Rectangle {
                 SpotifyDevice.begin()
             else if (key === "screensaverImport")
                 UsbImport.begin()
+            else if (key === "debugDuration")
+                debugPopup.open()
+            else if (key === "logClear")
+                logClearPopup.open()
         }
 
         function onWriteFailed(key, message) {
@@ -140,7 +160,8 @@ Rectangle {
         anchors.fill: parent
 
         layer.enabled: devicePopup.visible || usbImportPopup.visible || issuesPopup.visible
-                       || spotlight.active
+                       || spotlight.active || debugPopup.visible || logClearPopup.visible
+                       || logPopup.visible
         layer.effect: MultiEffect {
             blurEnabled: true
             blur: 1.0
@@ -358,6 +379,25 @@ Rectangle {
     // Same placement rule and reasons as the device dialog.
     UsbImportPopup {
         id: usbImportPopup
+        anchors.fill: parent
+    }
+
+    // --- Logs -----------------------------------------------------------------
+    // The DEBUG level's duration (the Lokitaso dropdown's onSelect), the clear, and a
+    // Järjestelmän tila card's warning/error list. Same placement rule and
+    // reasons as the dialogs above.
+    DebugLogPopup {
+        id: debugPopup
+        anchors.fill: parent
+    }
+
+    LogClearPopup {
+        id: logClearPopup
+        anchors.fill: parent
+    }
+
+    SystemLogPopup {
+        id: logPopup
         anchors.fill: parent
     }
 

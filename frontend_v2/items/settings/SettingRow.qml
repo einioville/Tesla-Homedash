@@ -169,6 +169,7 @@ Item {
                 case "spotifyAuth": return spotifyAuthDetails
                 case "spotifyDevice": return spotifyDeviceDetails
                 case "screensaverPhotos": return screensaverPhotosDetails
+                case "debugLog": return debugLogDetails
                 default: return null
                 }
             }
@@ -254,6 +255,10 @@ Item {
     Component {
         id: actionComponent
         SettingAction { setting: row.setting }
+    }
+    Component {
+        id: debugLogDetails
+        DebugLogDetails { setting: row.setting }
     }
     Component {
         id: spotifyAuthDetails

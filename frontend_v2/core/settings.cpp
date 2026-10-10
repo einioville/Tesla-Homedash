@@ -543,8 +543,8 @@ QVariantList Settings::decorateSections(const QVariantList &sections, bool local
             settings.append(entry);
         }
         // A subsection with no rows is normally a mistake, but not when it names
-        // a runtime status widget: the system-status card is entirely a status
-        // widget and has no settings at all.
+        // a runtime status widget: such a card (the Tesla field table) is entirely
+        // its widget and has no settings at all.
         if (settings.isEmpty() &&
             section.value(QStringLiteral("status")).toString().isEmpty()) {
             continue;
@@ -584,8 +584,9 @@ void Settings::rebuildGroups() {
         // Empty means a placeholder that exists only to fix this group's
         // position and name (media / tesla hold no local settings of their own),
         // and its backend half has not arrived — hide it rather than show an
-        // empty section.
-        if (sections.isEmpty()) {
+        // empty section. A group naming a `view` is the exception: it renders a
+        // screen of its own instead of settings cards (Järjestelmän tila).
+        if (sections.isEmpty() && group.value(QStringLiteral("view")).toString().isEmpty()) {
             continue;
         }
         group.insert(QStringLiteral("sections"), sections);

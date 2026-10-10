@@ -5,8 +5,9 @@ as `handler(payload, writer)` — the writer lets request/response handlers repl
 requesting client via `send_to`; passing it keeps the server protocol-agnostic (it still only moves
 bytes + the connection). `broadcast` sends a pre-framed packet to all clients in parallel (one task
 per client, gathered with `return_exceptions=True`); `send_to` targets one client.
-`__handle_connection` runs the on-connect **snapshot** (each registered service's
-`stream_everything(writer)`), then the read loop. **Communicates with:** every service, but only as
+`clients()` lists the connected peers (`{address, port, since_ms}`, kept in `__peers` beside the
+connection map) for the status view's server card. `__handle_connection` runs the on-connect
+**snapshot** (each registered service's `stream_everything(writer)`), then the read loop. **Communicates with:** every service, but only as
 a dumb byte pipe — it never imports protocol constants or calls concrete service methods.
 
 > **Load-bearing invariants — do not break:**

@@ -37,7 +37,8 @@ Rectangle {
         "charger": "qrc:/resources/icons/charger.svg",
         "price": "qrc:/resources/icons/price.svg",
         "trip": "qrc:/resources/icons/trip.svg",
-        "system": "qrc:/resources/icons/terminal.svg"
+        "system": "qrc:/resources/icons/terminal.svg",
+        "status": "qrc:/resources/icons/pulse.svg"
     })
 
     function iconFor(name) {

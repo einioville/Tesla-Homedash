@@ -9,8 +9,9 @@
  * frontend's logger (frontend/src/utils/logger.{hh,cpp}).
  *
  * Same output format ("LEVEL | YYYY-MM-DD | HH:MM:SS | source | message"),
- * same five severity levels. The destination is stdout (→ systemd/journald on
- * the Pi); on Windows the same line is also mirrored to the OutputDebugString
+ * same five severity levels. The destinations are stdout (→ systemd/journald on
+ * the Pi) and the app's own size-capped log file (openFile); on Windows the same
+ * line is also mirrored to the OutputDebugString
  * debug channel, because GUI-subsystem (WIN32_EXECUTABLE) builds have no console
  * so stdout is invisible in a terminal and in Qt Creator's Application Output.
  * The call-site API
@@ -49,12 +50,30 @@ public:
 
     static Logger get(const QString &name);
 
-    // Idempotent. Sets the global level threshold and installs the Qt message
-    // handler. Call once from main() (and again once the configured level is
-    // known — INFO first so AppConfig's own logs land, then the real level).
-    // main() also re-installs at runtime to follow the backend's temporary
-    // debug-log setting; the threshold is atomic for that reason.
+    // Idempotent. Sets the level threshold for stdout AND the log file, and
+    // installs the Qt message handler. Call once from main() (and again once the
+    // configured level is known — INFO first so AppConfig's own logs land, then
+    // the real level).
     static void install(Level default_level);
+
+    // The two thresholds apart — the Options view's log level sets them, the
+    // journal (stdout) never below INFO, so DEBUG detail reaches only the file,
+    // matching the backend. Atomic: worker threads may be logging.
+    static void setLevels(Level stdoutLevel, Level fileLevel);
+
+    // Opens <directory>/frontend.log for appending (rotated at 5 MB, three
+    // backups kept), beside the backend's own log files. False when it cannot be
+    // created; stdout logging carries on regardless.
+    static bool openFile(const QString &directory);
+
+    // Where both halves keep their log files: TESLA_HOMEDASH_LOG_DIR, else
+    // $XDG_STATE_HOME (~/.local/state)/Tesla-Homedash/logs — the backend's rule.
+    static QString defaultDirectory();
+
+    // Empties this half's log files, or keeps only the WARNING-and-worse
+    // records (with their continuation lines) when keepWarnings. Returns the
+    // bytes freed. The open file is rewritten in place and reopened.
+    static qint64 clearFiles(bool keepWarnings);
 
     // Case-insensitive parse of the names used by AppConfig:
     //   "debug" | "info" | "warning" | "error" | "critical"

@@ -1,8 +1,11 @@
 #include "logger.hh"
 
 #include <QDateTime>
+#include <QDir>
+#include <QFile>
 #include <QMutex>
 #include <QMutexLocker>
+#include <QStandardPaths>
 #include <QTextStream>
 #include <QtGlobal>
 #include <QtMessageHandler>
@@ -26,12 +29,69 @@ namespace {
 // Options view's debug log toggles — while worker threads may be logging, hence
 // atomic.
 std::atomic<Logger::Level> g_threshold{Logger::Level::Info};
+// The log file's own threshold: the same as stdout's, except that the Options
+// view's DEBUG reaches only the file.
+std::atomic<Logger::Level> g_fileThreshold{Logger::Level::Info};
 
-// Serialises writes to stdout so QtConcurrent workers (e.g. the media cover-art
-// decode) and the GUI thread don't interleave half-lines.
+// Serialises writes to stdout and the log file so QtConcurrent workers (e.g. the
+// media cover-art decode) and the GUI thread don't interleave half-lines; also
+// guards the file state below.
 QMutex &stdoutMutex() {
     static QMutex m;
     return m;
+}
+
+// The open log file, its path and how much has been written to it. Guarded by
+// stdoutMutex().
+QFile *g_file = nullptr;
+QString g_filePath;
+qint64 g_fileBytes = 0;
+
+constexpr qint64 kFileMaxBytes = 5 * 1024 * 1024;
+constexpr int kFileBackups = 3;
+
+// Opens (or reopens) g_filePath for appending. Caller holds the mutex.
+bool openFileLocked() {
+    delete g_file;
+    g_file = new QFile(g_filePath);
+    if (!g_file->open(QIODevice::WriteOnly | QIODevice::Append)) {
+        delete g_file;
+        g_file = nullptr;
+        return false;
+    }
+    g_fileBytes = g_file->size();
+    return true;
+}
+
+// frontend.log -> .1 -> .2 -> .3, the oldest dropped. Caller holds the mutex.
+void rotateLocked() {
+    g_file->close();
+    QFile::remove(QStringLiteral("%1.%2").arg(g_filePath).arg(kFileBackups));
+    for (int i = kFileBackups - 1; i >= 1; --i) {
+        QFile::rename(QStringLiteral("%1.%2").arg(g_filePath).arg(i),
+                      QStringLiteral("%1.%2").arg(g_filePath).arg(i + 1));
+    }
+    QFile::rename(g_filePath, g_filePath + QStringLiteral(".1"));
+    openFileLocked();
+}
+
+// The lines of the records at WARNING or above, with each one's continuation
+// lines — the backend's filter (system_service/log_files.py), line for line.
+QByteArray warningLines(const QByteArray &content) {
+    static const QList<QByteArray> levels = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"};
+    QByteArray kept;
+    bool keeping = false;
+    for (const QByteArray &line : content.split('\n')) {
+        const qsizetype bar = line.indexOf(" | ");
+        const QByteArray head = bar > 0 ? line.left(bar) : QByteArray();
+        if (levels.contains(head)) {
+            keeping = head == "WARNING" || head == "ERROR" || head == "CRITICAL";
+        }
+        if (keeping && !line.isEmpty()) {
+            kept += line + '\n';
+        }
+    }
+    return kept;
 }
 
 QString levelToString(Logger::Level level) {
@@ -80,7 +140,68 @@ Logger Logger::get(const QString &name) {
 
 void Logger::install(Level default_level) {
     g_threshold.store(default_level, std::memory_order_relaxed);
+    g_fileThreshold.store(default_level, std::memory_order_relaxed);
     qInstallMessageHandler(&qtMessageHandler);
+}
+
+void Logger::setLevels(Level stdoutLevel, Level fileLevel) {
+    g_threshold.store(stdoutLevel, std::memory_order_relaxed);
+    g_fileThreshold.store(fileLevel, std::memory_order_relaxed);
+}
+
+QString Logger::defaultDirectory() {
+    const QString override = qEnvironmentVariable("TESLA_HOMEDASH_LOG_DIR");
+    if (!override.isEmpty()) {
+        return override;
+    }
+    return QStandardPaths::writableLocation(QStandardPaths::GenericStateLocation) +
+           QStringLiteral("/Tesla-Homedash/logs");
+}
+
+bool Logger::openFile(const QString &directory) {
+    if (!QDir().mkpath(directory)) {
+        return false;
+    }
+    QMutexLocker lock(&stdoutMutex());
+    g_filePath = directory + QStringLiteral("/frontend.log");
+    return openFileLocked();
+}
+
+qint64 Logger::clearFiles(bool keepWarnings) {
+    QMutexLocker lock(&stdoutMutex());
+    if (g_filePath.isEmpty()) {
+        return 0;
+    }
+    qint64 freed = 0;
+    QStringList paths{g_filePath};
+    for (int i = 1; i <= kFileBackups; ++i) {
+        paths.append(QStringLiteral("%1.%2").arg(g_filePath).arg(i));
+    }
+    if (g_file != nullptr) {
+        g_file->close();
+    }
+    for (const QString &path : std::as_const(paths)) {
+        QFile file(path);
+        if (!file.exists()) {
+            continue;
+        }
+        const qint64 before = file.size();
+        QByteArray kept;
+        if (keepWarnings && file.open(QIODevice::ReadOnly)) {
+            kept = warningLines(file.readAll());
+            file.close();
+        }
+        // The active file stays (it is reopened below); an emptied backup goes.
+        if (kept.isEmpty() && path != g_filePath) {
+            file.remove();
+        } else if (file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+            file.write(kept);
+            file.close();
+        }
+        freed += before - kept.size();
+    }
+    openFileLocked();
+    return qMax<qint64>(0, freed);
 }
 
 Logger::Level Logger::parseLevel(const QString &text, Level fallback) {
@@ -100,7 +221,11 @@ void Logger::error(const QString &message) const    { log(Level::Error, message)
 void Logger::critical(const QString &message) const { log(Level::Critical, message); }
 
 void Logger::log(Level level, const QString &message) const {
-    if (static_cast<int>(level) < static_cast<int>(g_threshold.load(std::memory_order_relaxed))) {
+    const bool toStdout =
+        static_cast<int>(level) >= static_cast<int>(g_threshold.load(std::memory_order_relaxed));
+    const bool toFile =
+        static_cast<int>(level) >= static_cast<int>(g_fileThreshold.load(std::memory_order_relaxed));
+    if (!toStdout && !toFile) {
         return;
     }
 
@@ -109,6 +234,18 @@ void Logger::log(Level level, const QString &message) const {
             .arg(levelToString(level), timestamp, m_name, message);
 
     QMutexLocker lock(&stdoutMutex());
+    if (toFile && g_file != nullptr) {
+        const QByteArray bytes = line.toUtf8() + '\n';
+        g_file->write(bytes);
+        g_file->flush();
+        g_fileBytes += bytes.size();
+        if (g_fileBytes >= kFileMaxBytes) {
+            rotateLocked();
+        }
+    }
+    if (!toStdout) {
+        return;
+    }
     QTextStream out(stdout);
     out << line << '\n';
     out.flush();

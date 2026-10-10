@@ -36,7 +36,9 @@ imports a service:
 - **`apply_config()`** — re-snapshot tunables after an Options-view write, via
   `config_service.register_hook(name, svc.apply_config)`. No service re-reads `Config` on its own
   (`src/config_service/CLAUDE.md`).
-- **`health()`** — a per-service probe for the maintenance dashboard (`src/system_service/CLAUDE.md`).
+- **`health()`** — a per-service probe for the status view: `{state, detail}` plus optionally
+  `config` (the settings in effect, `[label, value]`) and `items`; registered with the loggers whose
+  warnings its Järjestelmän tila card counts (`src/system_service/CLAUDE.md`).
 - **Logging** — a new service's top-level logger name must be added to `_SERVICE_LOGGERS`, or its
   INFO/DEBUG output silently vanishes (`src/utils/CLAUDE.md`).
 - **Wiring** — every service is constructed, hooked, registered and gathered in
@@ -63,7 +65,10 @@ mirroring the frontend variable of the same name. Read by `configure_logging()`,
 `load_dotenv()` itself because `get_env`'s lazy load happens after logging is set up; a real
 environment variable (systemd `Environment=`) still wins over `.env`. **Keep the deployment at
 `info`** — `debug` logs a line per telemetry property and rotates the Pi's journal fast enough to
-destroy incident history.
+destroy incident history; DEBUG from the Options view's *Lokitaso* is the way to get detail, and
+it reaches the app's own log files only. Also optional: `TESLA_HOMEDASH_LOG_DIR` — where both halves
+keep those files (default `$XDG_STATE_HOME`, i.e. `~/.local/state`, `/Tesla-Homedash/logs`;
+`src/utils/CLAUDE.md`).
 
 ### `config.json` (copy from `config_template.json`)
 Parsed once by `Config` and injected into every service. Keys:
@@ -120,9 +125,12 @@ Parsed once by `Config` and injected into every service. Keys:
   `resumeRadioAfterSpotify` (`src/media_service/CLAUDE.md`), both default off; and
   `lastRadioStation`, which is **state, not a setting** — `RadioPlayer` writes it on every station
   change, straight through `Config.save()`, and it is in no schema.
-- `logging` (optional) — `debugEnabled` / `debugMinutes`: the Options view's temporary DEBUG log for
-  both halves, which clears itself (`src/system_service/CLAUDE.md`). It raises the level above
-  `TESLA_HOMEDASH_LOG_LEVEL` for a while and returns to it; it does not replace the variable.
+- `logging` (optional) — `level`: the Options view's *Lokitaso* for both halves (Ylläpito › Lokit;
+  `debug`/`info`/`warning`/`error`/`critical`). Absent → `TESLA_HOMEDASH_LOG_LEVEL`'s, so the variable
+  is now the setting's default. `debug` is temporary: after `debugMinutes` (0–480, hidden from the
+  rows — the dialog sets it; **0 = toistaiseksi**, no end) it returns to `levelBeforeDebug`, which is **state** the `LogLevel`
+  service writes, in no schema (`src/system_service/CLAUDE.md`). The journal follows the level but
+  never below INFO. A `debugEnabled` left by an older version is ignored.
 
 > **`config.json` is now written at runtime.** The frontend's Options view can change the subset of
 > keys listed in `config_service.SETTINGS_SCHEMA` (`src/config_service/CLAUDE.md`). `Config` gained

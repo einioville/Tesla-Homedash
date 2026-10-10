@@ -300,6 +300,22 @@ SPOTIFY_DEVICE_STATUS = 0xAB      # B->F: status(1B, always OK) + len(4B) + UTF-
 # screen nobody is looking at is pure waste.
 SYSTEM_GET_STATUS = 0xB0      # F->B: (empty)
 SYSTEM_STATUS = 0xB1          # B->F: status(1B) + len(4B) + UTF-8 JSON
+# The Järjestelmän tila graphs. Sampled in the background (a graph needs the
+# minutes before anyone looked), but still only sent on request, incrementally.
+SYSTEM_GET_HISTORY = 0xB2     # F->B: since_ms(8B, signed) — 0 = everything
+SYSTEM_HISTORY = 0xB3         # B->F: status(1B) + len(4B) + UTF-8 JSON
+                              #   {interval_s, window_s, reset, mem_total_b, cpu_count,
+                              #    disk{path,device,total_b,used_b,free_b,used_pct},
+                              #    samples[{t, cpu[], mem_used_b, disk_read_bps,
+                              #             disk_write_bps, net_rx_bps, net_tx_bps,
+                              #             cpu_temp_c}], temp_available}
+# One service card's warnings and errors, newest first, for its list dialog.
+SYSTEM_GET_LOG = 0xB4         # F->B: len(4B) + UTF-8 JSON {"service": <probe id>}
+SYSTEM_LOG = 0xB5             # B->F: status(1B) + len(4B) + UTF-8 JSON
+                              #   {service, label, entries[{t, level, logger, message}]}
+# The app's own log files (Ylläpito > Lokit). The journal is never touched.
+LOG_CLEAR = 0xB6              # F->B: len(4B) + UTF-8 JSON {"keep": "warnings" | "none"}
+LOG_CLEAR_RESULT = 0xB7       # B->F: status(1B) + len(4B) + UTF-8 JSON {ok, freedBytes, message}
 
 # ── Display power (the panel the dashboard runs on) ─────────────────────────
 # The FRONTEND decides WHEN (it is the only side that sees touch input); the

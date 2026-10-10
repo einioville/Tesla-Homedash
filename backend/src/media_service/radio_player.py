@@ -50,6 +50,9 @@ class RadioPlayer(BaseMediaPlayer):
 
         self.__stream_url: str | None = None
         self.__image_url: str | None = None
+        # Why the last station lookup failed, or None after one that worked; the
+        # status view's Radio card reads it.
+        self.__fetch_error: str | None = None
 
         # Flag to prevent restart loops when intentionally stopped
         self.__intentional_stop = False
@@ -167,9 +170,13 @@ class RadioPlayer(BaseMediaPlayer):
             )
             if not self.__stream_url:
                 logger.warning("Nelonen API response missing streamUrls.audioHls.url for %s", self.__channel)
+                self.__fetch_error = "Asemalle ei löytynyt lähetystä"
+            else:
+                self.__fetch_error = None
         except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as e:
             # ValueError covers JSON decode errors from response.json()
             logger.warning("Failed to fetch radio station data for %s: %s: %s", self.__channel, type(e).__name__, e)
+            self.__fetch_error = "Aseman tietoja ei saatu"
 
     @staticmethod
     def __pick_cover(square: dict, target: int = 720) -> str | None:
@@ -221,6 +228,11 @@ class RadioPlayer(BaseMediaPlayer):
         self.__vlc_player.set_media(None)
         self.__intentional_stop = False
         logger.debug("Radio player stopped")
+
+    def describe(self) -> dict:
+        '''The station, the station count and the last lookup's failure, for the status view.'''
+        return {"channel": self.__channel, "stations": len(self.__channels),
+                "error": self.__fetch_error}
 
     def is_playing(self) -> bool:
         '''

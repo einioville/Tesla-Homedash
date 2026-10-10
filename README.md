@@ -313,6 +313,7 @@ view — a value saved there wins, so they matter on a fresh install and stop ma
 - `TESLA_HOMEDASH_SCREENSAVER_TIMEOUT_MIN` — idle minutes before the screensaver (default `30`).
 - `TESLA_HOMEDASH_SETTINGS_FILE` — override where the dashboard's own settings are written (default `~/.config/Tesla-Homedash/frontend_config.json`).
 - `TESLA_HOMEDASH_LOG_LEVEL` — `debug` / `info` / `warning` / `error` / `critical` (default `info`).
+- `TESLA_HOMEDASH_LOG_DIR` — where both halves keep their own log files (default `~/.local/state/Tesla-Homedash/logs`). The journal gets the same lines at the chosen level but never below INFO; the log level is chosen in **Asetukset › Ylläpito › Lokit** (DEBUG there is temporary and reaches these files only), and the same card clears them. `TESLA_HOMEDASH_LOG_LEVEL` is the level until one is chosen there.
 
 Make sure the backend is already running (`cd backend && uv run python run.py`), then launch the frontend:
 

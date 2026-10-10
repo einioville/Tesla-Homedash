@@ -426,7 +426,7 @@
         "resumeRadioAfterSpotify": false
     },
     "logging": {
-        "debugEnabled": false,
+        "level": "info",
         "debugMinutes": 30
     }
 }

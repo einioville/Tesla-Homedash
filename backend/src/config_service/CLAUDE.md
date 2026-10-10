@@ -22,7 +22,7 @@ write allow-list and the frontend's UI description, so adding a tunable is one e
 >   single `__apply_interval` point; `WeatherService` drops its cached frame and refetches).
 >   Registered in `start_services` via `config_service.register_hook(name, svc.apply_config)`.
 >   Implemented on: `WeatherService`, `MyEnergiService`, `TripLoader`, `ChargingLoader`,
->   `SpotPriceProvider`, `DebugLogging` (the `logging` block, `../system_service/CLAUDE.md`), and
+>   `SpotPriceProvider`, `LogLevel` (the `logging` block, `../system_service/CLAUDE.md`), and
 >   `MediaManager.apply_config_spotify()` (which forwards to the Spotify player) /
 >   `_media()` (the manager's own `media` block), and `AudioService`. `SpotPriceProvider` needs no cache flush — it caches *raw* prices and
 >   applies VAT/margin on read.
@@ -33,6 +33,18 @@ write allow-list and the frontend's UI description, so adding a tunable is one e
 >
 > A `hook` setting whose hooks are all **unregistered** (no Zappi → no `MyEnergiService`) is
 > reported to the frontend as `restart`, because that is what it truly is for that deployment.
+
+**Entries beyond values.** `type: "action"` is a frontend button (`Settings.invokeAction`) that may
+sit in this schema too — the *Lokit* card's `logClear` does: it is sent with no value or apply tier,
+and **`CONFIG_SET` refuses its key**. `confirm: False` on one says its action opens a dialog that is
+the confirmation (otherwise a first tap only arms the button). `hidden` keeps a value out of the rows
+while still validating its writes (`logging.debugMinutes`, set by a dialog); `onSelect`
+(`{value: action}`) names the action choosing that value runs instead of writing it — DEBUG in
+*Lokitaso* asks for how long first. A static `enum`'s value must be one of its `options` (a dynamic
+one's is checked against the resolved list). **`register_runtime(key, provider)`** merges the
+provider's dict into that entry as `runtime` at schema-build time — facts that change with the value
+without being a setting, like DEBUG's end time and the level it returns to. A service whose state changes them must cause
+a schema broadcast; a write does, through its hook.
 
 **Restart.** `CONFIG_RESTART` sets an `asyncio.Event`; `run()` awaits it, waits
 `_RESTART_DRAIN_SECONDS` so the preceding reply flushes, then flushes the log handlers and

@@ -65,6 +65,10 @@ qt_add_executable(appfrontend_v2
     core/usbimport.cpp
     core/systemstatus.hh
     core/systemstatus.cpp
+    core/systemhistory.hh
+    core/systemhistory.cpp
+    core/logcontrol.hh
+    core/logcontrol.cpp
     core/appupdate.hh
     core/appupdate.cpp
     core/spotifyauth.hh
@@ -126,7 +130,13 @@ qt_add_qml_module(appfrontend_v2
         items/settings/BackendProbeStatus.qml
         items/settings/ScreenPowerStatus.qml
         items/settings/TeslaFieldTable.qml
-        items/settings/SystemStatusPanel.qml
+        items/settings/SystemStatusSection.qml
+        items/settings/SystemGraphCard.qml
+        items/settings/SystemServiceCard.qml
+        items/settings/SystemLogPopup.qml
+        items/settings/DebugLogDetails.qml
+        items/settings/DebugLogPopup.qml
+        items/settings/LogClearPopup.qml
         items/settings/UpdatePanel.qml
         items/settings/UpdateBanner.qml
         items/settings/SettingDetails.qml
@@ -264,6 +274,7 @@ qt_add_resources(appfrontend_v2 "app_resources"
         resources/icons/arrow_right.svg
         resources/icons/charger.svg
         resources/icons/chart_line.svg
+        resources/icons/pulse.svg
         resources/icons/folder.svg
         resources/icons/cooling.png
         resources/icons/greenshadow.png

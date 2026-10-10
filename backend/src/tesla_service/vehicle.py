@@ -410,6 +410,17 @@ class Vehicle:
         async with self.__async_lock:
             return self.__vin
 
+    async def is_online(self) -> bool | None:
+        '''
+        Whether the car is awake, from the synthesized VehicleOnline field; None
+        when no state event has arrived yet (or the config has no such field).
+        '''
+        prop = self.__data.get("VehicleOnline")
+        if prop is None:
+            return None
+        value = await prop.get_value()
+        return None if value is None else bool(value)
+
     @property
     def vin(self) -> str:
         return self.__vin

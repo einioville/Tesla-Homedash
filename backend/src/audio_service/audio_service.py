@@ -95,6 +95,20 @@ class AudioService:
         audio = self.__config.audio_config
         await self.__apply(audio.get("outputDevice") or "", audio.get("volumePercent"))
 
+    def health(self) -> dict:
+        '''The host audio stack and what it is set to, for the Järjestelmän tila card.'''
+        names = {"pulse": "PulseAudio / PipeWire (pactl)", "wireplumber": "PipeWire (wpctl)",
+                 "alsa": "ALSA (amixer)"}
+        if self.__backend.name == "none":
+            return {"state": "off", "detail": "Äänijärjestelmää ei löytynyt"}
+        label = next((d.label for d in self.__devices if d.identifier == self.__output_device), "")
+        volume = self.__volume_percent
+        return {"state": "ok", "detail": "Käytössä", "config": [
+            ["Järjestelmä", names.get(self.__backend.name, self.__backend.name)],
+            ["Ulostulo", label or self.__output_device or "Järjestelmän oletus"],
+            ["Äänenvoimakkuus", f"{volume} %" if volume is not None else "—"],
+        ]}
+
     def device_options(self) -> list[dict]:
         '''
         Enum choices for `audio.outputDevice`, read from the cached device list.

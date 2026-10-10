@@ -226,6 +226,17 @@ def _timezone_options(current: str) -> list[dict]:
 #             the user (an audio stack that cannot switch outputs, say)
 #   apply     "hook" | "restart"
 #   hooks     names of apply_config() hooks to run; see ConfigService.register_hook
+#   hidden    kept out of the rendered rows, still validated and written (a value
+#             only a flow sets — the DEBUG duration, set by its dialog)
+#   onSelect  {value: action}: choosing that value runs the frontend action
+#             INSTEAD of writing it; the flow it opens writes the value itself
+#             (choosing DEBUG asks for how long first). Other values write as usual.
+#   details   names a frontend row-details block shown under the label
+#
+# type "action" is a BUTTON the frontend handles (Settings.invokeAction): it has
+# no value, no apply tier, and CONFIG_SET refuses its key.  Carries actionLabel
+# and optionally requiresConnection, and confirm: False for one whose action opens
+# a dialog of its own (otherwise a first tap only arms it).
 
 SETTINGS_SCHEMA: list[dict] = [
     {
@@ -518,18 +529,23 @@ SETTINGS_SCHEMA: list[dict] = [
         "label": "Ylläpito",
         "sections": [
             {
-                "id": "diagnostics",
-                "label": "Vianetsintä",
-                "help": "Tilapäinen yksityiskohtainen loki sekä palvelimelle että "
-                        "näytölle, kun vikaa pitää selvittää ilman SSH-yhteyttä.",
+                "id": "logs",
+                "label": "Lokit",
                 "settings": [
                     {
-                        "key": "logging.debugEnabled",
-                        "type": "bool",
-                        "label": "Vianetsintäloki",
-                        "help": "Kirjaa kaiken DEBUG-tasolla. Kytkeytyy pois itsestään "
-                                "alla olevan ajan kuluttua, koska loki täyttyy muuten "
-                                "nopeasti ja vanhat tapahtumat katoavat.",
+                        "key": "logging.level",
+                        "type": "enum",
+                        "label": "Lokitaso",
+                        "options": [
+                            {"value": "debug", "label": "DEBUG"},
+                            {"value": "info", "label": "INFO"},
+                            {"value": "warning", "label": "WARNING"},
+                            {"value": "error", "label": "ERROR"},
+                            {"value": "critical", "label": "CRITICAL"},
+                        ],
+                        # DEBUG is temporary: choosing it asks for how long first.
+                        "onSelect": {"debug": "debugDuration"},
+                        "details": "debugLog",
                         "apply": "hook",
                         "hooks": ["logging"],
                     },
@@ -537,14 +553,23 @@ SETTINGS_SCHEMA: list[dict] = [
                         "key": "logging.debugMinutes",
                         "type": "int",
                         "label": "Kesto",
-                        "help": "Laskenta alkaa alusta, kun lokin kytkee päälle tai "
-                                "palvelin käynnistyy uudelleen.",
                         "unit": "min",
-                        "min": 5,
-                        "max": 240,
+                        # 0 = toistaiseksi: DEBUG stays until the level is changed.
+                        "min": 0,
+                        "max": 480,
                         "step": 5,
+                        "hidden": True,
                         "apply": "hook",
                         "hooks": ["logging"],
+                    },
+                    {
+                        "key": "logClear",
+                        "type": "action",
+                        "label": "Tyhjennä lokit",
+                        "actionLabel": "Tyhjennä",
+                        "requiresConnection": True,
+                        # Its dialog is the confirmation; no second tap first.
+                        "confirm": False,
                     },
                 ],
             },
@@ -599,6 +624,10 @@ class ConfigService:
         # own its own dynamic enum instead of __dynamic_options growing a
         # hardcoded branch per key.
         self.__options_providers: dict[str, Callable[[], list[dict]]] = {}
+        # key -> zero-arg callable returning a dict of runtime facts merged into
+        # that entry as "runtime" (the DEBUG log's end time).  Facts that change
+        # with the value but are no setting themselves.
+        self.__runtime_providers: dict[str, Callable[[], dict]] = {}
         # The one enum this service owns itself: the zone is Config's, not any
         # other service's.
         self.register_options(
@@ -633,6 +662,17 @@ class ConfigService:
                 because build_schema() is.
         '''
         self.__options_providers[key] = provider
+
+    def register_runtime(self, key: str, provider: Callable[[], dict]) -> None:
+        '''
+        Registers the provider of one entry's runtime facts, sent with the schema
+        as the entry's "runtime" object.  A service whose state changes it must
+        cause a schema broadcast — a config write does, through its hook.
+        Arguments:
+            key (str): Dotted setting key, e.g. "logging.level".
+            provider (Callable): Returns a JSON-safe dict; must be synchronous.
+        '''
+        self.__runtime_providers[key] = provider
 
     def register_guard(self, name: str, guard: Callable[[str, Any], None]) -> None:
         '''
@@ -703,8 +743,15 @@ class ConfigService:
                 settings = []
                 for setting in section["settings"]:
                     entry = {k: v for k, v in setting.items() if k != "options"}
+                    if setting["type"] == "action":
+                        # A button: no value to report, nothing to apply.
+                        settings.append(entry)
+                        continue
                     entry["apply"] = self.__effective_apply(setting)
                     entry["value"] = self.__current_value(setting["key"])
+                    provider = self.__runtime_providers.get(setting["key"])
+                    if provider is not None:
+                        entry["runtime"] = provider()
 
                     options = setting.get("options")
                     if options == "dynamic":
@@ -792,10 +839,13 @@ class ConfigService:
             return validator(value) if validator else value.strip()
 
         if kind == "enum":
-            # Dynamic options are not in the static schema, so membership is
-            # checked by the caller (which has the resolved list).
+            # Dynamic options are not in the static schema, so their membership is
+            # checked by the caller (which has the resolved list); static ones here.
             if not isinstance(value, str):
                 raise ValueError("Odotettiin tekstiä")
+            options = setting.get("options")
+            if isinstance(options, list) and value not in [o["value"] for o in options]:
+                raise ValueError(f"Tuntematon valinta: {value}")
             return value
 
         raise ValueError(f"Tuntematon asetustyyppi: {kind}")
@@ -882,7 +932,7 @@ class ConfigService:
             value (Any): The value to write, before coercion.
         '''
         setting = next((s for s in _iter_settings() if s["key"] == key), None)
-        if setting is None:
+        if setting is None or setting["type"] == "action":
             logger.warning("CONFIG_SET for unknown key %s", key)
             return {"ok": False, "applied": "", "value": value,
                     "message": f"Tuntematon asetus: {key}"}

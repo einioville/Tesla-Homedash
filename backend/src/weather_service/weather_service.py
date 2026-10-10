@@ -164,6 +164,8 @@ class WeatherService:
         # connecting client so its weather UI populates immediately without
         # waiting for the next 15-minute cron tick.
         self.__last_forecast: bytes | None = None
+        # When the last forecast went out, for the status view.
+        self.__updated_ms: int | None = None
 
     def apply_config(self) -> None:
         '''
@@ -214,9 +216,13 @@ class WeatherService:
         honest signal: this service once deadlocked on the Pi for sixteen days
         (CLAUDE.md 5.2.4) while looking perfectly alive from the outside.
         '''
+        config = [["Paikkakunta", self.__place], ["Päivitysväli", "15 min"],
+                  ["Lähde", "Ilmatieteen laitos"]]
+        if self.__updated_ms is not None:
+            config.append(["Päivitetty", {"time": self.__updated_ms}])
         if self.__last_forecast is None:
-            return {"state": "warn", "detail": f"{self.__place} · ei ennustetta"}
-        return {"state": "ok", "detail": self.__place}
+            return {"state": "warn", "detail": "Ei ennustetta", "config": config}
+        return {"state": "ok", "detail": "Ennuste haettu", "config": config}
 
     def get_run_task(self) -> asyncio.Task:
         '''
@@ -285,6 +291,7 @@ class WeatherService:
         self.__last_forecast = protocol.frame(
             protocol.WEATHER_FORECAST, b"".join(stream_data)
         )
+        self.__updated_ms = int(datetime.now().timestamp() * 1000)
         await self.__server.broadcast(self.__last_forecast)
 
     async def __download_stored_query(

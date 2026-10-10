@@ -51,11 +51,23 @@ TripComboBox {
     Component.onCompleted: syncFromSetting()
 
     // `activated` (not currentIndexChanged) so only a real user choice writes.
+    //
+    // A value named in the setting's `onSelect` runs that action INSTEAD of being
+    // written — a dialog that asks something first and writes the value itself
+    // (DEBUG asks for how long). The field shows the current value again until
+    // that write comes back, so a cancelled dialog leaves nothing to undo; and it
+    // runs even when the value is already chosen, which is how the duration of a
+    // running DEBUG is changed.
     onActivated: function (index) {
         if (syncing || index < 0 || index >= options.length)
             return
         const chosen = options[index].value
-        if (chosen !== setting.value)
+        const action = setting.onSelect !== undefined ? setting.onSelect[String(chosen)] : undefined
+        if (action !== undefined) {
+            syncFromSetting()
+            Settings.invokeAction(action)
+        } else if (chosen !== setting.value) {
             Settings.setValue(setting.key, chosen)
+        }
     }
 }

@@ -168,6 +168,20 @@ class DisplayService:
         if self.__state_frame() != before:
             await self.__server.broadcast(self.__state_frame())
 
+    def health(self) -> dict:
+        '''Panel power control's standing, for the Järjestelmän tila card.'''
+        output = "Kaikki" if self.__output == _ALL_OUTPUTS else self.__output
+        config = [["Ohjaus", _COMMAND], ["Näyttö", output],
+                  ["Tila", "Päällä" if self.__on else "Sammutettu"]]
+        if not self.__available:
+            return {"state": "off", "detail": f"{_COMMAND} puuttuu, näytön sammutus ei toimi",
+                    "config": config[1:]}
+        if self.__fault == protocol.DISPLAY_FAULT_OUTPUT_LOST:
+            return {"state": "error", "detail": "Näyttö katosi herätyksen jälkeen", "config": config}
+        if self.__fault == protocol.DISPLAY_FAULT_REFUSED:
+            return {"state": "warn", "detail": f"{_COMMAND} kieltäytyi muutoksesta", "config": config}
+        return {"state": "ok", "detail": "Käytössä", "config": config}
+
     def get_run_task(self):
         '''Returns the startup task for start_services to gather.'''
         return asyncio.create_task(self.run())

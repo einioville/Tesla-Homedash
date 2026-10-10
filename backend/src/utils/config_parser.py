@@ -21,6 +21,8 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import tzlocal
 from dotenv import load_dotenv
 
+from .logger_configurator import LEVEL_CHOICES, default_level_name
+
 logger = logging.getLogger("utils.config_parser")
 
 _env_loaded: bool = False
@@ -181,12 +183,15 @@ class Config:
         "lastRadioStation": "",
     }
 
-    # Temporary debug logging from the Options view.  debugEnabled switches both
-    # halves to DEBUG and switches itself back off after debugMinutes; the level
-    # the process was STARTED with (TESLA_HOMEDASH_LOG_LEVEL) is what it returns to.
+    # The log level from the Options view (Ylläpito › Lokit).  An absent level is
+    # the one the process was started with (TESLA_HOMEDASH_LOG_LEVEL) — resolved in
+    # logging_config, not here, because it depends on the environment.  "debug" is
+    # temporary: after debugMinutes it returns to levelBeforeDebug, which is state
+    # the LogLevel service writes, not a setting.  A debugEnabled left by an older
+    # version is ignored.
     _LOGGING_DEFAULTS = {
-        "debugEnabled": False,
         "debugMinutes": 30,
+        "levelBeforeDebug": "",
     }
 
     def __init__(self, config_path: str):
@@ -360,10 +365,15 @@ class Config:
     def logging_config(self) -> dict:
         '''
         Logging block merged over _LOGGING_DEFAULTS:
-        - debugEnabled: both halves log at DEBUG while true.
-        - debugMinutes: how long debugEnabled stays on before it clears itself.
+        - level: the level both halves log at (one of LEVEL_CHOICES); absent or
+          unknown → TESLA_HOMEDASH_LOG_LEVEL's.
+        - debugMinutes: how long "debug" lasts before it returns.
+        - levelBeforeDebug: what it returns to ("" → the startup level).
         '''
-        return {**self._LOGGING_DEFAULTS, **self.__data.get("logging", {})}
+        block = {**self._LOGGING_DEFAULTS, **self.__data.get("logging", {})}
+        if block.get("level") not in LEVEL_CHOICES:
+            block["level"] = default_level_name()
+        return block
 
     # ── Loading / validation ───────────────────────────────────────
 

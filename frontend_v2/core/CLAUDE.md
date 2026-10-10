@@ -130,11 +130,40 @@ Näytönsäästäjä card.
 ## `System` — `systemstatus.{hh,cpp}`
 
 **The maintenance dashboard** (issue #39) is `core/systemstatus.{hh,cpp}`, the QML singleton
-**`System`**, rendered by `items/settings/SystemStatusPanel.qml`. Pull, not push: it polls
-`SYSTEM_GET_STATUS` every 5 s **only while `active`**, which the panel binds to its own
-visibility — so a settings screen nobody has opened costs nothing on either side. The document is
-handled as an opaque `QVariantMap` on purpose: it is a dashboard, not a contract, and adding a
-metric on the backend should not need a C++ change to display it.
+**`System`**, rendered by the service cards of `items/settings/SystemStatusSection.qml`. Pull, not
+push: it polls `SYSTEM_GET_STATUS` every 5 s **only while retained**. **Polling is reference-counted
+(`retain()` / `release()`), not a flag**: a screen being built and one being torn down overlap (a
+section switch, a rebuilt Loader), and a flag set by the newcomer was cleared by the one leaving. Each
+consumer retains while visible and releases exactly once (`syncPoll()`). The document is handled as an opaque `QVariantMap` on
+purpose: it is a dashboard, not a contract, and adding a metric — or a service, or a setting in one —
+on the backend needs no C++ change to display it. It also carries **one card's warning/error list**:
+`openLog(service, label)` sends `SYSTEM_GET_LOG` and fills `logEntries`; a reply for another card or
+a list since closed is dropped. `SystemLogPopup` binds to it.
+
+## `SystemHistory` — `systemhistory.{hh,cpp}`
+
+**The Järjestelmän tila graphs' data**, the QML singleton **`SystemHistory`**, rendered by
+`items/settings/SystemStatusSection.qml`. The backend samples continuously
+(`backend/src/system_service/CLAUDE.md`); this side fetches every 2 s **only while retained**
+(reference-counted like `System`), sending the timestamp of the newest sample it holds so each poll
+moves a sample or two and a return to the section fetches only what was missed. A `reset` reply
+replaces the buffer instead of appending. Samples are kept as **rows** and handed to QML as
+**columns** (`series`: `t`, `cpu` — one array per core — `memUsed`, `diskRead`, `diskWrite`, `netRx`,
+`netTx`, `cpuTemp`), because a polyline is built from a column; `info` carries what changes too
+rarely to be one (memory total, disk space, `temp_available`, the sampling interval and window). A missing value is **NaN**, the graph's
+gap. The buffer is trimmed from the newest sample to the window **plus three intervals**: the graph
+slides each new sample in, and during the slide its left edge shows what lies just past the window.
+Unlike `System`, this is typed — the graphs need named columns, not an opaque document.
+
+## `Logs` — `logcontrol.{hh,cpp}`
+
+**Clearing the app's log files** (Ylläpito › Lokit), the QML singleton **`Logs`**. Each half clears
+its own: `clear(keepWarnings)` empties this half's files at once (`Logger::clearFiles`, local to
+wherever the frontend runs — `frontend_v2/CLAUDE.md`, *Logging*) and sends `LOG_CLEAR` for the
+backend's. The two come back as **one `finished(ok, message)`** with the bytes freed summed, which
+`SettingsView` shows beside the *Tyhjennä lokit* row; no backend, or no answer in 15 s, finishes with
+the frontend's half done and says so. `ServerClient` meanwhile exposes `localAddress` / `localPort`,
+how the server card's client list marks *tämä näyttö*.
 
 ## `TeslaFields` — `tesla/teslafieldeditor.{hh,cpp}`
 

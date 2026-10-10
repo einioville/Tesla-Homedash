@@ -26,6 +26,10 @@ Item {
     readonly property bool hasData: groupData !== undefined && groupData !== null
     readonly property var sections: hasData && groupData.sections !== undefined
                                     ? groupData.sections : []
+    // A group may name a screen of its own (`view`) that replaces the cards — a
+    // section that SHOWS something rather than setting it. Resolved in the view
+    // table at the bottom of this file.
+    readonly property string viewId: hasData && groupData.view !== undefined ? groupData.view : ""
 
     // --- Rows that survive a write ------------------------------------------
     // Every write rebuilds Settings.groups — at once for a local key, on the
@@ -62,6 +66,8 @@ Item {
                 const entry = Object.assign({}, entries[j])
                 delete entry.value
                 delete entry.modified
+                // Facts that change with the value (the DEBUG log's end time).
+                delete entry.runtime
                 section.settings.push(entry)
             }
             out.push(section)
@@ -176,6 +182,25 @@ Item {
         elide: Text.ElideRight
     }
 
+    // --- A section's own screen --------------------------------------------
+    // In place of the cards, for a group naming a `view`. Built only while that
+    // section is selected, so whatever it polls stops when the user moves on.
+    Loader {
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: paneTitle.bottom
+        anchors.bottom: parent.bottom
+        anchors.topMargin: 2
+        active: pane.viewId !== ""
+        visible: active
+        sourceComponent: {
+            switch (pane.viewId) {
+            case "systemStatus": return systemSectionComponent
+            default: return null
+            }
+        }
+    }
+
     // --- Subsection cards -------------------------------------------------
     ElasticFlickable {
         id: flick
@@ -184,6 +209,7 @@ Item {
         anchors.top: paneTitle.bottom
         anchors.bottom: parent.bottom
         anchors.topMargin: 2
+        visible: pane.viewId === ""
 
         contentHeight: cards.implicitHeight
         // Room to scroll the last rows up above the keyboard while it is up.
@@ -392,8 +418,8 @@ Item {
 
                                 // Intro: the card's help line and status widget. Unlike
                                 // a row it has no padding of its own, so it gets some —
-                                // at the bottom too when nothing follows it (the
-                                // system-status card is all intro).
+                                // at the bottom too when nothing follows it (a
+                                // settings-free card such as the Tesla field table).
                                 Column {
                                     width: parent.width
                                     visible: introHelp.visible || introStatus.active
@@ -434,7 +460,6 @@ Item {
                                         sourceComponent: {
                                             switch (card.modelData.status) {
                                             case "backendProbe": return probeComponent
-                                            case "systemStatus": return systemComponent
                                             case "appUpdate": return updateComponent
                                             case "screenPower": return screenPowerComponent
                                             case "teslaProperties": return teslaFieldsComponent
@@ -560,15 +585,17 @@ Item {
     // The status widgets a subsection may name. Declared once here rather than
     // inline, so the Loader above is a lookup instead of a chain of conditions.
     Component { id: probeComponent; BackendProbeStatus {} }
-    Component { id: systemComponent; SystemStatusPanel {} }
     Component { id: updateComponent; UpdatePanel {} }
     Component { id: screenPowerComponent; ScreenPowerStatus {} }
     Component { id: teslaFieldsComponent; TeslaFieldTable {} }
 
+    // The screens a group may name with `view`.
+    Component { id: systemSectionComponent; SystemStatusSection {} }
+
     // Shown before the first schema arrives (and if one never does).
     Text {
         anchors.centerIn: parent
-        visible: pane.sections.length === 0
+        visible: pane.sections.length === 0 && pane.viewId === ""
         text: qsTr("Valitse osio")
         font.family: Theme.fontFamily
         font.pixelSize: 14

@@ -8,7 +8,10 @@ behind several of these files are documented in `../../core/CLAUDE.md`:
 | QML | Singleton (notes in `core/CLAUDE.md`) |
 |---|---|
 | `BackendProbeStatus.qml` | `Probe` |
-| `SystemStatusPanel.qml` | `System` |
+| `SystemStatusSection.qml`, `SystemGraphCard.qml` | `SystemHistory` (graphs), `System` (service cards) |
+| `SystemServiceCard.qml`, `SystemLogPopup.qml` | `System` |
+| `DebugLogDetails.qml`, `DebugLogPopup.qml` | `Settings` (the backend's `logging.*`) |
+| `LogClearPopup.qml` | `Logs` |
 | `SpotifyAuthDetails.qml`, `SpotifyAuthPopup.qml`, `SpotifyAuthAlert.qml`, `DialogButton.qml` | `SpotifyAuth` |
 | `SpotifyDeviceDetails.qml`, `SpotifyDevicePopup.qml` | `SpotifyDevice` |
 | `UpdatePanel.qml` (unused while the *Päivitys* card is out of the schema, #56), `UpdateBanner.qml` | `Updater` |
@@ -28,7 +31,8 @@ sidebar's width, and the cards name them anyway) and `SettingsPane.qml` renders 
 of **one card per subsection** (issue #30) — the same card the sidebar itself carries. The pane
 is transparent; the cards are the containers, so nothing is nested inside a further border.
 Sections are general (Yleinen, Media, Datan visualisointi, Sähkö, Tesla, Ylläpito) and the
-subsections carry the detail.
+subsections carry the detail — except *Järjestelmän tila*, which is a status screen rather than
+options and renders its own `view` (below).
 
 Load-bearing:
 
@@ -58,6 +62,11 @@ Load-bearing:
   section. `Settings` applies the list after the merge: named ids first, in that order, everything
   unnamed after them in its natural order (so a subsection added later still appears). Media uses
   it to put the backend's *Ääni* card above the local *Spotify* card and the backend's *Radio*.
+- **A group may name a `view`**, a screen `SettingsPane` renders in place of the card stack, built
+  by a `Loader` only while that section is selected (so whatever it polls stops when the user moves
+  on) and resolved in the pane's view table. `Settings::rebuildGroups` keeps such a group although it
+  has no subsections — any other empty group is a placeholder waiting for its backend half. The one
+  consumer is `systemStatus`, *Järjestelmän tila* (below).
 - **Group `icon` is a SEMANTIC name** (`"charger"`, `"media"`, `"price"`, …), mapped to a
   resource by `SettingsSidebar.iconFor()`. The backend names icons without knowing anything
   about frontend assets; an unknown name falls back to the gear. Both schema builders copy
@@ -78,7 +87,14 @@ ALL hold — it nests, hides or fades the row, see *Dependent rows* below), **`s
 `string` shown masked by `SettingText` except while it is being edited, and logged as `<hidden>` by
 `Settings::setValue`; the saved file still holds it in clear, like `.env`. No setting carries it right
 now — the MML map key, its only consumer, moved to `.env` — but it stays as the guard the next
-secret needs) and **`warnBelow`
+secret needs), **`onSelect`** (`{value: action}` on an `enum`: choosing that value runs the action
+INSTEAD of writing it — a dialog that asks something first and writes the value itself. The field
+shows the current value again until that write returns, so a cancelled dialog leaves nothing to undo,
+and it runs even when the value is already chosen. DEBUG in *Lokitaso* is its consumer),
+**`confirm: false`** (an action that runs on the first tap, because the dialog it opens is the
+confirmation — *Tyhjennä lokit*), **`runtime`** (facts the backend merges into an entry that change
+with its value without being a setting — DEBUG's end time and the level it returns to; `shapeOf()`
+drops it with `value`, or a write that sets it would rebuild the card) and **`warnBelow`
 / `warnAbove` + `warnMessage`** (issue
 #34: `SettingRow` shows an inline caution while the value crosses the threshold; advisory only,
 `min`/`max` remain the hard bounds — the myenergi poll interval is the first consumer).
@@ -205,7 +221,9 @@ slide-in, well after focus moved.
 The row-level sibling of the subsection `status` hook below: **`details: "<id>"`** makes
 `SettingRow` load a component under the label, resolved against its own small table
 (`spotifyAuth` → `SpotifyAuthDetails`, `spotifyDevice` → `SpotifyDeviceDetails`,
-`screensaverPhotos` → `ScreensaverPhotosDetails`). It is for facts
+`screensaverPhotos` → `ScreensaverPhotosDetails`, `debugLog` → `DebugLogDetails`, which is handed
+the row's setting: "Palautuu normaaliksi klo 14:52 (vielä 30 min)" from `runtime.until`, in the
+warning text colour while the log is on). It is for facts
 that belong to one row without being its value — these actions carry no `help`, and their
 details are the whole explanation. *Kuvakansio*'s is a single live line styled as the `help` it
 stands in for ("N kuvaa löydetty", from `Photos.count`). The two Spotify ones render through
@@ -230,9 +248,10 @@ which is kept apart from red on purpose.
 green for 2.5 s, a rejection in red for 6 s — not in a banner elsewhere on the screen. The state
 lives in `SettingsView.rowFeedback`, passed down through `SettingsPane`, **not in the row**: a
 write that changes the section's shape still rebuilds the cards (*Layout*), and the row that made
-it may not outlive it. A result with no row to sit beside — a keyless `CONFIG_SET_RESULT` (a refused restart or
-reboot), a lost connection, a hidden setting — goes to the app's
-notification pill (`Notifications.post("settings", …)`) instead. A restart-tier write gets no extra
+it may not outlive it. A **failure** with no row to sit beside — a keyless `CONFIG_SET_RESULT` (a
+refused restart or reboot), a lost connection, a hidden setting — goes to the app's notification pill
+(`Notifications.post("settings", …)`) instead; a row-less **success** is dropped, since a hidden
+setting is written beside a visible one (the DEBUG duration beside the level) whose row reports it. A restart-tier write gets no extra
 wording: the row's badge and the restart banner already say it.
 
 **The restart badge names the half that restarts**: *sovelluksen uudelleenkäynnistys* on a local
@@ -280,16 +299,83 @@ the local sections from reading as a bug.
 
 The hook is a **subsection-level `status` key**: a subsection may name a runtime status widget,
 which `SettingsPane` renders in the card via a `Loader` above the rows, resolving the name against a
-small component table (`backendProbe`, `systemStatus`, `appUpdate`, `screenPower`,
-`teslaProperties`; `appUpdate` and `teslaProperties` are unused while their subsections are out of
-the schema). `active:` gates construction,
+small component table (`backendProbe`, `appUpdate`, `screenPower`, `teslaProperties`; `appUpdate`
+and `teslaProperties` are unused while their subsections are out of the schema). `active:` gates construction,
 which is what keeps the probe from firing for a card that did not ask
 for it. A subsection carrying a `status` but **no settings** is legitimate and is exempted from the
-empty-section filter: the system-status card is entirely a status widget. It exists because not
+empty-section filter: the Tesla field table's card is entirely its widget. It exists because not
 every fact about a section fits in a setting row: *is that address reachable* belongs to the host
 and port **together**. The verdict follows the SAVED values (what startup will actually use),
 debounced 400 ms so editing host then port probes once against the final pair. Advisory only — the
 write is never blocked, since the backend legitimately may not be up yet.
+
+## Ylläpito › Lokit — `DebugLogPopup.qml`, `LogClearPopup.qml`
+
+The backend's *Lokit* card: the **Lokitaso** dropdown and **Tyhjennä lokit**, with no help lines —
+their names say it. Both act on the app's own log files; the journal follows the level but never
+below INFO and is never cleared (`backend/src/system_service/CLAUDE.md`).
+- Choosing DEBUG (`onSelect`) opens `DebugLogPopup`: a row of durations (15 min – 8 h, then
+  **Toistaiseksi** — minutes 0, no end, for development, with a reminder that it survives restarts),
+  starting from the one used last; *Ota käyttöön* writes `logging.debugMinutes` and `logging.level`. Cancelling writes nothing. The row's `debugLog` details then say when and to which
+  level it returns, or *Päällä toistaiseksi*; the details collapse to no height otherwise, or the label would sit high.
+- *Tyhjennä lokit* (`confirm: false`) opens `LogClearPopup`: *Tyhjennä kaikki* or *Säilytä varoitukset
+  ja virheet* (the primary). The dialog closes on the choice; `Logs.finished` puts the outcome beside
+  the row ("Tyhjennetty · 12.3 kB vapautettu"), through the view's ordinary row feedback.
+
+## Järjestelmän tila — `SystemStatusSection.qml`
+
+A vertical `ElasticFlickable`: the backend host's last ten minutes as a 2×2 grid of
+`SystemGraphCard`s (CPU per core, memory, disk, network) and a full-width CPU temperature card, then
+**a `SystemServiceCard` per backend service**. Graphs from `SystemHistory`, cards from `System`
+(`../../core/CLAUDE.md`), both retained only while the section is visible. The old status card in
+Ylläpito is retired — this section shows it all.
+
+- **Service cards** render each row of the backend's `services` generically: the verdict as a dot
+  plus *Toiminnassa* / *Ongelmia* / *Ei toiminnassa* / *Ei käytössä*, the detail line, the settings
+  in effect as label–value pairs (typed values formatted here: `{time}` today as a clock time, another
+  day with its date), the server card's connected displays with this one marked, and the warning and
+  error counts with *Näytä* opening `SystemLogPopup` (newest first, date and time, level tag,
+  logger, the message's first lines). Cards pair two to a row, each row as tall as its taller card;
+  the Repeater's model is a **count**, since a poll replaces the list every 5 s and a new array
+  would rebuild every card.
+- **Temperature**'s headline gives the window's peak. A host with no sensor (`temp_available: false`,
+  WSL2) shows *Tällä laitteella ei ole lämpötila-anturia* in place of the graph.
+- **Every dialog swallows the mouse wheel** on its scrim (`onWheel` accepting it): a MouseArea with no
+  wheel handler lets the wheel through, which scrolled the page behind an open dialog. A list inside
+  the card still scrolls, since it sits above the scrim.
+
+- **Disk is graphed as I/O** (read / write rates) with the free space as the card's headline: space
+  changes too slowly over ten minutes to be a line, and disk-full is still the failure worth seeing.
+- **Colours are the dark categorical palette in its fixed order**, validated against the card
+  surface (`#212121`, `Theme.tripCardBg` over `tripBackground`) for lightness, chroma, colour-blind
+  separation of neighbours and contrast; `Theme.accent` is too light for that band and stays for the
+  single memory line. A core keeps its colour by number. **Past eight cores the hues repeat dashed**
+  (cores 9–16), rather than inventing a ninth colour, and the legend draws the dash too.
+- **A legend only for two or more lines**, each entry naming its line and giving its value — a single
+  line is named by the title. Values are fixed-width (`widestValue`) so the entries never shuffle.
+- **Rates are drawn in one unit per window** — the largest that keeps the peak under 1000 of it — and
+  the unit goes in the title ("Levy (kB/s)"), since the shared graph labels its axis with plain
+  numbers, as every graph in the app does. Percentages and temperature use a fixed 0–100 range.
+
+**The graphs are the app's own `HistoryGraph`** (`../history/HistoryGraph.qml`), so they look and
+behave like History, Trips and Charging: the axes and clock-time ticks, the white inspect line with
+its glass readout (hover with a mouse, one finger on touch), the pulsing live marker on a single
+line, the draw-in, and pinch / left-drag zoom with *Palauta*. `SystemGraphCard` wraps it the way
+`ChargingGraphCard` does — the translucent card, the title overlaid at the top left — and feeds it
+like the Charging view's live graphs: the first data `reloadFull()`s, later updates
+`advanceLive()` (keeping a zoom the user made). What `HistoryGraph` gained for this, all inert at
+their defaults so every other graph is unchanged:
+- **`extraSeries`** — further lines over the same axes (`{points, color, label, dashed}`), as extra
+  `LineSeries` added to the GraphsView at runtime (an `Instantiator`; the view's own children can
+  only be series). They join the y-fit, draw in with the main line, get a dot each when inspecting,
+  and a multi-line readout lists every line with its colour. Dashes use the scoped
+  `LineSeries.StrokeStyle.DashLine` — the unscoped form the docs show is undefined at runtime.
+- **`lineColor`** / **`seriesLabel`** for the main line, **`fixedMinY` / `fixedMaxY`** in place of the
+  fit, **`formatValue`** for the readout, and **`wheelZoom`** — off here, since the section scrolls
+  and the wheel belongs to the page (a left-drag still pans, a pinch still zooms).
+
+A multi-line graph turns the glow and the live marker off: a glow or a pulse on one line of several
+would single it out.
 
 ## USB photo import — `UsbImportPopup.qml`
 

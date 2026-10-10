@@ -15,9 +15,18 @@
   re-authorisation silently lost the grant, but at DEBUG it prints the token POST body and the
   base64 `Authorization` header carrying `SPOTIFY_CLIENT_ID:SPOTIFY_CLIENT_SECRET`, the
   authorization code and the refresh token. Never add it to the tuple itself.
-  `set_debug_logging(enabled)` moves the `_SERVICE_LOGGERS` between DEBUG and the level
-  `configure_logging()` started with, leaving `spotipy` alone for the same reason — its caller is
-  `system_service/debug_logging.py`.
+  `set_log_level(name)` applies the Options view's level (`LEVEL_CHOICES`) to the `_SERVICE_LOGGERS`
+  and the file, keeps `spotipy` at INFO or above for the same reason, and sets the journal's handler
+  to the level **but never below INFO** (unless the process was started at DEBUG) — its caller is
+  `system_service/log_level.py`. `default_level_name()` is the variable's level, the setting's default.
+  **Three handlers per logger.** The stdout handler never drops below INFO, so DEBUG never reaches the
+  journal; a `RotatingFileHandler` (`backend.log`, 5 MB × 3) takes
+  whatever the loggers pass; and **`ErrorLog`** keeps every WARNING+ record — time, level, full logger
+  name, text with any traceback — in memory and in `backend-errors.jsonl`, bounded to 2000 and
+  reloaded at startup, for the Järjestelmän tila counts and lists (`../system_service/CLAUDE.md`). All
+  live in `log_dir()`: `TESLA_HOMEDASH_LOG_DIR`, else `$XDG_STATE_HOME` (`~/.local/state`)
+  `/Tesla-Homedash/logs`, the frontend's rule too. A directory that cannot be created leaves stdout
+  alone working, with a warning.
 
 ## Binary protocol reference
 
@@ -82,8 +91,14 @@ Framing, byte order and the Tesla stream value types are in the root `CLAUDE.md`
 | `0xA9` | SPOTIFY_DEVICE_RESULT | B→F | `status(1B) + len(4B) + JSON` — `{ok, message, deviceId, deviceName, scanId}` |
 | `0xAA` | SPOTIFY_DEVICE_GET_STATUS | F→B | (empty) — ask for the configured device's standing |
 | `0xAB` | SPOTIFY_DEVICE_STATUS | B→F | `status(1B, always OK) + len(4B) + JSON` — `{configured, id, name, type, detected, isRestricted, reason}`; `detected` is `null` when Spotify's device list could not be read. Replied to the requester, **broadcast** after a successful select; no `scanId` — it describes `config.json`, not a flow |
-| `0xB0` | SYSTEM_GET_STATUS | F→B | (empty) — sample the host now |
-| `0xB1` | SYSTEM_STATUS | B→F | `status(1B) + len(4B) + JSON` — host/backend metrics, per-service health, error tallies |
+| `0xB0` | SYSTEM_GET_STATUS | F→B | (empty) — poll the service probes now |
+| `0xB1` | SYSTEM_STATUS | B→F | `status(1B) + len(4B) + JSON` — `{services[{id, label, state, detail, config, items, errors{warnings, errors}}], sampled_ms}`; the host's metrics are `SYSTEM_HISTORY`'s |
+| `0xB2` | SYSTEM_GET_HISTORY | F→B | `since_ms(8B, signed)` — the samples newer than this; `0` (or an empty payload) = everything |
+| `0xB3` | SYSTEM_HISTORY | B→F | `status(1B) + len(4B) + JSON` — `{interval_s, window_s, reset, mem_total_b, cpu_count, temp_available, disk{path, device, total_b, used_b, free_b, used_pct}, samples[{t, cpu[], mem_used_b, disk_read_bps, disk_write_bps, net_rx_bps, net_tx_bps, cpu_temp_c}]}`; to the requester only. `reset` = drop what you hold rather than append (asked for everything, or the host clock went backwards). A value that could not be computed is `null` (`../system_service/CLAUDE.md`) |
+| `0xB4` | SYSTEM_GET_LOG | F→B | `len(4B) + JSON` — `{service}`: one status card's probe id |
+| `0xB5` | SYSTEM_LOG | B→F | `status(1B) + len(4B) + JSON` — `{service, label, entries[{t, level, logger, message}]}`, newest first, ≤ 500; to the requester only |
+| `0xB6` | LOG_CLEAR | F→B | `len(4B) + JSON` — `{keep: "warnings" \| "none"}`; clears the backend's own log files (the journal is never touched) |
+| `0xB7` | LOG_CLEAR_RESULT | B→F | `status(1B) + len(4B) + JSON` — `{ok, freedBytes, message}`; to the requester only |
 | `0xC0` | DISPLAY_SET_POWER | F→B | `on(1B)` — 1 wakes the panel, 0 powers it down |
 | `0xC1` | DISPLAY_POWER_STATE | B→F | `available(1B) + on(1B) + fault(1B)`; `available=0` = no wlopm on the host; `fault` 0 none, 1 wlopm refused the change, 2 output lost after a wake (sticky, power-off refused until restart). The frontend reads a 2-byte payload as fault 0 |
 | `0xD0` | UPDATE_GET_STATE | F→B | `len(4B) + UTF-8 JSON` — `{"fetch": <bool>}`; `fetch` contacts the remote (backend-throttled to one per 2 min) |

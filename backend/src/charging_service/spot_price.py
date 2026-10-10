@@ -132,6 +132,11 @@ class SpotPriceProvider:
             self.__margin_eur_per_kwh * 100.0,
         )
 
+    def describe(self) -> list:
+        '''The pricing tunables in effect, as [label, value] pairs for the status view.'''
+        return [["Marginaali", f"{self.__margin_eur_per_kwh * 100.0:.2f} c/kWh"],
+                ["Arvonlisävero", f"{(self.__vat_multiplier - 1.0) * 100.0:.1f} %"]]
+
     @property
     def enabled(self) -> bool:
         '''True when spot pricing is switched on in config.'''

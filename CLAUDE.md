@@ -78,9 +78,11 @@ backend/                          # ★ orchestration, service contracts, .env +
     display_service/              # ★
       display_service.py          # DisplayService — panel power via wlopm; the frontend decides when
     system_service/               # ★
-      system_metrics.py           # Pure /proc readers (uptime, CPU, memory, network, disk, temp)
-      system_status_service.py    # SystemStatusService — SYSTEM_GET_STATUS, per-service health probes
-      debug_logging.py            # DebugLogging — the Options view's temporary DEBUG log, self-clearing
+      system_metrics.py           # Pure /proc readers (uptime, CPU per core, memory, network, disk space + I/O, temp)
+      system_status_service.py    # SystemStatusService — SYSTEM_GET_STATUS / _LOG: the service cards' probes and error lists
+      system_history.py           # SystemHistory — background 2 s sampler, 10-min window, SYSTEM_GET_HISTORY (the graphs)
+      log_files.py                # LogFiles — LOG_CLEAR for the app's own log files (Ylläpito › Lokit)
+      log_level.py                # LogLevel — the Options view's log level; DEBUG returns to the previous level by itself
     config_service/               # ★
       config_service.py           # ConfigService — the Options view's backend half: SETTINGS_SCHEMA (the allow-list of
                                   #   runtime-editable config.json keys), validation, persistence, apply hooks, restart
@@ -176,7 +178,8 @@ See the **Agent validation policy** (§7.3) for what the agent does vs. defers t
 | `.env` (repo root, gitignored) — secrets (`VIN`, `API_KEY`, `INFLUX_TOKEN`, Spotify, myenergi), `CONFIG_PATH`, log level | backend `get_env`; `frontend_v2`'s `core/dotenv` for env-backed setting defaults | `backend/CLAUDE.md` |
 | The backend config — called `config.json` throughout these docs; by default `~/.config/Tesla-Homedash/backend_config.json`, or `CONFIG_PATH`. Template: `config_template.json`. **Written at runtime** by the Options view | backend `Config` | `backend/CLAUDE.md`, `backend/src/config_service/CLAUDE.md` |
 | `frontend_config.json` beside it — the frontend's saved setting overrides over the bundled schema `frontend_v2/config/settings.json` | `frontend_v2` `Settings` | `frontend_v2/CLAUDE.md` |
-| `TESLA_HOMEDASH_*` environment variables | the frontend (`AppConfig`, setting defaults); `TESLA_HOMEDASH_LOG_LEVEL` in both halves | `frontend_v2/CLAUDE.md` |
+| `TESLA_HOMEDASH_*` environment variables | the frontend (`AppConfig`, setting defaults); `TESLA_HOMEDASH_LOG_LEVEL` and `_LOG_DIR` in both halves | `frontend_v2/CLAUDE.md` |
+| The app's own log files — `backend.log`, `backend-errors.jsonl` (the warning/error store) and `frontend.log`, in `~/.local/state/Tesla-Homedash/logs` or `TESLA_HOMEDASH_LOG_DIR`. Written beside the journal; the temporary DEBUG log goes only here | both halves' loggers; cleared from Ylläpito › Lokit | `backend/src/utils/CLAUDE.md`, `frontend_v2/CLAUDE.md` |
 
 External services: InfluxDB at `http://localhost:8086` (org `Tesla-Homedash`, bucket `data`);
 Teslemetry stream at `eu.teslemetry.com`.
@@ -429,7 +432,16 @@ Ylläpito: the *Päivitys* card out of the schema pending a release-only updater
 plain typed field, the help lines cut from the connection and restart cards, and restart badges that
 name the half (*sovelluksen* / *palvelimen uudelleenkäynnistys*) — plus the shared motion pieces in
 `items/util/` (stretching `ToggleSwitch`, domino `Reveal` for nested rows, `ElasticFlickable`,
-`WheelStepArea`) and settings rows that survive a write.
+`WheelStepArea`) and settings rows that survive a write — plus the *Järjestelmän tila* sidebar section:
+a group `view` that replaces the cards with four rolling graphs (CPU per core, memory, disk I/O,
+network) fed by the backend's always-on sampler — plus its second round: a card per backend service
+(standing, settings in effect, connected displays, warning/error counts with a dated list), mouse
+hover on the graphs and a CPU temperature card; and Ylläpito's *Vianetsintä* replaced by *Lokit*: a
+DEBUG switch that asks how long, and a clear with a keep-warnings option, both over the app's own log
+files, to which the DEBUG detail now goes instead of the journal — plus the third round: the switch
+became a *Lokitaso* dropdown (DEBUG asks how long and returns to the previous level), the old status
+card retired from Ylläpito, every dialog swallowing the mouse wheel, and the system graphs rebuilt
+on the app's own `HistoryGraph`, which can now draw several lines over one set of axes.
 When you land a change that touches documented behaviour, update this line.
 
 ## 8. Session workflow — main checkout by default, worktree only for parallelism

@@ -23,9 +23,10 @@ resources/      # fonts, icons, styles, Luna
 
 | Working on | Read |
 |---|---|
-| A `core/` singleton — `Settings`, `Probe`, `Display`, `System`, `SpotifyAuth`, `SpotifyDevice`, `Updater` | `core/CLAUDE.md` |
+| A `core/` singleton — `Settings`, `Probe`, `Display`, `System`, `SystemHistory`, `Logs`, `SpotifyAuth`, `SpotifyDevice`, `Updater` | `core/CLAUDE.md` |
 | The Options view's QML — layout, schema keys, delegates, status widgets, folder picker | `items/settings/CLAUDE.md` |
 | The map — `items/tesla/TeslaMap.qml` (full-screen in `views/MapView.qml`; `items/trip/TripMap.qml` shares its gesture handlers) | `items/tesla/CLAUDE.md` |
+| A graph — every one is `items/history/HistoryGraph.qml`; its multi-line additions (`extraSeries`, fixed range, `wheelZoom`) | `items/settings/CLAUDE.md`, *Järjestelmän tila* |
 | `items/util/ScreenSaver.qml` | `items/util/CLAUDE.md` |
 | A new control or anything that moves — reuse `ToggleSwitch`, `Reveal`, `ElasticFlickable`, `WheelStepArea`, `HoldRepeatArea` (timings are `Theme` *Motion* tokens) | `items/util/CLAUDE.md` |
 | The wire format of anything `ServerClient` parses | `backend/src/utils/CLAUDE.md` |
@@ -47,6 +48,8 @@ All optional; defaults match the embedded target.
   `scripts/build-frontend.sh --fullscreen` exported the variable to a binary that ignored it.
 - `TESLA_HOMEDASH_LOG_LEVEL` — `debug`/`info`/`warning`/`error`/`critical` (default `info`;
   invalid → `info` + a startup warning).
+- `TESLA_HOMEDASH_LOG_DIR` — where `frontend.log` goes, beside the backend's files (default
+  `<GenericStateLocation>/Tesla-Homedash/logs`, i.e. `~/.local/state/…`; the backend's rule).
 - `TESLA_HOMEDASH_SETTINGS_FILE` — override the path of the frontend's writable settings
   file (default `<QStandardPaths::GenericConfigLocation>/Tesla-Homedash/frontend_config.json`
   — i.e. beside the backend's `backend_config.json`). A file at the pre-move
@@ -145,14 +148,20 @@ own (#51).
 
 ## Logging (`core/logger.{hh,cpp}`)
 
-- Format is byte-identical to the backend; stdout only, no files/rotation.
+- Format is byte-identical to the backend. Two destinations: stdout (the journal) and the app's own
+  `frontend.log` (`Logger::openFile`, 5 MB × 3 backups) in the shared log directory, beside the
+  backend's — which is what the Options view's *Lokit* card clears.
 - Each `.cpp` gets a file-local `const Logger logger = Logger::get("<name>");`.
 - Threshold via `TESLA_HOMEDASH_LOG_LEVEL`; `Logger::install` is called twice from `main()`
-  (INFO first so `AppConfig`'s own logs land, then the configured level).
-- **The temporary debug log is one backend setting for both halves.** `main()` follows
-  `logging.debugEnabled` out of the backend's schema (`Settings::groupsChanged`) and re-installs at
-  DEBUG, then back at the configured level when it clears — which the backend does by itself when
-  the duration is up (`backend/src/system_service/CLAUDE.md`). The threshold is atomic because it now
-  changes while worker threads log.
+  (INFO first so `AppConfig`'s own logs land, then the configured level), setting both destinations.
+- **The log level is one backend setting for both halves.** `main()` follows `logging.level` out of
+  the backend's schema (`Settings::groupsChanged`): the file takes the level as it is, stdout (the
+  journal) the same but never below INFO unless the app was started at DEBUG — the backend's rule
+  (`Logger::setLevels`). DEBUG returns by itself when the backend's duration is up
+  (`backend/src/system_service/CLAUDE.md`); with no backend schema the configured level applies. Both
+  thresholds are atomic because they change while worker threads log.
+- `Logger::clearFiles(keepWarnings)` rewrites this half's files under the write mutex — empty, or
+  only the WARNING+ records with their continuation lines (the backend's filter, line for line) —
+  and reopens the active one. `Logs` (`core/CLAUDE.md`) calls it.
 - Outbound control commands → INFO; protocol problems (truncated/unknown/mismatched/socket) → WARNING;
   per-packet telemetry trace → DEBUG. New paths follow that convention.

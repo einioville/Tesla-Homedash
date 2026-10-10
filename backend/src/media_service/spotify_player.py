@@ -176,6 +176,12 @@ class SpotifyPlayer(BaseMediaPlayer):
             logger.error("Background Spotify task failed: %s: %s",
                          type(error).__name__, error)
 
+    def describe(self) -> dict:
+        '''Polling and playback facts for the status view's Spotify card.'''
+        return {"poll_s": self._poll_interval, "playing": self._is_playing,
+                "on_target": bool(self._current_device_id)
+                and self._current_device_id == self._target_device_id}
+
     def target_device_id(self) -> str:
         '''
         The Connect device id this player claims playback from.  Read by the
