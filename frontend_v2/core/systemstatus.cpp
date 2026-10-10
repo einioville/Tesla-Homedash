@@ -1,9 +1,7 @@
 #include "systemstatus.hh"
 
 #include <QJsonArray>
-#include <QJsonDocument>
 #include <QJsonObject>
-#include <QtEndian>
 
 #include "logger.hh"
 #include "protocol.hh"
@@ -64,12 +62,9 @@ void SystemStatus::openLog(const QString &service, const QString &label) {
     if (!m_logLoading) {
         return;
     }
-    const QByteArray body =
-        QJsonDocument(QJsonObject{{QStringLiteral("service"), service}}).toJson(QJsonDocument::Compact);
-    QByteArray payload(4, '\0');
-    qToBigEndian<quint32>(static_cast<quint32>(body.size()), payload.data());
-    payload.append(body);
-    m_server->sendPacket(protocol::frame(protocol::SYSTEM_GET_LOG, payload));
+    const QJsonObject request{{QStringLiteral("service"), service}};
+    m_server->sendPacket(
+        protocol::frame(protocol::SYSTEM_GET_LOG, protocol::jsonRequestBody(request)));
 }
 
 void SystemStatus::closeLog() {
@@ -83,11 +78,11 @@ void SystemStatus::closeLog() {
 }
 
 void SystemStatus::onLogPacket(const QByteArray &payload) {
-    if (payload.size() < 5) {
+    const auto reply = protocol::readJsonReply(payload);
+    if (!reply) {
         return;
     }
-    const quint32 length = qFromBigEndian<quint32>(payload.constData() + 1);
-    const QJsonObject doc = QJsonDocument::fromJson(payload.mid(5, static_cast<int>(length))).object();
+    const QJsonObject &doc = reply->body;
     // A reply for a list since closed, or for another card, is stale.
     if (!m_logOpen || doc.value(QStringLiteral("service")).toString() != m_logService) {
         return;
@@ -112,29 +107,16 @@ void SystemStatus::onPacket(quint8 type, const QByteArray &payload) {
     if (type != protocol::SYSTEM_STATUS) {
         return;
     }
-    if (payload.size() < 5) {
-        logger.warning(QStringLiteral("SYSTEM_STATUS: payload too short"));
+    const auto reply = protocol::readJsonReply(payload);
+    if (!reply) {
+        logger.warning(QStringLiteral("Malformed SYSTEM_STATUS"));
         return;
     }
-    const quint8 status = static_cast<quint8>(payload.at(0));
-    const quint32 length = qFromBigEndian<quint32>(payload.constData() + 1);
-    if (static_cast<qint64>(payload.size()) < 5 + static_cast<qint64>(length)) {
-        logger.warning(QStringLiteral("SYSTEM_STATUS: truncated body"));
-        return;
-    }
-    if (status != protocol::CONFIG_STATUS_OK) {
+    if (reply->status != protocol::CONFIG_STATUS_OK) {
         logger.warning(QStringLiteral("Backend could not build the system status"));
         return;
     }
-
-    QJsonParseError error{};
-    const QJsonDocument doc =
-        QJsonDocument::fromJson(payload.mid(5, static_cast<int>(length)), &error);
-    if (error.error != QJsonParseError::NoError || !doc.isObject()) {
-        logger.warning(QStringLiteral("Malformed SYSTEM_STATUS: %1").arg(error.errorString()));
-        return;
-    }
-    m_data = doc.object().toVariantMap();
+    m_data = reply->body.toVariantMap();
     m_loaded = true;
     emit dataChanged();
 }

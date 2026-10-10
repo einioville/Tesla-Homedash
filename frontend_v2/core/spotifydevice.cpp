@@ -1,8 +1,6 @@
 #include "spotifydevice.hh"
 
-#include <QJsonDocument>
 #include <QJsonValue>
-#include <QtEndian>
 
 #include "logger.hh"
 #include "protocol.hh"
@@ -13,40 +11,6 @@ const Logger logger = Logger::get("spotify.device");
 
 // How long a configuredStatus answer stays fresh enough not to re-ask.
 constexpr qint64 kStatusThrottleMs = 15000;
-
-// Reads a status(1B) + len(4B) + UTF-8 JSON body, the CONFIG_*/SPOTIFY_*
-// shape. Leaves *ok false on any truncation, so a malformed frame is refused
-// rather than half-parsed. Deliberately identical to spotifyauth.cpp's reader:
-// one parser per wire shape, not two that can drift apart.
-QJsonObject readStatusJson(const QByteArray &payload, quint8 *status, bool *ok) {
-    *ok = false;
-    if (payload.size() < 5) {
-        return {};
-    }
-    *status = static_cast<quint8>(payload.at(0));
-    const quint32 length = qFromBigEndian<quint32>(payload.constData() + 1);
-    if (static_cast<qint64>(payload.size()) < 5 + static_cast<qint64>(length)) {
-        return {};
-    }
-    QJsonParseError error{};
-    const QJsonDocument doc =
-        QJsonDocument::fromJson(payload.mid(5, static_cast<int>(length)), &error);
-    if (error.error != QJsonParseError::NoError || !doc.isObject()) {
-        return {};
-    }
-    *ok = true;
-    return doc.object();
-}
-
-// Frames a JSON request body as len(4B) + UTF-8, the CONFIG_SET payload shape.
-QByteArray jsonRequestBody(const QJsonObject &object) {
-    const QByteArray json = QJsonDocument(object).toJson(QJsonDocument::Compact);
-    QByteArray body;
-    body.resize(4);
-    qToBigEndian<quint32>(static_cast<quint32>(json.size()), body.data());
-    body.append(json);
-    return body;
-}
 }  // namespace
 
 SpotifyDevice::SpotifyDevice(QObject *parent) : QObject(parent) {}
@@ -116,7 +80,7 @@ void SpotifyDevice::begin() {
     QJsonObject request;
     request.insert(QStringLiteral("scanId"), static_cast<qint64>(m_scanId));
     m_server->sendPacket(
-        protocol::frame(protocol::SPOTIFY_DEVICE_SCAN_START, jsonRequestBody(request)));
+        protocol::frame(protocol::SPOTIFY_DEVICE_SCAN_START, protocol::jsonRequestBody(request)));
 }
 
 void SpotifyDevice::cancel() {
@@ -158,7 +122,7 @@ void SpotifyDevice::select() {
                     .arg(m_deviceName, m_deviceId));
     setPhase(QStringLiteral("saving"));
     m_server->sendPacket(
-        protocol::frame(protocol::SPOTIFY_DEVICE_SELECT, jsonRequestBody(request)));
+        protocol::frame(protocol::SPOTIFY_DEVICE_SELECT, protocol::jsonRequestBody(request)));
 }
 
 void SpotifyDevice::refreshStatus(bool force) {
@@ -179,14 +143,12 @@ void SpotifyDevice::refreshStatus(bool force) {
 }
 
 void SpotifyDevice::applyConfiguredStatus(const QByteArray &payload) {
-    quint8 status = protocol::SPOTIFY_AUTH_ERROR;
-    bool ok = false;
-    const QJsonObject body = readStatusJson(payload, &status, &ok);
-    if (!ok) {
+    const auto reply = protocol::readJsonReply(payload);
+    if (!reply) {
         logger.warning(QStringLiteral("Malformed Spotify device status packet"));
         return;
     }
-    m_configuredStatus = body.toVariantMap();
+    m_configuredStatus = reply->body.toVariantMap();
     m_statusPending = false;
     emit configuredStatusChanged();
 }
@@ -285,14 +247,14 @@ void SpotifyDevice::onPacket(quint8 type, const QByteArray &payload) {
         return;
     }
 
-    quint8 status = protocol::SPOTIFY_AUTH_ERROR;
-    bool ok = false;
-    const QJsonObject body = readStatusJson(payload, &status, &ok);
-    if (!ok) {
+    const auto reply = protocol::readJsonReply(payload);
+    if (!reply) {
         logger.warning(QStringLiteral("Malformed Spotify device packet 0x%1")
                            .arg(type, 2, 16, QLatin1Char('0')));
         return;
     }
+    const quint8 status = reply->status;
+    const QJsonObject &body = reply->body;
 
     // The second half of the fence, answering the question m_flowActive cannot:
     // not "is a flow running" but "does this packet belong to THIS flow". Cancel

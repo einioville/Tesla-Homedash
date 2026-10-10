@@ -2,7 +2,9 @@
 
 `ServerClient` (socket + frame demux), `protocol.hh` (the mirror of `backend/src/utils/protocol.py`
 — change both together), `Logger`, `AppConfig`, `dotenv`, and the singletons below; per-domain data
-models live in the subdirectories. Several singletons back Options-view widgets whose QML notes are
+models live in the subdirectories. Every JSON packet goes through `protocol.hh`:
+`protocol::jsonRequestBody()` builds a request body and `protocol::readJsonReply()` reads a reply
+(nothing for a short, truncated, malformed or non-object one) — don't parse the header by hand. Several singletons back Options-view widgets whose QML notes are
 in `../items/settings/CLAUDE.md`.
 
 ## `Settings` — `settings.{hh,cpp}`

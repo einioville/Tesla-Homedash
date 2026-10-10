@@ -2,8 +2,12 @@
 #define FRONTEND_V2_PROTOCOL_HH
 
 #include <QByteArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QtEndian>
 #include <QtGlobal>
+
+#include <optional>
 
 /**
  * Binary protocol constants + outbound framing — the frontend mirror of
@@ -278,6 +282,47 @@ inline QByteArray frame(quint8 msgType, const QByteArray &payload = QByteArray()
     out.append(static_cast<char>(msgType));
     out.append(payload);
     return out;
+}
+
+/**
+ * The body of a JSON request: len(4B) + compact UTF-8 JSON, which protocol.py
+ * parse_json_body() reads.
+ */
+inline QByteArray jsonRequestBody(const QJsonObject &object) {
+    const QByteArray json = QJsonDocument(object).toJson(QJsonDocument::Compact);
+    QByteArray body(4, Qt::Uninitialized);
+    qToBigEndian<quint32>(static_cast<quint32>(json.size()), body.data());
+    body.append(json);
+    return body;
+}
+
+/** A JSON reply as protocol.py json_frame() builds it: status(1B) + len(4B) + UTF-8 JSON. */
+struct JsonReply {
+    quint8 status = 0;
+    QJsonObject body;
+};
+
+/**
+ * Reads a JSON reply, or nothing when the payload is shorter than its header,
+ * its declared length runs past the payload, or the body is not a JSON object.
+ * Bytes past the declared length are ignored.
+ */
+inline std::optional<JsonReply> readJsonReply(const QByteArray &payload) {
+    if (payload.size() < 5) {
+        return std::nullopt;
+    }
+    const quint32 length = qFromBigEndian<quint32>(payload.constData() + 1);
+    // 64-bit so a huge declared length cannot wrap.
+    if (static_cast<qint64>(payload.size()) < 5 + static_cast<qint64>(length)) {
+        return std::nullopt;
+    }
+    QJsonParseError error{};
+    const QJsonDocument doc =
+        QJsonDocument::fromJson(payload.mid(5, static_cast<qsizetype>(length)), &error);
+    if (error.error != QJsonParseError::NoError || !doc.isObject()) {
+        return std::nullopt;
+    }
+    return JsonReply{static_cast<quint8>(payload.at(0)), doc.object()};
 }
 
 }  // namespace protocol

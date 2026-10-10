@@ -11,7 +11,6 @@
 #include <QStandardPaths>
 #include <QUrl>
 #include <QStringList>
-#include <QtEndian>
 #include <QtGlobal>
 #include <utility>
 
@@ -52,31 +51,6 @@ QString legacyStoragePath() {
 // a clean exit(0) would leave a keyboard-less Pi staring at the desktop. Matches
 // the backend's config_service.RESTART_EXIT_CODE, which does the same thing.
 constexpr int kRestartExitCode = 42;
-
-// Reads a length-prefixed UTF-8 JSON body: status(1B) + len(4B) + bytes. Returns
-// an empty document (and leaves *ok false) on any truncation, which is how a
-// malformed frame is refused rather than half-parsed.
-QJsonDocument readStatusJsonBody(const QByteArray &payload, quint8 *status, bool *ok) {
-    *ok = false;
-    if (payload.size() < 5) {
-        return {};
-    }
-    *status = static_cast<quint8>(payload.at(0));
-    const quint32 length = qFromBigEndian<quint32>(payload.constData() + 1);
-    // 64-bit-safe size check: the cast keeps a huge length from wrapping.
-    if (static_cast<qint64>(payload.size()) < 5 + static_cast<qint64>(length)) {
-        return {};
-    }
-    QJsonParseError error{};
-    const QJsonDocument doc =
-        QJsonDocument::fromJson(payload.mid(5, static_cast<int>(length)), &error);
-    if (error.error != QJsonParseError::NoError) {
-        logger.warning(QStringLiteral("Malformed settings JSON: %1").arg(error.errorString()));
-        return {};
-    }
-    *ok = true;
-    return doc;
-}
 
 // Environment variables are always strings; convert one to the type its schema
 // entry declares so coerceLocal can validate it like any other value.
@@ -138,16 +112,6 @@ QVariantList orderSections(const QVariantList &sections, const QStringList &orde
         }
     }
     return out;
-}
-
-// Frames a JSON request body as len(4B) + UTF-8, the CONFIG_* payload shape.
-QByteArray jsonRequestBody(const QJsonObject &object) {
-    const QByteArray json = QJsonDocument(object).toJson(QJsonDocument::Compact);
-    QByteArray body;
-    body.resize(4);
-    qToBigEndian<quint32>(static_cast<quint32>(json.size()), body.data());
-    body.append(json);
-    return body;
 }
 }  // namespace
 
@@ -658,7 +622,8 @@ void Settings::setValue(const QString &key, const QVariant &value) {
     request.insert(QStringLiteral("key"), key);
     request.insert(QStringLiteral("value"), QJsonValue::fromVariant(value));
     logger.info(QStringLiteral("CONFIG_SET %1 = %2").arg(key, value.toString()));
-    m_server->sendPacket(protocol::frame(protocol::CONFIG_SET, jsonRequestBody(request)));
+    m_server->sendPacket(
+        protocol::frame(protocol::CONFIG_SET, protocol::jsonRequestBody(request)));
 }
 
 void Settings::resetToDefault(const QString &key) {
@@ -759,16 +724,15 @@ void Settings::onPacket(quint8 type, const QByteArray &payload) {
 }
 
 void Settings::parseBackendSchema(const QByteArray &payload) {
-    quint8 status = protocol::CONFIG_STATUS_ERROR;
-    bool ok = false;
-    const QJsonDocument doc = readStatusJsonBody(payload, &status, &ok);
-    if (!ok || status != protocol::CONFIG_STATUS_OK || !doc.isObject()) {
+    const auto reply = protocol::readJsonReply(payload);
+    if (!reply || reply->status != protocol::CONFIG_STATUS_OK) {
         logger.warning(QStringLiteral("CONFIG_SCHEMA unusable; keeping previous"));
         return;
     }
+    const QJsonObject &schema = reply->body;
 
     QVariantList groups;
-    const QJsonArray array = doc.object().value(QStringLiteral("groups")).toArray();
+    const QJsonArray array = schema.value(QStringLiteral("groups")).toArray();
     for (const QJsonValue &group : array) {
         groups.append(group.toObject().toVariantMap());
     }
@@ -780,7 +744,7 @@ void Settings::parseBackendSchema(const QByteArray &payload) {
     // otherwise a still-pending change would go quiet the moment the socket
     // flapped.
     const qint64 startedAt =
-        static_cast<qint64>(doc.object().value(QStringLiteral("startedAt")).toDouble());
+        static_cast<qint64>(schema.value(QStringLiteral("startedAt")).toDouble());
     if (startedAt != 0 && startedAt != m_backendStartedAt) {
         m_backendStartedAt = startedAt;
         m_backendRestartBaseline.clear();
@@ -791,7 +755,7 @@ void Settings::parseBackendSchema(const QByteArray &payload) {
     // Optional: an older backend sends no path. Only overwrite when one is
     // present, so a malformed or partial document cannot blank a path the view
     // is already showing.
-    const QString path = doc.object().value(QStringLiteral("path")).toString();
+    const QString path = schema.value(QStringLiteral("path")).toString();
     if (!path.isEmpty()) {
         m_backendStoragePath = path;
     }
@@ -804,19 +768,17 @@ void Settings::parseBackendSchema(const QByteArray &payload) {
 }
 
 void Settings::parseSetResult(const QByteArray &payload) {
-    quint8 status = protocol::CONFIG_STATUS_ERROR;
-    bool ok = false;
-    const QJsonDocument doc = readStatusJsonBody(payload, &status, &ok);
-    if (!ok || !doc.isObject()) {
+    const auto reply = protocol::readJsonReply(payload);
+    if (!reply) {
         logger.warning(QStringLiteral("Malformed CONFIG_SET_RESULT"));
         return;
     }
-    const QJsonObject result = doc.object();
+    const QJsonObject &result = reply->body;
     const QString key = result.value(QStringLiteral("key")).toString();
     const QString message = result.value(QStringLiteral("message")).toString();
     const QString applied = result.value(QStringLiteral("applied")).toString();
 
-    if (status != protocol::CONFIG_STATUS_OK) {
+    if (reply->status != protocol::CONFIG_STATUS_OK) {
         logger.warning(QStringLiteral("Backend rejected %1: %2").arg(key, message));
         emit writeFailed(key, message);
         return;

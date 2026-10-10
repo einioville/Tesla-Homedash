@@ -1,7 +1,6 @@
 #include "usbimport.hh"
 
-#include <QJsonDocument>
-#include <QtEndian>
+#include <QJsonObject>
 
 #include "logger.hh"
 #include "protocol.hh"
@@ -67,11 +66,7 @@ void UsbImport::send(quint8 type, const QJsonObject &fields) {
     }
     QJsonObject request = fields;
     request.insert(QStringLiteral("flowId"), static_cast<qint64>(m_flowId));
-    const QByteArray json = QJsonDocument(request).toJson(QJsonDocument::Compact);
-    QByteArray body(4, Qt::Uninitialized);
-    qToBigEndian<quint32>(static_cast<quint32>(json.size()), body.data());
-    body.append(json);
-    m_server->sendPacket(protocol::frame(type, body));
+    m_server->sendPacket(protocol::frame(type, protocol::jsonRequestBody(request)));
 }
 
 void UsbImport::setLocal(const QString &phase, const QString &message) {
@@ -96,23 +91,13 @@ void UsbImport::onPacket(quint8 type, const QByteArray &payload) {
     if (type != protocol::USB_IMPORT_STATE || m_phase == QLatin1String("idle")) {
         return;
     }
-    // status(1B, always OK) + len(4B) + UTF-8 JSON
-    if (payload.size() < 5) {
-        return;
-    }
-    const quint32 length = qFromBigEndian<quint32>(payload.constData() + 1);
-    if (static_cast<qint64>(payload.size()) < 5 + static_cast<qint64>(length)) {
-        logger.warning(QStringLiteral("Truncated USB import state"));
-        return;
-    }
-    QJsonParseError error{};
-    const QJsonDocument doc =
-        QJsonDocument::fromJson(payload.mid(5, static_cast<int>(length)), &error);
-    if (error.error != QJsonParseError::NoError || !doc.isObject()) {
+    // The status byte is always OK.
+    const auto reply = protocol::readJsonReply(payload);
+    if (!reply) {
         logger.warning(QStringLiteral("Malformed USB import state"));
         return;
     }
-    const QJsonObject state = doc.object();
+    const QJsonObject &state = reply->body;
     if (state.value(QStringLiteral("flowId")).toInteger(0) != static_cast<qint64>(m_flowId)) {
         return;
     }

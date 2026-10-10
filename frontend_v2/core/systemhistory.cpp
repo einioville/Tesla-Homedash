@@ -1,7 +1,6 @@
 #include "systemhistory.hh"
 
 #include <QJsonArray>
-#include <QJsonDocument>
 #include <QJsonObject>
 #include <QtEndian>
 
@@ -81,29 +80,16 @@ void SystemHistory::onPacket(quint8 type, const QByteArray &payload) {
     if (type != protocol::SYSTEM_HISTORY) {
         return;
     }
-    if (payload.size() < 5) {
-        logger.warning(QStringLiteral("SYSTEM_HISTORY: payload too short"));
+    const auto reply = protocol::readJsonReply(payload);
+    if (!reply) {
+        logger.warning(QStringLiteral("Malformed SYSTEM_HISTORY"));
         return;
     }
-    const quint8 status = static_cast<quint8>(payload.at(0));
-    const quint32 length = qFromBigEndian<quint32>(payload.constData() + 1);
-    if (static_cast<qint64>(payload.size()) < 5 + static_cast<qint64>(length)) {
-        logger.warning(QStringLiteral("SYSTEM_HISTORY: truncated body"));
-        return;
-    }
-    if (status != protocol::CONFIG_STATUS_OK) {
+    if (reply->status != protocol::CONFIG_STATUS_OK) {
         logger.warning(QStringLiteral("Backend could not build the system history"));
         return;
     }
-
-    QJsonParseError error{};
-    const QJsonDocument doc =
-        QJsonDocument::fromJson(payload.mid(5, static_cast<int>(length)), &error);
-    if (error.error != QJsonParseError::NoError || !doc.isObject()) {
-        logger.warning(QStringLiteral("Malformed SYSTEM_HISTORY: %1").arg(error.errorString()));
-        return;
-    }
-    const QJsonObject root = doc.object();
+    const QJsonObject &root = reply->body;
 
     // Everything but the samples themselves.
     QVariantMap info = root.toVariantMap();

@@ -1,8 +1,6 @@
 #include "logcontrol.hh"
 
-#include <QJsonDocument>
 #include <QJsonObject>
-#include <QtEndian>
 
 #include "logger.hh"
 #include "protocol.hh"
@@ -54,13 +52,10 @@ void LogControl::clear(bool keepWarnings) {
         emit finished(false, QStringLiteral("Näytön lokit tyhjennetty, palvelimeen ei ole yhteyttä"));
         return;
     }
-    const QByteArray body = QJsonDocument(QJsonObject{
+    const QJsonObject request{
         {QStringLiteral("keep"), keepWarnings ? QStringLiteral("warnings") : QStringLiteral("none")},
-    }).toJson(QJsonDocument::Compact);
-    QByteArray payload(4, '\0');
-    qToBigEndian<quint32>(static_cast<quint32>(body.size()), payload.data());
-    payload.append(body);
-    m_server->sendPacket(protocol::frame(protocol::LOG_CLEAR, payload));
+    };
+    m_server->sendPacket(protocol::frame(protocol::LOG_CLEAR, protocol::jsonRequestBody(request)));
     m_busy = true;
     emit busyChanged();
     m_timeout.start();
@@ -70,13 +65,12 @@ void LogControl::onPacket(quint8 type, const QByteArray &payload) {
     if (type != protocol::LOG_CLEAR_RESULT || !m_busy) {
         return;
     }
-    if (payload.size() < 5) {
+    const auto reply = protocol::readJsonReply(payload);
+    if (!reply) {
         finish(false, QStringLiteral("Palvelimen vastaus oli vajaa"));
         return;
     }
-    const quint32 length = qFromBigEndian<quint32>(payload.constData() + 1);
-    const QJsonObject result =
-        QJsonDocument::fromJson(payload.mid(5, static_cast<int>(length))).object();
+    const QJsonObject &result = reply->body;
     if (!result.value(QStringLiteral("ok")).toBool()) {
         const QString reason = result.value(QStringLiteral("message")).toString();
         finish(false, reason.isEmpty() ? QStringLiteral("Palvelimen lokien tyhjennys epäonnistui")
