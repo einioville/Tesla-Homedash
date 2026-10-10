@@ -18,9 +18,9 @@ class ServerClient;
  * ever crosses this link — only "started" and "finished".
  *
  * That split is not merely tidy: RFC 8252 §8.12 says a native app MUST NOT use an
- * embedded user-agent for authorization, and Spotify enforces it — the embedded
- * WebEngineView this class used to drive could never get past the login page's
- * reCAPTCHA gate, even with WebGL and compositing both working.
+ * embedded user-agent for authorization, and Spotify enforces it — an embedded
+ * WebEngineView never gets past the login page's reCAPTCHA gate, even with WebGL
+ * and compositing both working.
  *
  * `phase` is a plain string state machine so QML can switch on it without any
  * enum registration:
@@ -107,8 +107,8 @@ private:
     bool m_alertDismissed = false;
     bool m_alertVisible = false;
     // True only between begin() and the flow ending. Without it a reply that
-    // lands after cancel() reopens the popup — and a SPOTIFY_AUTH_URL doing that
-    // constructs a whole Chromium for a flow nobody is running any more.
+    // lands after cancel() reopens the dialog for a flow nobody is running any
+    // more.
     bool m_flowActive = false;
 };
 

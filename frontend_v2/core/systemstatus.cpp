@@ -10,9 +10,8 @@
 namespace {
 const Logger logger = Logger::get("system.status");
 
-// Slow enough not to matter, fast enough that CPU and network read as "now".
-// The backend measures its rates over the gap between requests, so this is also
-// the averaging window the user sees.
+// Each poll runs every backend service's health probe, so this is slow; the
+// fast-moving host metrics are SystemHistory's.
 constexpr int kPollMs = 5000;
 }  // namespace
 

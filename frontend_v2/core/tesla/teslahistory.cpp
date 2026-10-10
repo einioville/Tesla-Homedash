@@ -62,12 +62,9 @@ void TeslaHistory::startLive(const QString &id, int rangeCode) {
     m_liveId = id;
     m_liveRangeCode = rangeCode;
     m_liveWindowMs = windowMsForRange(rangeCode);
-    // Throttle the per-second rebuild on long windows (see liveTickIntervalForRange).
-    // The timer is (re)started in parseHistory once the seed lands; setting the
-    // interval here applies on that start.
     m_liveTimer->setInterval(liveTickIntervalForRange(rangeCode));
-    // Seed from history; the per-second timer starts once the matching reply lands
-    // (see parseHistory), so the rolling window begins from real stored data.
+    // Seed from history; parseHistory starts the timer once the matching reply
+    // lands, so the rolling window begins from real stored data.
     requestHistory(id, rangeCode, 0.0, 0.0);
 }
 
@@ -97,7 +94,7 @@ void TeslaHistory::onLiveTick() {
         // Store a real point only when the value changed since the last sample;
         // between changes the step line holds the previous value flat to the
         // advancing right edge (recomputeBounds moves m_maxX to now), so we don't
-        // accumulate a synthetic point every second.
+        // accumulate a synthetic point every tick.
         bool changed = m_points.isEmpty();
         if (!m_points.isEmpty()) {
             changed = m_points.last().toPointF().y() != value;
@@ -238,7 +235,7 @@ void TeslaHistory::parseHistory(const QByteArray &payload) {
     m_maxY = bounds.maxY;
     // Live seed: this reply seeds the rolling window. Override the bounds to the
     // live window [now-size, now] (so the axis shows the whole window, not just the
-    // seeded data extent), then start the per-second timer. historyReady still
+    // seeded data extent), then start the live timer. historyReady still
     // fires below, so HistoryGraph draws the seed and resets the view once.
     if (m_livePending && id == m_liveId) {
         recomputeBounds(QDateTime::currentMSecsSinceEpoch());

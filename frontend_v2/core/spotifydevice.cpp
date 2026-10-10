@@ -84,8 +84,7 @@ void SpotifyDevice::begin() {
 }
 
 void SpotifyDevice::cancel() {
-    // Fences every reply still in flight: a SPOTIFY_DEVICE_STATE arriving after
-    // this must not reopen the dialog for a scan nobody is running any more.
+    // Fences every reply still in flight.
     setFlowActive(false);
     m_stateError = false;
     if (m_server != nullptr && m_server->connected()) {
@@ -99,8 +98,6 @@ void SpotifyDevice::cancel() {
 
 void SpotifyDevice::select() {
     if (!m_deviceSelectable || m_deviceId.isEmpty()) {
-        // Spotify gives a restricted device no id at all, so there is nothing
-        // that could be written to spotifyDeviceId.
         logger.warning(QStringLiteral("Refusing to save an unselectable Spotify device"));
         setPhase(QStringLiteral("error"), QStringLiteral("Tätä laitetta ei voi valita"));
         return;
@@ -200,8 +197,7 @@ void SpotifyDevice::applyState(const QJsonObject &body) {
         m_deviceId = device.value(QStringLiteral("id")).toString();
         m_deviceName = device.value(QStringLiteral("name")).toString();
         m_deviceType = device.value(QStringLiteral("type")).toString();
-        // volumePercent is null for a device that reports none; -1 keeps that
-        // distinct from a real 0 %.
+        // volumePercent is null for a device that reports none.
         const QJsonValue volume = device.value(QStringLiteral("volumePercent"));
         m_deviceVolume = volume.isDouble() ? volume.toInt() : -1;
         // The backend already decides this, but an empty id is unsaveable
@@ -239,8 +235,7 @@ void SpotifyDevice::onPacket(quint8 type, const QByteArray &payload) {
     if (type != protocol::SPOTIFY_DEVICE_STATE && type != protocol::SPOTIFY_DEVICE_RESULT) {
         return;
     }
-    // Both packets belong to a flow this side started, so both are fenced: one
-    // arriving after cancel() would reopen the dialog on a dead scan.
+    // Both packets belong to a flow this side started, so both are fenced.
     if (!m_flowActive) {
         return;
     }
@@ -254,12 +249,10 @@ void SpotifyDevice::onPacket(quint8 type, const QByteArray &payload) {
     const quint8 status = reply->status;
     const QJsonObject &body = reply->body;
 
-    // The second half of the fence, answering the question m_flowActive cannot:
-    // not "is a flow running" but "does this packet belong to THIS flow". Cancel
-    // a scan and start another straight away and a reply already in flight from
-    // the old one passes the re-armed m_flowActive — and would repopulate the
-    // dialog with the PREVIOUS device, which the user could then save. A missing
-    // or malformed field reads as 0, which never matches a live scan.
+    // The second half of the fence (m_scanId). Cancel a scan and start another
+    // straight away and a reply already in flight from the old one passes the
+    // re-armed m_flowActive — and would repopulate the dialog with the PREVIOUS
+    // device, which the user could then save.
     const qint64 scanId = body.value(QStringLiteral("scanId")).toInteger(0);
     if (scanId != static_cast<qint64>(m_scanId)) {
         logger.debug(QStringLiteral("Dropping Spotify device packet 0x%1 from scan %2 "
@@ -312,11 +305,9 @@ void SpotifyDevice::onPacket(quint8 type, const QByteArray &payload) {
             // knock the success screen back to "scanning".
             setFlowActive(false);
         } else {
-            // Keep the fence up — the user may press "Valitse laite" again, and
-            // that retry's own result must still be accepted. The scan itself is
-            // still running on the backend, and the button is gated on the flow
-            // rather than on the phase, so it stays available on this error
-            // phase instead of the dialog becoming a dead end.
+            // Keep the fence up — the scan is still running on the backend, and
+            // the user may press "Valitse laite" again (gated on flowActive, not
+            // the phase); that retry's own result must still be accepted.
             m_stateError = false;
         }
         setPhase(succeeded ? QStringLiteral("done") : QStringLiteral("error"), message);

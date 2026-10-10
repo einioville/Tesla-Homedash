@@ -17,8 +17,6 @@ const Logger logger = Logger::get("trips");
 TripsData::TripsData(ServerClient *server, QObject *parent)
     : QObject(parent), m_server(server) {
     connect(server, &ServerClient::packetReceived, this, &TripsData::onPacket);
-    // Self-heal: a request sent while the socket was down is silently dropped, so
-    // re-issue any still-pending request when the connection is (re)established.
     connect(server, &ServerClient::connectedChanged, this, &TripsData::onConnectedChanged);
 }
 
@@ -148,7 +146,6 @@ void TripsData::clearRoute() {
     m_minLat = m_maxLat = m_minLon = m_maxLon = 0.0;
     setRouteLoading(false);
     emit routeChanged();
-    // A new week has no trip selected, so the stats panel + graph clear too.
     clearSummaryAndSeries();
 }
 
@@ -163,8 +160,8 @@ void TripsData::clearSummaryAndSeries() {
     m_seriesEndMs = 0;
     m_seriesReqPropertyId.clear();
     m_seriesPoints.clear();
-    // Neutral (non-degenerate) axis bounds — see parseTripSeries: a zero-width range
-    // crashes QtGraphs when the (empty) graph resets its view on clear.
+    // Neutral (non-degenerate) axis bounds, as seriesBounds() gives an empty series:
+    // a zero-width range crashes QtGraphs when the (empty) graph resets its view.
     m_seriesMinX = 0.0;
     m_seriesMaxX = 1.0;
     m_seriesMinY = 0.0;
@@ -328,7 +325,6 @@ void TripsData::parseTripDetail(const QByteArray &payload) {
         m_maxLat = maxLat;
         m_minLon = minLon;
         m_maxLon = maxLon;
-        // First/last fix drive the start/end markers.
         const QVariantMap first = route.first().toMap();
         const QVariantMap last = route.last().toMap();
         m_routeStart.insert(QStringLiteral("latitude"), first.value(QStringLiteral("latitude")));

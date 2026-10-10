@@ -24,7 +24,8 @@ class ServerClient;
  * A TRIP_DETAIL reply echoes its trip id (== start_ms); a reply whose id no longer
  * matches the trip last requested is discarded, so quickly switching trips can't
  * draw a stale route. Parsing runs on the GUI thread (the bound properties are not
- * thread-safe); malformed/truncated frames are dropped.
+ * thread-safe). A frame that ends inside its header is dropped; one that ends
+ * inside its records keeps the records before the cut.
  */
 class TripsData : public QObject {
     Q_OBJECT

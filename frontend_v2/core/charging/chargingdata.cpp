@@ -18,8 +18,6 @@ const Logger logger = Logger::get("charging");
 ChargingData::ChargingData(ServerClient *server, QObject *parent)
     : QObject(parent), m_server(server) {
     connect(server, &ServerClient::packetReceived, this, &ChargingData::onPacket);
-    // Self-heal: a request written into a disconnected socket is silently dropped, so
-    // re-issue any still-pending request when the connection is (re)established.
     connect(server, &ServerClient::connectedChanged, this, &ChargingData::onConnectedChanged);
 }
 

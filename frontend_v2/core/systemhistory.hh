@@ -14,10 +14,11 @@ class ServerClient;
  *
  * The backend samples the host every couple of seconds into a ten-minute ring
  * buffer whether or not anyone is looking (backend/src/system_service/
- * system_history.py); this object fetches from it only while `active`, which the
- * graphs set from their own visibility. Fetches are incremental — each asks for
- * what is newer than the last sample held — so after the first one a poll moves a
- * sample or two, and returning to the section only fetches what was missed.
+ * system_history.py); this object fetches from it only while retained, which
+ * the graphs' section does from its own visibility. Fetches are incremental —
+ * each asks for what is newer than the last sample held — so after the first one
+ * a poll moves a sample or two, and returning to the section only fetches what
+ * was missed.
  *
  * The samples are kept here as rows and handed to QML as COLUMNS (`series`), one
  * array per metric, because that is what a polyline is built from. A value the

@@ -16,7 +16,7 @@ void SpotifyAuth::attachServer(ServerClient *client) {
     m_server = client;
     connect(client, &ServerClient::packetReceived, this, &SpotifyAuth::onPacket);
     // The backend snapshots SPOTIFY_AUTH_STATUS to every new client, so the
-    // authorized/reason pair simply arrives — nothing to request here.
+    // grant status simply arrives — nothing to request here.
 }
 
 void SpotifyAuth::begin() {
@@ -49,8 +49,7 @@ void SpotifyAuth::updateAlert() {
 }
 
 void SpotifyAuth::cancel() {
-    // Fences every reply still in flight. The backend is told nothing: its pending
-    // flow expires on its own, and a code is worthless spent or unspent.
+    // Fences every reply still in flight.
     m_flowActive = false;
     setPhase(QStringLiteral("idle"));
 }
@@ -107,8 +106,6 @@ void SpotifyAuth::onPacket(quint8 type, const QByteArray &payload) {
         break;
     }
     case protocol::SPOTIFY_AUTH_URL: {
-        // A reply that arrives after the user cancelled must not reopen the dialog
-        // for a flow nobody is running any more.
         if (!m_flowActive) {
             return;
         }
@@ -117,8 +114,6 @@ void SpotifyAuth::onPacket(quint8 type, const QByteArray &payload) {
                      body.value(QStringLiteral("message")).toString());
             return;
         }
-        // The backend has opened the page in the host browser and is listening
-        // for the redirect; there is nothing to do here but wait for the RESULT.
         logger.info(QStringLiteral("Spotify consent page opened in the host browser; "
                                    "awaiting the callback"));
         setPhase(QStringLiteral("consent"));

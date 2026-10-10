@@ -26,9 +26,8 @@ struct DecodedCover {
  * media packets (title, artists, progress, duration, play-state, media-type)
  * and bridges cover art to QML through a MediaImageProvider.
  *
- * Cover art is deduped by content hash and decoded off the GUI thread (to a
- * QImage, never a QPixmap on a worker); a newer image supersedes an in-flight
- * decode. isPlaying follows the server's echo, not the button press.
+ * Cover art is deduped by content hash and decoded off the GUI thread; a newer
+ * image supersedes an in-flight decode.
  */
 class MediaData : public QObject {
     Q_OBJECT
@@ -88,8 +87,7 @@ private:
     void setMediaType(int value);
     void setDominantColor(const QColor &value);
 
-    // k-means dominant-colour extraction (RNG seed + hue/value gating preserved
-    // verbatim from the Widgets MediaPlayerCard — it defines the visual identity).
+    // k-means dominant-colour extraction, run on the cover-art decode worker.
     static QColor computeDominantColor(const QImage &image);
 
     ServerClient *m_server;

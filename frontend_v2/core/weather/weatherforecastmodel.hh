@@ -5,7 +5,7 @@
 #include <QHash>
 #include <QVector>
 
-// One forecast hour. temperature is signed (sub-zero is normal here).
+// One forecast hour.
 struct ForecastRow {
     int hour = 0;
     int temperature = 0;   // °C

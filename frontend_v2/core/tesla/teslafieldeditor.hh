@@ -31,7 +31,8 @@ class TeslaFieldEditor : public QObject {
     // numeric (true/false, or null until it has streamed), requiredBy}.
     Q_PROPERTY(QVariantList fields READ fields NOTIFY fieldsChanged)
     Q_PROPERTY(bool loaded READ loaded NOTIFY fieldsChanged)
-    // The backend's reason for the last refused change; empty after a success.
+    // The backend's reason for the last refused change; cleared when the next
+    // change is sent.
     Q_PROPERTY(QString lastError READ lastError NOTIFY lastErrorChanged)
 
 public:

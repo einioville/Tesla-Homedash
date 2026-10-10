@@ -12,8 +12,9 @@ class ServerClient;
  * sends HVAC commands back.
  *
  * Parsing runs on the GUI thread — the bound properties are not thread-safe.
- * Malformed/unknown/value-type-mismatched packets are dropped (a single
- * mis-applied packet would corrupt a bound property).
+ * Packets with an unknown stream id, a mismatched value type or a truncated
+ * string are dropped (a single mis-applied packet would corrupt a bound
+ * property).
  */
 class TeslaData : public TeslaDataGen {
     Q_OBJECT

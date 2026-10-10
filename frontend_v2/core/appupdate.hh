@@ -48,9 +48,9 @@ class AppUpdate : public QObject {
     // A run is in flight. Every control that could start a second one is gated
     // on this, and so is the card's progress block.
     Q_PROPERTY(bool busy READ busy NOTIFY stateChanged)
-    // Set by the card while it is on screen. Asks for a fresh state on the way
-    // in — including a network fetch, which the backend throttles — so opening
-    // the card is the check rather than a button the user has to know to press.
+    // Set by the card while it is on screen. Turning it on calls check(true), so
+    // opening the card is the check rather than a button the user has to know to
+    // press.
     Q_PROPERTY(bool active READ active WRITE setActive NOTIFY activeChanged)
     // True between asking for a state and the reply landing, so the check button
     // can show that something is happening on a slow link.
@@ -117,11 +117,12 @@ private:
     bool m_active = false;
     bool m_checking = false;
     // Start time of the job whose restart request has already been acted on. A
-    // job is broadcast repeatedly while it runs, so without this the restart
-    // would be re-emitted on every progress packet that follows it. Fenced on
-    // startedMs rather than the job id: the id is a per-process counter that
-    // restarts at 1 with the backend, so an id could repeat and a later job's
-    // restart would be silently swallowed.
+    // job keeps being broadcast after it asks for the restart (the restart
+    // step's own progress lines follow), so without this the restart would be
+    // re-emitted on every one of those packets. Fenced on startedMs rather than
+    // the job id: the id is a per-process counter that restarts at 1 with the
+    // backend, so an id could repeat and a later job's restart would be silently
+    // swallowed.
     qint64 m_restartedForJobStart = 0;
 };
 

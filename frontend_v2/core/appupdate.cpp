@@ -69,8 +69,6 @@ void AppUpdate::setActive(bool active) {
     m_active = active;
     emit activeChanged();
     if (m_active) {
-        // Opening the card IS the check. The backend rate-limits the network
-        // half, so tapping between sections costs nothing beyond a local read.
         check(true);
     }
 }
@@ -140,9 +138,7 @@ void AppUpdate::applyDocument(const QVariantMap &document) {
 
     // The backend has written a new binary and is about to restart itself; this
     // process is still running the file it replaced, and only a restart picks
-    // the new one up. Fenced because the job keeps being broadcast after this
-    // flag is set — the restart step's own progress lines arrive behind it — and
-    // re-emitting would fire the restart repeatedly.
+    // the new one up. Fenced by m_restartedForJobStart.
     const QVariantMap job = m_state.value(QStringLiteral("job")).toMap();
     if (job.isEmpty() || !job.value(QStringLiteral("restartFrontend")).toBool()) {
         return;

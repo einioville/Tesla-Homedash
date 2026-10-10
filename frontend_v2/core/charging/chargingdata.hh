@@ -12,9 +12,9 @@ class ServerClient;
  * ChargingData — the Charging-view datahandler, exposed to QML as the `Charging`
  * singleton. It combines three flows over the one socket:
  *
- *  - Live charger state: parses the CHARGER_STREAM broadcast (myenergi) into the scalar
- *    tile properties (status/plug/mode/powers/energy/voltage/frequency/phase) plus the
- *    full raw Zappi payload (`raw`). Updated on every frame regardless of view state.
+ *  - Live charger state: parses the CHARGER_STREAM broadcast (myenergi) into the tile
+ *    properties the view shows (status, charge and grid power, session energy); the
+ *    frame's other fields are read past. Updated on every frame regardless of view state.
  *  - Past-hour power graphs: startLive() seeds two rolling 1 h series (grid power +
  *    charge power) from CHARGER_HISTORY, then extends each from the live stream — every
  *    series drives a HistoryGraph via a ready (reload) + tick (advance) signal, the same
@@ -22,10 +22,12 @@ class ServerClient;
  *    polled value. stopLive() freezes the graph buffers while the view is hidden.
  *  - Month-to-date stats: requestMonth() -> CHARGING_MONTH -> the `monthSummary` map.
  *
- * Parsing runs on the GUI thread (the bound properties are not thread-safe); malformed/
- * truncated frames are dropped. A charger-history reply is routed to its series by the
- * echoed id; a request dropped while the socket was down is re-issued on reconnect
- * (mirroring TripsData / TeslaHistory).
+ * Parsing runs on the GUI thread (the bound properties are not thread-safe). A short
+ * spot-price, month or history header drops the frame; a history reply cut inside its
+ * points keeps the points before the cut, and a CHARGER_STREAM frame keeps the fields
+ * before its first truncated or unknown one. A charger-history reply is routed to its
+ * series by the echoed id; a request dropped while the socket was down is re-issued on
+ * reconnect (as TripsData does).
  */
 class ChargingData : public QObject {
     Q_OBJECT
@@ -41,7 +43,7 @@ class ChargingData : public QObject {
     Q_PROPERTY(bool hasSpotPrice READ hasSpotPrice NOTIFY spotPriceChanged)
     Q_PROPERTY(double spotPriceEurPerKwh READ spotPriceEurPerKwh NOTIFY spotPriceChanged)
 
-    // Month-to-date aggregate (CHARGING_MONTH): `valid` + the 12 fields (NaN -> "—").
+    // Month-to-date aggregate (CHARGING_MONTH): `valid` + the 13 fields (NaN -> "—").
     Q_PROPERTY(QVariantMap monthSummary READ monthSummary NOTIFY monthChanged)
 
     // Past-hour power series, each { points: [{x,y}], minX, maxX, minY, maxY, count }.

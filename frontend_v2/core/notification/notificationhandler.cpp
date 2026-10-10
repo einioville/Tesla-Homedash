@@ -22,12 +22,10 @@ NotificationHandler::NotificationHandler(TeslaData *tesla, ServerClient *server,
     : QObject(parent), m_tesla(tesla), m_server(server) {
     loadConfig();
 
-    // Observe every configured Tesla source via its NOTIFY signal.
     for (auto it = m_teslaRules.constBegin(); it != m_teslaRules.constEnd(); ++it) {
         wireTeslaSource(it.key());
     }
 
-    // Observe the application-core connection state.
     if (!m_connectionRules.isEmpty() && m_server) {
         connect(m_server, &ServerClient::connectedChanged, this,
                 &NotificationHandler::onConnectionChanged);
@@ -35,7 +33,6 @@ NotificationHandler::NotificationHandler(TeslaData *tesla, ServerClient *server,
 }
 
 void NotificationHandler::loadConfig() {
-    // The frontend notification config is separate from the backend's config.json.
     // Prefer an external file (env override) so it can be edited per-deployment,
     // falling back to the bundled default.
     QByteArray data;
@@ -183,8 +180,6 @@ QString NotificationHandler::render(const Rule &rule, const QString &triggerValu
 }
 
 QString NotificationHandler::substitute(const QString &templ, const QString &triggerValue) const {
-    // Replace {state} with the triggering value and {SomeTeslaProperty} with that
-    // property's current value.
     static const QRegularExpression token(QStringLiteral("\\{(\\w+)\\}"));
     QString out = templ;
     QRegularExpressionMatchIterator it = token.globalMatch(templ);

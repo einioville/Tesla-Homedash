@@ -24,7 +24,9 @@ class QTimer;
  * A history reply echoes its property id; a reply whose id no longer matches the
  * one last requested is discarded, so quickly switching property/range can't draw
  * a stale series. Parsing runs on the GUI thread (the bound properties are not
- * thread-safe); malformed/truncated frames are dropped.
+ * thread-safe). A truncated property list is dropped, as is a history frame that
+ * ends inside its header; one that ends inside its points keeps the points before
+ * the cut.
  */
 class TeslaHistory : public QObject {
     Q_OBJECT
@@ -58,8 +60,9 @@ public:
     Q_INVOKABLE void requestHistory(const QString &id, int rangeCode,
                                     double startMs, double endMs);
 
-    // Live mode: seed the rolling window from history, then advance it every
-    // second from live telemetry (read off the Tesla singleton by property id).
+    // Live mode: seed the rolling window from history, then advance it on a timer
+    // from live telemetry (read off the Tesla singleton by property id); the tick
+    // is 1 s on the 1 h window and slower on longer ones (liveTickIntervalForRange).
     // startLive takes a preset rangeCode for the window size; stopLive returns to
     // static; pauseLive halts the timer while the view is hidden (call startLive
     // again on re-show to re-seed and resume).

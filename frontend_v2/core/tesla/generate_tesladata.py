@@ -4,8 +4,8 @@ Code generator for the Tesla data layer.
 
 Reads tesla_properties.json (the field registry) and emits a TeslaDataGen
 QObject base class with one typed Q_PROPERTY (+ NOTIFY + getter + seeded
-member) per field, plus two lookups used by the hand-written TeslaData
-subclass: valueTypeForStream() and applyValue().
+member) per field, plus the two stream-id switches the hand-written TeslaData
+subclass calls: valueTypeForStream() and applyValue().
 
 Generated files are committed to the source tree; re-run after editing the
 registry (CMake target: regen_tesla_data). Usage:
@@ -15,7 +15,7 @@ registry (CMake target: regen_tesla_data). Usage:
 import json
 import sys
 
-# protocol value_type tag -> (C++ type, QVariant accessor, member initialiser)
+# registry type -> C++ type, QVariant accessor, member initialiser, protocol value_type tag
 TYPE_MAP = {
     "double":   {"cpp": "double",       "variant": "toDouble", "init": " = 0.0",   "vt": 0},
     "string":   {"cpp": "QString",      "variant": "toString", "init": "",         "vt": 1},
@@ -34,7 +34,7 @@ def qml_name(name: str) -> str:
     '''
     Converts a registry name to its QML/Q_PROPERTY name by lower-casing the
     first character only (e.g. BatteryLevel -> batteryLevel, ACChargingPower ->
-    aCChargingPower). Deterministic; the rest of the name is left untouched.
+    aCChargingPower). TeslaData::qmlName() in tesladata.hh is the C++ twin.
     Arguments:
         name (str): PascalCase registry name.
     '''
