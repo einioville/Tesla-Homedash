@@ -238,6 +238,17 @@ def _timezone_options(current: str) -> list[dict]:
 # and optionally requiresConnection, and confirm: False for one whose action opens
 # a dialog of its own (otherwise a first tap only arms it).
 
+# The equalizer's bands: config key under "audio" and the column label, which is
+# the band's centre frequency — keep it in step with audio_service/equalizer.BANDS.
+_EQ_BANDS = (
+    ("eqBand1", "60 Hz"),
+    ("eqBand2", "250 Hz"),
+    ("eqBand3", "1 kHz"),
+    ("eqBand4", "4 kHz"),
+    ("eqBand5", "12 kHz"),
+)
+_EQ_RANGE_DB = 12
+
 SETTINGS_SCHEMA: list[dict] = [
     {
         "id": "general",
@@ -366,6 +377,58 @@ SETTINGS_SCHEMA: list[dict] = [
                         "apply": "hook",
                         "hooks": ["audio"],
                         "guard": "audio",
+                    },
+                ],
+            },
+            {
+                # The graphic equalizer (audio_service/equalizer.py).  The five
+                # band gains are hidden rows: the card's own widget
+                # (status "equalizer", items/settings/EqualizerPanel.qml) draws
+                # and edits them.  The frontend strips hidden entries before any
+                # widget sees them, so "bands" repeats what the widget needs —
+                # each key, its column label and range — at subsection level,
+                # which does reach it.  The bass shelf is an ordinary slider row
+                # under the widget, and carries the equalizer's runtime state.
+                "id": "equalizer",
+                "label": "Taajuuskorjain",
+                "status": "equalizer",
+                "bands": [
+                    {"key": f"audio.{key}", "label": label,
+                     "min": -_EQ_RANGE_DB, "max": _EQ_RANGE_DB}
+                    for key, label in _EQ_BANDS
+                ],
+                "settings": [
+                    {
+                        "key": f"audio.{key}",
+                        "type": "int",
+                        "label": label,
+                        "unit": "dB",
+                        "min": -_EQ_RANGE_DB,
+                        "max": _EQ_RANGE_DB,
+                        "step": 1,
+                        "hidden": True,
+                        "apply": "hook",
+                        "hooks": ["equalizer"],
+                        "guard": "equalizer",
+                    }
+                    for key, label in _EQ_BANDS
+                ] + [
+                    {
+                        # Boost only: the bands above already cut, and a slider
+                        # that fills from its left end reads as "how much more".
+                        # Faded with the widget on a host that cannot run it.
+                        "key": "audio.bassBoost",
+                        "relevantWhen": {"condition": "equalizer"},
+                        "type": "int",
+                        "label": "Bassonvahvistus",
+                        "unit": "dB",
+                        "min": 0,
+                        "max": _EQ_RANGE_DB,
+                        "step": 1,
+                        "editor": "slider",
+                        "apply": "hook",
+                        "hooks": ["equalizer"],
+                        "guard": "equalizer",
                     },
                 ],
             },
@@ -1108,6 +1171,14 @@ class ConfigService:
                 "polkit-sääntö tai sudoers-rivi (README: Laitteen uudelleenkäynnistys).")
 
     # ── Snapshot + run task ───────────────────────────────────────
+
+    async def broadcast_schema(self) -> None:
+        '''
+        Sends the current schema to every client, for a service whose runtime
+        facts (register_runtime) changed without a config write — the audio
+        service once it knows whether the equalizer can run here.
+        '''
+        await self.__server.broadcast(self.__schema_frame())
 
     async def stream_everything(self, writer) -> None:
         '''

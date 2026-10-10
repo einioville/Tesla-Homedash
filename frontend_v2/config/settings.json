@@ -323,7 +323,7 @@
             "id": "media",
             "icon": "media",
             "label": "Media",
-            "sectionOrder": ["audio", "spotify", "radio"],
+            "sectionOrder": ["audio", "spotify", "radio", "equalizer"],
             "sections": [
                 {
                     "id": "spotify",

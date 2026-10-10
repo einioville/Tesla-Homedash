@@ -123,7 +123,7 @@ different part of them.
 - A `key` rule resolves through `Settings.valueOf()`, which reaches **both** halves, with
   `Settings.valuesRevision` read purely to make the binding live. A `condition` rule names a
   runtime fact no setting holds, resolved in `SettingRules.conditionHolds()` — `screensaverPhotos`
-  is `Photos.count > 0`. The screensaver card uses both: the switch is faded until the photo folder
+  is `Photos.count > 0`, `equalizer` that the bass row's `runtime.state` is not `unavailable`. The screensaver card uses both: the switch is faded until the photo folder
   holds photos (hiding it would hide the feature, and the fix is right below), and its three tuning
   rows are nested under the switch *and* fade without photos.
 - The row that FIXES a condition — *Kuvakansio*'s import button — must not carry the rule, or it
@@ -299,8 +299,8 @@ the local sections from reading as a bug.
 
 The hook is a **subsection-level `status` key**: a subsection may name a runtime status widget,
 which `SettingsPane` renders in the card via a `Loader` above the rows, resolving the name against a
-small component table (`backendProbe`, `appUpdate`, `screenPower`, `teslaProperties`; `appUpdate`
-and `teslaProperties` are unused while their subsections are out of the schema). `active:` gates construction,
+small component table (`backendProbe`, `appUpdate`, `screenPower`, `teslaProperties`, `equalizer`;
+`appUpdate` and `teslaProperties` are unused while their subsections are out of the schema). `active:` gates construction,
 which is what keeps the probe from firing for a card that did not ask
 for it. A subsection carrying a `status` but **no settings** is legitimate and is exempted from the
 empty-section filter: the Tesla field table's card is entirely its widget. It exists because not
@@ -386,6 +386,37 @@ their defaults so every other graph is unchanged:
 
 A multi-line graph turns the glow and the live marker off: a glow or a pulse on one line of several
 would single it out.
+
+## Media › Taajuuskorjain — `EqualizerPanel.qml`
+
+The backend's *Taajuuskorjain* card (`backend/src/audio_service/CLAUDE.md`): this `status:
+"equalizer"` widget draws the five bands as knobs on a curve, and the bass shelf is the ordinary
+slider row under it. Load-bearing:
+- **The band rows are hidden, and `Settings::decorateSections` strips hidden entries before any
+  widget sees them** — so the widget takes the band list (key, label, range) from the subsection's
+  own `bands`, which the backend repeats at subsection level for exactly this reason, and the values
+  from `Settings.valueOf` (with `valuesRevision` read to make the binding live). The equalizer's
+  `runtime.state` rides on the bass row, the card's one visible entry; *unavailable* fades the plot
+  and, through the `equalizer` condition, the bass row too.
+- **Only a press on a knob grabs** (within 36 px of its centre), with `preventStealing` so the
+  settings Flickable cannot turn the drag into a scroll. Anywhere else the press is refused and goes
+  to the page, so the plot is never a dead zone the page cannot be scrolled from.
+- **The commit rules of the other editors**: a drag or a wheel spin (one dB per notch, per column)
+  moves only the knob and writes once, on release or when the wheel settles. Until the schema
+  confirms a write the knob holds the written value (`pending`), cleared on the confirming schema, on
+  `writeFailed` (the knob goes back) and on an `unchanged` result (no schema follows one). **The
+  pending value is set before the band is let go**: the other order re-evaluated the knob against the
+  old saved value with its animation re-enabled in the same instant, so on release it slid back toward
+  0 and returned (measured: +2.7 dB 0 ms after letting go of +7, back at +7 after ~200 ms).
+- **The curve is a monotone cubic (Fritsch–Carlson)** through the knobs: a plain spline overshot
+  between two knobs at opposite ends and drew past ±12. It runs through the knobs' **animated**
+  values, so *Nollaa* morphs it back to flat, and from an extra point at each edge — the right one
+  level with the top band, the left one the bottom band plus the bass shelf, which is how the bass
+  slider shows on the curve. The look is the graphs': `HistoryGraph`'s fill stops under a 2 px accent
+  line, the settings slider's handle and track stood on end.
+- **The status row keeps its height** whether or not *Nollaa* shows, so the first band moved off
+  flat does not push the bass row down under the finger. *Nollaa* writes each non-zero value once
+  and is not armed — like the graphs' *Palauta*, it only puts a view back.
 
 ## USB photo import — `UsbImportPopup.qml`
 

@@ -1,4 +1,4 @@
-# `audio_service/` — host audio (issue #37)
+# `audio_service/` — host audio (issue #37) and the equalizer
 
 `audio_backend.py` holds one abstract `AudioBackend` plus four implementations, and
 `detect_backend()` probes the host in the order **`pactl` → `wpctl` → `amixer`**, falling back to
@@ -26,3 +26,59 @@ every 15 s (HDMI and Bluetooth hotplug). Load-bearing details:
   provider)` (a service owns its own dynamic enum) and `register_guard(name, guard)` (a pre-write
   veto that, unlike a hook, runs *before* anything is persisted and can honestly reject
   "this host cannot do that").
+
+## The equalizer — `equalizer.py`
+
+Media › *Taajuuskorjain*: five peaking bands (60 Hz, 250 Hz, 1 kHz, 4 kHz, 12 kHz, ±12 dB, Q 0.8)
+plus a 90 Hz low shelf (`bassBoost`, 0…+12 dB), all `audio.*` keys under the `"equalizer"` hook
+and guard. The radio (libVLC) and Spotify (spotifyd) are unrelated clients, so the only place one
+equalizer reaches both is the audio server: **a PipeWire filter-chain sink** built from the module's
+built-in biquads, which the stock `pipewire` package ships (Bookworm and Trixie) — nothing to install.
+Load-bearing:
+- **It runs only while the curve is not flat.** All-zero gains run no chain at all, so a host where
+  nobody touches the equalizer keeps exactly the audio path it had. Leaving flat starts it; returning
+  to flat stops it.
+- **The chain is a `pipewire -c <file>` client process this service owns** (config and pid file in
+  `$XDG_RUNTIME_DIR/tesla-homedash/`), not a drop-in in the user's PipeWire config: nothing outside
+  the app's runtime directory is written and stopping it needs no audio-server restart. It is
+  launched through `setpriv --pdeathsig TERM`, so it dies with the backend however the backend dies
+  (verified: no orphan after the backend process was dropped); a pid file plus a `/proc` cmdline
+  check stops one left by a run without `setpriv`.
+- **Gains change in place** with `pw-cli set-param <sink> Props '{ params = [ "eqBand3:Gain" 6.0 … ] }'`
+  — no restart, no gap. Measured through the chain: a 250 Hz tone at exactly +12.0 / −12.0 dB.
+- **While it runs, the chain IS the default output.** Streams that follow the default (VLC, spotifyd)
+  move into it; the chosen output becomes where the *chain* plays, set live through the
+  `target.object` metadata on its output node (`pw-metadata`, measured on WirePlumber 0.4.17). When
+  that output disappears, WirePlumber falls back to the next sink rather than going silent
+  (measured), and it never links the chain into itself — the two nodes share a link group.
+- **The chain's target is never left to WirePlumber.** With *Oletuslaite* it plays into the host's
+  own default from before the chain took the default over — WirePlumber would pick by priority and
+  move the sound from, say, the HDMI output chosen on the desktop to the headphone jack. That default
+  is **stored as `audio.hostDefaultDevice`** (state, in no schema, written straight through `Config`
+  like the radio's station), because once the chain has run WirePlumber remembers IT as the default
+  and the host's choice can no longer be read back after a power cut. Stopping hands the default back
+  (to the chosen output, else the stored one) **before** the chain stops, so streams move straight
+  to the right output; a flat start with a stored value restores it (the last run never handed back).
+- **Volume goes to the real output by name** while the chain runs (`set_volume(percent, device)`);
+  the chain's sink stays at 100 %. So the dashboard's volume means the same with the equalizer on or
+  off, and a chain that dies leaves the output at the user's level, not at full.
+- **Moving streams skips filter outputs.** `PulseAudioBackend` moves every sink-input on an output
+  switch; the chain's own output is one, and moving it into the chain would feed it its own sound.
+  Streams carrying `node.link-group` are skipped (parsed from `pactl list sink-inputs` under
+  `LC_ALL=C`, since pactl translates the headings the blocks are split on).
+- **`pw-dump` can print more than one JSON array** when the graph changes mid-dump (measured on the
+  chain's start); `parse_pw_dump()` merges them. Plain `json.loads` failed, and the health check read
+  that as the chain having died. A dump that cannot be read is "unknown", never "gone".
+- **The 15 s timer restarts a chain that died or left the graph** (a PipeWire restart), once per
+  loss. A start that fails sets state `failed` and is retried only by the next equalizer write, so
+  an impossible host does not log a failure every 15 s.
+- **State for the Options view** is `equalizer_runtime()` — `detecting` → `unavailable` | `off` |
+  `on`, or `failed` — merged into the **bass row's** entry as `runtime`: the band rows are hidden,
+  and the frontend strips hidden entries before any widget sees them. Detection ends with a
+  `ConfigService.broadcast_schema()`, since a view may have connected while it ran. `guard_equalizer`
+  refuses writes only once detection has said `unavailable`. On WSL the chain runs on PipeWire's dummy
+  sink while VLC plays through WSLg's PulseAudio, so it is testable there but not audible.
+- **Not handled:** the host's own volume applet now drives the chain's sink (the default), so its
+  level multiplies with the dashboard's; and choosing another default output outside the dashboard
+  bypasses the chain until it next starts (a backend restart, or the curve leaving flat again).
+

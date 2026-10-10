@@ -419,7 +419,13 @@
     },
     "audio": {
         "volumePercent": 60,
-        "outputDevice": ""
+        "outputDevice": "",
+        "eqBand1": 0,
+        "eqBand2": 0,
+        "eqBand3": 0,
+        "eqBand4": 0,
+        "eqBand5": 0,
+        "bassBoost": 0
     },
     "media": {
         "autoplayRadio": false,

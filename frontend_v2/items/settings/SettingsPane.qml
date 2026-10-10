@@ -463,6 +463,7 @@ Item {
                                             case "appUpdate": return updateComponent
                                             case "screenPower": return screenPowerComponent
                                             case "teslaProperties": return teslaFieldsComponent
+                                            case "equalizer": return equalizerComponent
                                             default: return null
                                             }
                                         }
@@ -588,6 +589,7 @@ Item {
     Component { id: updateComponent; UpdatePanel {} }
     Component { id: screenPowerComponent; ScreenPowerStatus {} }
     Component { id: teslaFieldsComponent; TeslaFieldTable {} }
+    Component { id: equalizerComponent; EqualizerPanel {} }
 
     // The screens a group may name with `view`.
     Component { id: systemSectionComponent; SystemStatusSection {} }

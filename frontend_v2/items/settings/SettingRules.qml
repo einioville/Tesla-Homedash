@@ -56,7 +56,25 @@ QtObject {
     function conditionHolds(name) {
         switch (name) {
         case "screensaverPhotos": return Photos.count > 0
+        case "equalizer": return equalizerState() !== "unavailable"
         default: return true
         }
+    }
+
+    // The equalizer's runtime state, which the backend carries on the bass row's
+    // entry (backend/src/audio_service/CLAUDE.md); "" until a schema has it.
+    function equalizerState() {
+        const groups = Settings.groups
+        for (let i = 0; i < groups.length; ++i) {
+            const sections = groups[i].sections !== undefined ? groups[i].sections : []
+            for (let j = 0; j < sections.length; ++j) {
+                const entries = sections[j].settings !== undefined ? sections[j].settings : []
+                for (let k = 0; k < entries.length; ++k) {
+                    if (entries[k].key === "audio.bassBoost")
+                        return entries[k].runtime !== undefined ? entries[k].runtime.state : ""
+                }
+            }
+        }
+        return ""
     }
 }

@@ -74,7 +74,8 @@ backend/                          # ★ orchestration, service contracts, .env +
       myenergi_service.py         # myenergi Zappi cloud poll → CHARGER_STREAM broadcast + myenergi_data logging
     audio_service/                # ★
       audio_backend.py            # AudioBackend adapters (pactl / wpctl / amixer) + detect_backend()
-      audio_service.py            # AudioService — system volume + output device, applied from config.json
+      audio_service.py            # AudioService — system volume + output device + equalizer, applied from config.json
+      equalizer.py                # PipeWireEqualizer — the filter-chain sink (5 bands + bass shelf) it owns and retunes live
     display_service/              # ★
       display_service.py          # DisplayService — panel power via wlopm; the frontend decides when
     system_service/               # ★
@@ -444,7 +445,9 @@ card retired from Ylläpito, every dialog swallowing the mouse wheel, and the sy
 on the app's own `HistoryGraph`, which can now draw several lines over one set of axes — plus its
 fourth round: an overview card on top (healthy or not, the issues behind it, host and backend
 uptime), the *Versio* card folded into *Palvelin* as a row, the charging rows on *Laturi* only with
-trips on a *Matkat* card of their own, and service-card values that wrap instead of eliding.
+trips on a *Matkat* card of their own, and service-card values that wrap instead of eliding — plus
+Media › *Taajuuskorjain*: a five-band equalizer and a bass shelf on a PipeWire filter-chain the
+audio service runs only while the curve is not flat, drawn as knobs on a curve by `EqualizerPanel`.
 When you land a change that touches documented behaviour, update this line.
 
 ## 8. Session workflow — main checkout by default, worktree only for parallelism

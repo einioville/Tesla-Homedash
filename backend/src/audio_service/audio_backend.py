@@ -17,6 +17,7 @@ that has been unplugged must degrade to "no answer", not to an exception.
 import asyncio
 import json
 import logging
+import os
 import re
 import shutil
 from abc import ABC, abstractmethod
@@ -43,20 +44,26 @@ class AudioDevice(NamedTuple):
     label: str
 
 
-async def run_command(argv: list[str], timeout: float = _TIMEOUT_SECONDS) -> tuple[int, str]:
+async def run_command(argv: list[str], timeout: float = _TIMEOUT_SECONDS,
+                      untranslated: bool = False) -> tuple[int, str]:
     '''
     Runs one external command and returns (returncode, stdout).  The single place
-    this package spawns a process, so the timeout and the never-raise contract
-    are enforced exactly once.  A timeout kills the child and returns (-1, "").
+    this package spawns a short-lived process, so the timeout and the never-raise
+    contract are enforced exactly once.  A timeout kills the child and returns
+    (-1, "").
     Arguments:
         argv (list[str]): Program and arguments.  Never passed through a shell.
         timeout (float): Seconds before the child is killed.
+        untranslated (bool): Run under LC_ALL=C, for output parsed by its
+            headings — pactl translates them, and the Pi may run in Finnish.
     '''
+    env = {**os.environ, "LC_ALL": "C"} if untranslated else None
     try:
         process = await asyncio.create_subprocess_exec(
             *argv,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.DEVNULL,
+            env=env,
         )
     except OSError as e:
         logger.debug("Could not run %s: %s", argv[0], e)
@@ -72,6 +79,40 @@ async def run_command(argv: list[str], timeout: float = _TIMEOUT_SECONDS) -> tup
     return process.returncode, stdout.decode("utf-8", "replace")
 
 
+def parse_pw_dump(out: str) -> list[dict] | None:
+    '''
+    Parses pw-dump's output into its objects, or None when it is unreadable.
+
+    pw-dump can print MORE than one JSON array: when the graph changes while it
+    is collecting (a node appearing, as the equalizer's do on start), the change
+    follows as a further array — measured, and json.loads rejects the whole
+    output with "Extra data".  So every array is read in order, a later entry
+    replacing an earlier one with the same id and an entry whose info is null
+    (a removal) dropping it.
+    Arguments:
+        out (str): pw-dump's stdout.
+    '''
+    decoder = json.JSONDecoder()
+    objects: dict = {}
+    position = 0
+    try:
+        while True:
+            while position < len(out) and out[position].isspace():
+                position += 1
+            if position >= len(out):
+                break
+            document, position = decoder.raw_decode(out, position)
+            for obj in document:
+                if obj.get("info", True) is None:
+                    objects.pop(obj.get("id"), None)
+                else:
+                    objects[obj.get("id")] = obj
+    except (ValueError, AttributeError, TypeError) as e:
+        logger.warning("Could not parse pw-dump output: %s", e)
+        return None
+    return list(objects.values())
+
+
 class AudioBackend(ABC):
     '''
     Abstract host-audio control surface.  Every method is async because every one
@@ -84,15 +125,23 @@ class AudioBackend(ABC):
     supports_device_selection = False
 
     @abstractmethod
-    async def get_volume(self) -> int | None:
-        '''Current output volume as 0-100, or None when it cannot be read.'''
+    async def get_volume(self, device: str | None = None) -> int | None:
+        '''
+        Current output volume as 0-100, or None when it cannot be read.
+        Arguments:
+            device (str | None): Output to read, by its stable identifier; None
+                reads the default output.
+        '''
 
     @abstractmethod
-    async def set_volume(self, percent: int) -> bool:
+    async def set_volume(self, percent: int, device: str | None = None) -> bool:
         '''
         Sets the output volume.
         Arguments:
             percent (int): Target volume, already clamped to 0-100 by the caller.
+            device (str | None): Output to set, by its stable identifier; None
+                sets the default output.  The equalizer needs the device named:
+                while it runs, the default output is its own virtual sink.
         '''
 
     @abstractmethod
@@ -118,10 +167,10 @@ class NullAudioBackend(AudioBackend):
     name = "none"
     supports_device_selection = False
 
-    async def get_volume(self) -> int | None:
+    async def get_volume(self, device: str | None = None) -> int | None:
         return None
 
-    async def set_volume(self, percent: int) -> bool:
+    async def set_volume(self, percent: int, device: str | None = None) -> bool:
         return False
 
     async def list_devices(self) -> list[AudioDevice]:
@@ -154,16 +203,16 @@ class PulseAudioBackend(AudioBackend):
     def __init__(self, flavour: str = "pulseaudio"):
         self.flavour = flavour
 
-    async def get_volume(self) -> int | None:
-        rc, out = await run_command(["pactl", "get-sink-volume", "@DEFAULT_SINK@"])
+    async def get_volume(self, device: str | None = None) -> int | None:
+        rc, out = await run_command(["pactl", "get-sink-volume", device or "@DEFAULT_SINK@"])
         if rc != 0:
             return None
         match = self._VOLUME_RE.search(out)
         return int(match.group(1)) if match else None
 
-    async def set_volume(self, percent: int) -> bool:
+    async def set_volume(self, percent: int, device: str | None = None) -> bool:
         rc, _ = await run_command(
-            ["pactl", "set-sink-volume", "@DEFAULT_SINK@", f"{percent}%"]
+            ["pactl", "set-sink-volume", device or "@DEFAULT_SINK@", f"{percent}%"]
         )
         return rc == 0
 
@@ -216,16 +265,22 @@ class PulseAudioBackend(AudioBackend):
 
     async def __move_streams(self, identifier: str) -> None:
         '''
-        Moves every live playback stream onto the newly selected sink.
+        Moves every live playback stream onto the newly selected sink — except a
+        filter's own output stream (the equalizer's, a loopback's), recognised by
+        the link group PipeWire gives both halves of a filter.  That stream has a
+        target of its own, and moving the equalizer's output into the equalizer
+        would feed it its own sound.
         Arguments:
             identifier (str): Target sink name.
         '''
-        rc, out = await run_command(["pactl", "list", "sink-inputs", "short"])
+        # The long listing, because only it carries the properties; untranslated,
+        # because its headings are what the blocks are split on.
+        rc, out = await run_command(["pactl", "list", "sink-inputs"], untranslated=True)
         if rc != 0:
             return
-        for line in out.splitlines():
-            index = line.split("\t")[0].strip()
-            if not index.isdigit():
+        for block in out.split("Sink Input #")[1:]:
+            index = block.split("\n", 1)[0].strip()
+            if not index.isdigit() or "node.link-group = " in block:
                 continue
             moved, _ = await run_command(["pactl", "move-sink-input", index, identifier])
             if moved != 0:
@@ -250,8 +305,11 @@ class WirePlumberBackend(AudioBackend):
     _VOLUME_RE = re.compile(r"^Volume:\s+([0-9]*\.?[0-9]+)")
     _NODE_NAME_RE = re.compile(r'^\s*\*?\s*node\.name\s*=\s*"(.+)"\s*$')
 
-    async def get_volume(self) -> int | None:
-        rc, out = await run_command(["wpctl", "get-volume", self._DEFAULT_SINK])
+    async def get_volume(self, device: str | None = None) -> int | None:
+        node = await self.__node_ref(device)
+        if node is None:
+            return None
+        rc, out = await run_command(["wpctl", "get-volume", node])
         # NOTE: wpctl exits 0 even for a node that does not exist, printing
         # "Node 'N' not found" — so the "Volume: " prefix, not rc, is the test.
         if rc != 0:
@@ -259,12 +317,30 @@ class WirePlumberBackend(AudioBackend):
         match = self._VOLUME_RE.match(out.strip())
         return round(float(match.group(1)) * 100) if match else None
 
-    async def set_volume(self, percent: int) -> bool:
+    async def set_volume(self, percent: int, device: str | None = None) -> bool:
         # wpctl does NOT clamp: "150%" is accepted and overdrives the sink. The
         # caller clamps, and this is the second line of defence.
         percent = max(0, min(100, percent))
-        rc, _ = await run_command(["wpctl", "set-volume", self._DEFAULT_SINK, f"{percent}%"])
+        node = await self.__node_ref(device)
+        if node is None:
+            return False
+        rc, _ = await run_command(["wpctl", "set-volume", node, f"{percent}%"])
         return rc == 0
+
+    async def __node_ref(self, device: str | None) -> str | None:
+        '''
+        What wpctl takes for an output: the default sink's alias, or a named
+        device's live numeric id (wpctl addresses nodes by id only).
+        Arguments:
+            device (str | None): Stable node.name, or None for the default.
+        '''
+        if not device:
+            return self._DEFAULT_SINK
+        for found, node_id in await self.__scan_sinks():
+            if found.identifier == device:
+                return str(node_id)
+        logger.debug("PipeWire node %s is not present", device)
+        return None
 
     async def list_devices(self) -> list[AudioDevice]:
         return [device for device, _ in await self.__scan_sinks()]
@@ -292,12 +368,8 @@ class WirePlumberBackend(AudioBackend):
     async def __scan_sinks(self) -> list[tuple[AudioDevice, int]]:
         '''Reads the PipeWire graph and returns each audio sink with its live id.'''
         rc, out = await run_command(["pw-dump"])
-        if rc != 0:
-            return []
-        try:
-            objects = json.loads(out)
-        except ValueError as e:
-            logger.warning("Could not parse pw-dump output: %s", e)
+        objects = parse_pw_dump(out) if rc == 0 else None
+        if objects is None:
             return []
 
         sinks = []
@@ -350,7 +422,7 @@ class AlsaBackend(AudioBackend):
                 return preferred
         return names[0] if names else None
 
-    async def get_volume(self) -> int | None:
+    async def get_volume(self, device: str | None = None) -> int | None:
         # -M is the mapped (perceptual) scale, which is what a user means by "%".
         rc, out = await run_command(["amixer", "-M", "sget", self.control])
         if rc != 0:
@@ -358,7 +430,7 @@ class AlsaBackend(AudioBackend):
         match = self._PERCENT_RE.search(out)
         return int(match.group(1)) if match else None
 
-    async def set_volume(self, percent: int) -> bool:
+    async def set_volume(self, percent: int, device: str | None = None) -> bool:
         rc, _ = await run_command(
             ["amixer", "-M", "-q", "sset", self.control, f"{percent}%"]
         )
