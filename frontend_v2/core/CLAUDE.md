@@ -35,20 +35,20 @@ readers share.
 
 `Settings.storagePath` (the local override file) and `Settings.backendStoragePath` (the
 backend's `config.json`, from the top-level `path` in its `CONFIG_SCHEMA` document) name the two
-files the Options view writes. **The view no longer displays them** — its footer is gone — but the
-properties stay for logging and diagnostics. `backendStoragePath` is empty until a schema arrives
-and is kept after a disconnect; a document without the key never blanks a path already known.
+files the Options view writes. No QML reads them at present; both paths also appear in the log.
+`backendStoragePath` is empty until a schema arrives and is kept after a disconnect; a document
+without the key never blanks a path already known.
 
 **The two schemas merge by group id.** `Settings::rebuildGroups()` indexes the backend's groups by
 id and folds each into the local group of the same id, so one sidebar section can hold subsections
 from both. Consequences worth knowing:
 - **`config/settings.json` is the canonical section list**: order, label and icon come from it,
-  which is why `media`, `electricity` and `tesla` appear there with an empty `sections` array.
+  which is why `electricity` and `tesla` appear there with an empty `sections` array.
   Those placeholders exist only to place and name a backend-only section; a section that ends up
   with no subsections at all is hidden, so they cost nothing while disconnected.
 - A backend group whose id the local schema does not know is **appended**, not dropped.
-- `origin` is per **subsection** now (the "sovellus"/"palvelin" badge sits on each card), because
-  a section can legitimately mix the two.
+- `origin` is per **subsection** (the "sovellus"/"palvelin" badge sits on each card), because a
+  section can legitimately mix the two.
 - `sectionsOf()` tolerates the pre-#30 shape (a group with a bare `settings` array) by
   synthesizing one subsection, so mismatched halves still render.
 
@@ -67,7 +67,7 @@ Load-bearing:
   blipped and reconnected" — a distinction the schema's content cannot make, since it reports what
   is in `config.json`, not what each service snapshotted at construction.
 
-An `action` row whose key `Settings::invokeAction` does not handle itself now emits
+An `action` row whose key `Settings::invokeAction` does not handle itself emits
 **`actionRequested(key)`**, which `SettingsView` routes — that is how the backend owns the Spotify
 exchange while the consent UI stays a view concern, with `Settings` knowing nothing about either.
 
@@ -93,8 +93,8 @@ backend just sees a connection open and close.
 The screensaver's photo folder, **fixed** at `<GenericConfigLocation>/Tesla-Homedash/screensaver`
 (`~/.config/Tesla-Homedash/screensaver`, beside `frontend_config.json`) and created at startup.
 The backend's `usb_import_service` copies into the same path (`screensaver_dir()`), so neither half
-makes it configurable. `TESLA_HOMEDASH_SCREENSAVER_DIR` is no longer read; a deployment that still
-sets it gets a startup warning naming the folder to copy to. `count` is the number of images in the
+makes it configurable. `TESLA_HOMEDASH_SCREENSAVER_DIR` is not read; a deployment that sets it
+gets a startup warning naming the folder to copy to. `count` is the number of images in the
 folder, kept live by a `QFileSystemWatcher` (debounced 500 ms, since a copy fires an event per
 file). It drives the *Kuvakansio* row's "N kuvaa löydetty" and the screensaver switch's
 `relevantWhen` condition. `imageNameFilters` is the one extension list: `ScreenSaver.qml` plays with
@@ -124,15 +124,14 @@ share one definition of "the user is here". Its settings are *pushed* from `Main
 is what makes them live.
 
 `DISPLAY_POWER_STATE`'s second byte is **`on`**, the opposite sense of `m_off` — read the other way
-round, a lit panel looked dark forever (#44). **Wakes from activity are throttled to one per
+round, a lit panel looks dark forever (#44). **Wakes from activity are throttled to one per
 `kWakeRetryMs` (2 s)** while the panel is reported off: activity fires per input event, touch moves
 included, so a wake that keeps failing (wlopm blocked by a VNC server, a failed startup power-on)
 would otherwise send a request — and spawn a `wlopm` — per event. A working wake is answered in
 milliseconds, so the throttle never delays one. `wake()` is deliberate and bypasses it.
 `fault` mirrors the backend's third state byte (`backend/src/display_service/CLAUDE.md`; a two-byte
-payload from an older backend reads as none); while it is `OUTPUT_LOST` the countdown no longer
-requests a power-off, and `items/settings/ScreenPowerStatus.qml` explains it in the
-Näytönsäästäjä card.
+payload reads as none); while it is `OUTPUT_LOST` the countdown does not request a power-off, and
+`items/settings/ScreenPowerStatus.qml` explains it in the Näytönsäästäjä card.
 
 ## `System` — `systemstatus.{hh,cpp}`
 
@@ -199,17 +198,16 @@ registration. Beside the grant verdict it carries `email`, `displayName`, `autho
 **This side renders no browser and never touches a credential.** The backend opens the consent page
 in the host's real browser and catches the redirect on its own loopback listener
 (`backend/src/media_service/CLAUDE.md`); the singleton's whole job is `begin()`, `cancel()`, and
-turning `SPOTIFY_AUTH_URL` / `_RESULT` into a phase. It originally drove an embedded `WebEngineView`
-that aborted the redirect navigation to read the code out of the URL — that design is **gone**, and
-with it Qt WebEngine (see below).
+turning `SPOTIFY_AUTH_URL` / `_RESULT` into a phase. An embedded `WebEngineView` is a dead end (see
+below).
 
 Two details are load-bearing:
 - **There is no browser on this side at all.** `SpotifyAuthPopup.qml` is a small progress dialog —
   "Tunnistautuminen käynnissä…" → "Tunnistautuminen onnistui." with a close button — plus
   `DialogButton.qml`. It renders no page, holds no profile, and learns only "started" and
-  "finished"; no code or token ever crosses the link. **`Qt::WebEngineQuick` is gone from
-  `CMakeLists.txt`, `QtWebEngineQuick::initialize()` from `main.cpp`, and `WebEngineQuick` from the
-  README's module list** — verified with `ldd`, the binary links no WebEngine library. A *Peruuta*
+  "finished"; no code or token ever crosses the link. **Qt WebEngine is not used**: no
+  `Qt::WebEngineQuick` in `CMakeLists.txt`, no `QtWebEngineQuick::initialize()` in `main.cpp`, no
+  `WebEngineQuick` in the README's module list, and the binary links no WebEngine library. A *Peruuta*
   button stays available while the flow runs: a browser that never comes back would otherwise
   strand the dialog on screen.
 - **The prompt and the progress dialog live in `Main.qml`, not in `SettingsView`.** The grant can
@@ -222,9 +220,9 @@ Two details are load-bearing:
   grant works again and then fails afresh (a dashboard nobody can re-authorize right now must stay
   usable), and `begin()` counts as dismissing, so a failed flow does not re-raise the prompt the
   moment its error is closed.
-- **`m_flowActive` fences late replies.** `cancel()` only set the phase, so a `SPOTIFY_AUTH_URL`
-  arriving afterwards flipped the phase back to `consent` and reopened the dialog for an abandoned
-  flow. The flag is set in `begin()`, cleared in `cancel()` and on `SPOTIFY_AUTH_RESULT`; the
+- **`m_flowActive` fences late replies.** Without it a `SPOTIFY_AUTH_URL` arriving after `cancel()`
+  would flip the phase back to `consent` and reopen the dialog for an abandoned flow. The flag is set
+  in `begin()`, cleared in `cancel()` and on `SPOTIFY_AUTH_RESULT`; the
   `SPOTIFY_AUTH_STATUS` branch stays unfenced on purpose — that snapshot must always apply.
 
 > **Dead end, recorded so nobody repeats it.** Before the flow moved to the host browser, a lot of
@@ -279,13 +277,15 @@ sync and the rebuild (`backend/src/update_service/CLAUDE.md`), and the singleton
 shows what comes back, and restarts the app when told. The whole `UPDATE_STATE` document is carried
 as an opaque `QVariantMap`, like `SystemStatus`'s, so a field added on the backend reaches the
 screen with no C++ change. Five things are load-bearing:
-- **The channel was the `hidden` schema entry `updateChannel`**, which `UpdatePanel` still reads
-  (an absent value falls to its default). `hidden` keeps a setting out of the RENDERED rows while
-  it is stored, coerced, persisted and readable through `Settings.values` / `valueOf()` like any
-  other — filtered in `Settings::decorateSections`, the rendering boundary, so the empty-subsection
-  drop still counts correctly and nothing that persists a value (all of which walks
-  `m_localSchema`) is touched. It existed because the channel decides what the verdict beneath it
-  says, so it had to come *first*, in the panel, not in a row underneath. #56 removes the channel.
+- **The channel is `Settings.values.updateChannel`**, which `UpdatePanel` reads (an absent value
+  falls to its default) and writes from its own segmented control, because the channel decides what
+  the verdict beneath it says and so has to come *first*, in the panel, not in a row underneath. No
+  schema declares the key at present, so the restored subsection must declare it as a `hidden` local
+  setting — otherwise `Settings.setValue` treats it as a backend key. `hidden` keeps a setting out
+  of the RENDERED rows while it is stored, coerced, persisted and readable through `Settings.values`
+  / `valueOf()` like any other — filtered in `Settings::decorateSections`, the rendering boundary, so
+  the empty-subsection drop still counts correctly and nothing that persists a value (all of which
+  walks `m_localSchema`) is touched. #56 removes the channel.
 - **The restart is routed through a signal, not a call.** `restartRequested()` is connected in
   `Main.qml` to `Settings.restartApp()` — the `actionRequested` idiom, and app-level for the
   `SpotifyAuthAlert` reason: a rebuild takes minutes and the user is free to walk back to the

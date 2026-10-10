@@ -224,18 +224,13 @@ set_target_properties(appfrontend_v2 PROPERTIES WIN32_EXECUTABLE TRUE)
 # Includes resolve as "core/..." from main.cpp and as siblings within core/.
 target_include_directories(appfrontend_v2 PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
-# Bake the source directory so AppConfig can locate the repo-root .env even when
-# Qt Creator builds the exe outside the source tree (shadow build) — the cwd/exe
-# walk-up alone never reaches it. Used only to find .env; real environment
-# variables still take precedence, so this absolute dev path is harmless when the
-# directory no longer exists on a deployment target.
 # Stamp the commit this binary was BUILT from. The Options view's update card
 # otherwise has to report the repository's HEAD as "the running version", which
 # stops being true the moment an update checks out a new commit: between the
 # checkout and the app restarting, the repo is at the new version and this
 # process is still the old one. Resolved at configure time, and the build script
-# configures on every run, so it tracks. Empty when git is unavailable, which the
-# card renders as "unknown" rather than as a mismatch.
+# configures on every run, so it tracks. Empty when git is unavailable, which
+# counts as unknown rather than as a mismatch (AppUpdate::restartPending).
 set(FRONTEND_V2_BUILD_COMMIT "")
 find_package(Git QUIET)
 if(Git_FOUND)
@@ -247,6 +242,11 @@ if(Git_FOUND)
         ERROR_QUIET)
 endif()
 
+# Bake the source directory so dotenv can locate the repo-root .env even when
+# Qt Creator builds the exe outside the source tree (shadow build) — the cwd/exe
+# walk-up alone never reaches it. Used only to find .env; real environment
+# variables still take precedence, so this absolute dev path is harmless where
+# the directory does not exist.
 target_compile_definitions(appfrontend_v2 PRIVATE
     FRONTEND_V2_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 
@@ -266,7 +266,7 @@ target_link_libraries(appfrontend_v2
 )
 
 # Static resources (font + icons) exposed at :/resources/... — the same paths
-# the Widgets frontend used, so QML references qrc:/resources/icons/... and the
+# the Widgets frontend uses, so QML references qrc:/resources/icons/... and the
 # application font (main.cpp) loads identically. Kept out of the QML module so
 # the prefix stays /resources rather than /qt/qml/frontend_v2.
 # PROTOTYPE (prototype/weather-view): FMI's SmartSymbol icon set (MIT, see its LICENCE.md),

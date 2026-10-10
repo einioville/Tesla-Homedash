@@ -24,10 +24,10 @@
 #endif
 
 namespace {
-// Global level threshold. Messages below this severity are dropped before any
-// string formatting work. Set by Logger::install() — at runtime too, when the
-// Options view's debug log toggles — while worker threads may be logging, hence
-// atomic.
+// stdout's level threshold. A message below both thresholds is dropped before
+// any string formatting work. Set by Logger::install() and, at runtime when the
+// Options view's log level changes, by setLevels() — while worker threads may be
+// logging, hence atomic.
 std::atomic<Logger::Level> g_threshold{Logger::Level::Info};
 // The log file's own threshold: the same as stdout's, except that the Options
 // view's DEBUG reaches only the file.

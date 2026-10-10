@@ -127,10 +127,11 @@ int main(int argc, char* argv[]) {
     // is subscribed before serverClient.start() fires the first connect.
     NotificationHandler notificationHandler(&teslaData, &serverClient);
     // Inactivity watcher driving the screensaver: installs an app-wide event
-    // filter (needs qApp, already constructed above). Timeout from AppConfig.
+    // filter (needs qApp, already constructed above). Starts at AppConfig's
+    // timeout; Main.qml pushes later changes.
     IdleWatcher idleWatcher(config.screensaverTimeoutMs());
     // Panel power-down, a longer step beyond the screensaver. Driven by the same
-    // activity stream; its settings are bound from Theme in Main.qml, so it stays
+    // activity stream; its settings are pushed from Main.qml, so it stays
     // disarmed until the user enables it. It only DECIDES — backend/display_service
     // does the switching, because system calls belong to the backend.
     ScreenPower screenPower;
@@ -183,8 +184,7 @@ int main(int argc, char* argv[]) {
     // styling (e.g. TripComboBox's themed field / popup / delegate) is written for.
     // Without this the platform default wins: on Windows that's the native style,
     // which refuses ComboBox background/contentItem customization (it warns and
-    // renders native), so the dark theme only took on the Linux target. Must be set
-    // before the engine loads any Controls.
+    // renders native). Must be set before the engine loads any Controls.
     QQuickStyle::setStyle(QStringLiteral("Basic"));
 
     QQmlApplicationEngine engine;

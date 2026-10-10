@@ -81,9 +81,9 @@ void ServerClient::setState(State state) {
 
 void ServerClient::sendPacket(const QByteArray &framed) {
     // Non-blocking write. Qt drains the kernel send buffer on the next event-loop
-    // iteration; control packets are <= 6 bytes so back-pressure never builds. Do
-    // NOT reintroduce flush()/waitForBytesWritten — it caused up to 1s of GUI
-    // stall (and visible click latency) on slow networks.
+    // iteration; outbound packets are commands and short JSON requests, so
+    // back-pressure never builds. Do NOT add flush()/waitForBytesWritten: it
+    // stalls the GUI (and every click) for up to 1 s on a slow network.
     m_socket->write(framed);
     logger.debug(QStringLiteral("Sent outbound packet | size=%1").arg(framed.size()));
 }

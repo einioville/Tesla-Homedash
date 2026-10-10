@@ -119,11 +119,11 @@ void ScreenPower::onPacket(quint8 type, const QByteArray &payload) {
         return;
     }
     const bool available = payload.at(0) != 0;
-    // The wire byte is `on` (1 = lit), the opposite sense of m_off. Read as `off`
-    // it left a lit panel looking dark forever, and onActivity() then sent a
-    // wake request on every single input event (#44).
+    // The wire byte is `on` (1 = lit), the opposite sense of m_off. Read as `off`,
+    // a lit panel looks dark forever and onActivity() sends a wake request on
+    // every single input event (#44).
     const bool off = payload.at(1) == 0;
-    // Optional: a backend from before the fault byte sends two bytes.
+    // Optional: a two-byte payload reads as no fault.
     const int fault = payload.size() >= 3 ? static_cast<quint8>(payload.at(2))
                                           : protocol::DISPLAY_FAULT_NONE;
     if (available == m_available && off == m_off && fault == m_fault) {

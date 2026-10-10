@@ -19,10 +19,9 @@ QString findDotEnv() {
         starts << QCoreApplication::applicationDirPath();
     }
 #ifdef FRONTEND_V2_SOURCE_DIR
-    // Dev builds (Qt Creator shadow build) put the exe outside the source tree,
-    // so the cwd/exe walk-up never reaches the repo .env; the baked source dir
-    // walks up to it. Harmless when the path no longer exists (deploy targets
-    // rely on real environment variables, which take precedence anyway).
+    // A Qt Creator shadow build puts the exe outside the source tree, so the
+    // cwd/exe walk-up never reaches the repo .env; the source dir baked in at
+    // configure time walks up to it. Harmless where that path does not exist.
     starts << QStringLiteral(FRONTEND_V2_SOURCE_DIR);
 #endif
     for (const QString &start : starts) {
@@ -75,8 +74,6 @@ struct Cache {
     QHash<QString, QString> values;
 };
 
-// Loaded on first use and kept for the process lifetime: .env is a startup input
-// that never changes under a running app.
 const Cache &cache() {
     static const Cache instance = [] {
         Cache c;

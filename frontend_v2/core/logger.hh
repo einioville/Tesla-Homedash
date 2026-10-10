@@ -10,11 +10,8 @@
  *
  * Same output format ("LEVEL | YYYY-MM-DD | HH:MM:SS | source | message"),
  * same five severity levels. The destinations are stdout (→ systemd/journald on
- * the Pi) and the app's own size-capped log file (openFile); on Windows the same
- * line is also mirrored to the OutputDebugString
- * debug channel, because GUI-subsystem (WIN32_EXECUTABLE) builds have no console
- * so stdout is invisible in a terminal and in Qt Creator's Application Output.
- * The call-site API
+ * the Pi) and the app's own size-capped log file (openFile); on Windows the line
+ * is also mirrored to OutputDebugString (see Logger::log). The call-site API
  * mirrors the backend's `logger = logging.getLogger("name")` pattern; each core
  * .cpp keeps one file-local instance:
  *
@@ -22,25 +19,19 @@
  *   logger.info(QStringLiteral("Connected to %1:%2").arg(host).arg(port));
  *   logger.warning(QStringLiteral("Truncated payload for stream %1").arg(id));
  *
- * Sources are grouped by subsystem, not by file. The set in use:
- *   app            — application startup / lifecycle (main.cpp, AppConfig)
- *   server_client  — TCP transport (core/serverclient.cpp)
- *   tesla          — Tesla telemetry + HVAC commands (core/tesla/tesladata.cpp)
- *   tesla.history  — Tesla history / graph requests (core/tesla/teslahistory.cpp)
- *   media          — media metadata, transport, cover decode (core/media/mediadata.cpp)
- *   weather        — weather forecast (core/weather/weatherdata.cpp)
- *   notifications  — frontend notifications (core/notification/notificationhandler.cpp)
- *   idle           — inactivity watcher / screensaver (core/idlewatcher.cpp)
- *   qt             — Qt-internal messages (QML/Quick warnings, etc.) via the handler
+ * Sources are named by subsystem, not by file — "app" (main.cpp, AppConfig),
+ * "server_client", "tesla", "settings", … — with a dotted suffix for a sub-area
+ * ("tesla.history", "spotify.auth"). "qt" carries Qt's own messages (QML/Quick
+ * warnings, etc.) via the message handler.
  *
  * The QML UI layer must not log — only the C++ core (data/transport) does.
  *
  * Thread-safe: the media cover-art decode runs on a QtConcurrent worker, so any
- * log site may be reached off the GUI thread; writes to stdout are serialised by
- * a static QMutex.
+ * log site may be reached off the GUI thread; writes to stdout and the file are
+ * serialised by a static QMutex.
  *
- * Logger::install() must be called once from main() before any other log site.
- * It sets the global threshold (drops anything below it) and installs a
+ * Logger::install() must be called from main() before any other log site. It
+ * sets the thresholds (drops anything below them) and installs a
  * qInstallMessageHandler so Qt-internal warnings (QML, Quick, deprecation
  * notices, etc.) flow through this same formatter under the source name "qt".
  */
@@ -51,14 +42,14 @@ public:
     static Logger get(const QString &name);
 
     // Idempotent. Sets the level threshold for stdout AND the log file, and
-    // installs the Qt message handler. Call once from main() (and again once the
-    // configured level is known — INFO first so AppConfig's own logs land, then
-    // the real level).
+    // installs the Qt message handler. main() calls it twice: at INFO first so
+    // AppConfig's own logs land, then at the configured level.
     static void install(Level default_level);
 
-    // The two thresholds apart — the Options view's log level sets them, the
-    // journal (stdout) never below INFO, so DEBUG detail reaches only the file,
-    // matching the backend. Atomic: worker threads may be logging.
+    // The two thresholds apart. main() applies the Options view's log level with
+    // it: the file takes the level as is, the journal (stdout) never goes below
+    // INFO unless the app was started at DEBUG, matching the backend. Atomic:
+    // worker threads may be logging.
     static void setLevels(Level stdoutLevel, Level fileLevel);
 
     // Opens <directory>/frontend.log for appending (rotated at 5 MB, three
@@ -75,7 +66,8 @@ public:
     // bytes freed. The open file is rewritten in place and reopened.
     static qint64 clearFiles(bool keepWarnings);
 
-    // Case-insensitive parse of the names used by AppConfig:
+    // Case-insensitive parse of the level names (TESLA_HOMEDASH_LOG_LEVEL, the
+    // backend's logging.level):
     //   "debug" | "info" | "warning" | "error" | "critical"
     // Anything else returns `fallback`.
     static Level parseLevel(const QString &text, Level fallback);

@@ -10,12 +10,11 @@
 namespace {
 const Logger logger = Logger::get("app");
 
-// --- Basemap tile providers -------------------------------------------------
-// The OSM plugin substitutes %x/%y/%z positionally anywhere in the URL (Qt 6.7+),
-// so a z/y/x provider is driven by ordering the tokens %z/%y/%x; the literal %x
-// also suppresses the plugin's default "%z/%x/%y.png" postfix. Tiles must be
-// EPSG:3857 Web Mercator. Consumed by items/tesla/TeslaMap.qml via the App
-// singleton.
+// Basemap tile providers. The OSM plugin substitutes %x/%y/%z positionally
+// anywhere in the URL (Qt 6.7+), so a z/y/x provider is driven by ordering the
+// tokens %z/%y/%x; the literal %x also suppresses the plugin's default
+// "%z/%x/%y.png" postfix. Tiles must be EPSG:3857 Web Mercator. Consumed by
+// TeslaMap.qml and TripMap.qml via the App singleton.
 
 // EOX Sentinel-2 cloudless — no API key, ~10 m. Keyless default so the map
 // works out of the box.

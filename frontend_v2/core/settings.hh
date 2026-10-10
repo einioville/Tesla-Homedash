@@ -21,11 +21,11 @@ class ServerClient;
  *
  *  - LOCAL settings. Declared in the bundled `:/config/settings.json` schema
  *    (defaults + type + bounds + Finnish label) and persisted as user overrides
- *    to a writable settings.json under QStandardPaths::AppConfigLocation. They
- *    are exposed to QML through `values`, a QQmlPropertyMap, so app/Theme.qml can
- *    bind a token straight to one — `property bool lunaEnabled: Settings.values.lunaEnabled`
- *    — and every existing `Theme.x` call site keeps working unchanged while
- *    gaining live updates. A QQmlPropertyMap (rather than a plain getter) is what
+ *    to frontend_config.json under GenericConfigLocation/Tesla-Homedash/ (or
+ *    TESLA_HOMEDASH_SETTINGS_FILE). They are exposed to QML through `values`, a
+ *    QQmlPropertyMap, so app/Theme.qml can bind a token straight to one —
+ *    `property bool lunaEnabled: Settings.values.lunaEnabled` — and every
+ *    `Theme.x` call site updates live. A QQmlPropertyMap (rather than a plain getter) is what
  *    makes those bindings re-evaluate: it emits per-key change notification.
  *
  *  - BACKEND settings. Received as a schema over CONFIG_SCHEMA (0x91) and written
@@ -34,14 +34,15 @@ class ServerClient;
  *    the backend re-broadcasts the authoritative schema after every accepted
  *    write, which is what updates the view.
  *
- * `groups` concatenates both into one UI description, each entry tagged with an
- * `origin` of "local" or "backend", so SettingsView renders them with a single
- * delegate family.
+ * `groups` merges both into one UI description by group id, each subsection and
+ * setting tagged with an `origin` of "local" or "backend", so SettingsView
+ * renders them with a single delegate family.
  *
  * Construction order matters (see main.cpp): Settings is built FIRST, before
- * AppConfig, because AppConfig consults it for backendHost / backendPort — a user
- * override has to beat the environment. The socket does not exist yet at that
- * point, so the CONFIG_* wiring is deferred to attachServer().
+ * AppConfig, because AppConfig consults it for backendHost / backendPort /
+ * screensaverTimeoutMin — a user override has to beat the environment. The
+ * socket does not exist yet at that point, so the CONFIG_* wiring is deferred to
+ * attachServer().
  *
  * Registered with the QML engine as the singleton `Settings`.
  */
@@ -49,8 +50,9 @@ class Settings : public QObject {
     Q_OBJECT
     // Local settings only, keyed by setting key. Bound to from app/Theme.qml.
     Q_PROPERTY(QQmlPropertyMap *values READ values CONSTANT)
-    // Unified UI description: local groups followed by the backend's, each
-    // setting carrying its current value, bounds, label and origin.
+    // Unified UI description: the local groups with the backend's subsections
+    // folded in by id, then any backend-only groups; each setting carries its
+    // current value, bounds, label and origin.
     Q_PROPERTY(QVariantList groups READ groups NOTIFY groupsChanged)
     // True when a restart-tier BACKEND setting currently differs from the value
     // the running backend process consumed — drives the "restart required"
@@ -65,8 +67,7 @@ class Settings : public QObject {
     // another setting's value through valueOf() must read this: an invokable
     // call captures no property, so the binding would otherwise never re-run.
     Q_PROPERTY(int valuesRevision READ valuesRevision NOTIFY groupsChanged)
-    // Absolute path of the writable settings file, shown in the view's footer so
-    // the file is findable on the device.
+    // Absolute path of the writable settings file.
     Q_PROPERTY(QString storagePath READ storagePath CONSTANT)
     // The same for the BACKEND's config.json, as reported in its schema document.
     // Not CONSTANT: it is unknown until a schema arrives, and it can change when
@@ -163,22 +164,19 @@ private:
     QVariantList m_groups;
     // key -> the schema entry, for validation and default lookup on write.
     QHash<QString, QJsonObject> m_localSchema;
-    // Keys the user has explicitly overridden; only these are written to disk, so
-    // a default that changes in a later release still reaches existing installs.
+    // Keys the user has explicitly overridden; only these are written to disk
+    // (saveLocalValues).
     QSet<QString> m_overridden;
     // Flat key -> current value for the backend half, rebuilt per schema, so a
     // relevantWhen rule or a restart diff resolves a dotted key in O(1) rather
     // than walking groups -> sections -> settings for every lookup.
     QHash<QString, QVariant> m_backendValues;
     // Startup values of the restart-tier settings, per half: what the running
-    // process actually consumed. "Pending" is derived as "current != this", so
-    // reverting a value clears the banner instead of latching it forever.
+    // process actually consumed. "Pending" is derived as "current != this".
     QHash<QString, QVariant> m_localRestartBaseline;
     QHash<QString, QVariant> m_backendRestartBaseline;
     // The backend's `startedAt`. A CHANGE means it restarted, so its baseline is
-    // stale and gets re-seeded; an unchanged one (a reconnect after a blip, or
-    // the re-broadcast after a write) must NOT re-seed, or a still-pending
-    // change would silently stop being reported.
+    // re-seeded (parseBackendSchema).
     qint64 m_backendStartedAt = 0;
     int m_valuesRevision = 0;
 

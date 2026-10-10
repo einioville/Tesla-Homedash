@@ -223,8 +223,8 @@ void Settings::loadLocalSchema() {
         }
 
         // Carry every group-level key except "sections" (rebuilt above) rather
-        // than naming them one by one — the sidebar icon was the first extra
-        // field, and the next one should not need a code change. A group with no
+        // than naming them one by one (icon, view, sectionOrder, …), so a new
+        // group-level field needs no code change here. A group with no
         // subsections at all is kept: it is the placeholder that fixes a
         // backend-only section's position, label and icon.
         QVariantMap groupMap = group.toVariantMap();
@@ -361,9 +361,8 @@ QVariant Settings::coerceLocal(const QJsonObject &setting, const QVariant &value
             return {};
         }
         const QString text = value.toString().trimmed();
-        // A nullable string may be cleared back to "not configured" — for the
-        // screensaver folder that is the difference between "no photos" and a
-        // directory literally named "".
+        // A nullable string may be cleared back to "not configured" rather than
+        // stored as a literal "".
         if (text.isEmpty() && !setting.value(QStringLiteral("nullable")).toBool()) {
             *error = QStringLiteral("arvo ei voi olla tyhjä");
             return {};
@@ -483,16 +482,13 @@ QVariantList Settings::decorateSections(const QVariantList &sections, bool local
         const QVariantList entries = section.value(QStringLiteral("settings")).toList();
         for (const QVariant &entryValue : entries) {
             QVariantMap entry = entryValue.toMap();
-            // A "hidden" entry is stored, coerced, persisted and readable through
+            // A "hidden" entry is stored, validated and readable through
             // values/valueOf exactly like any other — it is only kept out of the
-            // RENDERED list, because its editor lives inside the subsection's
-            // status widget rather than in a row of its own. The update channel
-            // is the case this exists for: it decides what that card reports, so
-            // it has to sit above the verdict rather than in a row underneath it,
-            // and a two-way choice on a touch panel is a segmented control, not a
-            // dropdown. Filtered HERE, at the rendering boundary, so the
-            // empty-subsection drop below still counts correctly and everything
-            // that persists a value (which walks m_localSchema) is untouched.
+            // RENDERED list: a value only a flow sets (the backend's
+            // logging.debugMinutes and Spotify device keys). Filtered HERE, at
+            // the rendering boundary, so the empty-subsection drop below still
+            // counts correctly and everything that persists a value (which walks
+            // m_localSchema) is untouched.
             if (entry.value(QStringLiteral("hidden")).toBool()) {
                 continue;
             }
@@ -546,8 +542,8 @@ void Settings::rebuildGroups() {
         sections = orderSections(
             sections, group.value(QStringLiteral("sectionOrder")).toStringList());
         // Empty means a placeholder that exists only to fix this group's
-        // position and name (media / tesla hold no local settings of their own),
-        // and its backend half has not arrived — hide it rather than show an
+        // position and name (electricity / tesla hold no local settings of their
+        // own), and its backend half has not arrived — hide it rather than show an
         // empty section. A group naming a `view` is the exception: it renders a
         // screen of its own instead of settings cards (Järjestelmän tila).
         if (sections.isEmpty() && group.value(QStringLiteral("view")).toString().isEmpty()) {
@@ -657,11 +653,10 @@ void Settings::requestBackendRestart() {
     }
     logger.info(QStringLiteral("Requesting backend restart"));
     m_server->sendPacket(protocol::frame(protocol::CONFIG_RESTART));
-    // A current backend stamps every schema with startedAt, so the banner clears
-    // by itself when the RESTARTED process's schema arrives — strictly more
-    // honest than clearing here, which would hide the change if the restart never
-    // happened. Only an older backend that sends no stamp needs the optimistic
-    // clear this used to do unconditionally.
+    // The backend stamps every schema with startedAt, so the banner clears by
+    // itself when the RESTARTED process's schema arrives — more honest than
+    // clearing here, which would hide the change if the restart never happened.
+    // Only a schema with no stamp falls back to clearing optimistically.
     if (m_backendStartedAt == 0 && !m_backendRestartBaseline.isEmpty()) {
         m_backendRestartBaseline.clear();
         refreshBackendRestartPending();
@@ -735,9 +730,8 @@ void Settings::parseBackendSchema(const QByteArray &payload) {
     rebuildBackendValueIndex();
     refreshBackendRestartPending();
 
-    // Optional: an older backend sends no path. Only overwrite when one is
-    // present, so a malformed or partial document cannot blank a path the view
-    // is already showing.
+    // Optional in the document. Only overwrite when one is present, so a
+    // malformed or partial document cannot blank a path already known.
     const QString path = schema.value(QStringLiteral("path")).toString();
     if (!path.isEmpty()) {
         m_backendStoragePath = path;

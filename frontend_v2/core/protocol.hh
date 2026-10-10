@@ -20,8 +20,8 @@
  * are the contract between the asyncio backend and this client. All multi-byte
  * integers on the wire are big-endian.
  *
- * Inbound frames are reassembled and stripped in ServerClient; frame() here is
- * the single place OUTBOUND packets are built (commands in later stages).
+ * Inbound frames are reassembled and stripped in ServerClient; outbound ones
+ * are built with frame() below.
  */
 namespace protocol {
 
@@ -62,15 +62,14 @@ inline constexpr quint8 TESLA_MINUS_TARGET_TEMP = 0x61;
 inline constexpr quint8 TESLA_PLUS_TARGET_TEMP = 0x62;
 
 // The Options view's telemetry-field table (issue #29). JSON bodies; status bytes
-// are CONFIG_STATUS_*. Keep in lockstep with protocol.py.
+// are CONFIG_STATUS_*.
 inline constexpr quint8 TESLA_GET_PROPERTY_TABLE = 0x63;    // F->B: (empty)
 inline constexpr quint8 TESLA_PROPERTY_TABLE = 0x64;        // B->F: status(1B) + len(4B) + JSON {properties}
 inline constexpr quint8 TESLA_SET_PROPERTY = 0x65;          // F->B: len(4B) + JSON {id, field, value}
 inline constexpr quint8 TESLA_SET_PROPERTY_RESULT = 0x66;   // B->F: status(1B) + len(4B) + JSON {ok, id, field, value, message}
 
-// History request/response (the History view). A request/response pair: the
-// backend replies to this client only (not a broadcast). Keep in lockstep with
-// protocol.py.
+// History request/response (the History view): the backend replies to this
+// client only (not a broadcast).
 inline constexpr quint8 TESLA_GET_GRAPH_PROPERTIES = 0x70;  // F->B: request graphable-property list (empty)
 inline constexpr quint8 TESLA_GRAPH_PROPERTIES = 0x71;      // B->F: count(2B) + per property id/unit/category/line_mode (len(2B)+UTF-8) + zero_based(1B)
 inline constexpr quint8 TESLA_GET_HISTORY = 0x72;           // F->B: range_code(1B) + id(len(2B)+UTF-8) + start_ms(8B) + end_ms(8B)
@@ -79,7 +78,7 @@ inline constexpr quint8 TESLA_HISTORY = 0x73;               // B->F: id(len(2B)+
 // Trip request/response (the Trips view). Contiguous with the History codes and,
 // like them, a request/response pair — the backend replies to this client only.
 // A trip's natural key is its start_ms, echoed in TRIP_DETAIL so a stale reply
-// (after switching trip) can be discarded. Keep in lockstep with protocol.py.
+// (after switching trip) can be discarded.
 inline constexpr quint8 TRIP_GET_LIST = 0x74;    // F->B: start_ms(8B) + end_ms(8B)
 inline constexpr quint8 TRIP_LIST = 0x75;        // B->F: req_start_ms(8B) + req_end_ms(8B) + count(2B) + count*(start_ms(8B) + end_ms(8B) + distance_km(8B double))
 inline constexpr quint8 TRIP_GET_DETAIL = 0x76;  // F->B: start_ms(8B) + end_ms(8B)
@@ -97,7 +96,7 @@ inline constexpr quint8 TRIP_SERIES = 0x7D;       // B->F: trip_id(8B) + id(len(
 
 // MyEnergi (Zappi) charger live stream (backend -> frontend broadcast). A sequence of
 // (sub_id(1B) + value) pairs; each fixed-width sub_id implies its value width. The one
-// variable-width sub_id, CHARGER_RAW_JSON, is length-prefixed (4B). Mirror of protocol.py.
+// variable-width sub_id, CHARGER_RAW_JSON, is length-prefixed (4B).
 inline constexpr quint8 CHARGER_STREAM = 0x50;
 inline constexpr quint8 CHARGER_STATUS = 0x51;            // uint8 (CHARGER_STATUS_*)
 inline constexpr quint8 CHARGER_PLUG_STATUS = 0x52;       // uint8 (CHARGER_PLUG_*)
@@ -132,7 +131,7 @@ inline constexpr quint8 CHARGER_MODE_ECO_PLUS = 3;
 inline constexpr quint8 CHARGER_MODE_STOPPED = 4;
 
 // Charging-losses / month request/response + charger telemetry history (the Charging
-// view). All replied to this client only. Keep in lockstep with protocol.py.
+// view). All replied to this client only.
 inline constexpr quint8 CHARGING_GET_LIST = 0x80;    // F->B: start_ms(8B) + end_ms(8B)
 inline constexpr quint8 CHARGING_LIST = 0x81;        // B->F: req_start(8B)+req_end(8B)+count(2B)+count*(start(8B)+end(8B)+charger_kwh(8B))
 inline constexpr quint8 CHARGING_GET_SUMMARY = 0x82; // F->B: start_ms(8B) + end_ms(8B)
@@ -142,14 +141,14 @@ inline constexpr quint8 CHARGING_MONTH = 0x85;       // B->F: status(1B) + 13*do
 inline constexpr quint8 CHARGER_GET_HISTORY = 0x86;  // F->B: range_code(1B)+id(len(2B)+UTF-8)+start(8B)+end(8B)
 inline constexpr quint8 CHARGER_HISTORY = 0x87;      // B->F: id(len(2B)+UTF-8)+status(1B)+count(4B)+count*(ts(8B)+value(8B double))
 
-// Live Nord Pool spot price broadcast (the Charging view's current-price tile). Mirror of
-// protocol.py: status 0 => no price (fields NaN), else 1. spot is raw wholesale €/kWh,
+// Live Nord Pool spot price broadcast (the Charging view's current-price tile).
+// Status 0 => no price (fields NaN), else 1. spot is raw wholesale €/kWh,
 // allIn the VAT+margin estimate; hourStartMs is the UTC start of the priced hour.
 inline constexpr quint8 SPOT_PRICE_STREAM = 0x88;    // B->F: status(1B)+hour_start_ms(8B)+spot(8B double)+all_in(8B double)
 
-// Runtime configuration (the Options view). Mirror of protocol.py: a request/response
-// pair plus one command. Both JSON bodies are len(4B) + UTF-8 (the CHARGER_RAW_JSON
-// idiom) because the schema is variable-shaped and these packets are rare. A successful
+// Runtime configuration (the Options view): a request/response pair plus two
+// commands. Both JSON bodies are len(4B) + UTF-8 (the CHARGER_RAW_JSON idiom)
+// because the schema is variable-shaped and these packets are rare. A successful
 // CONFIG_SET replies CONFIG_SET_RESULT to this client AND broadcasts a fresh
 // CONFIG_SCHEMA to every client, so a second frontend refreshes its values.
 inline constexpr quint8 CONFIG_GET_SCHEMA = 0x90;  // F->B: (empty)
@@ -163,7 +162,7 @@ inline constexpr quint8 HOST_REBOOT = 0x95;        // F->B: (empty) — reboot t
 inline constexpr quint8 CONFIG_STATUS_ERROR = 0;
 inline constexpr quint8 CONFIG_STATUS_OK = 1;
 
-// History request range codes (mirror the backend _RANGE_* and the QML RangeSelector)
+// History request range codes (also used as literals by the QML RangeSelector)
 inline constexpr quint8 HISTORY_RANGE_1H = 0;
 inline constexpr quint8 HISTORY_RANGE_1D = 1;
 inline constexpr quint8 HISTORY_RANGE_1M = 2;
@@ -233,8 +232,8 @@ inline constexpr quint8 LOG_CLEAR_RESULT = 0xB7;    // B->F: status(1B) + len(4B
 // switching, because system calls belong to the backend.
 inline constexpr quint8 DISPLAY_SET_POWER = 0xC0;
 inline constexpr quint8 DISPLAY_POWER_STATE = 0xC1;
-// DISPLAY_POWER_STATE's third byte. Optional on the wire: an older backend sends
-// two bytes, which reads as NONE.
+// DISPLAY_POWER_STATE's third byte. Optional on the wire: a two-byte payload
+// reads as NONE.
 inline constexpr quint8 DISPLAY_FAULT_NONE = 0;
 inline constexpr quint8 DISPLAY_FAULT_REFUSED = 1;
 inline constexpr quint8 DISPLAY_FAULT_OUTPUT_LOST = 2;
@@ -373,9 +372,9 @@ inline QByteArray historyRequestBody(quint8 rangeCode, const QString &id, qint64
 }
 
 /**
- * The series block of TESLA_HISTORY, CHARGER_HISTORY and TRIP_SERIES (protocol.py
- * _pack_series): status(1B) + count(4B) + count x (ts_ms i64, value f64). Status 0
- * means no data and carries no points.
+ * The series block of TESLA_HISTORY, CHARGER_HISTORY and TRIP_SERIES
+ * (start_services.py _pack_series): status(1B) + count(4B) + count x (ts_ms i64,
+ * value f64). Status 0 means no data and carries no points.
  */
 struct Series {
     quint8 status = 0;

@@ -7,7 +7,7 @@
 
 #include <limits>
 
-/** The axis bounds a static history graph is drawn over. */
+/** The axis bounds a history graph is drawn over, static or live. */
 struct SeriesBounds {
     double minX = 0.0;
     double maxX = 1.0;
