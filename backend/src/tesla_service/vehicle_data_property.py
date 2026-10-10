@@ -5,7 +5,6 @@ from sympy import symbols, sympify
 from influxdb_client import Point, WritePrecision
 import datetime
 from datetime import timezone
-from json import dumps
 import struct
 from zoneinfo import ZoneInfo
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -415,18 +414,6 @@ class VehicleDataProperty:
             # expected, malformed timestamp.  Anything else should surface.
             logger.error("Failed to create InfluxDB point for %s: %s: %s", self.__id, type(e).__name__, e)
             return
-
-    async def get_as_json(self) -> str:
-        async with self._async_lock:
-            data = {
-                "id": self.__id,
-                "category": self.__category,
-                "unit": self.__unit,
-                "value": self._value,
-                "value_type": self.__value_type,
-                "timestamp": self.__timestamp,
-            }
-            return dumps(data)
 
     async def get_as_dict(self) -> dict:
         async with self._async_lock:

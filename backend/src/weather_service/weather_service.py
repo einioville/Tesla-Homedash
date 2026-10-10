@@ -57,13 +57,8 @@ _HARMONIE_QUERY = "fmi::forecast::harmonie::surface::point::multipointcoverage"
 
 
 class ForecastMeasurement:
-    def __init__(self, name, value, unit: None):
-        self.__name = name
+    def __init__(self, value):
         self.__value = value
-        self.__unit = unit
-
-    def get_name(self):
-        return self.__name
 
     def get_value(self):
         '''
@@ -80,9 +75,6 @@ class ForecastMeasurement:
         except (TypeError, ValueError):
             return 0.0
 
-    def get_unit(self):
-        return self.__unit
-
 
 class ForecastHour:
     def __init__(self, time: datetime, data: dict, display_tz: ZoneInfo):
@@ -97,16 +89,11 @@ class ForecastHour:
                 non-Helsinki timezone in config.
         '''
         # Treat incoming time as UTC and convert to the configured display tz
-        self.__time = time.replace(tzinfo=ZoneInfo("UTC"))
-        self.__time = self.__time.astimezone(display_tz)
-        self.__hours = self.__time.hour
-        self.__time = self.__time.strftime("%H")
+        self.__hours = time.replace(tzinfo=ZoneInfo("UTC")).astimezone(display_tz).hour
 
         self.__data = {}
         for name, value in data.items():
-            self.__data[name] = ForecastMeasurement(
-                name=name, value=value["value"], unit=value["units"]
-            )
+            self.__data[name] = ForecastMeasurement(value["value"])
 
     def get_value(self, key: str, default: float = 0.0) -> float:
         '''

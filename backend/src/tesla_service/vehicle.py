@@ -6,7 +6,6 @@ from ..utils.config_parser import Config
 from .vehicle_data_property import VehicleDataProperty, CalculatedVehicleDataProperty
 from ..influxdb_service.influxdb_handler import InfluxDBHandler
 from ..server.server import Server
-from json import dumps
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 import aiohttp
@@ -435,23 +434,6 @@ class Vehicle:
     async def get_data_property(self, id: str) -> VehicleDataProperty:
         async with self.__async_lock:
             return self.__data[id]
-
-    async def get_data_properties(self, ids: list) -> list:
-        data_properties = []
-        for id in ids:
-            data_properties.append(await self.get_data_property(id))
-        return data_properties
-
-    async def get_data_property_as_json(self, id: str) -> str:
-        async with self.__async_lock:
-            return self.__data[id].as_json()
-
-    async def get_data_properties_as_json(self, ids: list) -> str:
-        async with self.__async_lock:
-            data = []
-            for id in ids:
-                data.append(await self.__data[id].get_as_dict())
-            return dumps(data)
 
     async def get_first_data_this_month(self, data_property_id: str) -> None:
         return await self.__influx_handler.read_first_value_month(data_property_id)
