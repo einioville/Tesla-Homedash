@@ -217,7 +217,7 @@ class SpotifyDeviceService:
             await self.__reply_result(writer, False, str(e), "", "", 0)
             return
 
-        scan_id = self.__scan_id_of(request)
+        scan_id = protocol.request_epoch(request, "scanId")
         try:
             device_id = self.__device_id_of(request)
         except ValueError as e:
@@ -573,22 +573,7 @@ class SpotifyDeviceService:
     # ── Internals ─────────────────────────────────────────────────
 
     @staticmethod
-    def __scan_id_of(request: dict) -> int:
-        '''
-        Reads the frontend's scan epoch out of a request.  Anything missing or
-        malformed reads as 0 — the epoch is a fence against late packets, not a
-        credential, and a frame that cannot carry one must not crash a handler.
-        (bool is a subclass of int in Python, so it is rejected explicitly.)
-        Arguments:
-            request (dict): The parsed request document.
-        '''
-        value = request.get("scanId")
-        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-            return 0
-        return value
-
-    @classmethod
-    def __parse_scan_id(cls, payload: bytes) -> int:
+    def __parse_scan_id(payload: bytes) -> int:
         '''
         Reads the scan epoch out of a SPOTIFY_DEVICE_SCAN_START body.  Tolerant
         by design: an unreadable body starts a scan at epoch 0 rather than
@@ -602,7 +587,7 @@ class SpotifyDeviceService:
         except ValueError as e:
             logger.debug("Scan start without a readable scanId: %s", e)
             return 0
-        return cls.__scan_id_of(request)
+        return protocol.request_epoch(request, "scanId")
 
     @staticmethod
     def __device_id_of(request: dict) -> str:

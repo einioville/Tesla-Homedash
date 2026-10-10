@@ -255,7 +255,7 @@ class UsbImportService:
         request = self.__decode(payload, "USB_IMPORT_LIST")
         if request is None:
             return
-        flow_id = self.__flow_id_of(request)
+        flow_id = protocol.request_epoch(request, "flowId")
         if self.__copying():
             await self.__server.send_to(writer, self.__frame(dict(
                 self.__fresh_state(), flowId=flow_id, phase="error",
@@ -555,19 +555,7 @@ class UsbImportService:
             request (dict): The parsed request.
             writer (StreamWriter): The client that sent it.
         '''
-        return writer is self.__writer and self.__flow_id_of(request) == self.__flow_id
-
-    @staticmethod
-    def __flow_id_of(request: dict) -> int:
-        '''
-        Reads the frontend's flow epoch; anything missing or malformed reads as 0.
-        Arguments:
-            request (dict): The parsed request.
-        '''
-        value = request.get("flowId")
-        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-            return 0
-        return value
+        return writer is self.__writer and protocol.request_epoch(request, "flowId") == self.__flow_id
 
     @staticmethod
     def __decode(payload: bytes, label: str):

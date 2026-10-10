@@ -15,9 +15,9 @@ import tempfile
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from src.config_service.config_service import ConfigService  # noqa: E402
-from src.media_service.spotify_device_service import SpotifyDeviceService  # noqa: E402
 from src.update_service.update_service import UpdateService  # noqa: E402
-from src.usb_import_service.usb_import_service import UsbImportService, screensaver_dir  # noqa: E402
+from src.usb_import_service.usb_import_service import screensaver_dir  # noqa: E402
+from src.utils import protocol  # noqa: E402
 from src.utils.config_parser import Config, default_config_path  # noqa: E402
 
 TEMPLATE = os.path.join(os.path.dirname(__file__), "..", "..", "config_template.json")
@@ -39,14 +39,10 @@ def test_config_folder_follows_xdg():
 
 
 def test_request_epochs():
-    readers = (
-        lambda value: UsbImportService._UsbImportService__flow_id_of({"flowId": value}),
-        lambda value: SpotifyDeviceService._SpotifyDeviceService__scan_id_of({"scanId": value}),
-    )
-    for read in readers:
+    for key in ("flowId", "scanId"):
+        read = lambda value, key=key: protocol.request_epoch({key: value}, key)  # noqa: E731
         assert [read(v) for v in (7, 0, -1, True, "7", 2.0, None)] == [7, 0, 0, 0, 0, 0, 0]
-    assert UsbImportService._UsbImportService__flow_id_of({}) == 0
-    assert SpotifyDeviceService._SpotifyDeviceService__scan_id_of({}) == 0
+        assert protocol.request_epoch({}, key) == 0
 
 
 class _Server:

@@ -418,6 +418,23 @@ def json_frame(msg_type: int, status: int, document, compact: bool = False) -> b
     return frame(msg_type, bytes((status,)) + struct.pack("!I", len(body)) + body)
 
 
+def request_epoch(request: dict, key: str) -> int:
+    '''
+    Reads the flow epoch a request carries (the scan's scanId, the USB import's
+    flowId).  Anything missing or malformed reads as 0 — the epoch is a fence
+    against late packets, not a credential, and a frame that cannot carry one
+    must not crash a handler.  (bool is a subclass of int, so it is rejected
+    explicitly.)
+    Arguments:
+        request (dict): The parsed request document.
+        key (str): The epoch's field name.
+    '''
+    value = request.get(key)
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        return 0
+    return value
+
+
 def parse_json_body(payload: bytes) -> dict:
     '''
     Unpacks a len(4B) + UTF-8 JSON object request body.  Bytes past the
