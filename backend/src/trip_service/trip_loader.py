@@ -10,10 +10,12 @@ returned. All InfluxDB access is delegated to the injected InfluxDBHandler.
 '''
 import logging
 import math
+from functools import partial
 
 import numpy as np
 
 from ..influxdb_service.influxdb_handler import to_flux_time
+from ..utils.timeline import collapse_transitions, segment
 from .trip import Trip
 
 logger = logging.getLogger("trip_service.trip_loader")
@@ -22,89 +24,10 @@ logger = logging.getLogger("trip_service.trip_loader")
 # state as "ShiftState<P|R|N|D>"; anything other than Park counts as driving.
 PARK_STATE = "ShiftStateP"
 
-
-def collapse_transitions(history: list) -> list:
-    '''
-    Collapses consecutive identical Gear readings into transitions. Logged fields are
-    written on every telemetry event (not only on change), so the raw history repeats
-    the held value; only the points where it changes are real transitions. Pure logic
-    (no I/O) — the testable core of detection.
-    Arguments:
-        history (list): [(timestamp_ms, gear_str), ...] ascending by time.
-    Returns:
-        list: The same shape, with runs of identical gear reduced to their first point.
-    '''
-    collapsed = []
-    previous = None
-    for timestamp_ms, gear in history:
-        if gear != previous:
-            collapsed.append((timestamp_ms, gear))
-            previous = gear
-    return collapsed
-
-
-def segment_trips(
-    transitions: list, held_before, start_ms: int, end_ms: int, threshold_ms: int
-) -> list:
-    '''
-    Turns a collapsed Gear timeline into trip windows. Walks the timeline as contiguous
-    [from, to) intervals per held gear, treating any non-Park gear as driving. A Park
-    interval shorter than threshold_ms is absorbed into the surrounding trip; a longer
-    one (or the window end) closes the trip. Pure logic (no I/O) — the testable core.
-    Arguments:
-        transitions (list): Collapsed [(timestamp_ms, gear_str), ...].
-        held_before (str | None): The Gear held just before start_ms, or None if
-            nothing was logged before the window. A non-Park held state captures a trip
-            already under way at the window boundary.
-        start_ms (int): Window start, epoch-ms UTC.
-        end_ms (int): Window end, epoch-ms UTC.
-        threshold_ms (int): Park duration at/above which a stop ends a trip.
-    Returns:
-        list: [(window_start_ms, window_end_ms, in_progress), ...].
-    '''
-    if not transitions:
-        return []
-
-    # State governing the timeline from the window start. If a value was held before
-    # the window, use it; otherwise assume Park (don't fabricate a drive we can't bound).
-    start_state = held_before if held_before is not None else PARK_STATE
-    sequence = [(start_ms, start_state)]
-    for timestamp_ms, gear in transitions:
-        if timestamp_ms > start_ms:
-            sequence.append((timestamp_ms, gear))
-    # Re-collapse in case the synthetic start state equals the first transition.
-    sequence = collapse_transitions(sequence)
-
-    windows = []
-    trip_start = None
-    last_drive_end = None
-
-    for index, (segment_start, gear) in enumerate(sequence):
-        segment_end = sequence[index + 1][0] if index + 1 < len(sequence) else end_ms
-        is_driving = gear != PARK_STATE
-
-        if is_driving:
-            if trip_start is None:
-                trip_start = segment_start
-            last_drive_end = segment_end
-        elif trip_start is not None:
-            # A Park interval while a trip is open.
-            park_duration = segment_end - segment_start
-            if park_duration >= threshold_ms:
-                windows.append((trip_start, last_drive_end, False))
-                trip_start = None
-                last_drive_end = None
-            # Shorter stop: leave the trip open; the next drive segment extends
-            # last_drive_end across this absorbed stop.
-
-    if trip_start is not None:
-        # No long-enough closing Park was seen inside the window. If the last segment
-        # was a drive reaching the window end, the car is still driving (in progress);
-        # otherwise close at the last observed movement.
-        in_progress = last_drive_end == end_ms
-        windows.append((trip_start, last_drive_end, in_progress))
-
-    return windows
+# A trip is a run out of Park; with nothing logged before the window the car is
+# assumed parked.
+segment_trips = partial(segment, is_active=lambda gear: gear != PARK_STATE,
+                        idle_state=PARK_STATE)
 
 
 def _window_distance(odometer, window_start_ms: int, window_end_ms: int) -> float:

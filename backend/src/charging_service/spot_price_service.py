@@ -23,11 +23,9 @@ from apscheduler.triggers.cron import CronTrigger
 from ..server.server import Server
 from ..utils import protocol
 from ..utils.config_parser import Config
-from .spot_price import SpotPriceProvider
+from .spot_price import _HOUR_MS, SpotPriceProvider, _hour_floor_ms
 
 logger = logging.getLogger("charging_service.spot_price_service")
-
-_HOUR_MS = 3_600_000
 
 
 def _build_spot_price_frame(hour_start_ms: int, spot_eur_per_kwh, all_in_eur_per_kwh) -> bytes:
@@ -84,7 +82,7 @@ class SpotPriceService:
         # Pre-warm a today+tomorrow window so the hourly broadcasts (and the on-demand cost
         # path) mostly hit the cache; tomorrow's prices publish early afternoon.
         now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
-        hour_ms = (now_ms // _HOUR_MS) * _HOUR_MS
+        hour_ms = _hour_floor_ms(now_ms)
         await self.__provider.prices_for_range(hour_ms, hour_ms + 47 * _HOUR_MS)
         await self.__broadcast_current()
         self.__scheduler.start()
@@ -120,7 +118,7 @@ class SpotPriceService:
         rather than a stale value.
         '''
         now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
-        hour_ms = (now_ms // _HOUR_MS) * _HOUR_MS
+        hour_ms = _hour_floor_ms(now_ms)
         all_in = await self.__provider.price_at(now_ms)
         spot = self.__provider.raw_price_at(now_ms)
         self.__last_frame = _build_spot_price_frame(hour_ms, spot, all_in)

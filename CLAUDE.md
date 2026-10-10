@@ -96,11 +96,13 @@ backend/                          # ★ orchestration, service contracts, .env +
                                   #   udisksctl mount, copy into ~/.config/Tesla-Homedash/screensaver
     influxdb_service/             # ★
       influxdb_handler.py         # Async InfluxDB client — telemetry write + Flux history reads
+      series.py                   # delta/first/last/positive_increment over a history read
     utils/                        # ★
       config_parser.py            # Config (config.json) + get_env (.env)
       protocol.py                 # Binary protocol constants + frame() — single source of truth
       process.py                  # run(): every run-to-completion subprocess, timeout kill + reap
       atomic_write.py             # write_atomic(): every whole-file rewrite (temp + fsync + replace)
+      timeline.py                 # collapse_transitions() + segment(): trips and charging sessions
       logger_configurator.py      # Shared stdout logging setup
     ui/plot/
       dataplot.py                 # Optional standalone PySide6/pyqtgraph plot (not used at runtime)

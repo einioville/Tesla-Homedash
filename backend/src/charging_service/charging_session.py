@@ -32,11 +32,11 @@ import math
 import numpy as np
 
 from ..influxdb_service.influxdb_handler import to_flux_time
-from .spot_price import price_hourly_energy
+from ..influxdb_service.series import delta, first, last, positive_increment, series_values
+from .spot_price import _HOUR_MS, price_hourly_energy
 
 logger = logging.getLogger("charging_service.charging_session")
 
-_HOUR_MS = 3_600_000
 
 # InfluxDB "id" tags this module reads. The charger ids are written by
 # MyEnergiService under the "myenergi_data" measurement; the tesla ids are logged by
@@ -48,46 +48,10 @@ BATTERY_ENERGY_ID = "EnergyRemaining"    # tesla: energy currently in the pack (
 SOC_ID = "BatteryLevel"                  # tesla: state of charge (%)
 
 
-def _series_values(result):
-    '''
-    Extracts the values array from a read result tuple (count, timestamps_ms,
-    values), or None if the result is empty/missing.
-    Arguments:
-        result (tuple | None): The (count, timestamps, values) triple or None.
-    '''
-    if result is None:
-        return None
-    count, _timestamps, values = result
-    if count == 0 or len(values) == 0:
-        return None
-    return values
-
-
-def _delta(result) -> float:
-    '''Last minus first value of a series (a lifetime-counter delta), or NaN.'''
-    values = _series_values(result)
-    if values is None:
-        return float("nan")
-    return float(values[-1] - values[0])
-
-
-def _positive_increment(result) -> float:
-    '''
-    Sum of an accumulator series' positive increments over the read window (kWh) — the
-    energy delivered, robust to the accumulator carrying a non-zero value into the window
-    or resetting inside it (a plain in-window max over-counts both cases). NaN when the
-    series has fewer than two samples (nothing to difference).
-    '''
-    values = _series_values(result)
-    if values is None or len(values) < 2:
-        return float("nan")
-    return float(np.clip(np.diff(values), 0.0, None).sum())
-
-
 def bucket_positive_increments_by_hour(timestamps_ms, values) -> dict:
     '''
     Buckets an accumulator series' positive increments (kWh) by the UTC hour they fell in —
-    the per-hour version of _positive_increment, so charging energy can be priced against
+    the per-hour version of positive_increment, so charging energy can be priced against
     each hour's spot price. Each increment (ChargeAdded step between two samples) is
     attributed to the UTC hour of the *later* sample; since ChargeAdded is logged ~10 s
     apart while charging, an interval almost never straddles an hour boundary, so no
@@ -110,18 +74,6 @@ def bucket_positive_increments_by_hour(timestamps_ms, values) -> dict:
             key = int(hour)
             result[key] = result.get(key, 0.0) + float(increment)
     return result
-
-
-def _first(result) -> float:
-    '''First value of a series, or NaN if empty/missing.'''
-    values = _series_values(result)
-    return float(values[0]) if values is not None else float("nan")
-
-
-def _last(result) -> float:
-    '''Last value of a series, or NaN if empty/missing.'''
-    values = _series_values(result)
-    return float(values[-1]) if values is not None else float("nan")
 
 
 def _diff(a: float, b: float) -> float:
@@ -273,7 +225,7 @@ class ChargingSession:
         charger = await self.__influx.read_charger_data_property(
             CHARGER_ENERGY_ID, start_iso, end_iso
         )
-        self.__charger_kwh = _positive_increment(charger)
+        self.__charger_kwh = positive_increment(series_values(charger))
         return self.__charger_kwh
 
     async def summary(self) -> dict:
@@ -300,9 +252,9 @@ class ChargingSession:
         battery = await self.__influx.read_tesla_data_property(BATTERY_ENERGY_ID, start_iso, end_iso)
         soc = await self.__influx.read_tesla_data_property(SOC_ID, start_iso, end_iso)
 
-        ac_in_kwh = _delta(ac_in)
-        dc_in_kwh = _delta(dc_in)
-        battery_kwh = _delta(battery)
+        ac_in_kwh = delta(ac_in)
+        dc_in_kwh = delta(dc_in)
+        battery_kwh = delta(battery)
 
         loss_cable_kwh = _diff(charger_kwh, ac_in_kwh)
         loss_conversion_kwh = _diff(ac_in_kwh, battery_kwh)
@@ -328,8 +280,8 @@ class ChargingSession:
             "loss_conversion_kwh": loss_conversion_kwh,
             "loss_total_kwh": loss_total_kwh,
             "loss_total_pct": loss_total_pct,
-            "start_soc": _first(soc),
-            "end_soc": _last(soc),
+            "start_soc": first(soc),
+            "end_soc": last(soc),
             "cost_eur": cost_eur,
             "avg_price_eur_per_kwh": avg_price_eur_per_kwh,
             "in_progress": self.__in_progress,

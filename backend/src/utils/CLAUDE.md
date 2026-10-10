@@ -15,6 +15,10 @@
   the Spotify grant record, the error store, kept log backups): a temp file in the same directory,
   fsynced, then `os.replace`d, and removed on any failure. `mode` is applied through the umask;
   pass `0o600` for anything private.
+- **`timeline.py`**: `collapse_transitions()` + `segment()` — the one segmentation of a logged state
+  timeline into activity windows. Trips (`Gear` out of Park) and charging sessions
+  (`DetailedChargeState` charging) bind their own `is_active` and idle state with `partial`; a new
+  "detect runs of X in stored telemetry" feature does the same.
 - **`logger_configurator.py`**: `configure_logging()` resolves the level from
   `TESLA_HOMEDASH_LOG_LEVEL` (default **INFO**, not DEBUG) and wires the shared stdout formatter
   (`LEVEL | YYYY-MM-DD | HH:MM:SS | name | message`) onto an allow-list of top-level loggers.

@@ -16,3 +16,7 @@ InfluxDB, `Vehicle`. *Flux queries interpolate `data_property_id` via f-strings 
 `_SAFE_ID` regex `^[A-Za-z0-9_\-]+$`, and `aggregate_window` by `_SAFE_WINDOW`
 (`^[1-9][0-9]*[smhd]$`) — keep both guards; they're the only thing preventing injection if
 non-config input ever reaches these paths.*
+
+`series.py` holds the reductions over a read's `(count, timestamps_ms, values)` result —
+`delta`, `first`, `last`, `positive_increment` — each NaN on a missing series. The trip and charging
+summaries share them; use them rather than re-deriving a series delta.

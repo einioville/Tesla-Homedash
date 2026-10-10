@@ -12,10 +12,13 @@ on Gear).
 '''
 import logging
 import math
+from functools import partial
 
 import numpy as np
 
 from ..influxdb_service.influxdb_handler import to_flux_time
+from ..influxdb_service.series import positive_increment
+from ..utils.timeline import collapse_transitions, segment
 from .charging_session import CHARGER_ENERGY_ID, ChargingSession
 from .spot_price import price_hourly_energy
 
@@ -44,93 +47,9 @@ def _is_charging(state: str) -> bool:
     return "charging" in state.lower()
 
 
-def collapse_transitions(history: list) -> list:
-    '''
-    Collapses consecutive identical DetailedChargeState readings into transitions.
-    Logged fields are written on every telemetry event (not only on change), so the
-    raw history repeats the held value; only the points where it changes are real
-    transitions. Pure logic (no I/O) — the testable core of detection.
-    Arguments:
-        history (list): [(timestamp_ms, state_str), ...] ascending by time.
-    Returns:
-        list: The same shape, with runs of identical state reduced to their first point.
-    '''
-    collapsed = []
-    previous = None
-    for timestamp_ms, state in history:
-        if state != previous:
-            collapsed.append((timestamp_ms, state))
-            previous = state
-    return collapsed
-
-
-def segment_sessions(
-    transitions: list, held_before, start_ms: int, end_ms: int, threshold_ms: int
-) -> list:
-    '''
-    Turns a collapsed DetailedChargeState timeline into charging-session windows. Walks
-    the timeline as contiguous [from, to) intervals per held state, treating any
-    charging state as active. A non-charging interval shorter than threshold_ms is
-    absorbed into the surrounding session (a momentary pause mid-charge); a longer one
-    (or the window end) closes the session. Pure logic (no I/O) — the testable core,
-    structurally identical to trip_service.segment_trips with the charging predicate in
-    place of the Park predicate.
-    Arguments:
-        transitions (list): Collapsed [(timestamp_ms, state_str), ...].
-        held_before (str | None): The state held just before start_ms, or None if
-            nothing was logged before the window. A charging held state captures a
-            session already under way at the window boundary.
-        start_ms (int): Window start, epoch-ms UTC.
-        end_ms (int): Window end, epoch-ms UTC.
-        threshold_ms (int): Non-charging gap duration at/above which a pause ends a
-            session.
-    Returns:
-        list: [(session_start_ms, session_end_ms, in_progress), ...].
-    '''
-    if not transitions:
-        return []
-
-    # State governing the timeline from the window start. If a value was held before
-    # the window, use it; otherwise assume a non-charging sentinel (don't fabricate a
-    # session we can't bound).
-    start_state = held_before if held_before is not None else ""
-    sequence = [(start_ms, start_state)]
-    for timestamp_ms, state in transitions:
-        if timestamp_ms > start_ms:
-            sequence.append((timestamp_ms, state))
-    # Re-collapse in case the synthetic start state equals the first transition.
-    sequence = collapse_transitions(sequence)
-
-    windows = []
-    session_start = None
-    last_charge_end = None
-
-    for index, (segment_start, state) in enumerate(sequence):
-        segment_end = sequence[index + 1][0] if index + 1 < len(sequence) else end_ms
-        is_charging = _is_charging(state)
-
-        if is_charging:
-            if session_start is None:
-                session_start = segment_start
-            last_charge_end = segment_end
-        elif session_start is not None:
-            # A non-charging interval while a session is open.
-            gap_duration = segment_end - segment_start
-            if gap_duration >= threshold_ms:
-                windows.append((session_start, last_charge_end, False))
-                session_start = None
-                last_charge_end = None
-            # Shorter pause: leave the session open; the next charging segment extends
-            # last_charge_end across this absorbed pause.
-
-    if session_start is not None:
-        # No long-enough closing pause was seen inside the window. If the last segment
-        # was charging reaching the window end, the car is still charging (in progress);
-        # otherwise close at the last observed charging.
-        in_progress = last_charge_end == end_ms
-        windows.append((session_start, last_charge_end, in_progress))
-
-    return windows
+# A session is a run of charging; with nothing logged before the window, the ""
+# sentinel is not charging.
+segment_sessions = partial(segment, is_active=_is_charging, idle_state="")
 
 
 def _window_energy(charger, window_start_ms: int, window_end_ms: int) -> float:
@@ -160,10 +79,7 @@ def _window_energy(charger, window_start_ms: int, window_end_ms: int) -> float:
         return float("nan")
     low = int(np.searchsorted(timestamps, window_start_ms, side="left"))
     high = int(np.searchsorted(timestamps, window_end_ms, side="right"))
-    segment = values[low:high]
-    if len(segment) < 2:
-        return float("nan")
-    return float(np.clip(np.diff(segment), 0.0, None).sum())
+    return positive_increment(values[low:high])
 
 
 class ChargingLoader:

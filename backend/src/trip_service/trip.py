@@ -11,61 +11,27 @@ import logging
 import math
 
 from ..influxdb_service.influxdb_handler import to_flux_time
+from ..influxdb_service.series import delta, first, last, series_values
 
 logger = logging.getLogger("trip_service.trip")
 
 
-def _series_values(result):
-    '''
-    Extracts the values array from a read_tesla_data_property result tuple
-    (count, timestamps_ms, values), or None if the result is empty/missing.
-    Arguments:
-        result (tuple | None): The (count, timestamps, values) triple or None.
-    '''
-    if result is None:
-        return None
-    count, _timestamps, values = result
-    if count == 0 or len(values) == 0:
-        return None
-    return values
-
-
-def _delta(result) -> float:
-    '''Last minus first value of a series (e.g. odometer/energy delta), or NaN.'''
-    values = _series_values(result)
-    if values is None:
-        return float("nan")
-    return float(values[-1] - values[0])
-
-
 def _delta_scaled(result, scale: float) -> float:
-    '''_delta multiplied by a scale factor (e.g. kWh -> Wh), preserving NaN.'''
-    delta = _delta(result)
-    return delta * scale if not math.isnan(delta) else float("nan")
+    '''delta() multiplied by a scale factor (e.g. kWh -> Wh), preserving NaN.'''
+    value = delta(result)
+    return value * scale if not math.isnan(value) else float("nan")
 
 
 def _mean(result) -> float:
     '''Mean of a series, or NaN if empty/missing.'''
-    values = _series_values(result)
+    values = series_values(result)
     return float(values.mean()) if values is not None else float("nan")
 
 
 def _max(result) -> float:
     '''Maximum of a series, or NaN if empty/missing.'''
-    values = _series_values(result)
+    values = series_values(result)
     return float(values.max()) if values is not None else float("nan")
-
-
-def _first(result) -> float:
-    '''First value of a series, or NaN if empty/missing.'''
-    values = _series_values(result)
-    return float(values[0]) if values is not None else float("nan")
-
-
-def _last(result) -> float:
-    '''Last value of a series, or NaN if empty/missing.'''
-    values = _series_values(result)
-    return float(values[-1]) if values is not None else float("nan")
 
 
 class Trip:
@@ -134,7 +100,7 @@ class Trip:
         start_iso = to_flux_time(self.__start_ms)
         end_iso = to_flux_time(self.__end_ms)
         odometer = await self.__influx.read_tesla_data_property("Odometer", start_iso, end_iso)
-        self.__distance_km = _delta(odometer)
+        self.__distance_km = delta(odometer)
         return self.__distance_km
 
     async def summary(self) -> dict:
@@ -195,8 +161,8 @@ class Trip:
             "energy_wh": energy_wh,
             "regen_wh": regen_wh,
             "wh_per_km": wh_per_km,
-            "start_soc": _first(battery),
-            "end_soc": _last(battery),
+            "start_soc": first(battery),
+            "end_soc": last(battery),
             "in_progress": self.__in_progress,
         }
         logger.debug(
