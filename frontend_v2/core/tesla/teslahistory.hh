@@ -86,7 +86,6 @@ private:
     void parseHistory(const QByteArray &payload);
 
     // Live helpers.
-    static QString qmlNameForId(const QString &id);  // id -> Tesla Q_PROPERTY name
     static qint64 windowMsForRange(int rangeCode);   // preset -> window width (ms)
     static int liveTickIntervalForRange(int rangeCode);  // preset -> live tick period (ms)
     void recomputeBounds(qint64 nowMs);              // roll window + recompute min/max

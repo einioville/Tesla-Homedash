@@ -25,16 +25,6 @@ TeslaHistory::TeslaHistory(ServerClient *server, TeslaData *tesla, QObject *pare
     connect(m_liveTimer, &QTimer::timeout, this, &TeslaHistory::onLiveTick);
 }
 
-QString TeslaHistory::qmlNameForId(const QString &id) {
-    if (id.isEmpty()) {
-        return id;
-    }
-    // Mirror generate_tesladata.py::qml_name — lower-case the first char only
-    // (e.g. ACChargingPower -> aCChargingPower), so we can read the live value off
-    // the Tesla singleton by Q_PROPERTY name.
-    return id.left(1).toLower() + id.mid(1);
-}
-
 qint64 TeslaHistory::windowMsForRange(int rangeCode) {
     switch (rangeCode) {
         case protocol::HISTORY_RANGE_1H: return 60LL * 60 * 1000;
@@ -101,7 +91,7 @@ void TeslaHistory::onLiveTick() {
         return;
     }
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
-    const QVariant v = m_tesla->property(qmlNameForId(m_liveId).toUtf8().constData());
+    const QVariant v = m_tesla->property(TeslaData::qmlName(m_liveId).toUtf8().constData());
     bool ok = false;
     const double value = v.toDouble(&ok);
     if (ok) {

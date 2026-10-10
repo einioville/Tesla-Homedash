@@ -27,6 +27,12 @@ public:
     Q_INVOKABLE void plusTemp();
     Q_INVOKABLE void minusTemp();
 
+    // The Q_PROPERTY name of a registry id: the first character lower-cased
+    // (ACChargingPower -> aCChargingPower), as generate_tesladata.py's qml_name.
+    static QString qmlName(const QString &registryName) {
+        return registryName.left(1).toLower() + registryName.mid(1);
+    }
+
 private slots:
     void onPacket(quint8 type, const QByteArray &payload);
 

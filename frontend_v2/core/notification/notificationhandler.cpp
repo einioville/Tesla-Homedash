@@ -34,15 +34,6 @@ NotificationHandler::NotificationHandler(TeslaData *tesla, ServerClient *server,
     }
 }
 
-QString NotificationHandler::qmlName(const QString &registryName) {
-    // Registry names are PascalCase; the generated Q_PROPERTYs lower-case only
-    // the first character (Locked -> locked, RatedRange -> ratedRange).
-    if (registryName.isEmpty()) {
-        return registryName;
-    }
-    return registryName.left(1).toLower() + registryName.mid(1);
-}
-
 void NotificationHandler::loadConfig() {
     // The frontend notification config is separate from the backend's config.json.
     // Prefer an external file (env override) so it can be edited per-deployment,
@@ -108,7 +99,7 @@ void NotificationHandler::wireTeslaSource(const QString &sourceName) {
     if (!m_tesla) {
         return;
     }
-    const QByteArray prop = qmlName(sourceName).toUtf8();
+    const QByteArray prop = TeslaData::qmlName(sourceName).toUtf8();
     const QMetaObject *mo = m_tesla->metaObject();
     const int propIdx = mo->indexOfProperty(prop.constData());
     if (propIdx < 0) {
@@ -135,7 +126,7 @@ void NotificationHandler::onTeslaSourceChanged() {
     if (source.isEmpty()) {
         return;
     }
-    const QVariant value = m_tesla->property(qmlName(source).toUtf8().constData());
+    const QVariant value = m_tesla->property(TeslaData::qmlName(source).toUtf8().constData());
 
     // Fire only on an actual change; treat the first observation as a baseline so
     // a burst of "current state" notifications doesn't appear on connect.
@@ -204,7 +195,7 @@ QString NotificationHandler::substitute(const QString &templ, const QString &tri
         if (name.compare(QStringLiteral("state"), Qt::CaseInsensitive) == 0) {
             value = triggerValue;
         } else if (m_tesla) {
-            const QVariant v = m_tesla->property(qmlName(name).toUtf8().constData());
+            const QVariant v = m_tesla->property(TeslaData::qmlName(name).toUtf8().constData());
             value = v.isValid() ? v.toString() : QString();
         }
         out.replace(QStringLiteral("{") + name + QStringLiteral("}"), value);
