@@ -44,7 +44,9 @@ while still validating its writes (`logging.debugMinutes`, set by a dialog); `on
 one's is checked against the resolved list). **`register_runtime(key, provider)`** merges the
 provider's dict into that entry as `runtime` at schema-build time — facts that change with the value
 without being a setting, like DEBUG's end time and the level it returns to. A service whose state changes them must cause
-a schema broadcast; a write does, through its hook.
+a schema broadcast; a write does, through its hook, and **`broadcast_schema()`** does without one (the
+audio service once it knows whether the equalizer can run). Subsection-level keys beyond the known
+ones pass through to the frontend untouched — the equalizer card's `bands` list is one.
 
 **Restart.** `CONFIG_RESTART` sets an `asyncio.Event`; `run()` awaits it, waits
 `_RESTART_DRAIN_SECONDS` so the preceding reply flushes, then flushes the log handlers and

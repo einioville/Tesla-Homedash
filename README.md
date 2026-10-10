@@ -134,6 +134,9 @@ The `-full` variant includes both ALSA and PulseAudio audio backends; the `-defa
 > sinks by a stable *name* rather than a session-scoped numeric id, which makes a saved
 > output device survive reboots and hotplugs more reliably. `pipewire-pulse` only
 > *suggests* the package, so it is not installed by default.
+> The Options view's equalizer (Media › Taajuuskorjain) needs nothing extra: it runs
+> PipeWire's own filter-chain module, which the stock `pipewire` package ships. It is
+> unavailable on a host without a PipeWire server.
 
 Create the config file at `~/.config/spotifyd/spotifyd.conf`:
 

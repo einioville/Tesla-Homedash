@@ -965,6 +965,13 @@ async def main():
     # that" veto, so config_service needs to know nothing about audio.
     config_service.register_options("audio.outputDevice", audio.device_options)
     config_service.register_guard("audio", audio.guard_write)
+    # The equalizer: its own hook (a band write must not re-push the volume and
+    # output), its own veto (it needs PipeWire, not merely some audio stack) and
+    # its state, on the bass row — the card's one entry the frontend does not
+    # strip as hidden, so the card's widget can read it.
+    config_service.register_hook("equalizer", audio.apply_equalizer)
+    config_service.register_guard("equalizer", audio.guard_equalizer)
+    config_service.register_runtime("audio.bassBoost", audio.equalizer_runtime)
     # Wired back the other way too: on a first start with no stored volume, audio
     # stores the host's current level through config_service rather than pushing
     # the schema default over it.

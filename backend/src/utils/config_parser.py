@@ -161,10 +161,17 @@ class Config:
     # Host audio tunables.  Like the trip block this is NOT a required key: an
     # existing config.json will not have it and the stack must still start.
     # outputDevice "" means "leave the host's own default alone", which is not
-    # the same as a device literally named "".
+    # the same as a device literally named "".  The equalizer gains are dB, and
+    # all-zero runs no equalizer at all (audio_service/equalizer.py).
     _AUDIO_DEFAULTS = {
         "volumePercent": 60,
         "outputDevice": "",
+        "eqBand1": 0,
+        "eqBand2": 0,
+        "eqBand3": 0,
+        "eqBand4": 0,
+        "eqBand5": 0,
+        "bassBoost": 0,
     }
 
     _SPOT_PRICE_DEFAULTS = {

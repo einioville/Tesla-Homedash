@@ -9,12 +9,18 @@ Both values are ordinary `config.json` keys applied through the Options view's
 existing hook machinery, so the whole feature costs no protocol code and no
 frontend change.  Persisting them is also what makes the dashboard come back at
 the volume it was left at after a power cut.
+
+The equalizer (equalizer.py) sits in the same service because it changes what
+both of those mean while it runs: the default output becomes its own virtual
+sink, the chosen output becomes where IT plays, and the volume has to be set on
+that real output by name rather than on "the default".
 '''
 
 import asyncio
 import logging
 
 from .audio_backend import AudioBackend, AudioDevice, NullAudioBackend, detect_backend
+from .equalizer import GAIN_KEYS, SINK_NAME, PipeWireEqualizer, is_flat
 
 logger = logging.getLogger("audio_service.audio_service")
 
@@ -43,6 +49,17 @@ class AudioService:
         audio = config.audio_config
         self.__volume_percent = audio.get("volumePercent")
         self.__output_device = audio.get("outputDevice") or ""
+        self.__eq_gains = {key: audio.get(key) or 0 for key in GAIN_KEYS}
+        # None until run() has found PipeWire; stays None on a host without it.
+        self.__equalizer: PipeWireEqualizer | None = None
+        # What the Options view's equalizer is told (equalizer_runtime):
+        # detecting -> unavailable | off | on, and failed when a start did not
+        # come up.  Only a start retries a failed one; the timer does not.
+        self.__eq_state = "detecting"
+        # The apply paths — a hook, the startup push, the timer's health check —
+        # all await subprocesses, so without this two of them could interleave
+        # a start with a stop.
+        self.__lock = asyncio.Lock()
         # Set by attach_config_service().  ConfigService is built after this
         # service, because it takes this service's hook, options and guard.
         self.__config_service = None
@@ -68,17 +85,34 @@ class AudioService:
         '''
         self.__backend = await detect_backend()
         await self.__refresh_devices()
-        # force: nothing has been pushed at the host yet this boot, so even an
-        # "unchanged" device has to be applied to make the stored value true.
-        if self.__volume_is_stored():
-            await self.__apply(self.__output_device, self.__volume_percent, force=True)
+        # The chain is switched in by making it the default output, which only a
+        # stack that can switch outputs at runtime can do.
+        if self.__backend.supports_device_selection and await PipeWireEqualizer.detect():
+            self.__equalizer = PipeWireEqualizer()
         else:
-            await self.__apply(self.__output_device, None, force=True)
+            logger.info("No PipeWire server; the equalizer is unavailable")
+        async with self.__lock:
+            self.__eq_state = "unavailable" if self.__equalizer is None else "off"
+            await self.__restore_stale_default()
+            # Before the device and volume, which both depend on whether the
+            # chain runs.
+            await self.__sync_equalizer()
+            # force: nothing has been pushed at the host yet this boot, so even an
+            # "unchanged" device has to be applied to make the stored value true.
+            if self.__volume_is_stored():
+                await self.__apply(self.__output_device, self.__volume_percent, force=True)
+            else:
+                await self.__apply(self.__output_device, None, force=True)
+        if not self.__volume_is_stored():
             await self.__adopt_host_volume()
+        # A view opened before detection finished was told "detecting".
+        if self.__config_service is not None:
+            await self.__config_service.broadcast_schema()
 
         while True:
             await asyncio.sleep(_DEVICE_REFRESH_SECONDS)
             await self.__refresh_devices()
+            await self.__check_equalizer()
 
     def get_run_task(self):
         '''Returns the run task for start_services to gather.'''
@@ -93,7 +127,26 @@ class AudioService:
         the user sees reflects a real apply rather than a scheduled one.
         '''
         audio = self.__config.audio_config
-        await self.__apply(audio.get("outputDevice") or "", audio.get("volumePercent"))
+        async with self.__lock:
+            await self.__apply(audio.get("outputDevice") or "", audio.get("volumePercent"))
+
+    async def apply_equalizer(self) -> None:
+        '''
+        Re-snapshots the equalizer gains and applies them: retunes a running
+        chain in place, starts it when the curve leaves flat, stops it when the
+        curve returns to flat.  The "equalizer" hook.
+        '''
+        audio = self.__config.audio_config
+        async with self.__lock:
+            self.__eq_gains = {key: audio.get(key) or 0 for key in GAIN_KEYS}
+            await self.__sync_equalizer()
+
+    def equalizer_runtime(self) -> dict:
+        '''
+        The equalizer's state for the Options view, merged into its entries as
+        "runtime": whether this host can run it at all, and whether it runs.
+        '''
+        return {"state": self.__eq_state}
 
     def health(self) -> dict:
         '''The host audio stack and what it is set to, for the Järjestelmän tila card.'''
@@ -103,11 +156,17 @@ class AudioService:
             return {"state": "off", "detail": "Äänijärjestelmää ei löytynyt"}
         label = next((d.label for d in self.__devices if d.identifier == self.__output_device), "")
         volume = self.__volume_percent
-        return {"state": "ok", "detail": "Käytössä", "config": [
+        equalizer = {"on": "Päällä", "off": "Pois (tasainen)", "failed": "Ei käynnistynyt",
+                     "unavailable": "Ei saatavilla (vaatii PipeWiren)"}
+        config = [
             ["Järjestelmä", names.get(self.__backend.name, self.__backend.name)],
             ["Ulostulo", label or self.__output_device or "Järjestelmän oletus"],
             ["Äänenvoimakkuus", f"{volume} %" if volume is not None else "—"],
-        ]}
+            ["Taajuuskorjain", equalizer.get(self.__eq_state, "—")],
+        ]
+        if self.__eq_state == "failed":
+            return {"state": "warn", "detail": "Taajuuskorjain ei käynnistynyt", "config": config}
+        return {"state": "ok", "detail": "Käytössä", "config": config}
 
     def device_options(self) -> list[dict]:
         '''
@@ -147,6 +206,18 @@ class AudioService:
         if key == "audio.outputDevice" and not self.__backend.supports_device_selection:
             raise ValueError("Toistolaitetta ei voi vaihtaa ALSA-järjestelmässä ajon aikana")
 
+    def guard_equalizer(self, key: str, value) -> None:
+        '''
+        Rejects an equalizer write on a host that cannot run the chain — once
+        detection has said so; a write in the first moments after start-up is
+        let through and applied when detection finishes.
+        Arguments:
+            key (str): Dotted config key being written.
+            value: Already-coerced candidate value.
+        '''
+        if self.__eq_state == "unavailable":
+            raise ValueError("Taajuuskorjain vaatii PipeWire-äänijärjestelmän")
+
     # ── Internals ─────────────────────────────────────────────────
 
     async def __apply(self, device: str, volume, force: bool = False) -> None:
@@ -164,15 +235,158 @@ class AudioService:
                 the startup push does; a volume-only edit must not spawn a
                 needless sink switch.
         '''
-        if device and (force or device != self.__output_device):
+        changed = force or device != self.__output_device
+        self.__output_device = device
+        equalizer = self.__equalizer
+        if equalizer is not None and equalizer.running:
+            # The chain is the default output and stays so; the choice moves
+            # where the chain plays instead.
+            if changed:
+                await equalizer.set_target(self.__equalizer_target())
+        elif device and changed:
             await self.__backend.set_default_device(device)
             await self.__refresh_devices()
-        self.__output_device = device
 
         if volume is not None:
-            clamped = max(0, min(100, int(volume)))
-            await self.__backend.set_volume(clamped)
             self.__volume_percent = volume
+            await self.__apply_volume()
+
+    async def __apply_volume(self) -> None:
+        '''
+        Sets the stored volume on the output actually playing: the default one,
+        or — while the equalizer runs, and so IS the default — the real output
+        behind it.  The chain's own sink stays at 100 %, so the dashboard's
+        volume means the same thing with the equalizer on or off, and a chain
+        that dies leaves the real output at the user's level, not at full.
+        '''
+        if self.__volume_percent is None:
+            return
+        clamped = max(0, min(100, int(self.__volume_percent)))
+        device = self.__equalizer_target() if self.__eq_running() else None
+        await self.__backend.set_volume(clamped, device or None)
+
+    # ── Equalizer ─────────────────────────────────────────────────
+
+    def __eq_running(self) -> bool:
+        '''Whether the equalizer chain is up.'''
+        return self.__equalizer is not None and self.__equalizer.running
+
+    def __equalizer_target(self) -> str:
+        '''
+        Where the chain plays: the chosen output, else the host's own default
+        from before the chain took the default over.  Never left to
+        WirePlumber, which would pick by priority — moving the sound from the
+        HDMI output the user chose on the desktop to the headphone jack, say.
+        '''
+        return self.__output_device or self.__host_default() or ""
+
+    def __host_default(self) -> str | None:
+        '''The host default remembered while the chain runs (see __remember_host_default).'''
+        return self.__config.audio_config.get("hostDefaultDevice") or None
+
+    async def __remember_host_default(self) -> None:
+        '''
+        Stores the host's default output before the chain replaces it, as
+        audio.hostDefaultDevice — state, not a setting, written straight through
+        Config like the radio's last station.  It has to survive a restart: once
+        the chain has run, WirePlumber remembers IT as the default, so after a
+        power cut the host's own choice can no longer be read back.  An existing
+        value is kept for that reason.
+        '''
+        if self.__host_default():
+            return
+        current = await self.__backend.get_default_device()
+        if not current or current == SINK_NAME:
+            return
+        self.__store_host_default(current)
+
+    def __store_host_default(self, value: str | None) -> None:
+        '''
+        Writes audio.hostDefaultDevice and saves.  A failed save is logged; the
+        value still holds in memory for this run.
+        Arguments:
+            value (str | None): The host default's node name, or None to clear.
+        '''
+        if self.__config.audio_config.get("hostDefaultDevice") == value:
+            return
+        self.__config.set("audio.hostDefaultDevice", value)
+        try:
+            self.__config.save()
+        except OSError as e:
+            logger.warning("Could not save the host's default output: %s", e)
+
+    async def __restore_default(self) -> None:
+        '''
+        Hands the default output back from the chain: to the chosen output, else
+        to the host default it replaced, then forgets that.  Called BEFORE the
+        chain stops, so its streams move straight to the right output instead of
+        via whichever sink WirePlumber would fall back to.
+        '''
+        restore = self.__output_device or self.__host_default()
+        if restore:
+            await self.__backend.set_default_device(restore)
+        self.__store_host_default(None)
+
+    async def __restore_stale_default(self) -> None:
+        '''
+        At start-up with a flat curve: a remembered host default means the last
+        run had the chain up and never handed the default back (a power cut, a
+        crash).  WirePlumber still names the chain as the default and will fall
+        back by priority, so the remembered output is put back now.
+        '''
+        if self.__equalizer is None or not is_flat(self.__eq_gains) or not self.__host_default():
+            return
+        logger.info("Restoring the default output the equalizer replaced last run")
+        await self.__restore_default()
+
+    async def __sync_equalizer(self) -> None:
+        '''
+        Brings the chain in line with the gains: started when the curve is not
+        flat, retuned while it runs, stopped when the curve is flat again.  A
+        flat curve runs no chain at all, so a host where nobody touches the
+        equalizer keeps exactly the audio path it had.  Call under the lock.
+        '''
+        if self.__equalizer is None:
+            return
+        flat = is_flat(self.__eq_gains)
+        if not flat and not self.__equalizer.running:
+            await self.__remember_host_default()
+            if await self.__equalizer.start(self.__eq_gains, self.__equalizer_target()):
+                await self.__backend.set_default_device(SINK_NAME)
+                await self.__apply_volume()
+                self.__eq_state = "on"
+            else:
+                # Also covers a chain left as WirePlumber's default by the last
+                # run: the default goes back to a real output either way.
+                await self.__restore_default()
+                self.__eq_state = "failed"
+        elif not flat:
+            await self.__equalizer.set_gains(self.__eq_gains)
+        elif self.__equalizer.running:
+            await self.__restore_default()
+            await self.__equalizer.stop()
+            await self.__apply_volume()
+            self.__eq_state = "off"
+        else:
+            self.__eq_state = "off"
+
+    async def __check_equalizer(self) -> None:
+        '''
+        The timer's health check: a chain that should run but has died or left
+        the graph (a PipeWire restart) is started again, once per loss.  A start
+        that failed is not retried here — the next equalizer write retries it —
+        so a host where it cannot work does not log a failure every 15 s.
+        '''
+        if self.__equalizer is None or self.__eq_state != "on":
+            return
+        async with self.__lock:
+            if self.__eq_state != "on" or await self.__equalizer.check():
+                return
+            logger.warning("The equalizer stopped unexpectedly; starting it again")
+            await self.__equalizer.stop()
+            await self.__sync_equalizer()
+        if self.__config_service is not None:
+            await self.__config_service.broadcast_schema()
 
     def __volume_is_stored(self) -> bool:
         '''
@@ -191,7 +405,10 @@ class AudioService:
         the user's and the startup force-apply is right.  An unreadable volume is
         left exactly as it is.
         '''
-        volume = await self.__backend.get_volume()
+        # The real output's level: a running chain is the default, and its own
+        # sink is always at 100 %.
+        device = self.__equalizer_target() if self.__eq_running() else None
+        volume = await self.__backend.get_volume(device or None)
         if volume is None:
             logger.info("No stored volume and the host's cannot be read; leaving it as it is")
             return
@@ -212,5 +429,10 @@ class AudioService:
                            volume, result["message"])
 
     async def __refresh_devices(self) -> None:
-        '''Re-reads the selectable outputs, so hotplugged devices appear.'''
-        self.__devices = await self.__backend.list_devices()
+        '''
+        Re-reads the selectable outputs, so hotplugged devices appear.  The
+        equalizer's own sink is never one: choosing it would point the chain at
+        itself.
+        '''
+        self.__devices = [device for device in await self.__backend.list_devices()
+                          if device.identifier != SINK_NAME]

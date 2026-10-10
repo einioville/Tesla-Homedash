@@ -121,6 +121,11 @@ Parsed once by `Config` and injected into every service. Keys:
   another source here only, not in the Options view).
   All-in €/kWh for an hour = `(spot + marginCentsPerKwh/100) × (1 + vatPercent/100)`. Prices are
   fetched on demand (no self-logging) — historical hours price past sessions retroactively.
+- `audio` (optional) — `volumePercent`, `outputDevice` (`""` = the host's default), the equalizer's
+  `eqBand1`…`eqBand5` (dB, ±12) and `bassBoost` (dB, 0–12); all-zero runs no equalizer. And
+  `hostDefaultDevice`, which is **state, not a setting**: the host's default output from before the
+  equalizer took the default over, written by `AudioService` and in no schema
+  (`src/audio_service/CLAUDE.md`).
 - `media` (optional) — `autoplayRadio` (start the radio at backend start) and
   `resumeRadioAfterSpotify` (`src/media_service/CLAUDE.md`), both default off; and
   `lastRadioStation`, which is **state, not a setting** — `RadioPlayer` writes it on every station
