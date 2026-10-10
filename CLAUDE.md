@@ -441,7 +441,10 @@ DEBUG switch that asks how long, and a clear with a keep-warnings option, both o
 files, to which the DEBUG detail now goes instead of the journal — plus the third round: the switch
 became a *Lokitaso* dropdown (DEBUG asks how long and returns to the previous level), the old status
 card retired from Ylläpito, every dialog swallowing the mouse wheel, and the system graphs rebuilt
-on the app's own `HistoryGraph`, which can now draw several lines over one set of axes.
+on the app's own `HistoryGraph`, which can now draw several lines over one set of axes — plus its
+fourth round: an overview card on top (healthy or not, the issues behind it, host and backend
+uptime), the *Versio* card folded into *Palvelin* as a row, the charging rows on *Laturi* only with
+trips on a *Matkat* card of their own, and service-card values that wrap instead of eliding.
 When you land a change that touches documented behaviour, update this line.
 
 ## 8. Session workflow — main checkout by default, worktree only for parallelism

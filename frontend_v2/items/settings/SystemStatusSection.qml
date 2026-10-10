@@ -1,8 +1,9 @@
 import QtQuick
 import frontend_v2
 
-// Järjestelmän tila: the backend host's last ten minutes as graphs — CPU per
-// core, memory, disk, network and CPU temperature — then a card per backend
+// Järjestelmän tila: an overview — is the system healthy, what is wrong, how
+// long it has been up — then the backend host's last ten minutes as graphs (CPU
+// per core, memory, disk, network and CPU temperature), then a card per backend
 // service with its standing, settings and warning/error counts.
 //
 // SettingsPane renders this INSTEAD of settings cards, because the section's group
@@ -95,6 +96,14 @@ Item {
         return columns[name] !== undefined ? columns[name] : []
     }
 
+    function newest(list) {
+        return list.length > 0 && list[list.length - 1] !== null ? list[list.length - 1] : NaN
+    }
+
+    function seconds(value) {
+        return value !== undefined && value !== null ? value : NaN
+    }
+
     // --- Per-graph data -------------------------------------------------------
     readonly property var cpuSeries: {
         const cores = column("cpu")
@@ -129,6 +138,19 @@ Item {
             id: content
             width: flick.width
             spacing: 10
+
+            SystemOverviewCard {
+                width: content.width
+                height: implicitHeight
+                services: section.services
+                connected: Server.connected
+                loaded: System.loaded
+                hostUptime: section.seconds(System.data.uptime_s)
+                backendUptime: section.seconds(System.data.backend_uptime_s)
+                disk: section.disk
+                memPct: section.newest(section.memPct)
+                cpuTemp: section.newest(section.column("cpuTemp"))
+            }
 
             Grid {
                 id: grid

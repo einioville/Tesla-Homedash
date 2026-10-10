@@ -1,11 +1,15 @@
 # `system_service/` — the maintenance dashboard (issue #39)
 
 `system_metrics.py` is pure stdlib against `/proc` and `/sys` (no psutil: nothing here is worth an
-ARM build and a pin); its one reader is `system_history.py`. `SystemStatusService` serves
+ARM build and a pin); `system_history.py` reads it per sample, the status document for the host's
+uptime. `SystemStatusService` serves
 `SYSTEM_GET_STATUS` — the service cards — **request/response, not a broadcast, and deliberately NOT
 `register_service`d**: the Options view is open a fraction of the time, and polling every service for
-every client to feed a screen nobody is looking at is pure waste. The document is just
-`{services, sampled_ms}`; the host's metrics are the history's. Details that matter:
+every client to feed a screen nobody is looking at is pure waste. The document is
+`{services, sampled_ms, uptime_s, backend_uptime_s}` — the uptimes for the overview card; the host's
+metrics are the history's. Details that matter:
+- **The backend's uptime is monotonic** (since `SystemStatusService` was built, at startup), never
+  "now minus the start time": the Pi has no RTC and steps its wall clock when NTP first answers.
 - `/proc/net/dev` is parsed with `partition(":")`, not `split()` — a counter wide enough to touch the
   colon prints `eth0:1234567890` and shifts every column by one.
 - Per-service health is duck-typed **`health()`**, the same pattern as `stream_everything()` and

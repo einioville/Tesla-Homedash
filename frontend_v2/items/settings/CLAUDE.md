@@ -8,7 +8,7 @@ behind several of these files are documented in `../../core/CLAUDE.md`:
 | QML | Singleton (notes in `core/CLAUDE.md`) |
 |---|---|
 | `BackendProbeStatus.qml` | `Probe` |
-| `SystemStatusSection.qml`, `SystemGraphCard.qml` | `SystemHistory` (graphs), `System` (service cards) |
+| `SystemStatusSection.qml`, `SystemGraphCard.qml`, `SystemOverviewCard.qml` | `SystemHistory` (graphs), `System` (service cards) |
 | `SystemServiceCard.qml`, `SystemLogPopup.qml` | `System` |
 | `DebugLogDetails.qml`, `DebugLogPopup.qml` | `Settings` (the backend's `logging.*`) |
 | `LogClearPopup.qml` | `Logs` |
@@ -324,11 +324,19 @@ below INFO and is never cleared (`backend/src/system_service/CLAUDE.md`).
 
 ## Järjestelmän tila — `SystemStatusSection.qml`
 
-A vertical `ElasticFlickable`: the backend host's last ten minutes as a 2×2 grid of
-`SystemGraphCard`s (CPU per core, memory, disk, network) and a full-width CPU temperature card, then
-**a `SystemServiceCard` per backend service**. Graphs from `SystemHistory`, cards from `System`
-(`../../core/CLAUDE.md`), both retained only while the section is visible. The old status card in
-Ylläpito is retired — this section shows it all.
+A vertical `ElasticFlickable`: **`SystemOverviewCard`** on top, then the backend host's last ten
+minutes as a 2×2 grid of `SystemGraphCard`s (CPU per core, memory, disk, network) and a full-width CPU
+temperature card, then **a `SystemServiceCard` per backend service**. Graphs from `SystemHistory`,
+cards from `System` (`../../core/CLAUDE.md`), both retained only while the section is visible. The
+old status card in Ylläpito is retired — this section shows it all.
+
+- **The overview** answers *is the system healthy* in one line (*Järjestelmä kunnossa* / *Ongelmia
+  havaittu* / *Vikoja havaittu*, with a dot), lists the issues behind it, errors first, and gives
+  the host's and the backend's uptime (`uptime_s`, `backend_uptime_s` in the status document). An
+  issue is a service card in `error` or `warn` — never `off`, which is deliberate (no Zappi, a flat
+  tariff) — or a host threshold judged here on the latest graph sample: disk ≥ 90 % used (error
+  ≥ 95), memory ≥ 90 % (error ≥ 97), CPU ≥ 80 °C (error ≥ 85, where the Pi's firmware throttles
+  hard). While disconnected it says only that: the last reply's services and uptimes are stale.
 
 - **Service cards** render each row of the backend's `services` generically: the verdict as a dot
   plus *Toiminnassa* / *Ongelmia* / *Ei toiminnassa* / *Ei käytössä*, the detail line, the settings

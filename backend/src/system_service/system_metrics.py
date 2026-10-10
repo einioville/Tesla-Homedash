@@ -1,5 +1,6 @@
 '''
-Host metrics read straight from /proc and /sys, for the Järjestelmän tila graphs.
+Host metrics read straight from /proc and /sys, for Järjestelmän tila: its graphs
+and the overview's uptime.
 
 Deliberately no third-party dependency: psutil would be one more thing to pin,
 build for ARM and keep current, and everything wanted here is a handful of files.
@@ -240,6 +241,15 @@ def read_cpu_temp_c() -> float | None:
         with open(path, "r", encoding="utf-8") as fh:
             return int(fh.read().strip()) / 1000.0
     except (OSError, ValueError):
+        return None
+
+
+def read_uptime_seconds() -> float | None:
+    '''Seconds since the host booted, from /proc/uptime, or None.'''
+    try:
+        with open("/proc/uptime", "r", encoding="utf-8") as fh:
+            return float(fh.read().split()[0])
+    except (OSError, ValueError, IndexError):
         return None
 
 

@@ -13,7 +13,8 @@ from state it already keeps, and this module knows nothing about any of them.
 Beside the verdict a probe may return its settings in effect (`config`, label /
 value pairs) and a list (`items`, the connected clients); each row also gets the
 warning and error counts of the loggers its probe claims, from the persistent
-ErrorLog, whose entries SYSTEM_GET_LOG lists per card.
+ErrorLog, whose entries SYSTEM_GET_LOG lists per card.  The document also carries
+the host's uptime and the backend's own, for the overview above the graphs.
 '''
 
 import asyncio
@@ -24,6 +25,7 @@ import time
 from typing import Any, Callable
 
 from ..utils import protocol
+from . import system_metrics
 
 logger = logging.getLogger("system_service")
 
@@ -49,6 +51,11 @@ class SystemStatusService:
     def __init__(self, server, error_log):
         self.__server = server
         self.__errors = error_log
+        # The backend's uptime runs on the monotonic clock: the Pi has no RTC and
+        # steps its wall clock when NTP first answers, which would make "now
+        # minus the start time" anything at all.  Built at startup, so close
+        # enough to the process's own start.
+        self.__started_monotonic = time.monotonic()
         # probe id -> (Finnish label, callable returning a health dict, logger
         # name prefixes whose warnings and errors are this card's)
         self.__probes: dict[str, tuple[str, Callable[[], Any], tuple[str, ...]]] = {}
@@ -152,6 +159,8 @@ class SystemStatusService:
         return {
             "services": await self.__collect_services(),
             "sampled_ms": int(time.time() * 1000),
+            "uptime_s": system_metrics.read_uptime_seconds(),
+            "backend_uptime_s": time.monotonic() - self.__started_monotonic,
         }
 
     async def __collect_services(self) -> list[dict]:

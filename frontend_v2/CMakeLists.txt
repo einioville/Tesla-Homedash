@@ -131,6 +131,7 @@ qt_add_qml_module(appfrontend_v2
         items/settings/ScreenPowerStatus.qml
         items/settings/TeslaFieldTable.qml
         items/settings/SystemStatusSection.qml
+        items/settings/SystemOverviewCard.qml
         items/settings/SystemGraphCard.qml
         items/settings/SystemServiceCard.qml
         items/settings/SystemLogPopup.qml
