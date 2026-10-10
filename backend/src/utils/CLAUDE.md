@@ -6,6 +6,11 @@
   through `json_frame()` (a `status(1B) + len(4B) + UTF-8 JSON` reply, raw UTF-8) and
   `parse_json_body()` (a `len(4B) + UTF-8 JSON` object request; raises `ValueError` with the
   Finnish message the Options view shows).
+- **`process.py`**: `run(argv, timeout, …)` — the one way a service runs a command to completion
+  (audio, display, USB import, git queries, host reboot). stdin is `/dev/null`; a timeout kills
+  and **reaps** the child (the whole process group with `new_session=True`) and raises
+  `asyncio.TimeoutError`, which callers must catch **before** `OSError` — it is a subclass since
+  Python 3.11. The updater's streaming build runner is the exception: it reads output live.
 - **`logger_configurator.py`**: `configure_logging(level=None)` resolves the level from
   `TESLA_HOMEDASH_LOG_LEVEL` (default **INFO**, not DEBUG) and wires the shared stdout formatter
   (`LEVEL | YYYY-MM-DD | HH:MM:SS | name | message`) onto an allow-list of top-level loggers.

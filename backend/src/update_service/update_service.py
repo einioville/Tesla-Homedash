@@ -66,7 +66,7 @@ import time
 from collections import deque
 from pathlib import Path
 
-from ..utils import protocol
+from ..utils import process, protocol
 
 logger = logging.getLogger("update_service")
 
@@ -1473,28 +1473,16 @@ class UpdateService:
         '''
         directory = cwd or self.__root
         try:
-            process = await asyncio.create_subprocess_exec(
-                "git", *args,
+            return await process.run(
+                ("git", *args), timeout,
                 cwd=str(directory) if directory else None,
                 env=self.__child_env(_GIT_ENV),
-                stdin=asyncio.subprocess.DEVNULL,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                start_new_session=True,
+                new_session=True,
             )
+        except asyncio.TimeoutError:
+            return -1, "", f"git {' '.join(args)} timed out"
         except OSError as e:
             return -1, "", str(e)
-
-        try:
-            out, err = await asyncio.wait_for(process.communicate(), timeout=timeout)
-        except asyncio.TimeoutError:
-            with contextlib.suppress(ProcessLookupError, PermissionError):
-                os.killpg(os.getpgid(process.pid), signal.SIGKILL)
-            await process.wait()
-            return -1, "", f"git {' '.join(args)} timed out"
-
-        code = process.returncode if process.returncode is not None else -1
-        return code, out.decode("utf-8", "replace"), err.decode("utf-8", "replace")
 
     # ── Job bookkeeping + framing ─────────────────────────────────
 

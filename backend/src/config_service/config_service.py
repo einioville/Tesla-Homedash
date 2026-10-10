@@ -41,7 +41,7 @@ from functools import lru_cache
 from typing import Any, Callable
 from zoneinfo import ZoneInfo, available_timezones
 
-from ..utils import protocol
+from ..utils import process, protocol
 from ..utils.config_parser import AUTO_TIMEZONE, system_timezone_name
 
 logger = logging.getLogger("config_service.config_service")
@@ -1144,28 +1144,17 @@ class ConfigService:
 
         for argv in attempts:
             try:
-                process = await asyncio.create_subprocess_exec(
-                    *argv,
-                    stdin=asyncio.subprocess.DEVNULL,
-                    stdout=asyncio.subprocess.DEVNULL,
-                    stderr=asyncio.subprocess.PIPE,
-                )
+                returncode, _, stderr = await process.run(argv, _REBOOT_TIMEOUT_SECONDS)
+            except asyncio.TimeoutError:
+                logger.warning("%s timed out", " ".join(argv))
+                continue
             except OSError as e:
                 logger.warning("Could not run %s: %s", " ".join(argv), e)
                 continue
-            try:
-                _, stderr = await asyncio.wait_for(
-                    process.communicate(), timeout=_REBOOT_TIMEOUT_SECONDS
-                )
-            except asyncio.TimeoutError:
-                process.kill()
-                logger.warning("%s timed out", " ".join(argv))
-                continue
-            if process.returncode == 0:
+            if returncode == 0:
                 logger.warning("Host reboot started via: %s", " ".join(argv))
                 return ""
-            logger.info("%s refused (%s): %s", " ".join(argv), process.returncode,
-                        stderr.decode("utf-8", "replace").strip())
+            logger.info("%s refused (%s): %s", " ".join(argv), returncode, stderr.strip())
         return ("Palvelimella ei ole oikeutta käynnistää laitetta uudelleen. Lisää "
                 "polkit-sääntö tai sudoers-rivi (README: Laitteen uudelleenkäynnistys).")
 

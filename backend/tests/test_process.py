@@ -18,6 +18,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from src.audio_service.audio_backend import run_command  # noqa: E402
 from src.display_service import display_service  # noqa: E402
 from src.update_service.update_service import UpdateService  # noqa: E402
+from src.usb_import_service import usb_import_service  # noqa: E402
 from src.usb_import_service.usb_import_service import UsbImportService  # noqa: E402
 
 ECHO_AND_FAIL = ["sh", "-c", "echo out; echo ' err ' >&2; exit 3"]
@@ -37,6 +38,12 @@ def test_usb_import_run():
     assert asyncio.run(run(*ECHO_AND_FAIL)) == (3, "out\n", "err")
     code, out, err = asyncio.run(run(MISSING))
     assert (code, out) == (-1, "") and "No such file" in err
+    saved = usb_import_service._COMMAND_TIMEOUT_SECONDS
+    usb_import_service._COMMAND_TIMEOUT_SECONDS = 0.2
+    try:
+        assert asyncio.run(run("sleep", "5")) == (-1, "", "sleep timed out")
+    finally:
+        usb_import_service._COMMAND_TIMEOUT_SECONDS = saved
 
 
 class _NoVetoes:
@@ -75,10 +82,20 @@ def test_display_run():
         assert asyncio.run(_display_with("exit 0")._DisplayService__run(True)) is True
         assert asyncio.run(_display_with("echo no >&2; exit 1")._DisplayService__run(False)) is False
         display_service._RUN_TIMEOUT_SECONDS, saved = 0.2, display_service._RUN_TIMEOUT_SECONDS
+        pid_file = os.path.join(tempfile.mkdtemp(), "pid")
         try:
-            assert asyncio.run(_display_with("sleep 5")._DisplayService__run(True)) is False
+            hung = _display_with(f"echo $$ > {pid_file}; exec sleep 5")
+            assert asyncio.run(hung._DisplayService__run(True)) is False
         finally:
             display_service._RUN_TIMEOUT_SECONDS = saved
+        # A wlopm that hangs is killed, not left running behind the timeout.
+        with open(pid_file, encoding="utf-8") as fh:
+            pid = int(fh.read())
+        try:
+            os.kill(pid, 0)
+            assert False, f"wlopm stand-in {pid} still running after its timeout"
+        except ProcessLookupError:
+            pass
     finally:
         display_service._COMMAND = original
 

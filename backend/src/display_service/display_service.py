@@ -26,7 +26,7 @@ import json
 import logging
 import shutil
 
-from ..utils import protocol
+from ..utils import process, protocol
 
 logger = logging.getLogger("display_service")
 
@@ -251,22 +251,13 @@ class DisplayService:
         verified is never reported as a fault.
         '''
         try:
-            process = await asyncio.create_subprocess_exec(
-                _COMMAND, "--json",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.DEVNULL,
-            )
+            returncode, stdout, _ = await process.run((_COMMAND, "--json"), _RUN_TIMEOUT_SECONDS)
+        except asyncio.TimeoutError:
+            return _UNKNOWN
         except OSError as e:
             logger.debug("Could not run %s --json: %s", _COMMAND, e)
             return _UNKNOWN
-        try:
-            stdout, _ = await asyncio.wait_for(
-                process.communicate(), timeout=_RUN_TIMEOUT_SECONDS
-            )
-        except asyncio.TimeoutError:
-            process.kill()
-            return _UNKNOWN
-        if process.returncode != 0:
+        if returncode != 0:
             return _UNKNOWN
         try:
             entries = json.loads(stdout)
@@ -299,14 +290,7 @@ class DisplayService:
         '''
         args = ("--on" if on else "--off", self.__output)
         try:
-            process = await asyncio.create_subprocess_exec(
-                _COMMAND, *args,
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            _, stderr = await asyncio.wait_for(
-                process.communicate(), timeout=_RUN_TIMEOUT_SECONDS
-            )
+            returncode, _, stderr = await process.run((_COMMAND, *args), _RUN_TIMEOUT_SECONDS)
         except asyncio.TimeoutError:
             logger.warning("%s %s timed out after %.0f s", _COMMAND, " ".join(args),
                            _RUN_TIMEOUT_SECONDS)
@@ -317,9 +301,9 @@ class DisplayService:
             self.__available = False
             return False
 
-        if process.returncode != 0:
+        if returncode != 0:
             logger.warning("%s %s exited with %s: %s", _COMMAND, " ".join(args),
-                           process.returncode, stderr.decode("utf-8", "replace").strip())
+                           returncode, stderr.strip())
             return False
         return True
 

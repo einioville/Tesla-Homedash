@@ -99,6 +99,7 @@ backend/                          # ★ orchestration, service contracts, .env +
     utils/                        # ★
       config_parser.py            # Config (config.json) + get_env (.env)
       protocol.py                 # Binary protocol constants + frame() — single source of truth
+      process.py                  # run(): every run-to-completion subprocess, timeout kill + reap
       logger_configurator.py      # Shared stdout logging setup
     ui/plot/
       dataplot.py                 # Optional standalone PySide6/pyqtgraph plot (not used at runtime)

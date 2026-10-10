@@ -27,7 +27,7 @@ import os
 import shutil
 import threading
 
-from ..utils import protocol
+from ..utils import process, protocol
 
 logger = logging.getLogger("usb_import_service")
 
@@ -507,19 +507,12 @@ class UsbImportService:
             argv (str): The command and its arguments.
         '''
         try:
-            process = await asyncio.create_subprocess_exec(
-                *argv, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+            code, out, err = await process.run(argv, _COMMAND_TIMEOUT_SECONDS)
+        except asyncio.TimeoutError:
+            return -1, "", f"{argv[0]} timed out"
         except OSError as e:
             return -1, "", str(e)
-        try:
-            out, err = await asyncio.wait_for(
-                process.communicate(), timeout=_COMMAND_TIMEOUT_SECONDS)
-        except asyncio.TimeoutError:
-            process.kill()
-            await process.wait()
-            return -1, "", f"{argv[0]} timed out"
-        return (process.returncode, out.decode("utf-8", "replace"),
-                err.decode("utf-8", "replace").strip())
+        return code, out, err.strip()
 
     # ── State ─────────────────────────────────────────────────────
 

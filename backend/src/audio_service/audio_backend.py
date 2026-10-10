@@ -23,6 +23,8 @@ import shutil
 from abc import ABC, abstractmethod
 from typing import NamedTuple
 
+from ..utils import process
+
 logger = logging.getLogger("audio_service.audio_backend")
 
 # Every external call is bounded. This is the lesson CLAUDE.md 5.2.4 records
@@ -59,24 +61,14 @@ async def run_command(argv: list[str], timeout: float = _TIMEOUT_SECONDS,
     '''
     env = {**os.environ, "LC_ALL": "C"} if untranslated else None
     try:
-        process = await asyncio.create_subprocess_exec(
-            *argv,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.DEVNULL,
-            env=env,
-        )
+        returncode, stdout, _ = await process.run(argv, timeout, env=env)
+    except asyncio.TimeoutError:
+        logger.warning("%s timed out after %.1f s", " ".join(argv), timeout)
+        return -1, ""
     except OSError as e:
         logger.debug("Could not run %s: %s", argv[0], e)
         return -1, ""
-
-    try:
-        stdout, _ = await asyncio.wait_for(process.communicate(), timeout=timeout)
-    except asyncio.TimeoutError:
-        logger.warning("%s timed out after %.1f s", " ".join(argv), timeout)
-        process.kill()
-        await process.wait()
-        return -1, ""
-    return process.returncode, stdout.decode("utf-8", "replace")
+    return returncode, stdout
 
 
 def parse_pw_dump(out: str) -> list[dict] | None:
