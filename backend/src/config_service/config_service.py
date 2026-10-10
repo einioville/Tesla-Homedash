@@ -948,7 +948,7 @@ class ConfigService:
             await self.__reply_error(writer, key, value, result["message"])
             return
 
-        await self.__reply_ok(writer, key, result["value"], result["applied"], "")
+        await self.__reply_ok(writer, key, result["value"], result["applied"])
         if result["applied"] != "unchanged":
             # Tell every client (including this one) the new authoritative values.
             await self.__server.broadcast(self.__schema_frame())
@@ -1272,11 +1272,11 @@ class ConfigService:
             {"key": key, "value": value, "applied": applied, "message": message},
         )
 
-    async def __reply_ok(self, writer, key: str, value: Any, applied: str, message: str) -> None:
+    async def __reply_ok(self, writer, key: str, value: Any, applied: str) -> None:
         '''Sends a successful CONFIG_SET_RESULT to the requesting client.'''
         await self.__server.send_to(
             writer,
-            self.__result_frame(protocol.CONFIG_STATUS_OK, key, value, applied, message),
+            self.__result_frame(protocol.CONFIG_STATUS_OK, key, value, applied, ""),
         )
 
     async def __reply_error(self, writer, key: str, value: Any, message: str) -> None:

@@ -278,10 +278,9 @@ class UpdateService:
             None, and the repository containing this file is used.
     '''
 
-    def __init__(self, server, config_service, repo_path: str | None = None):
+    def __init__(self, server, config_service):
         self.__server = server
         self.__config_service = config_service
-        self.__requested_root = Path(repo_path).expanduser() if repo_path else None
 
         # Resolved on the first probe in run(); until then the card reports that
         # it is still working it out rather than claiming the feature is missing.
@@ -560,7 +559,7 @@ class UpdateService:
             logger.warning("git not found; the app-update card will be inert")
             return
 
-        start = self.__requested_root or Path(__file__).resolve().parent
+        start = Path(__file__).resolve().parent
         code, out, err = await self.__git(
             "rev-parse", "--path-format=absolute", "--show-toplevel", cwd=start
         )

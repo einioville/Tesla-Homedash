@@ -55,12 +55,10 @@ class DisplayService:
 
     Arguments:
         server (Server): TCP server used to reply to and broadcast at clients.
-        output (str): wlopm output name; "*" targets every output.
     '''
 
-    def __init__(self, server, output: str = _ALL_OUTPUTS):
+    def __init__(self, server):
         self.__server = server
-        self.__output = output or _ALL_OUTPUTS
         # Resolved once: a host either has wlopm or it does not, and re-probing
         # on every request would just add a stat() per timeout.
         self.__available = shutil.which(_COMMAND) is not None
@@ -76,7 +74,7 @@ class DisplayService:
 
         if self.__available:
             logger.info("Display power control available via %s (output=%s)",
-                        _COMMAND, self.__output)
+                        _COMMAND, _ALL_OUTPUTS)
         else:
             logger.warning(
                 "%s not found; display power control disabled (the dashboard's "
@@ -170,8 +168,7 @@ class DisplayService:
 
     def health(self) -> dict:
         '''Panel power control's standing, for the Järjestelmän tila card.'''
-        output = "Kaikki" if self.__output == _ALL_OUTPUTS else self.__output
-        config = [["Ohjaus", _COMMAND], ["Näyttö", output],
+        config = [["Ohjaus", _COMMAND], ["Näyttö", "Kaikki"],
                   ["Tila", "Päällä" if self.__on else "Sammutettu"]]
         if not self.__available:
             return {"state": "off", "detail": f"{_COMMAND} puuttuu, näytön sammutus ei toimi",
@@ -185,14 +182,6 @@ class DisplayService:
     def get_run_task(self):
         '''Returns the startup task for start_services to gather.'''
         return asyncio.create_task(self.run())
-
-    async def shutdown(self) -> None:
-        '''
-        Leaves the panel lit on the way out.  A backend restart must never come
-        back to a screen that looks dead until it is touched.
-        '''
-        if self.__available and not self.__on and await self.__run(True):
-            self.__on = True
 
     # ── Internals ─────────────────────────────────────────────────
 
@@ -230,7 +219,7 @@ class DisplayService:
                 "Display output %s is gone from the compositor after a power-on; the "
                 "panel stays dark. Known on labwc 0.20 / wlroots 0.20 after a long "
                 "blank. Recover with `sudo systemctl restart lightdm`; screen-off is "
-                "suspended until the backend restarts", self.__output)
+                "suspended until the backend restarts", _ALL_OUTPUTS)
             return
         if verdict == _DARK:
             self.__on = False
@@ -272,13 +261,9 @@ class DisplayService:
             for entry in entries
             if isinstance(entry, dict) and "output" in entry
         }
-        if self.__output == _ALL_OUTPUTS:
-            if not modes:
-                return _MISSING
-            return _DARK if any(mode == "off" for mode in modes.values()) else _LIT
-        if self.__output not in modes:
+        if not modes:
             return _MISSING
-        return _DARK if modes[self.__output] == "off" else _LIT
+        return _DARK if any(mode == "off" for mode in modes.values()) else _LIT
 
     async def __run(self, on: bool) -> bool:
         '''
@@ -288,7 +273,7 @@ class DisplayService:
         Arguments:
             on (bool): True for --on, False for --off.
         '''
-        args = ("--on" if on else "--off", self.__output)
+        args = ("--on" if on else "--off", _ALL_OUTPUTS)
         try:
             returncode, _, stderr = await process.run((_COMMAND, *args), _RUN_TIMEOUT_SECONDS)
         except asyncio.TimeoutError:

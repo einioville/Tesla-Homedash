@@ -38,11 +38,10 @@ class LogLevel:
     Arguments:
         config (Config): Shared configuration (the logging block).
         config_service (ConfigService): Writes the level back on expiry.
-        log_files (LogFiles | None): The log files' size and place, for the
-            status card.
+        log_files (LogFiles): The log files' size and place, for the status card.
     '''
 
-    def __init__(self, config, config_service, log_files=None):
+    def __init__(self, config, config_service, log_files):
         self.__config = config
         self.__config_service = config_service
         self.__log_files = log_files
@@ -165,9 +164,8 @@ class LogLevel:
         if self.__until_ms is not None:
             config.append(["Palautuu", {"time": self.__until_ms}])
             config.append(["Palautuu tasolle", self.__return_level().upper()])
-        if self.__log_files is not None:
-            config.append(["Lokitiedostot", {"bytes": self.__log_files.size_bytes()}])
-            config.append(["Kansio", self.__log_files.directory])
+        config.append(["Lokitiedostot", {"bytes": self.__log_files.size_bytes()}])
+        config.append(["Kansio", self.__log_files.directory])
         if self.__level == "debug":
             return {"state": "warn", "detail": "DEBUG-taso päällä", "config": config}
         return {"state": "ok", "detail": "Normaali", "config": config}

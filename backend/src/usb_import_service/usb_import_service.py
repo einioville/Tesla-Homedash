@@ -222,9 +222,9 @@ class UsbImportService:
         target_dir (str): The screensaver folder; defaults to screensaver_dir().
     '''
 
-    def __init__(self, server, target_dir: str | None = None):
+    def __init__(self, server):
         self.__server = server
-        self.__target = target_dir or screensaver_dir()
+        self.__target = screensaver_dir()
         # Serialises the flow's steps; the copy itself runs outside it, in its
         # own task, so a CLOSE can reach it.
         self.__lock = asyncio.Lock()

@@ -12,10 +12,8 @@ caller holds the two counter samples the rate maths needs and this module stays
 trivially testable.
 '''
 
-import logging
 import os
 
-logger = logging.getLogger("system_service.metrics")
 
 # Interfaces that are not the machine's real link. Container and VPN plumbing
 # would otherwise double-count traffic that already crossed a physical NIC.
@@ -85,13 +83,13 @@ def cpu_percent(previous: tuple[int, int] | None,
 
 def read_meminfo() -> dict:
     '''
-    MemTotal / MemAvailable / SwapTotal / SwapFree from /proc/meminfo, in BYTES.
+    MemTotal / MemAvailable from /proc/meminfo, in BYTES.
 
     MemAvailable rather than MemFree: free memory on Linux is mostly page cache
     and reads alarmingly low, while MemAvailable is the honest answer to "how
     much could a new process actually get".
     '''
-    wanted = {"MemTotal", "MemAvailable", "SwapTotal", "SwapFree"}
+    wanted = {"MemTotal", "MemAvailable"}
     out: dict[str, int] = {}
     try:
         with open("/proc/meminfo", "r", encoding="utf-8") as fh:

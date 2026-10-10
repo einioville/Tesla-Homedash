@@ -182,18 +182,12 @@ class PulseAudioBackend(AudioBackend):
     same socket.  Preferred over WirePlumber where available: sinks are addressed
     by a stable NAME, which is exactly what a value persisted in config.json
     needs.
-    Arguments:
-        flavour (str): "pipewire-pulse" or "pulseaudio"; logging only, the
-            command set is identical either way.
     '''
 
     name = "pulse"
     supports_device_selection = True
 
     _VOLUME_RE = re.compile(r"(\d+)%")
-
-    def __init__(self, flavour: str = "pulseaudio"):
-        self.flavour = flavour
 
     async def get_volume(self, device: str | None = None) -> int | None:
         rc, out = await run_command(["pactl", "get-sink-volume", device or "@DEFAULT_SINK@"])
@@ -455,7 +449,7 @@ async def detect_backend() -> AudioBackend:
         if rc == 0:
             flavour = "pipewire-pulse" if "PipeWire" in out else "pulseaudio"
             logger.info("Audio backend: pactl (%s)", flavour)
-            return PulseAudioBackend(flavour)
+            return PulseAudioBackend()
 
     if shutil.which("wpctl"):
         rc, out = await run_command(["wpctl", "status"])
