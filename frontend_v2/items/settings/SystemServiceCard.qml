@@ -187,7 +187,9 @@ Rectangle {
             wrapMode: Text.WordWrap
         }
 
-        // The settings in effect, label beside value.
+        // The settings in effect, label beside value. Both wrap rather than
+        // elide: a path cut in the middle hides exactly the part being looked
+        // for, and a path has no spaces, so it breaks at a slash or anywhere.
         Repeater {
             model: card.config
 
@@ -198,22 +200,21 @@ Rectangle {
                 spacing: 10
 
                 Text {
-                    width: parent.width * 0.46
+                    width: parent.width * 0.42
                     text: modelData[0]
                     font.family: Theme.fontFamily
                     font.pixelSize: 13
                     color: Theme.dataLabelTitle
-                    elide: Text.ElideRight
+                    wrapMode: Text.WordWrap
                 }
 
                 Text {
-                    width: parent.width * 0.54 - parent.spacing
+                    width: parent.width * 0.58 - parent.spacing
                     text: card.formatValue(modelData[1])
                     font.family: Theme.fontFamily
                     font.pixelSize: 13
                     color: Theme.dataLabelValue
-                    // Paths and long names keep both ends readable.
-                    elide: Text.ElideMiddle
+                    wrapMode: Text.WrapAtWordBoundaryOrAnywhere
                 }
             }
         }

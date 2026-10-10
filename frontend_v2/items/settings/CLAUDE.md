@@ -333,7 +333,9 @@ Ylläpito is retired — this section shows it all.
 - **Service cards** render each row of the backend's `services` generically: the verdict as a dot
   plus *Toiminnassa* / *Ongelmia* / *Ei toiminnassa* / *Ei käytössä*, the detail line, the settings
   in effect as label–value pairs (typed values formatted here: `{time}` today as a clock time, another
-  day with its date), the server card's connected displays with this one marked, and the warning and
+  day with its date; both columns **wrap rather than elide** — a path cut in the middle hid the part
+  being looked for, and with no spaces in it, it breaks at a slash or anywhere), the server card's
+  connected displays with this one marked, and the warning and
   error counts with *Näytä* opening `SystemLogPopup` (newest first, date and time, level tag,
   logger, the message's first lines). Cards pair two to a row, each row as tall as its taller card;
   the Repeater's model is a **count**, since a poll replaces the list every 5 s and a new array
