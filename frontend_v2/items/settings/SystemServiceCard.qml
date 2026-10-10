@@ -1,5 +1,6 @@
 import QtQuick
 import frontend_v2
+import "../../app/Format.js" as Format
 
 // One backend service in Järjestelmän tila: its standing, the settings it is
 // running with, any list it keeps (the connected displays) and its warning and
@@ -39,9 +40,9 @@ Rectangle {
         if (value.time !== undefined)
             return formatTime(value.time)
         if (value.bytes !== undefined)
-            return formatBytes(value.bytes)
+            return Format.bytes(value.bytes)
         if (value.duration !== undefined)
-            return formatDuration(value.duration)
+            return Format.duration(value.duration)
         return "—"
     }
 
@@ -57,28 +58,6 @@ Rectangle {
         if (date.getFullYear() === today.getFullYear())
             return Qt.formatDateTime(date, "d.M. hh:mm")
         return Qt.formatDate(date, "d.M.yyyy")
-    }
-
-    function formatBytes(value) {
-        if (value === null || value === undefined)
-            return "—"
-        const units = ["B", "kB", "MB", "GB", "TB"]
-        let v = value
-        let i = 0
-        while (v >= 1024 && i < units.length - 1) { v /= 1024; ++i }
-        return (i === 0 ? v.toFixed(0) : v.toFixed(1)) + " " + units[i]
-    }
-
-    function formatDuration(seconds) {
-        const s = Math.floor(seconds)
-        const d = Math.floor(s / 86400)
-        const h = Math.floor((s % 86400) / 3600)
-        const m = Math.floor((s % 3600) / 60)
-        if (d > 0)
-            return d + " pv " + h + " h"
-        if (h > 0)
-            return h + " h " + m + " min"
-        return m + " min"
     }
 
     // This display's own connection in the server card's list.

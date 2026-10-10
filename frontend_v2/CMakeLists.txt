@@ -111,6 +111,7 @@ qt_add_qml_module(appfrontend_v2
         Main.qml
         app/ViewController.qml
         app/Theme.qml
+        app/Format.js
         views/DashboardView.qml
         views/HistoryView.qml
         views/MediaView.qml

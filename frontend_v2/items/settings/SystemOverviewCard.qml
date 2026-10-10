@@ -1,5 +1,6 @@
 import QtQuick
 import frontend_v2
+import "../../app/Format.js" as Format
 
 // The top of Järjestelmän tila: one verdict for the whole system, the issues
 // behind it and how long the host and the backend have been up.
@@ -33,26 +34,6 @@ Rectangle {
     readonly property real tempWarnC: 80
     readonly property real tempErrorC: 85
 
-    function fmtBytes(value) {
-        const units = ["B", "kB", "MB", "GB", "TB"]
-        let v = value
-        let i = 0
-        while (v >= 1024 && i < units.length - 1) { v /= 1024; ++i }
-        return (i === 0 ? v.toFixed(0) : v.toFixed(1)) + " " + units[i]
-    }
-
-    function fmtUptime(seconds) {
-        const s = Math.floor(seconds)
-        const d = Math.floor(s / 86400)
-        const h = Math.floor((s % 86400) / 3600)
-        const m = Math.floor((s % 3600) / 60)
-        if (d > 0)
-            return d + " pv " + h + " h"
-        if (h > 0)
-            return h + " h " + m + " min"
-        return m + " min"
-    }
-
     // {state, label, detail}, errors first, then warnings, each in card order.
     readonly property var issues: {
         if (!connected || !loaded)
@@ -65,7 +46,7 @@ Rectangle {
         }
         if (disk.used_pct !== undefined && disk.used_pct !== null && disk.used_pct >= 90) {
             found.push({ "state": disk.used_pct >= 95 ? "error" : "warn", "label": qsTr("Levy"),
-                         "detail": qsTr("Levytila vähissä · %1 vapaana").arg(fmtBytes(disk.free_b)) })
+                         "detail": qsTr("Levytila vähissä · %1 vapaana").arg(Format.bytes(disk.free_b)) })
         }
         if (!isNaN(memPct) && memPct >= 90) {
             found.push({ "state": memPct >= 97 ? "error" : "warn", "label": qsTr("Muisti"),
@@ -206,7 +187,7 @@ Rectangle {
                 }
                 Text {
                     visible: !isNaN(card.hostUptime)
-                    text: isNaN(card.hostUptime) ? "" : card.fmtUptime(card.hostUptime)
+                    text: isNaN(card.hostUptime) ? "" : Format.duration(card.hostUptime)
                     font.family: Theme.fontFamily
                     font.pixelSize: 14
                     color: Theme.dataLabelValue
@@ -220,7 +201,7 @@ Rectangle {
                 }
                 Text {
                     visible: !isNaN(card.backendUptime)
-                    text: isNaN(card.backendUptime) ? "" : card.fmtUptime(card.backendUptime)
+                    text: isNaN(card.backendUptime) ? "" : Format.duration(card.backendUptime)
                     font.family: Theme.fontFamily
                     font.pixelSize: 14
                     color: Theme.dataLabelValue
