@@ -103,6 +103,49 @@ class InfluxDBHandler:
     async def close(self) -> None:
         await self.__client.close()
 
+    async def __single_table(self, query: str, failure: str):
+        '''
+        Runs one read and returns its result table, or None when InfluxDB is
+        unreachable, the query fails or nothing matched: a read degrades to "no
+        data" rather than propagating.  A second table raises — every read here is
+        shaped to produce one.
+        Arguments:
+            query (str): The Flux query.
+            failure (str): The warning line's text, e.g. "history read failed for Odometer".
+        '''
+        try:
+            result = await self.__client.query_api().query(query=query)
+        except Exception as e:
+            logger.warning("InfluxDB %s: %s: %s", failure, type(e).__name__, e)
+            return None
+
+        if len(result) > 1:
+            raise Exception("There was more than one table")
+
+        if len(result) == 0:
+            return None
+
+        return result[0]
+
+    @staticmethod
+    def __as_series(table) -> tuple | None:
+        '''
+        Converts a table's non-null records into (count, timestamps_ms (int64),
+        values (float64)), or None when no record has a value.
+        Arguments:
+            table (FluxTable): A numeric read's result table.
+        '''
+        records = [r for r in table if r.get_value() is not None]
+        if not records:
+            return None
+
+        timestamps = np.array(
+            [record.get_time().timestamp() * 1000 for record in records], dtype=np.int64
+        )
+        values = np.array([record.get_value() for record in records], dtype=np.float64)
+
+        return len(values), timestamps, values
+
     async def read_tesla_data_property(
         self,
         data_property_id: str,
@@ -147,39 +190,15 @@ class InfluxDBHandler:
             query += '\n  |> fill(usePrevious: true)'
         query += '\n  |> keep(columns: ["_time", "_value"])'
 
-        try:
-            result = await self.__client.query_api().query(query=query)
-        except Exception as e:
-            # InfluxDB unreachable or query failure must not propagate to the
-            # caller — degrade to "no data" so a history read just comes back empty.
-            logger.warning(
-                "InfluxDB history read failed for %s: %s: %s",
-                data_property_id, type(e).__name__, e,
-            )
+        table = await self.__single_table(
+            query, f"history read failed for {data_property_id}")
+        if table is None:
             return None
         logger.debug("Query returned results for property: %s", data_property_id)
-
-        if len(result) > 1:
-            raise Exception("There was more than one table")
-
-        if len(result) == 0:
-            return None
-
-        table = result[0]
-
-        # Drop null values: aggregateWindow(createEmpty=true) + fill(usePrevious)
+        # Null values are dropped: aggregateWindow(createEmpty=true) + fill(usePrevious)
         # leaves the windows before the first real sample null (nothing to carry
         # forward yet), and a raw series can carry None for an absent reading.
-        records = [r for r in table if r.get_value() is not None]
-        if not records:
-            return None
-
-        timestamps = np.array(
-            [record.get_time().timestamp() * 1000 for record in records], dtype=np.int64
-        )
-        values = np.array([record.get_value() for record in records], dtype=np.float64)
-
-        return len(values), timestamps, values
+        return self.__as_series(table)
 
     async def read_charger_data_property(
         self, data_property_id: str, time_start: str, time_end: str
@@ -212,35 +231,9 @@ class InfluxDBHandler:
         query += '\n  |> keep(columns: ["_time", "_value"])'
         query += '\n  |> sort(columns: ["_time"])'
 
-        try:
-            result = await self.__client.query_api().query(query=query)
-        except Exception as e:
-            # Same degrade-to-None contract as the tesla reads: an unreachable InfluxDB
-            # or a failed query yields "no data" so a charging-loss computation simply
-            # comes back with NaN charger energy rather than propagating to the caller.
-            logger.warning(
-                "InfluxDB charger history read failed for %s: %s: %s",
-                data_property_id, type(e).__name__, e,
-            )
-            return None
-
-        if len(result) > 1:
-            raise Exception("There was more than one table")
-
-        if len(result) == 0:
-            return None
-
-        table = result[0]
-        records = [r for r in table if r.get_value() is not None]
-        if not records:
-            return None
-
-        timestamps = np.array(
-            [record.get_time().timestamp() * 1000 for record in records], dtype=np.int64
-        )
-        values = np.array([record.get_value() for record in records], dtype=np.float64)
-
-        return len(values), timestamps, values
+        table = await self.__single_table(
+            query, f"charger history read failed for {data_property_id}")
+        return None if table is None else self.__as_series(table)
 
     async def read_grid_import_kwh_hourly(self, start_ms: int, end_ms: int) -> dict | None:
         '''
@@ -299,26 +292,11 @@ class InfluxDBHandler:
         query += '\n  |> keep(columns: ["_time", "_value"])'
         query += '\n  |> last()'
 
-        try:
-            result = await self.__client.query_api().query(query=query)
-        except Exception as e:
-            # InfluxDB unreachable or query failure must degrade to "no prior value"
-            # so an empty-window history read simply stays empty ("Ei dataa") rather
-            # than fabricating a line — and never propagates to the caller.
-            logger.warning(
-                "InfluxDB last-value-before read failed for %s: %s: %s",
-                data_property_id, type(e).__name__, e,
-            )
-            return None
-
-        if len(result) > 1:
-            raise Exception("There was more than one table")
-
-        if len(result) == 0:
-            return None
-
-        table = result[0]
-        if not table.records:
+        # A failure reads as "no prior value", so an empty-window history read stays
+        # empty ("Ei dataa") rather than fabricating a line.
+        table = await self.__single_table(
+            query, f"last-value-before read failed for {data_property_id}")
+        if table is None or not table.records:
             return None
 
         value = table.records[0].get_value()
@@ -359,24 +337,11 @@ class InfluxDBHandler:
         query += '\n  |> keep(columns: ["_time", "_value"])'
         query += '\n  |> sort(columns: ["_time"])'
 
-        try:
-            result = await self.__client.query_api().query(query=query)
-        except Exception as e:
-            # InfluxDB unreachable or query failure degrades to "no data" so a trip
-            # scan simply finds nothing rather than propagating to the caller.
-            logger.warning(
-                "InfluxDB string-history read failed for %s: %s: %s",
-                data_property_id, type(e).__name__, e,
-            )
+        table = await self.__single_table(
+            query, f"string-history read failed for {data_property_id}")
+        if table is None:
             return None
 
-        if len(result) > 1:
-            raise Exception("There was more than one table")
-
-        if len(result) == 0:
-            return None
-
-        table = result[0]
         records = [r for r in table if r.get_value() is not None]
         if not records:
             return None
@@ -414,23 +379,9 @@ class InfluxDBHandler:
         query += '\n  |> keep(columns: ["_time", "_value"])'
         query += '\n  |> last()'
 
-        try:
-            result = await self.__client.query_api().query(query=query)
-        except Exception as e:
-            logger.warning(
-                "InfluxDB last-string-before read failed for %s: %s: %s",
-                data_property_id, type(e).__name__, e,
-            )
-            return None
-
-        if len(result) > 1:
-            raise Exception("There was more than one table")
-
-        if len(result) == 0:
-            return None
-
-        table = result[0]
-        if not table.records:
+        table = await self.__single_table(
+            query, f"last-string-before read failed for {data_property_id}")
+        if table is None or not table.records:
             return None
 
         value = table.records[0].get_value()
@@ -467,23 +418,9 @@ class InfluxDBHandler:
         query += f'\n  |> sort(columns: ["_time"], desc: {"true" if last else "false"})'
         query += '\n  |> limit(n: 1)'
 
-        try:
-            result = await self.__client.query_api().query(query=query)
-        except Exception as e:
-            logger.warning(
-                "InfluxDB location-endpoint read failed (last=%s): %s: %s",
-                last, type(e).__name__, e,
-            )
-            return None
-
-        if len(result) > 1:
-            raise Exception("There was more than one table")
-
-        if len(result) == 0:
-            return None
-
-        table = result[0]
-        if not table.records:
+        table = await self.__single_table(
+            query, f"location-endpoint read failed (last={last})")
+        if table is None or not table.records:
             return None
 
         record = table.records[0]
@@ -521,24 +458,10 @@ class InfluxDBHandler:
         query += '\n  |> keep(columns: ["_time", "latitude", "longitude"])'
         query += '\n  |> sort(columns: ["_time"])'
 
-        try:
-            result = await self.__client.query_api().query(query=query)
-        except Exception as e:
-            # InfluxDB unreachable or query failure degrades to "no data" so a trip
-            # route simply comes back empty rather than propagating to the caller.
-            logger.warning(
-                "InfluxDB location-history read failed: %s: %s",
-                type(e).__name__, e,
-            )
+        table = await self.__single_table(query, "location-history read failed")
+        if table is None:
             return None
 
-        if len(result) > 1:
-            raise Exception("There was more than one table")
-
-        if len(result) == 0:
-            return None
-
-        table = result[0]
         path = []
         for record in table.records:
             latitude = record.values.get("latitude")
@@ -586,79 +509,54 @@ class InfluxDBHandler:
             logger.error("Failed to write charger points to InfluxDB: %s", e)
 
     async def read_first_value_day(self, data_property_id: str):
-        if not _SAFE_ID.match(data_property_id):
-            raise ValueError(f"Invalid data_property_id: {data_property_id!r}")
+        '''
+        The first value a property logged today (from local midnight in the
+        configured timezone), the baseline of a per-day calculated field.  None
+        when InfluxDB is unreachable or nothing was logged yet, so
+        CalculatedVehicleDataProperty falls back to the live value.
+        Arguments:
+            data_property_id (str): The property id (InfluxDB "id" tag).
+        '''
+        return await self.__first_value_since(data_property_id, "day", day=None)
 
-        current_day = datetime.now(self.__timezone).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
-
-        query = f'from(bucket:"{self.__bucket}")'
-        query += f'\n  |> range(start: {current_day})'
-        query += '\n  |> filter(fn: (r) => r["_measurement"] == "tesla_data")'
-        query += f'\n  |> filter(fn: (r) => r["id"] == "{data_property_id}")'
-        query += '\n  |> keep(columns: ["_time", "_value"])'
-        query += '\n  |> first()'
-
-        try:
-            result = await self.__client.query_api().query(query=query)
-        except Exception as e:
-            # InfluxDB unreachable (at startup or a midnight reset): return None
-            # so CalculatedVehicleDataProperty falls back to the live value
-            # instead of crashing the app.
-            logger.warning(
-                "InfluxDB first-of-day read failed for %s: %s: %s",
-                data_property_id, type(e).__name__, e,
-            )
-            return None
-
-        if len(result) > 1:
-            raise Exception("There was more than one table")
-
-        if len(result) == 0:
-            return None
-
-        table = result[0]
-        if not table.records:
-            return None
-
-        value = table.records[0].get_value()
-        logger.debug("First value of day for %s: %s", data_property_id, value)
-        return value
-    
     async def read_first_value_month(self, data_property_id: str):
+        '''
+        The first value a property logged this month (from the 1st, local
+        midnight), the baseline of a per-month calculated field; None as for
+        read_first_value_day.
+        Arguments:
+            data_property_id (str): The property id (InfluxDB "id" tag).
+        '''
+        return await self.__first_value_since(data_property_id, "month", day=1)
+
+    async def __first_value_since(self, data_property_id: str, period: str, day: int | None):
+        '''
+        The first value of a property since local midnight of today (day=None) or
+        of the given day of this month.
+        Arguments:
+            data_property_id (str): The property id; validated against _SAFE_ID.
+            period (str): "day" or "month", for the log lines.
+            day (int | None): Day of the month to start from, or None for today.
+        '''
         if not _SAFE_ID.match(data_property_id):
             raise ValueError(f"Invalid data_property_id: {data_property_id!r}")
 
-        current_day = datetime.now(self.__timezone).replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
+        start = datetime.now(self.__timezone).replace(hour=0, minute=0, second=0, microsecond=0)
+        if day is not None:
+            start = start.replace(day=day)
 
         query = f'from(bucket:"{self.__bucket}")'
-        query += f'\n  |> range(start: {current_day})'
+        query += f'\n  |> range(start: {start.isoformat()})'
         query += '\n  |> filter(fn: (r) => r["_measurement"] == "tesla_data")'
         query += f'\n  |> filter(fn: (r) => r["id"] == "{data_property_id}")'
         query += '\n  |> keep(columns: ["_time", "_value"])'
         query += '\n  |> first()'
 
-        try:
-            result = await self.__client.query_api().query(query=query)
-        except Exception as e:
-            # InfluxDB unreachable (at startup or a month reset): return None so
-            # CalculatedVehicleDataProperty falls back to the live value instead
-            # of crashing the app.
-            logger.warning(
-                "InfluxDB first-of-month read failed for %s: %s: %s",
-                data_property_id, type(e).__name__, e,
-            )
-            return None
-
-        if len(result) > 1:
-            raise Exception("There was more than one table")
-
-        if len(result) == 0:
-            return None
-
-        table = result[0]
-        if not table.records:
+        table = await self.__single_table(
+            query, f"first-of-{period} read failed for {data_property_id}")
+        if table is None or not table.records:
             return None
 
         value = table.records[0].get_value()
-        logger.debug("First value of month for %s: %s", data_property_id, value)
+        logger.debug("First value of %s for %s: %s", period, data_property_id, value)
         return value
