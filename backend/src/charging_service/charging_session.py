@@ -43,7 +43,6 @@ logger = logging.getLogger("charging_service.charging_session")
 # Vehicle under "tesla_data". Kept as constants so the writer and reader can't drift.
 CHARGER_ENERGY_ID = "ChargeAdded"        # myenergi: kWh added this session (accumulator)
 AC_ENERGY_IN_ID = "ACChargingEnergyIn"   # tesla: lifetime AC energy into the car (kWh)
-DC_ENERGY_IN_ID = "DCChargingEnergyIn"   # tesla: lifetime DC energy into the car (kWh)
 BATTERY_ENERGY_ID = "EnergyRemaining"    # tesla: energy currently in the pack (kWh)
 SOC_ID = "BatteryLevel"                  # tesla: state of charge (%)
 
@@ -125,21 +124,12 @@ class ChargingSession:
         self.__charger_series: tuple | None = None
 
     @property
-    def session_id(self) -> int:
-        '''Stable natural key for the session (== start_ms).'''
-        return self.__start_ms
-
-    @property
     def start_ms(self) -> int:
         return self.__start_ms
 
     @property
     def end_ms(self) -> int:
         return self.__end_ms
-
-    @property
-    def in_progress(self) -> bool:
-        return self.__in_progress
 
     def seed_charger_kwh(self, value: float) -> None:
         '''
@@ -248,12 +238,10 @@ class ChargingSession:
         charger_kwh = await self.charger_kwh()
 
         ac_in = await self.__influx.read_tesla_data_property(AC_ENERGY_IN_ID, start_iso, end_iso)
-        dc_in = await self.__influx.read_tesla_data_property(DC_ENERGY_IN_ID, start_iso, end_iso)
         battery = await self.__influx.read_tesla_data_property(BATTERY_ENERGY_ID, start_iso, end_iso)
         soc = await self.__influx.read_tesla_data_property(SOC_ID, start_iso, end_iso)
 
         ac_in_kwh = delta(ac_in)
-        dc_in_kwh = delta(dc_in)
         battery_kwh = delta(battery)
 
         loss_cable_kwh = _diff(charger_kwh, ac_in_kwh)
@@ -274,7 +262,6 @@ class ChargingSession:
             "duration_s": (self.__end_ms - self.__start_ms) / 1000.0,
             "charger_kwh": charger_kwh,
             "ac_in_kwh": ac_in_kwh,
-            "dc_in_kwh": dc_in_kwh,
             "battery_kwh": battery_kwh,
             "loss_cable_kwh": loss_cable_kwh,
             "loss_conversion_kwh": loss_conversion_kwh,

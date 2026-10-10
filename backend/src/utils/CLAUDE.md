@@ -134,8 +134,7 @@ The `0x70`–`0x73` pair is **request/response** (the History view): the backend
 requesting client only (`send_to`), never a broadcast, and `TESLA_HISTORY` echoes the requested id so
 a stale reply can be discarded. History values are returned **raw** (no downsampling); the frontend
 renders them as a **step line** (`StepLeft`) so a value held between records still displays as held.
-(`read_tesla_data_property` keeps an optional `aggregate_window` for capping very large ranges,
-currently unused.) When a window logged **nothing** (the value stayed constant, so no record falls
+When a window logged **nothing** (the value stayed constant, so no record falls
 inside it), the backend **boundary-fills**: it queries the last value before the window start and
 returns two synthetic points (window-start + window-end at that held value) so the graph draws a
 flat held line across the whole range instead of "no data". Only a genuinely absent prior value

@@ -36,7 +36,6 @@ _REQUIRED_LOGGED = {
     "Odometer": "Matkat, Lataus",
     "DetailedChargeState": "Lataus",
     "ACChargingEnergyIn": "Lataus",
-    "DCChargingEnergyIn": "Lataus",
     "EnergyRemaining": "Lataus",
     "BatteryLevel": "Lataus",
     "LifetimeEnergyUsed": "Lataus",

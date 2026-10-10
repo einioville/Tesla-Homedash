@@ -59,21 +59,12 @@ class Trip:
         self.__distance_km: float | None = None
 
     @property
-    def trip_id(self) -> int:
-        '''Stable natural key for the trip (== start_ms).'''
-        return self.__start_ms
-
-    @property
     def start_ms(self) -> int:
         return self.__start_ms
 
     @property
     def end_ms(self) -> int:
         return self.__end_ms
-
-    @property
-    def in_progress(self) -> bool:
-        return self.__in_progress
 
     def seed_distance_km(self, value: float) -> None:
         '''
@@ -128,18 +119,9 @@ class Trip:
             "LifetimeEnergyUsed", start_iso, end_iso
         )
         battery = await self.__influx.read_tesla_data_property("BatteryLevel", start_iso, end_iso)
-        # Optional regen field — only present once LifetimeEnergyGainedRegen is added
-        # to config (an enhancement); until then this reads None -> NaN.
-        regen = await self.__influx.read_tesla_data_property(
-            "LifetimeEnergyGainedRegen", start_iso, end_iso
-        )
-
-        start_point = await self.__influx.read_location_endpoint(start_iso, end_iso, last=False)
-        end_point = await self.__influx.read_location_endpoint(start_iso, end_iso, last=True)
 
         duration_s = (self.__end_ms - self.__start_ms) / 1000.0
         energy_wh = _delta_scaled(energy_used, 1000.0)
-        regen_wh = _delta_scaled(regen, 1000.0)
         wh_per_km = (
             energy_wh / distance_km
             if (not math.isnan(energy_wh) and not math.isnan(distance_km) and distance_km > 0)
@@ -150,16 +132,11 @@ class Trip:
             "trip_id": self.__start_ms,
             "start_ms": self.__start_ms,
             "end_ms": self.__end_ms,
-            "start_lat": start_point[0] if start_point else float("nan"),
-            "start_lon": start_point[1] if start_point else float("nan"),
-            "end_lat": end_point[0] if end_point else float("nan"),
-            "end_lon": end_point[1] if end_point else float("nan"),
             "distance_km": distance_km,
             "duration_s": duration_s,
             "avg_speed": _mean(speed),
             "max_speed": _max(speed),
             "energy_wh": energy_wh,
-            "regen_wh": regen_wh,
             "wh_per_km": wh_per_km,
             "start_soc": first(battery),
             "end_soc": last(battery),

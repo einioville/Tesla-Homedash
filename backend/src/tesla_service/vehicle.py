@@ -495,10 +495,9 @@ class Vehicle:
         data_property_id: str,
         time_start: str,
         time_end: str,
-        aggregate_window: str | None = None,
     ):
         return await self.__influx_handler.read_tesla_data_property(
-            data_property_id, time_start, time_end, aggregate_window
+            data_property_id, time_start, time_end
         )
 
     async def get_value_before(self, data_property_id: str, stop_time: str):

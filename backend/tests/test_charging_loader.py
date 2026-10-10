@@ -120,11 +120,6 @@ class FakeInflux:
         self.reads.append(data_id)
         return self.charger.get(data_id)
 
-    async def read_location_endpoint(self, _start, _end, last=False):
-        '''Returns a fixed GPS fix.'''
-        self.reads.append("Location")
-        return (61.5, 23.8) if last else (61.4, 23.7)
-
 
 def _summary_values(summary: dict, fields: tuple) -> list:
     return [summary.get(f, float("nan")) for f in fields]
