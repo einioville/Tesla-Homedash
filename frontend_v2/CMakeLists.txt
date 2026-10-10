@@ -157,6 +157,7 @@ qt_add_qml_module(appfrontend_v2
         items/settings/SpotifyGlowBorder.qml
         items/settings/SpotifyButton.qml
         items/settings/DialogButton.qml
+        items/settings/ModalDialog.qml
         items/settings/SpotifyAuthAlert.qml
         items/trip/TripMap.qml
         items/trip/TripComboBox.qml

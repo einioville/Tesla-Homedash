@@ -8,7 +8,7 @@ import frontend_v2
 // dialog closes the moment a choice is made.
 //
 // A child of SettingsView like the other dialogs, drawn the same way.
-Item {
+ModalDialog {
     id: popup
 
     property bool shown: false
@@ -21,87 +21,60 @@ Item {
         popup.close()
     }
 
-    anchors.fill: parent
     visible: shown
-    z: 100
 
-    MouseArea {
-        anchors.fill: parent
-        // A MouseArea with no wheel handler lets the wheel through, which
-        // scrolled the view behind the dialog. Swallow it; a list inside the
-        // card still scrolls, since it sits above this.
-        onWheel: (wheel) => wheel.accepted = true
-        onClicked: popup.close()
-    }
+    onScrimClicked: popup.close()
+    cardTopMargin: Theme.gridMargin + 96
+    cardWidth: 600
+    cardHeight: column.implicitHeight + 40
 
-    Rectangle {
-        anchors.fill: parent
-        color: Theme.dialogScrim
-    }
-
-    Rectangle {
-        anchors.horizontalCenter: parent.horizontalCenter
+    Column {
+        id: column
+        anchors.left: parent.left
+        anchors.right: parent.right
         anchors.top: parent.top
-        anchors.topMargin: Theme.gridMargin + 96
-        width: Math.min(parent.width - 2 * Theme.gridMargin, 600)
-        height: column.implicitHeight + 40
-        radius: Theme.tripCardRadius
-        color: Theme.spotifySurface
-        border.width: 1
-        border.color: Theme.spotifyRim
+        anchors.margins: 20
+        spacing: 16
 
-        MouseArea {
-            anchors.fill: parent
+        Text {
+            width: parent.width
+            text: qsTr("Tyhjennä lokit")
+            font.family: Theme.fontFamily
+            font.pixelSize: 19
+            font.bold: true
+            color: Theme.dataLabelValue
         }
 
-        Column {
-            id: column
-            anchors.left: parent.left
+        Text {
+            width: parent.width
+            text: qsTr("Sovelluksen lokitiedostot tyhjennetään palvelimelta ja tältä näytöltä. "
+                       + "Varoitukset ja virheet kannattaa yleensä säilyttää: niistä selviää "
+                       + "myöhemmin, mikä meni vikaan. Kaiken tyhjentäminen nollaa myös "
+                       + "palveluiden virhelaskurit.")
+            font.family: Theme.fontFamily
+            font.pixelSize: 14
+            color: Theme.dataLabelTitle
+            wrapMode: Text.WordWrap
+        }
+
+        Row {
             anchors.right: parent.right
-            anchors.top: parent.top
-            anchors.margins: 20
-            spacing: 16
+            spacing: 10
 
-            Text {
-                width: parent.width
-                text: qsTr("Tyhjennä lokit")
-                font.family: Theme.fontFamily
-                font.pixelSize: 19
-                font.bold: true
-                color: Theme.dataLabelValue
+            DialogButton {
+                label: qsTr("Peruuta")
+                onActivated: popup.close()
             }
 
-            Text {
-                width: parent.width
-                text: qsTr("Sovelluksen lokitiedostot tyhjennetään palvelimelta ja tältä näytöltä. "
-                           + "Varoitukset ja virheet kannattaa yleensä säilyttää: niistä selviää "
-                           + "myöhemmin, mikä meni vikaan. Kaiken tyhjentäminen nollaa myös "
-                           + "palveluiden virhelaskurit.")
-                font.family: Theme.fontFamily
-                font.pixelSize: 14
-                color: Theme.dataLabelTitle
-                wrapMode: Text.WordWrap
+            DialogButton {
+                label: qsTr("Tyhjennä kaikki")
+                onActivated: popup.choose(false)
             }
 
-            Row {
-                anchors.right: parent.right
-                spacing: 10
-
-                DialogButton {
-                    label: qsTr("Peruuta")
-                    onActivated: popup.close()
-                }
-
-                DialogButton {
-                    label: qsTr("Tyhjennä kaikki")
-                    onActivated: popup.choose(false)
-                }
-
-                DialogButton {
-                    primary: true
-                    label: qsTr("Säilytä varoitukset ja virheet")
-                    onActivated: popup.choose(true)
-                }
+            DialogButton {
+                primary: true
+                label: qsTr("Säilytä varoitukset ja virheet")
+                onActivated: popup.choose(true)
             }
         }
     }
