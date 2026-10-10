@@ -219,16 +219,7 @@ qt_add_qml_module(appfrontend_v2
         items/weather/prototype/WeatherProtoDashboard.qml
 )
 
-# Qt for iOS sets MACOSX_BUNDLE_GUI_IDENTIFIER automatically since Qt 6.1.
-# If you are developing for iOS or macOS you should consider setting an
-# explicit, fixed bundle identifier manually though.
-set_target_properties(appfrontend_v2 PROPERTIES
-#    MACOSX_BUNDLE_GUI_IDENTIFIER com.example.appfrontend_v2
-    MACOSX_BUNDLE_BUNDLE_VERSION ${PROJECT_VERSION}
-    MACOSX_BUNDLE_SHORT_VERSION_STRING ${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}
-    MACOSX_BUNDLE TRUE
-    WIN32_EXECUTABLE TRUE
-)
+set_target_properties(appfrontend_v2 PROPERTIES WIN32_EXECUTABLE TRUE)
 
 # Includes resolve as "core/..." from main.cpp and as siblings within core/.
 target_include_directories(appfrontend_v2 PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
@@ -363,7 +354,6 @@ if(Python3_FOUND)
 endif()
 
 install(TARGETS appfrontend_v2
-    BUNDLE DESTINATION .
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
