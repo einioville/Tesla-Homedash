@@ -70,8 +70,7 @@ class Trip:
         '''
         Seeds the cached distance from a value computed elsewhere (TripLoader reads the
         whole span's Odometer once and computes each window's delta in-memory), so
-        distance_km()/summary() don't re-read Odometer per trip. Idempotent-safe: a
-        later distance_km() returns this without a query.
+        distance_km()/summary() don't re-read Odometer per trip.
         Arguments:
             value (float): The trip's distance in km (may be NaN on a data gap).
         '''
@@ -82,9 +81,8 @@ class Trip:
         Computes (and caches) just the trip's distance in km: the Odometer delta over
         the window (Odometer is stored already converted to km). Split out from
         summary() so the trip-list path — which only needs the distance for its
-        sub-threshold filter and the TRIP_LIST record — can avoid the six other
-        InfluxDB reads summary() performs (7 sequential reads per candidate window is
-        slow for a busy week). summary() reuses this value. NaN on a data gap.
+        sub-threshold filter and the TRIP_LIST record — skips the other InfluxDB reads
+        summary() performs. summary() reuses this value. NaN on a data gap.
         '''
         if self.__distance_km is not None:
             return self.__distance_km
@@ -108,8 +106,6 @@ class Trip:
         start_iso = to_flux_time(self.__start_ms)
         end_iso = to_flux_time(self.__end_ms)
 
-        # Distance comes from the shared distance_km() (Odometer delta), so the list
-        # path and summary don't each re-read Odometer.
         distance_km = await self.distance_km()
 
         # During a trip the car is active, so these logged fields have records inside

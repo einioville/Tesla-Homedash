@@ -52,9 +52,10 @@ def bucket_positive_increments_by_hour(timestamps_ms, values) -> dict:
     Buckets an accumulator series' positive increments (kWh) by the UTC hour they fell in —
     the per-hour version of positive_increment, so charging energy can be priced against
     each hour's spot price. Each increment (ChargeAdded step between two samples) is
-    attributed to the UTC hour of the *later* sample; since ChargeAdded is logged ~10 s
-    apart while charging, an interval almost never straddles an hour boundary, so no
-    sub-step splitting is needed. Pure/testable: no I/O. Fewer than two samples -> {}.
+    attributed to the UTC hour of the *later* sample; ChargeAdded is logged once per Zappi
+    poll while charging (default 60 s), so only the one interval straddling each hour
+    boundary is misattributed, by at most a poll's worth of energy — not worth sub-step
+    splitting. Pure/testable: no I/O. Fewer than two samples -> {}.
     Arguments:
         timestamps_ms: Ascending epoch-ms sample times (int64 array/sequence).
         values: The accumulator value (kWh) at each sample, same length.
@@ -118,9 +119,8 @@ class ChargingSession:
         self.__flat_tariff = flat_tariff
         self.__summary: dict | None = None
         self.__charger_kwh: float | None = None
-        # Optional (timestamps_ms, values) of the window's ChargeAdded series, seeded by
-        # ChargingLoader from its single bulk read so the cost path buckets by hour without
-        # a re-read. None -> summary() reads the series itself (the single-session path).
+        # The window's ChargeAdded (timestamps_ms, values) from seed_charger_series, or
+        # None -> the cost path reads the series itself (the single-session path).
         self.__charger_series: tuple | None = None
 
     @property
@@ -136,7 +136,7 @@ class ChargingSession:
         Seeds the cached charger energy from a value computed elsewhere (ChargingLoader
         reads the whole span's ChargeAdded once and sums each window's positive
         increments), so charger_kwh()/summary() don't re-read it per session. NaN when the
-        window held no charger sample (a session at another charger).
+        window held fewer than two charger samples (e.g. a session at another charger).
         Arguments:
             value (float): The session's delivered energy in kWh (may be NaN).
         '''
@@ -201,9 +201,8 @@ class ChargingSession:
     async def charger_kwh(self) -> float:
         '''
         Computes (and caches) just the charger-delivered energy (kWh): the SUM OF POSITIVE
-        INCREMENTS of the myenergi ChargeAdded accumulator over the window (robust to the
-        accumulator carrying a value in from before the detected session, or resetting
-        inside it — a plain max over-counts both). Split out from summary() so the
+        INCREMENTS of the myenergi ChargeAdded accumulator over the window (see the module
+        docstring for why not a max). Split out from summary() so the
         session-list path — which only needs this for its min-energy filter and the
         CHARGING_LIST record — can skip the other reads summary() performs. summary()
         reuses this value. NaN when fewer than two charger samples fall in the window.
@@ -221,8 +220,8 @@ class ChargingSession:
     async def summary(self) -> dict:
         '''
         Computes (and caches) the session's loss breakdown and cost. Charger energy is the
-        sum of the myenergi accumulator's positive increments in the window; AC-in / DC-in
-        / battery energies are deltas of the vehicle's in-window series; SoC is read at the
+        sum of the myenergi accumulator's positive increments in the window; AC-in and
+        battery energies are deltas of the vehicle's in-window series; SoC is read at the
         window endpoints. Losses are simple differences, each NaN if either operand is
         missing — so a session with no charger data (charged elsewhere) reports NaN losses
         rather than a fabricated number. cost_eur prices the delivered energy per UTC hour

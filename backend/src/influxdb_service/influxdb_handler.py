@@ -175,7 +175,6 @@ class InfluxDBHandler:
         if table is None:
             return None
         logger.debug("Query returned results for property: %s", data_property_id)
-        # A raw series can carry None for an absent reading; __as_series drops it.
         return self.__as_series(table)
 
     async def read_charger_data_property(
@@ -183,12 +182,12 @@ class InfluxDBHandler:
     ) -> tuple | None:
         '''
         Reads a logged charger (myenergi) numeric property's raw history over a time
-        range — the charger analogue of read_tesla_data_property. The only difference
-        is the measurement: myenergi charger points live under "myenergi_data" (written
+        range — the charger analogue of read_tesla_data_property, over a different
+        measurement: myenergi charger points live under "myenergi_data" (written
         by MyEnergiService), kept separate from "tesla_data" but queryable over the same
         time window so a charging session's charger energy can be joined to the vehicle's
-        telemetry. Values come back raw and ascending; the caller (ChargingSession) takes
-        the in-window delta/max it needs.
+        telemetry. Values come back raw and ascending; ChargeAdded's callers sum its
+        in-window positive increments.
         Arguments:
             data_property_id (str): The property id (InfluxDB "id" tag). Validated
                 against _SAFE_ID before interpolation.
@@ -246,7 +245,8 @@ class InfluxDBHandler:
         '''
         Reads the most recent stored value of a property strictly before a given
         time — used by the History path to draw a flat held line for a window in
-        which nothing was logged (a value that stayed constant). Scans from the
+        which nothing was logged (a value that stayed constant), and by the charging
+        month summary for a lifetime counter's latest value. Scans from the
         start of history up to stop_time and takes the last record, so a value held
         constant for days is still found.
         Arguments:
@@ -288,10 +288,10 @@ class InfluxDBHandler:
     ) -> list | None:
         '''
         Reads a logged string (enum) property's history over a time range, ascending
-        by time — e.g. the Gear / ShiftState transition timeline that trip detection
-        segments on. Records are returned raw, with no de-duplication: logged fields
-        are written on every telemetry event (not only on change), so the caller must
-        collapse consecutive identical readings to recover the real transitions.
+        by time — the Gear and DetailedChargeState timelines that trip and charging
+        detection segment on. Records are returned raw, with no de-duplication: logged
+        fields are written on every telemetry event (not only on change), so the caller
+        collapses consecutive identical readings (utils.timeline.collapse_transitions).
         Arguments:
             data_property_id (str): The property id (InfluxDB "id" tag). Validated
                 against _SAFE_ID before interpolation.
@@ -310,7 +310,7 @@ class InfluxDBHandler:
         query += '\n  |> filter(fn: (r) => r["_measurement"] == "tesla_data")'
         query += f'\n  |> filter(fn: (r) => r["id"] == "{data_property_id}")'
         # String enums (Gear, BMSState, DetailedChargeState, ...) store their value
-        # under the "value_string" field — the only difference from the numeric read.
+        # under the "value_string" field.
         query += '\n  |> filter(fn: (r) => r["_field"] == "value_string")'
         query += '\n  |> keep(columns: ["_time", "_value"])'
         query += '\n  |> sort(columns: ["_time"])'
@@ -334,9 +334,10 @@ class InfluxDBHandler:
     ) -> str | None:
         '''
         Reads the most recent stored string value of a property strictly before a
-        given time — used by trip detection to learn the held Gear / ShiftState at
-        the start of a query window, so a trip already in progress at the window
-        boundary is still recognised. The string analogue of read_last_value_before.
+        given time — used by trip and charging detection to learn the held Gear /
+        DetailedChargeState at the start of a query window, so a trip or session
+        already under way at the window boundary is still recognised. The string
+        analogue of read_last_value_before.
         Arguments:
             data_property_id (str): The property id (InfluxDB "id" tag). Validated
                 against _SAFE_ID before interpolation.
@@ -424,14 +425,12 @@ class InfluxDBHandler:
 
     async def write_charger_data(self, points: list) -> None:
         '''
-        Writes myenergi charger points to InfluxDB. Identical mechanics to
-        write_tesla_data (the measurement is baked into each Point by the caller —
-        MyEnergiService builds Point("myenergi_data") records), kept as a separate
-        method so the charger's write path reads clearly at the call site and can
-        diverge later (e.g. its own retry policy) without touching the tesla path.
-        A failed write is logged and swallowed here — unlike write_tesla_data (whose
-        raise lets Vehicle decide), a charger write must never break the poll loop /
-        live broadcast, so it degrades quietly.
+        Writes myenergi charger points to InfluxDB. The same write as write_tesla_data
+        (the measurement is baked into each Point by the caller — MyEnergiService builds
+        Point("myenergi_data") records), except that a failed write is logged and
+        swallowed here — unlike write_tesla_data (whose raise lets Vehicle decide), a
+        charger write must never break the poll loop / live broadcast, so it degrades
+        quietly.
         Arguments:
             points (list): InfluxDB Point objects (or None entries, which are dropped).
         '''

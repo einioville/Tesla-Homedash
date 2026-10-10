@@ -49,7 +49,6 @@ def _window_distance(odometer, window_start_ms: int, window_end_ms: int) -> floa
     count, timestamps, values = odometer
     if count == 0 or len(values) == 0:
         return float("nan")
-    # First sample at/after the window start, last sample at/before the window end.
     low = int(np.searchsorted(timestamps, window_start_ms, side="left"))
     high = int(np.searchsorted(timestamps, window_end_ms, side="right")) - 1
     if low > high or low >= count or high < 0:
@@ -174,7 +173,6 @@ class TripLoader:
         The frontend already knows the trip's [start_ms, end_ms] from a prior
         list_trips reply, so the detail request echoes that window verbatim rather than
         re-detecting: a Trip is constructed directly over it and asked for its route.
-        Keeps all InfluxDB access behind the injected handler (Trip owns the reads).
         Arguments:
             start_ms (int): The trip's start (its natural key), epoch-ms UTC.
             end_ms (int): The trip's end, epoch-ms UTC.
@@ -193,8 +191,7 @@ class TripLoader:
         consumption, SoC at the endpoints) for the Trips-view stats panel. Like
         load_route, the frontend already knows the trip's [start_ms, end_ms] from a
         prior list_trips reply, so a Trip is constructed directly over that window and
-        asked for its summary — no re-detection. Every metric degrades to NaN when its
-        source series is missing, so a partial-data trip still yields a record.
+        asked for its summary — no re-detection.
         Arguments:
             start_ms (int): The trip's start (its natural key), epoch-ms UTC.
             end_ms (int): The trip's end, epoch-ms UTC.

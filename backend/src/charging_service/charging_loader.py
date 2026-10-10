@@ -61,11 +61,10 @@ def _window_energy(charger, window_start_ms: int, window_end_ms: int) -> float:
     steps is the energy actually delivered in the window — robust to the accumulator
     CARRYING a non-zero value into the window (a physical charge whose start Tesla did not
     yet report as "charging", so it falls outside the detected session) or RESETTING
-    inside it. The earlier in-window MAX over-counted both cases by the carried/earlier
-    peak (e.g. a 16.6 kWh session that had only delivered 5.6 kWh in its window). NaN when
+    inside it; an in-window max over-counts both by the carried/earlier peak. NaN when
     the series is missing or holds fewer than two samples in the window (nothing to
-    difference — e.g. a session at another charger), matching the old NaN so the
-    min-energy filter still drops those. The charging analogue of _window_distance.
+    difference — e.g. a session at another charger), so the min-energy filter drops it.
+    The charging analogue of trip_loader._window_distance.
     Arguments:
         charger (tuple | None): (count, timestamps_ms, values) from
             read_charger_data_property(ChargeAdded, ...), ascending by time, or None.
@@ -182,10 +181,8 @@ class ChargingLoader:
         sessions = []
         for window_start, window_end, in_progress in windows:
             charger_kwh = _window_energy(charger, window_start, window_end)
-            # Drop sub-threshold and no-charger-data sessions: the losses view is about
-            # THIS charger, so a session with no comparable Zappi energy (charged
-            # elsewhere / DC) or a trivial top-up is not listed. NaN < threshold is
-            # False, so the explicit isnan check is what excludes no-charger sessions.
+            # NaN < threshold is False, so the explicit isnan check is what excludes
+            # no-charger sessions.
             if math.isnan(charger_kwh) or charger_kwh < self.__min_energy_kwh:
                 logger.debug(
                     "Discarding session (charger=%s kWh < %.2f): start=%s",
@@ -198,9 +195,6 @@ class ChargingLoader:
                 spot_provider=self.__spot_provider, flat_tariff=self.__flat_tariff,
             )
             session.seed_charger_kwh(charger_kwh)
-            # Seed the window's ChargeAdded slice from the bulk read too, so the session's
-            # cost path buckets energy by hour without a second query (mirrors the scalar
-            # seed above; both come from the one read this method already did).
             self.__seed_series(session, charger, window_start, window_end)
             sessions.append(session)
 
@@ -234,8 +228,7 @@ class ChargingLoader:
         Computes one session's loss breakdown for the detail panel. The frontend already
         knows the session's [start_ms, end_ms] from a prior list_sessions reply, so a
         ChargingSession is constructed directly over that window and asked for its
-        summary — no re-detection. Every metric degrades to NaN when its source series
-        is missing, so a partial-data session still yields a record.
+        summary — no re-detection.
         Arguments:
             start_ms (int): The session's start (its natural key), epoch-ms UTC.
             end_ms (int): The session's end, epoch-ms UTC.
@@ -256,8 +249,8 @@ class ChargingLoader:
         Reads a logged charger power series (e.g. GridPower / ChargePower) raw over a
         window, for the Charging view's past-hour graphs — a thin pass-through to the
         InfluxDBHandler's myenergi_data read, kept here so the charger-history request
-        handler has one charging-data entry point (the loader owns all myenergi_data
-        access). Raises ValueError on a malformed id (the read's _SAFE_ID guard) — the
+        handler has one charging-data entry point (charging_service owns the
+        myenergi_data reads). Raises ValueError on a malformed id (the read's _SAFE_ID guard) — the
         handler replies status=0.
         Arguments:
             data_property_id (str): The charger property id (InfluxDB "id" tag).
@@ -273,9 +266,9 @@ class ChargingLoader:
     async def month_summary(self, start_ms: int, end_ms: int) -> dict:
         '''
         Aggregates the month-to-date charging stats for the Charging view. Sums the
-        myenergi-detected sessions in [start_ms, end_ms] (via list_sessions + each
-        session's summary()), so charger vs car energy stay apples-to-apples over the same
-        session set. Distance and driving energy are the tesla lifetime counters' month
+        sessions list_sessions keeps in [start_ms, end_ms] (those with energy at this
+        Zappi) via each session's summary(), so charger vs car energy stay
+        apples-to-apples over the same session set. Distance and driving energy are the tesla lifetime counters' month
         deltas (Odometer / LifetimeEnergyUsed, the same first-of-month baseline
         DrivenThisMonth uses); the home grid import is the per-hour integral of positive
         GridPower, summed. Both cost fields are computed here (the loader owns the spot
@@ -307,9 +300,8 @@ class ChargingLoader:
                 battery_sum += battery_kwh
                 battery_count += 1
             charge_time_s += summary["duration_s"]
-            # Month charging cost = Σ per-session spot-priced cost (each session already
-            # priced its energy per hour). A NaN session cost (unpriceable) is skipped so
-            # one gap doesn't void the month, matching how car_kwh handles missing battery.
+            # A NaN session cost (unpriceable) is skipped so one gap doesn't void the
+            # month, matching how car_kwh handles missing battery.
             session_cost = summary["cost_eur"]
             if not math.isnan(session_cost):
                 cost_sum += session_cost
@@ -349,7 +341,7 @@ class ChargingLoader:
 
         # Whole-home grid import + its cost, priced per UTC hour. One hourly read yields
         # both the total (Σ hours) and the cost (Σ hour_kwh × that hour's spot price, per-
-        # hour flat-tariff fallback) — no separate month integral.
+        # hour flat-tariff fallback).
         hourly_home = await self.__influx.read_grid_import_kwh_hourly(start_ms, end_ms)
         if hourly_home:
             home_grid_kwh = float(sum(hourly_home.values()))
