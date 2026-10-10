@@ -107,8 +107,6 @@ class LogFiles:
                        "warnings kept" if keep_warnings else "everything", freed)
         await self.__reply(writer, True, freed, "")
 
-    # ── Internals ─────────────────────────────────────────────────
-
     def __paths(self) -> list[str]:
         '''backend.log and its rotated backups.'''
         active = os.path.join(self.__directory, logs.LOG_FILE_NAME)

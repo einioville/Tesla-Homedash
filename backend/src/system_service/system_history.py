@@ -2,13 +2,11 @@
 The Järjestelmän tila graphs' data: a rolling window of host samples.
 
 Unlike the status document (system_status_service.py), this IS sampled all the
-time, in the background.  A graph that started empty every time its section was
-opened — and took ten minutes to fill — would answer nothing; the point of the
-graph is "what has the host been doing", which needs the samples from before
-anyone looked.  One tick is four small /proc reads every two seconds, which is
-noise even on the Pi.  The samples still only leave the process on request
-(SYSTEM_GET_HISTORY), and incrementally: a client asks for what is newer than the
-last sample it holds.
+time, in the background: the graph's question is "what has the host been doing",
+which needs the samples from before anyone looked, and one tick is four small
+/proc reads every two seconds.  The samples still only leave the process on
+request (SYSTEM_GET_HISTORY), and incrementally: a client asks for what is newer
+than the last sample it holds.
 '''
 
 import asyncio
@@ -38,8 +36,9 @@ class SystemHistory:
     serves SYSTEM_GET_HISTORY from it.
 
     Each sample holds per-core CPU load, memory in use, the disk and network
-    rates over the interval, and the CPU temperature.  Memory total and disk space change too rarely to be
-    worth a column, so a reply carries them once, beside the samples.
+    rates over the interval, and the CPU temperature.  Memory total and disk
+    space change too rarely to be worth a column, so a reply carries them once,
+    beside the samples.
     Arguments:
         server (Server): TCP server, used only to reply to the requesting client.
     '''
@@ -83,8 +82,6 @@ class SystemHistory:
             except Exception as e:
                 logger.warning("Could not sample the host: %s", e)
 
-    # ── Protocol handler ──────────────────────────────────────────
-
     async def handle_get_history(self, payload: bytes, writer) -> None:
         '''
         SYSTEM_GET_HISTORY handler: replies with every sample newer than the
@@ -123,8 +120,6 @@ class SystemHistory:
             logger.error("Could not build the system history: %s", e)
             reply = protocol.json_frame(protocol.SYSTEM_HISTORY, protocol.CONFIG_STATUS_ERROR, {})
         await self.__server.send_to(writer, reply)
-
-    # ── Internals ─────────────────────────────────────────────────
 
     def __read(self) -> dict:
         '''Reads every raw counter one sample needs.'''

@@ -54,7 +54,6 @@ _LSBLK_COLUMNS = "NAME,PATH,TYPE,TRAN,HOTPLUG,LABEL,SIZE,FSTYPE,MOUNTPOINT,MODEL
 # (a vfat fsck-on-mount), and anything beyond this means it is not answering.
 _COMMAND_TIMEOUT_SECONDS = 30.0
 
-# How often copy progress is sent while files are copied.
 _PROGRESS_INTERVAL_SECONDS = 0.25
 
 # Left free on the target filesystem after a copy. The screensaver folder shares
@@ -219,7 +218,6 @@ class UsbImportService:
     photos and copies them into the screensaver folder.
     Arguments:
         server (Server): TCP server used to reply to the client running the flow.
-        target_dir (str): The screensaver folder; defaults to screensaver_dir().
     '''
 
     def __init__(self, server):

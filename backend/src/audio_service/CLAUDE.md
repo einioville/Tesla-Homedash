@@ -21,11 +21,10 @@ every 15 s (HDMI and Bluetooth hotplug). Load-bearing details:
   without re-applying the volume makes the user's setting silently stop holding.
 - **`wpctl` does not clamp** — `set-volume 150%` is accepted and overdrives the sink — and
   **`wpctl get-volume` exits 0 even for a missing node**, so the `Volume: ` prefix is the test, not rc.
-- The feature needed **no protocol code and no frontend change**: two `config.json` keys, one hook,
-  one schema subsection. Two generic additions to `ConfigService` carry it — `register_options(key,
-  provider)` (a service owns its own dynamic enum) and `register_guard(name, guard)` (a pre-write
-  veto that, unlike a hook, runs *before* anything is persisted and can honestly reject
-  "this host cannot do that").
+- There is **no audio protocol code**: two `config.json` keys, one hook, one schema subsection. Two
+  generic `ConfigService` registrations carry it — `register_options(key, provider)` (a service
+  owns its own dynamic enum) and `register_guard(name, guard)` (a pre-write veto that, unlike a
+  hook, runs *before* anything is persisted and can honestly reject "this host cannot do that").
 
 ## The equalizer — `equalizer.py`
 

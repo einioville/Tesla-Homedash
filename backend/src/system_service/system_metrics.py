@@ -1,6 +1,6 @@
 '''
-Host metrics read straight from /proc and /sys, for Järjestelmän tila: its graphs
-and the overview's uptime.
+Host metrics read straight from /proc and /sys, for Järjestelmän tila: its graphs,
+the overview's uptime and the server card's memory row.
 
 Deliberately no third-party dependency: psutil would be one more thing to pin,
 build for ARM and keep current, and everything wanted here is a handful of files.

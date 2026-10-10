@@ -39,10 +39,12 @@ _COMMAND = "wlopm"
 _ALL_OUTPUTS = "*"
 
 # A wlopm run is milliseconds of work; anything beyond this means the compositor
-# is not answering and waiting longer only blocks the event loop's next tick.
+# is not answering, and waiting longer only holds the lock against the next
+# power request.
 _RUN_TIMEOUT_SECONDS = 5.0
 
-# What `wlopm --json` says about the driven output(s) right after a power-on.
+# What `wlopm --json` says about the outputs, read after a power-on or a refused
+# change.
 _LIT = "lit"
 _MISSING = "missing"    # gone from the compositor: the labwc 0.20 wedge (#43)
 _DARK = "dark"          # present but still reporting off
@@ -81,8 +83,6 @@ class DisplayService:
                 "screen-off setting will have no effect)", _COMMAND
             )
 
-    # ── Protocol handlers ─────────────────────────────────────────
-
     async def handle_set_power(self, payload: bytes, writer) -> None:
         '''
         Applies a power request from the frontend and replies with the resulting
@@ -106,8 +106,6 @@ class DisplayService:
             writer (StreamWriter): The newly connected client.
         '''
         await self.__server.send_to(writer, self.__state_frame())
-
-    # ── Control ───────────────────────────────────────────────────
 
     async def set_power(self, on: bool) -> None:
         '''
@@ -182,8 +180,6 @@ class DisplayService:
     def get_run_task(self):
         '''Returns the startup task for start_services to gather.'''
         return asyncio.create_task(self.run())
-
-    # ── Internals ─────────────────────────────────────────────────
 
     async def __switch(self, on: bool) -> None:
         '''

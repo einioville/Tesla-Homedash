@@ -8,14 +8,10 @@ covers both halves.  The journal follows it too but never below INFO
 size-capped log files only.
 
 DEBUG is TEMPORARY by design: it logs a line per telemetry property, which fills
-the log file fast enough to rotate away the warnings that came before.  Choosing it
-in the dropdown opens a dialog asking for how long (it writes logging.debugMinutes,
-then the level) — or *toistaiseksi*, minutes 0, which arms no timer at all, for
-development; this service remembers the level it came from
-(logging.levelBeforeDebug) and, when the time is up, writes that back through
-ConfigService — the same validated path a tap takes, so the write is saved
-atomically and the fresh schema is broadcast, which is what moves the frontend and
-every open dropdown back too.  The row shows when that will be, from runtime_info().
+the log file fast enough to rotate away the warnings that came before.  After
+logging.debugMinutes (0 = *toistaiseksi*, no end) this service writes the level
+DEBUG came from (logging.levelBeforeDebug) back through ConfigService.  See
+CLAUDE.md beside this file.
 '''
 import asyncio
 import logging
@@ -57,9 +53,9 @@ class LogLevel:
         '''
         Re-reads the logging block, sets the level to match and (re)arms the
         DEBUG expiry.  Registered as the "logging" config hook, and called once
-        from start_services so a DEBUG left on survives a restart for at most one
-        more duration.  A duration change while at DEBUG restarts the countdown
-        from now.  Must run on the event loop.
+        from start_services (the class docstring has why).  A duration change
+        while at DEBUG restarts the countdown from now.  Must run on the event
+        loop.
         '''
         block = self.__config.logging_config
         level = block["level"]

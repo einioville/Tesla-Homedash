@@ -5,9 +5,7 @@ Mirrors `media_service/base_media_player.py`: one abstract interface, several
 concrete implementations, and a detector that picks whichever the host actually
 has.  Raspberry Pi OS Bookworm — the reference deployment — ships PipeWire with
 WirePlumber and a PulseAudio compatibility layer, so both the `pulse` and the
-`wireplumber` adapters apply there; `pactl` is preferred where present because
-its device identifiers are stable strings, while `wpctl` addresses nodes by a
-session-scoped numeric id that has to be resolved from a stored name every time.
+`wireplumber` adapters apply there; each class says why it ranks where it does.
 
 Nothing here raises for an ordinary runtime failure.  The caller is a config
 hook whose value is already committed to disk, so a stopped daemon or a device
@@ -27,9 +25,9 @@ from ..utils import process
 
 logger = logging.getLogger("audio_service.audio_backend")
 
-# Every external call is bounded. This is the lesson CLAUDE.md 5.2.4 records
-# about fmiopendata: one untimed external call cost this project 16 days of
-# weather, and pactl against a half-dead server blocks on its socket the same way.
+# Every external call is bounded — the lesson weather_service/CLAUDE.md records
+# about fmiopendata, whose one untimed call cost 16 days of weather; pactl
+# against a half-dead server blocks on its socket the same way.
 _TIMEOUT_SECONDS = 2.0
 
 
@@ -435,14 +433,10 @@ class AlsaBackend(AudioBackend):
 async def detect_backend() -> AudioBackend:
     '''
     Probes the host for a controllable audio stack and returns the first that
-    answers, in the order pactl -> wpctl -> amixer.
-
-    pactl goes first because it covers both PulseAudio and pipewire-pulse with
-    one adapter and addresses sinks by stable name.  wpctl is the fallback for a
-    PipeWire host without pulseaudio-utils (which pipewire-pulse only suggests).
-    amixer is last: it can set a volume but cannot switch outputs at runtime.
-    A host with none of them gets NullAudioBackend, which lets the Options view
-    say so instead of silently accepting writes that do nothing.
+    answers, in the order pactl -> wpctl -> amixer (each backend class says why
+    it ranks where it does).  A host with none of them gets NullAudioBackend,
+    which lets the Options view say so instead of silently accepting writes that
+    do nothing.
     '''
     if shutil.which("pactl"):
         rc, out = await run_command(["pactl", "info"])

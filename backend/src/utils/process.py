@@ -1,8 +1,8 @@
 '''
-Runs an external command to completion under a timeout.  Every service that
-shells out goes through run(), so a hung command is always killed and reaped
-the same way.  (The updater's streaming build runner is the exception: it reads
-output while the step runs.)
+Runs an external command to completion under a timeout.  Every command a service
+runs to completion goes through run(), so a hung command is always killed and
+reaped the same way.  (The updater's streaming build runner is the exception: it
+reads output while the step runs.)
 '''
 
 import asyncio
