@@ -84,6 +84,17 @@ class InfluxDBHandler:
     async def connected(self) -> bool:
         return await self.__client.ping()
 
+    async def health(self) -> dict:
+        '''
+        The database's standing for the Järjestelmän tila card: a real ping, so
+        the status probe registry awaits it under its timeout.
+        '''
+        ok = await self.connected()
+        return {"state": "ok" if ok else "error",
+                "detail": "Yhteys auki" if ok else "Ei yhteyttä tietokantaan",
+                "config": [["Osoite", self.__url], ["Organisaatio", self.__org],
+                           ["Bucket", self.__bucket]]}
+
     async def close(self) -> None:
         await self.__client.close()
 

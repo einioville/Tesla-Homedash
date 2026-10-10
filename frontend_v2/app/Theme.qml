@@ -1,19 +1,65 @@
 pragma Singleton
 import QtQuick
+import frontend_v2
 
+// Design tokens for the dashboard.
+//
+// Two kinds of value live here, and the distinction matters:
+//
+//  - CONSTANTS (the vast majority): colours, radii, motion durations, the font.
+//    Plain `readonly property` literals. They are the app's visual identity, not
+//    user options, and qmlcachegen AOT-compiles them into the binary — which is
+//    exactly what you want for values on binding hot paths.
+//
+//  - USER-TUNABLE tokens: bound to `Settings.values.<key>` instead of a literal.
+//    A property initialiser is a BINDING, so when the Options view writes the
+//    setting the token re-evaluates and every `Theme.x` call site updates live —
+//    no call-site churn, and the 200+ existing references keep working unchanged.
+//    Add one by adding a schema entry in config/settings.json and a binding here.
 QtObject {
     // --- Feature flags ----------------------------------------------------
-    // Luna — the dog-memorial overlay on the dashboard. The single on/off switch,
-    // off by default: nothing is constructed, no timer runs, no frame is drawn.
-    // Set to true to bring her back (a rebuild away).
-    property bool lunaEnabled: false
+    // Luna — the dog-memorial overlay on the dashboard. Toggled from the Options
+    // view (Yleinen > Lisäasetukset), off by default. She is gated by `visible`/`running`
+    // rather than a Loader, so she is constructed either way; flipping this only
+    // stops her painting and animating.
+    readonly property bool lunaEnabled: Settings.values.lunaEnabled
 
-    // Screensaver — after TESLA_HOMEDASH_SCREENSAVER_TIMEOUT_MIN minutes of no
-    // touch, a black photo slideshow (from TESLA_HOMEDASH_SCREENSAVER_DIR) takes
-    // over the screen; any tap dismisses it and returns to the last-used view.
-    // The single on/off switch (folder + timeout live in AppConfig / the
-    // environment). Press F10 to toggle it on demand for testing.
-    property bool screensaverEnabled: true
+    // Screensaver — after the configured idle timeout a black photo slideshow
+    // takes over the screen; any tap dismisses it and returns to the last-used
+    // view. On/off, timeout, dwell and pile size are Options-view settings; the
+    // photos come from a fixed folder (the Photos singleton), and with none there
+    // the screensaver never activates.
+    // Press F10 to toggle it on demand for testing.
+    readonly property bool screensaverEnabled: Settings.values.screensaverEnabled
+
+    // Panel power-down — a step BEYOND the screensaver: the screensaver keeps the
+    // backlight on to show photos, this cuts it. Main.qml pushes both at the C++
+    // ScreenPower (`Display`), which shells out to wlopm.
+    readonly property bool screenOffEnabled: Settings.values.screenOffEnabled
+    readonly property int screenOffMin: Settings.values.screenOffMin
+
+    // Night mode (Yleinen > Yötila) — between two clock times the screensaver
+    // is set aside and the panel powers off after a much shorter idle than by
+    // day. items/util/NightSchedule.qml decides when; Main.qml routes it into
+    // the Display machinery.
+    readonly property bool nightModeEnabled: Settings.values.nightModeEnabled
+    // Minutes since local midnight. start === end means no window at all.
+    readonly property int nightStartMin: Settings.values.nightStartMin
+    readonly property int nightEndMin: Settings.values.nightEndMin
+    // How long a touch keeps the panel awake inside the window.
+    readonly property int nightWakeMs: Settings.values.nightWakeMin * 60000
+
+    // Navigation (Yleinen > Navigointi). With home return on, an idle panel
+    // switches back to the dashboard — so the screensaver lifts onto it rather
+    // than onto whichever view was last open.
+    readonly property bool homeReturnEnabled: Settings.values.homeReturnEnabled
+    readonly property int homeReturnMs: Settings.values.homeReturnMin * 60000
+    // How long the dock stays up after the last touch on it.
+    readonly property int dockHideMs: Settings.values.dockHideSec * 1000
+
+    // How long each notification pill is held. Fixed until the Options view
+    // grows a notifications section of its own.
+    readonly property int notificationDurationMs: 5000
 
     // Surfaces
     readonly property color appBackground: "#0f1115"
@@ -43,6 +89,29 @@ QtObject {
     // Motion (ms)
     readonly property int dockDuration: 260
     readonly property int pressDuration: 90
+    // ToggleSwitch: the knob's leading edge reaches the far end first, then its
+    // tail follows and it is a circle again.
+    readonly property int switchStretchDuration: 110
+    readonly property int switchSettleDuration: 140
+    // Reveal: content slides out from under the item above it while set back,
+    // then comes forward to level; each following item starts a stagger later.
+    readonly property int revealSlideDuration: 150
+    readonly property int revealLiftDuration: 110
+    readonly property int revealStagger: 45
+    readonly property int concealDuration: 120
+    readonly property real revealSetBackScale: 0.94
+    readonly property real revealSetBackOpacity: 0.45
+    // ElasticFlickable: how long content dragged or flicked past an end takes to
+    // come back.
+    readonly property int reboundDuration: 320
+    // Opacity of a settings row whose `relevantWhen` fails for a reason other
+    // than the setting it is nested under (that one hides it) — the row is
+    // disabled too.
+    readonly property real settingIrrelevantOpacity: 0.45
+    // A settings row that depends on a setting above it in the same card is
+    // nested under it: indented this much per level, beside a thin rail.
+    readonly property int settingChildIndent: 24
+    readonly property color settingChildRail: "#38ffffff"
 
     // --- Dashboard (Widgets-frontend parity) -----------------------------
     readonly property string fontFamily: "Gotham Rounded Medium"
@@ -67,6 +136,20 @@ QtObject {
     // Weather cards: translucent grey panel with a faint white border.
     readonly property color weatherCardBg: "#325c5c5c"      // rgba(92, 92, 92, 50)
     readonly property color weatherCardBorder: "#78ffffff"  // rgba(255, 255, 255, 120)
+
+    // --- Spotify -----------------------------------------------------------
+    // Spotify's own surface and text ramp, used ONLY by the screen that talks
+    // about Spotify — the device-identification dialog — so it says whose
+    // device it is asking about without spelling it out again. These are their
+    // published tokens: --background-elevated-base is what their own modals sit
+    // on, --text-subdued is their secondary copy, and #727272 is the outline
+    // their secondary buttons carry.
+    readonly property color spotifyGreen: "#1db954"
+    readonly property color spotifySurface: "#242424"   // --background-elevated-base
+    readonly property color spotifyBase: "#121212"      // --background-base
+    readonly property color spotifySubdued: "#b3b3b3"   // --text-subdued
+    readonly property color spotifyOutline: "#727272"   // secondary button border
+    readonly property color spotifyRim: "#3a3a3a"       // hairline around a surface
 
     // Media card.
     readonly property color mediaFallbackColor: "#1e3a8a"
@@ -101,8 +184,9 @@ QtObject {
     // --- Trips view -------------------------------------------------------
     // Speed at which the route line reaches the top of the colour ramp (red).
     // The gradient runs dark green (0 km/h) → red / dark red (this value); speeds
-    // above it clamp to the top colour. TripMap.colorForSpeed reads this.
-    readonly property real tripMaxSpeedKmh: 150
+    // above it clamp to the top colour. TripMap.colorForSpeed reads this. Not a
+    // user setting: it is a colour-scale endpoint, not a preference.
+    readonly property real tripMaxSpeedKmh: 150.0
     // Coloured route line width (px) and its dark casing underneath (for legibility
     // over satellite imagery / bright tiles).
     readonly property real tripRouteWidth: 4
@@ -134,6 +218,11 @@ QtObject {
     readonly property color tripCardBorder: "#78ffffff"  // rgba(255, 255, 255, 120)
     readonly property int tripCardRadius: 12
 
+    // Scrim behind a modal. Lighter than a plain blackout because the blur does
+    // most of the separating; at the old 0xcc the frosted backdrop was invisible
+    // and the effect was pure cost.
+    readonly property color dialogScrim: "#99000000"
+
     // --- Screensaver ------------------------------------------------------
     // Printed-photo pile on a black background: each photo sits in a white frame
     // with a soft drop shadow, tossed on at a random tilt/offset (newest on top).
@@ -144,8 +233,76 @@ QtObject {
     readonly property int screensaverCornerRadius: 2
     readonly property real screensaverTiltMaxDeg: 7        // random ± tilt per photo
     readonly property int screensaverScatterPx: 60         // random pile offset radius
-    readonly property int screensaverStackCount: 10        // photos kept on the pile
-    readonly property int screensaverAdvanceMs: 8000       // per-photo dwell
+    readonly property int screensaverStackCount: Settings.values.screensaverStackCount
+    readonly property int screensaverAdvanceMs: Settings.values.screensaverAdvanceSec * 1000
     readonly property int screensaverEnterMs: 650          // toss-in animation
     readonly property int screensaverFadeMs: 500           // fade in/out (photos + overlay)
+
+    // --- History / Trip graph tuning --------------------------------------
+    // Viewport-decimation and zoom-debounce knobs shared by every HistoryGraph
+    // instance (History, Trips and Charging all reuse it). Exposed in the Options
+    // view because the right values depend on the target hardware: the Pi wants a
+    // coarser density and a longer settle than a desktop does.
+    // Render density, in M4 buckets per pixel of the VISIBLE plot (each bucket keeps
+    // up to four points). The Options view names levels and keeps these numbers
+    // internal: "high" is one bucket per pixel, where M4 reproduces the line
+    // pixel-exactly, and "max" (0) turns decimation off altogether.
+    readonly property real graphBucketsPerPx:
+        ({ low: 0.25, medium: 0.5, high: 1, xhigh: 2, max: 0 })[Settings.values.graphResolution] ?? 0.5
+    // Multiplier on pan/zoom response — the 10" panel wants more than a desktop.
+    // "normal" (1.0) is finger-exact: a drag moves the content 1:1 and a pinch
+    // scales it by exactly the pinch. The top reaches 4 because the old slider's 3.0
+    // felt slow on the Pi's panel — though back then it scaled only the pinch zoom,
+    // not the pan. ONE table for the graph and the map (mapSensitivity), so the same
+    // level name feels the same on both.
+    readonly property var gestureSensitivityLevels: ({ low: 0.75, normal: 1, high: 1.5, xhigh: 2.5, max: 4 })
+    readonly property real graphSensitivity:
+        gestureSensitivityLevels[Settings.values.graphGestureSensitivity] ?? 1
+    // Settle debounce before the detailed rebuild, also a named level. "instant" is
+    // a 0 ms Timer: it still fires asynchronously, once per event-loop pass, so the
+    // several setView() calls one pinch frame makes coalesce into a single rebuild.
+    readonly property int graphSettleMs:
+        ({ slow: 1000, normal: 500, quick: 200, instant: 0 })[Settings.values.graphSettleDelay] ?? 500
+    // How far past the visible window each side is pre-built, as a fraction of the
+    // visible span. Not free: the density is per visible pixel, so the points built
+    // grow with it — "xlarge" (2.0) builds five screens' worth.
+    readonly property real graphRenderMarginFrac:
+        ({ small: 0.25, normal: 0.5, large: 1, xlarge: 2 })[Settings.values.graphRenderMargin] ?? 0.5
+    // Tightest zoom window. Fixed: a minute is short enough for any range the
+    // History view loads, and nothing is gained by exposing it.
+    readonly property int graphMinZoomSpanMs: 60000
+
+    // --- Map tuning -------------------------------------------------------
+    // Drives TeslaMap (the dashboard card and the full-screen Kartta view);
+    // mapSensitivity alone also reaches the Trips route map, which carries the
+    // same pan/pinch/wheel handlers.
+    // Zoom the map returns to when auto-follow resumes after a gesture.
+    readonly property real mapDefaultZoom: Settings.values.mapDefaultZoom
+    // Multiplier on pan/pinch/wheel response, the same levels as graphSensitivity.
+    // At "normal" (1.0) a drag is EXACT 1:1 — the grabbed point stays under the
+    // finger — so any other level deliberately trades that away for reach.
+    readonly property real mapSensitivity:
+        gestureSensitivityLevels[Settings.values.mapGestureSensitivity] ?? 1
+    // Idle delay after the user stops moving the map before it snaps back to
+    // the car. A map has no re-render step to debounce (QtLocation streams and
+    // repaints tiles itself), so this is the only timeout the map really has.
+    readonly property int mapFollowResumeSec: Settings.values.mapFollowResumeSec
+    // "north" keeps north up and rotates the car icon; "heading" rotates the
+    // MAP under a car icon that then always points up the screen.
+    readonly property string mapOrientation: Settings.values.mapOrientation
+    // "lock" pins the car to the exact centre; "warp" lets it roam inside a
+    // centred dead-zone square and re-centres only when it escapes.
+    readonly property string mapFollowMode: Settings.values.mapFollowMode
+    // Dead-zone half-extent — the distance from the centre the car may reach on
+    // either axis — as a fraction of the map's SHORTER side, so the free area is
+    // square on any card. Warp mode only. A named level, like the lead below.
+    readonly property real mapWarpDeadzoneFrac:
+        ({ xsmall: 0.05, small: 0.15, normal: 0.25, large: 0.35, xlarge: 0.45 })[Settings.values.mapWarpDeadzone] ?? 0.25
+    // How far behind centre the car is parked on a re-centre, opposite its
+    // direction of travel, so the road ahead gets the larger share of the map.
+    // Same fraction-of-shorter-side units as the dead zone. Warp mode only.
+    // TeslaMap clamps it below 0.8 × the dead zone, so a large lead inside a
+    // small free area quietly shrinks (items/tesla/CLAUDE.md).
+    readonly property real mapWarpLeadFrac:
+        ({ none: 0, small: 0.06, normal: 0.12, large: 0.2, xlarge: 0.3 })[Settings.values.mapWarpLead] ?? 0.12
 }

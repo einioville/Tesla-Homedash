@@ -1,0 +1,614 @@
+{
+    "_comment": [
+        "Frontend-local settings schema. Deliberately the SAME shape as the schema the",
+        "backend serves over CONFIG_SCHEMA (0x91), so SettingsView renders local and",
+        "remote settings through one delegate family and adding a setting is one entry",
+        "here plus one binding in app/Theme.qml.",
+        "",
+        "TWO LEVELS: groups render as sidebar sections, and each group holds SUBSECTIONS",
+        "that render as one card each in the detail pane.",
+        "",
+        "THIS FILE IS THE CANONICAL SECTION LIST. A group id present here and in the",
+        "backend's schema MERGES - 'general' shows the screensaver card below plus the",
+        "backend's location card - and this file decides the order, label and icon. That",
+        "is why 'media' and 'tesla' appear with no subsections of their own: they hold no",
+        "frontend settings, and the entries exist only to place and name them. A backend",
+        "group whose id is unknown here is appended rather than dropped, and a section",
+        "that ends up with no subsections at all is hidden.",
+        "",
+        "Per-group keys: id, label, icon (a semantic name mapped to a resource by",
+        "SettingsSidebar, not a file path), sections, and optionally view: a screen",
+        "SettingsPane renders INSTEAD of cards (resolved in its view table), for a",
+        "section that shows something rather than setting it - such a group is kept",
+        "with no sections at all ('systemStatus', the graphs).",
+        "",
+        "Per-subsection keys: id, label, help (optional, under the card title),\nstatus (optional: names a runtime status widget rendered in the card -\n'backendProbe' is the reachability check), settings.",
+        "",
+        "Per-setting keys: key, type (bool|int|float|string|enum|action), label, help,",
+        "unit, min/max/step (numeric), options\n(enum), default, apply, editor,\nwarnBelow/warnAbove + warnMessage (advisory caution, never blocks a write),\nrelevantWhen {key, equals|notEquals} or {condition} (a runtime fact named in\nSettingRules.conditionHolds), or a list of such rules that must ALL hold.\nA key rule naming the setting just above in the same subsection nests the row\nunder it, hidden while the rule fails; any other failing rule fades and\ndisables the row.",
+        "editor: a per-type CONTROL HINT, always opt-in, ignored when absent.",
+        "        'slider' (int/float) replaces the default [-] value [+] stepper,",
+        "        and only for coarse dials where the exact number does not matter",
+        "        (a 65534-step slider is unusable, see SettingNumber).",
+        "        'time' (int) renders minutes since midnight as HH:MM on the same",
+        "        stepper, wrapping past midnight, with no typing. Use min 0,",
+        "        max 1440 - step.",
+        "        'field' (int/float) drops the [-] [+] buttons and leaves the typed",
+        "        field, for a number nobody nudges a step at a time (the port).",
+        "",
+        "secret: true (string) masks the value while the field is not being",
+        "        edited and keeps it out of the log line a write produces.",
+        "",
+        "hidden: true keeps a setting out of the rendered rows while still",
+        "        storing, coercing and persisting it normally. For a setting whose",
+        "        editor lives inside the subsection's status widget, or that only a",
+        "        flow writes (the backend's Spotify device id); readable as always",
+        "        through Settings.values / valueOf().",
+        "",
+        "type 'action' is a BUTTON, not a value: nothing is stored or persisted.",
+        "It carries actionLabel and optionally requiresConnection, and its key names",
+        "a handler in Settings::invokeAction. confirm: false runs it on the first tap,",
+        "for an action whose own dialog is the confirmation.",
+        "",
+        "onSelect (enum): {value: action} - choosing that value runs the action",
+        "        INSTEAD of writing it; the dialog it opens writes the value itself.",
+        "",
+        "apply: 'live'    - a QML binding through Theme picks it up immediately;",
+        "       'restart' - consumed once at startup (AppConfig), so it needs an app",
+        "                   restart. The view badges these rows 'sovelluksen",
+        "                   uudelleenkäynnistys' (a backend restart-tier row reads",
+        "                   'palvelimen uudelleenkäynnistys').",
+        "",
+        "A setting may also declare 'env': the named environment variable (or .env",
+        "entry) supplies that setting's DEFAULT, so an existing deployment keeps",
+        "working until the user overrides it here. Precedence: schema default <",
+        "env/.env < saved user override.",
+        "",
+        "Values the user changes are written to frontend_config.json under",
+        "~/.config/Tesla-Homedash/ (see core/settings.cpp) - never back into this bundled",
+        "file, which is compiled into the binary and supplies only the defaults."
+    ],
+    "groups": [
+        {
+            "id": "general",
+            "icon": "app",
+            "label": "Yleinen",
+            "sectionOrder": ["display", "navigation", "screensaver", "night", "location", "luna"],
+            "sections": [
+                {
+                    "id": "display",
+                    "label": "Näyttö",
+                    "settings": [
+                        {
+                            "key": "fullscreen",
+                            "type": "bool",
+                            "env": "TESLA_HOMEDASH_FULLSCREEN",
+                            "label": "Koko näyttö",
+                            "default": false,
+                            "apply": "live"
+                        }
+                    ]
+                },
+                {
+                    "id": "navigation",
+                    "label": "Navigointi",
+                    "settings": [
+                        {
+                            "key": "homeReturnEnabled",
+                            "type": "bool",
+                            "label": "Automaattinen paluu kotinäyttöön",
+                            "help": "Vaihda kotinäyttöön automaattisesti järjestelmän oltua käyttämättä tietyn ajan verran.",
+                            "default": false,
+                            "apply": "live"
+                        },
+                        {
+                            "key": "homeReturnMin",
+                            "type": "int",
+                            "label": "Paluuviive",
+                            "help": "Kosketuksetta kulunut aika ennen paluuta.",
+                            "unit": "min",
+                            "min": 1,
+                            "max": 120,
+                            "step": 1,
+                            "default": 5,
+                            "apply": "live",
+                            "relevantWhen": {
+                                "key": "homeReturnEnabled",
+                                "equals": true
+                            }
+                        },
+                        {
+                            "key": "dockHideSec",
+                            "type": "int",
+                            "label": "Näkymävalikon piilotusviive",
+                            "help": "Kuinka nopeasti alareunan näkymävalikko piilotetaan kosketuksen jälkeen.",
+                            "unit": "s",
+                            "min": 1,
+                            "max": 30,
+                            "step": 1,
+                            "default": 3,
+                            "apply": "live"
+                        }
+                    ]
+                },
+                {
+                    "id": "screensaver",
+                    "label": "Näytönsäästäjä",
+                    "status": "screenPower",
+                    "settings": [
+                        {
+                            "key": "screensaverEnabled",
+                            "type": "bool",
+                            "label": "Näytönsäästäjä",
+                            "default": true,
+                            "apply": "live",
+                            "relevantWhen": {
+                                "condition": "screensaverPhotos"
+                            }
+                        },
+                        {
+                            "key": "screensaverTimeoutMin",
+                            "type": "int",
+                            "env": "TESLA_HOMEDASH_SCREENSAVER_TIMEOUT_MIN",
+                            "label": "Käynnistysviive",
+                            "unit": "min",
+                            "min": 1,
+                            "max": 240,
+                            "step": 1,
+                            "default": 30,
+                            "apply": "live",
+                            "relevantWhen": [
+                                {
+                                    "key": "screensaverEnabled",
+                                    "equals": true
+                                },
+                                {
+                                    "condition": "screensaverPhotos"
+                                }
+                            ]
+                        },
+                        {
+                            "key": "screensaverAdvanceSec",
+                            "type": "int",
+                            "label": "Kuvan vaihtoväli",
+                            "unit": "s",
+                            "min": 2,
+                            "max": 120,
+                            "step": 1,
+                            "default": 8,
+                            "apply": "live",
+                            "relevantWhen": [
+                                {
+                                    "key": "screensaverEnabled",
+                                    "equals": true
+                                },
+                                {
+                                    "condition": "screensaverPhotos"
+                                }
+                            ]
+                        },
+                        {
+                            "key": "screensaverStackCount",
+                            "editor": "slider",
+                            "type": "int",
+                            "label": "Kuvapinon koko",
+                            "help": "Montako kuvaa pinossa näkyy kerrallaan.",
+                            "min": 3,
+                            "max": 30,
+                            "step": 1,
+                            "default": 10,
+                            "apply": "live",
+                            "relevantWhen": [
+                                {
+                                    "key": "screensaverEnabled",
+                                    "equals": true
+                                },
+                                {
+                                    "condition": "screensaverPhotos"
+                                }
+                            ]
+                        },
+                        {
+                            "key": "screensaverImport",
+                            "type": "action",
+                            "label": "Kuvakansio",
+                            "details": "screensaverPhotos",
+                            "actionLabel": "Tuo USB:ltä",
+                            "requiresConnection": true,
+                            "apply": "live"
+                        },
+                        {
+                            "key": "screenOffEnabled",
+                            "type": "bool",
+                            "label": "Näytön sammutus",
+                            "help": "Sammuttaa näytön kokonaan.",
+                            "default": false,
+                            "apply": "live"
+                        },
+                        {
+                            "key": "screenOffMin",
+                            "type": "int",
+                            "label": "Sammutusviive",
+                            "unit": "min",
+                            "min": 1,
+                            "max": 240,
+                            "step": 1,
+                            "default": 60,
+                            "apply": "live",
+                            "relevantWhen": {
+                                "key": "screenOffEnabled",
+                                "equals": true
+                            }
+                        }
+                    ]
+                },
+                {
+                    "id": "night",
+                    "label": "Yötila",
+                    "help": "Pimentää näytön kellonaikojen välillä. Kosketus herättää näytön hetkeksi, ja aamulla näyttö herää itsestään.",
+                    "settings": [
+                        {
+                            "key": "nightModeEnabled",
+                            "type": "bool",
+                            "label": "Yötila",
+                            "help": "Korvaa näytönsäästäjän asetukset asetetulla aikavälillä ja sammuta näyttö suoraan asetetun ajan jälkeen.",
+                            "default": false,
+                            "apply": "live"
+                        },
+                        {
+                            "key": "nightStartMin",
+                            "type": "int",
+                            "editor": "time",
+                            "label": "Alkaa",
+                            "min": 0,
+                            "max": 1425,
+                            "step": 15,
+                            "default": 1320,
+                            "apply": "live",
+                            "relevantWhen": {
+                                "key": "nightModeEnabled",
+                                "equals": true
+                            }
+                        },
+                        {
+                            "key": "nightEndMin",
+                            "type": "int",
+                            "editor": "time",
+                            "label": "Päättyy",
+                            "min": 0,
+                            "max": 1425,
+                            "step": 15,
+                            "default": 390,
+                            "apply": "live",
+                            "relevantWhen": {
+                                "key": "nightModeEnabled",
+                                "equals": true
+                            }
+                        },
+                        {
+                            "key": "nightWakeMin",
+                            "type": "int",
+                            "label": "Hereilläoloaika",
+                            "help": "Kuinka kauan kosketuksen jälkeen näyttö pysyy yöllä hereillä.",
+                            "unit": "min",
+                            "min": 1,
+                            "max": 30,
+                            "step": 1,
+                            "default": 1,
+                            "apply": "live",
+                            "relevantWhen": {
+                                "key": "nightModeEnabled",
+                                "equals": true
+                            }
+                        }
+                    ]
+                },
+                {
+                    "id": "luna",
+                    "label": "Luna",
+                    "settings": [
+                        {
+                            "key": "lunaEnabled",
+                            "type": "bool",
+                            "label": "Luna",
+                            "help": "Muisto edesmenneestä Luna-koirastamme. Luna elelee kotinäytön alalaidassa.",
+                            "default": false,
+                            "apply": "live"
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "id": "media",
+            "icon": "media",
+            "label": "Media",
+            "sectionOrder": ["audio", "spotify", "radio"],
+            "sections": [
+                {
+                    "id": "spotify",
+                    "label": "Spotify",
+                    "settings": [
+                        {
+                            "key": "spotifyReauth",
+                            "type": "action",
+                            "label": "Tunnistaudu uudelleen",
+                            "details": "spotifyAuth",
+                            "actionLabel": "Kirjaudu",
+                            "requiresConnection": true,
+                            "apply": "live"
+                        },
+                        {
+                            "key": "spotifyIdentifyDevice",
+                            "type": "action",
+                            "label": "Tunnista laite",
+                            "details": "spotifyDevice",
+                            "actionLabel": "Tunnista",
+                            "requiresConnection": true,
+                            "apply": "live"
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "id": "visualization",
+            "icon": "chart",
+            "label": "Datan visualisointi",
+            "sections": [
+                {
+                    "id": "graphs",
+                    "label": "Kuvaajat",
+                    "settings": [
+                        {
+                            "key": "graphResolution",
+                            "type": "enum",
+                            "label": "Resoluutio",
+                            "help": "Kuvaajaan piirrettyjen pisteiden määrä.",
+                            "options": [
+                                {"value": "low", "label": "Matala"},
+                                {"value": "medium", "label": "Keskitaso"},
+                                {"value": "high", "label": "Korkea"},
+                                {"value": "xhigh", "label": "Erittäin korkea"},
+                                {"value": "max", "label": "Maksimi"}
+                            ],
+                            "default": "medium",
+                            "apply": "live"
+                        },
+                        {
+                            "key": "graphGestureSensitivity",
+                            "type": "enum",
+                            "label": "Eleherkkyys",
+                            "help": "Kuinka nopeasti kuvaaja liikkuu ja zoomaa.",
+                            "options": [
+                                {"value": "low", "label": "Matala"},
+                                {"value": "normal", "label": "Normaali"},
+                                {"value": "high", "label": "Korkea"},
+                                {"value": "xhigh", "label": "Erittäin korkea"},
+                                {"value": "max", "label": "Maksimi"}
+                            ],
+                            "default": "normal",
+                            "apply": "live"
+                        },
+                        {
+                            "key": "graphSettleDelay",
+                            "type": "enum",
+                            "label": "Zoomauksen viive",
+                            "help": "Odotus zoomauksen jälkeen ennen kuvaajan uudelleenpiirtoa.",
+                            "options": [
+                                {"value": "slow", "label": "Hidas"},
+                                {"value": "normal", "label": "Normaali"},
+                                {"value": "quick", "label": "Nopea"},
+                                {"value": "instant", "label": "Välitön"}
+                            ],
+                            "default": "normal",
+                            "apply": "live"
+                        },
+                        {
+                            "key": "graphRenderMargin",
+                            "type": "enum",
+                            "label": "Esipiirron marginaali",
+                            "help": "Kuinka pitkälle näkyvän ikkunan ulkopuolelle piirretään valmiiksi.",
+                            "options": [
+                                {"value": "small", "label": "Pieni"},
+                                {"value": "normal", "label": "Normaali"},
+                                {"value": "large", "label": "Suuri"},
+                                {"value": "xlarge", "label": "Erittäin suuri"}
+                            ],
+                            "default": "normal",
+                            "apply": "live"
+                        }
+                    ]
+                },
+                {
+                    "id": "map",
+                    "label": "Kartta",
+                    "help": "Kartan seuranta, suunta ja eleiden herkkyys.",
+                    "settings": [
+                        {
+                            "key": "mapDefaultZoom",
+                            "editor": "slider",
+                            "type": "int",
+                            "label": "Oletuszoomaus",
+                            "min": 10,
+                            "max": 19,
+                            "step": 1,
+                            "default": 15,
+                            "apply": "live"
+                        },
+                        {
+                            "key": "mapGestureSensitivity",
+                            "type": "enum",
+                            "label": "Eleherkkyys",
+                            "help": "Kuinka nopeasti kartta liikkuu ja zoomaa.",
+                            "options": [
+                                {"value": "low", "label": "Matala"},
+                                {"value": "normal", "label": "Normaali"},
+                                {"value": "high", "label": "Korkea"},
+                                {"value": "xhigh", "label": "Erittäin korkea"},
+                                {"value": "max", "label": "Maksimi"}
+                            ],
+                            "default": "normal",
+                            "apply": "live"
+                        },
+                        {
+                            "key": "mapFollowResumeSec",
+                            "type": "int",
+                            "label": "Keskitysviive",
+                            "help": "Kuinka nopeasti kartta palaa takaisin auton sijaintiin.",
+                            "unit": "s",
+                            "min": 2,
+                            "max": 120,
+                            "step": 1,
+                            "default": 10,
+                            "apply": "live"
+                        },
+                        {
+                            "key": "mapOrientation",
+                            "type": "enum",
+                            "label": "Kartan suunta",
+                            "options": [
+                                {"value": "north", "label": "Pohjoinen ylös"},
+                                {"value": "heading", "label": "Ajosuunta ylös"}
+                            ],
+                            "default": "north",
+                            "apply": "live"
+                        },
+                        {
+                            "key": "mapFollowMode",
+                            "type": "enum",
+                            "label": "Seurantatapa",
+                            "options": [
+                                {"value": "lock", "label": "Lukittu"},
+                                {"value": "warp", "label": "Liukuva"}
+                            ],
+                            "default": "lock",
+                            "apply": "live"
+                        },
+                        {
+                            "key": "mapWarpDeadzone",
+                            "type": "enum",
+                            "label": "Vapaa alue",
+                            "help": "Kuinka kauas keskeltä auto saa liikkua ennen uudelleenkeskitystä, osuutena kartan lyhyemmästä sivusta.",
+                            "options": [
+                                {"value": "xsmall", "label": "Erittäin pieni"},
+                                {"value": "small", "label": "Pieni"},
+                                {"value": "normal", "label": "Normaali"},
+                                {"value": "large", "label": "Suuri"},
+                                {"value": "xlarge", "label": "Erittäin suuri"}
+                            ],
+                            "default": "normal",
+                            "apply": "live",
+                            "relevantWhen": {
+                                "key": "mapFollowMode",
+                                "equals": "warp"
+                            }
+                        },
+                        {
+                            "key": "mapWarpLead",
+                            "type": "enum",
+                            "label": "Katseluvara edessä",
+                            "help": "Kuinka paljon auto jätetään keskikohdan taakse, jotta ajosuuntaan näkyy pidemmälle. Ei lainkaan -valinnalla auto pysyy tarkalleen keskellä.",
+                            "options": [
+                                {"value": "none", "label": "Ei lainkaan"},
+                                {"value": "small", "label": "Pieni"},
+                                {"value": "normal", "label": "Normaali"},
+                                {"value": "large", "label": "Suuri"},
+                                {"value": "xlarge", "label": "Erittäin suuri"}
+                            ],
+                            "default": "normal",
+                            "apply": "live",
+                            "relevantWhen": {
+                                "key": "mapFollowMode",
+                                "equals": "warp"
+                            }
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "id": "electricity",
+            "icon": "price",
+            "label": "Sähkö",
+            "sections": []
+        },
+        {
+            "id": "tesla",
+            "icon": "trip",
+            "label": "Tesla",
+            "sections": []
+        },
+        {
+            "id": "maintenance",
+            "icon": "system",
+            "label": "Ylläpito",
+            "sections": [
+                {
+                    "id": "connection",
+                    "label": "Yhteydet",
+                    "help": "Määritä käytettävän palvelimen tiedot",
+                    "status": "backendProbe",
+                    "settings": [
+                        {
+                            "key": "backendHost",
+                            "type": "string",
+                            "env": "TESLA_HOMEDASH_BACKEND_HOST",
+                            "label": "Palvelimen osoite",
+                            "default": "127.0.0.1",
+                            "apply": "restart"
+                        },
+                        {
+                            "key": "backendPort",
+                            "type": "int",
+                            "env": "TESLA_HOMEDASH_BACKEND_PORT",
+                            "label": "Portti",
+                            "editor": "field",
+                            "min": 1,
+                            "max": 65535,
+                            "step": 1,
+                            "default": 6969,
+                            "apply": "restart"
+                        }
+                    ]
+                },
+                {
+                    "id": "restart",
+                    "label": "Uudelleenkäynnistys",
+                    "settings": [
+                        {
+                            "key": "restartApp",
+                            "type": "action",
+                            "label": "Käynnistä sovellus uudelleen",
+                            "actionLabel": "Käynnistä",
+                            "apply": "live"
+                        },
+                        {
+                            "key": "restartBackend",
+                            "type": "action",
+                            "label": "Käynnistä palvelin uudelleen",
+                            "actionLabel": "Käynnistä",
+                            "requiresConnection": true,
+                            "apply": "live"
+                        },
+                        {
+                            "key": "rebootHost",
+                            "type": "action",
+                            "label": "Käynnistä laite uudelleen",
+                            "actionLabel": "Käynnistä",
+                            "requiresConnection": true,
+                            "apply": "live"
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "id": "systemStatus",
+            "icon": "status",
+            "label": "Järjestelmän tila",
+            "view": "systemStatus",
+            "sections": []
+        }
+    ]
+}

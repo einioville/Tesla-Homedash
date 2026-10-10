@@ -31,6 +31,10 @@ class ServerClient : public QObject {
     Q_OBJECT
     Q_PROPERTY(bool connected READ connected NOTIFY connectedChanged)
     Q_PROPERTY(QString stateText READ stateText NOTIFY stateTextChanged)
+    // This end of the socket as the backend sees it — how the status view's
+    // client list tells this display from the others. Empty / 0 while down.
+    Q_PROPERTY(QString localAddress READ localAddress NOTIFY connectedChanged)
+    Q_PROPERTY(int localPort READ localPort NOTIFY connectedChanged)
 
 public:
     enum class State { Disconnected, Connecting, Connected, Reconnecting };
@@ -40,6 +44,10 @@ public:
 
     bool connected() const { return m_state == State::Connected; }
     QString stateText() const;
+    QString localAddress() const {
+        return connected() ? m_socket->localAddress().toString() : QString();
+    }
+    int localPort() const { return connected() ? m_socket->localPort() : 0; }
 
     // Begins connecting and arms the reconnect loop. Call once after construction.
     void start();

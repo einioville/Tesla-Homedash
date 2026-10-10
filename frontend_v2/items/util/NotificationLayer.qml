@@ -20,7 +20,7 @@ Item {
     // Mirror of the dock's bottom inset, applied to the top instead.
     readonly property int topInset: 18
     readonly property int slideMs: 320
-    readonly property int graceMs: Notifications.graceMs
+    readonly property int graceMs: Theme.notificationDurationMs
 
     // Pending messages and the one currently on screen.
     property var queue: []

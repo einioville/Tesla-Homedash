@@ -1,0 +1,216 @@
+'''
+Host audio for the dashboard: the system volume and which output it plays out of.
+
+Owned by the backend rather than the UI because these are system calls, and
+because the audio hardware belongs to the machine the backend runs on — the same
+machine that runs libVLC for the radio and, usually, spotifyd.
+
+Both values are ordinary `config.json` keys applied through the Options view's
+existing hook machinery, so the whole feature costs no protocol code and no
+frontend change.  Persisting them is also what makes the dashboard come back at
+the volume it was left at after a power cut.
+'''
+
+import asyncio
+import logging
+
+from .audio_backend import AudioBackend, AudioDevice, NullAudioBackend, detect_backend
+
+logger = logging.getLogger("audio_service.audio_service")
+
+# Outputs come and go (HDMI hotplug, a Bluetooth speaker connecting), so the list
+# offered by the Options view is refreshed rather than read once at startup.
+_DEVICE_REFRESH_SECONDS = 15.0
+
+
+class AudioService:
+    '''
+    Applies the configured system volume and output device, and supplies the
+    Options view's device list.
+
+    Always constructed: detection is two cheap subprocess probes and needs no
+    credentials, and a deployment with no controllable audio stack must be able
+    to SAY so rather than silently accept writes that do nothing.
+    Arguments:
+        config (Config): Shared configuration.  The audio block is snapshotted
+            here and re-read only in apply_config(), like every other service.
+    '''
+
+    def __init__(self, config):
+        self.__config = config
+        self.__backend: AudioBackend = NullAudioBackend()
+        self.__devices: list[AudioDevice] = []
+        audio = config.audio_config
+        self.__volume_percent = audio.get("volumePercent")
+        self.__output_device = audio.get("outputDevice") or ""
+        # Set by attach_config_service().  ConfigService is built after this
+        # service, because it takes this service's hook, options and guard.
+        self.__config_service = None
+
+    def attach_config_service(self, config_service) -> None:
+        '''
+        Gives the service the write path it uses to store the host's volume on
+        first start.  Called from start_services once ConfigService exists.
+        Arguments:
+            config_service (ConfigService): Performs the audio.volumePercent write
+                with the same validation, atomic save and schema broadcast a
+                CONFIG_SET gets.
+        '''
+        self.__config_service = config_service
+
+    # ── Lifecycle ─────────────────────────────────────────────────
+
+    async def run(self) -> None:
+        '''
+        Detects the host's audio stack once, pushes the configured settings so a
+        reboot restores them, then refreshes the device list on a timer.  Runs
+        forever, so gathering it unconditionally is safe.
+        '''
+        self.__backend = await detect_backend()
+        await self.__refresh_devices()
+        # force: nothing has been pushed at the host yet this boot, so even an
+        # "unchanged" device has to be applied to make the stored value true.
+        if self.__volume_is_stored():
+            await self.__apply(self.__output_device, self.__volume_percent, force=True)
+        else:
+            await self.__apply(self.__output_device, None, force=True)
+            await self.__adopt_host_volume()
+
+        while True:
+            await asyncio.sleep(_DEVICE_REFRESH_SECONDS)
+            await self.__refresh_devices()
+
+    def get_run_task(self):
+        '''Returns the run task for start_services to gather.'''
+        return asyncio.create_task(self.run())
+
+    # ── Config ────────────────────────────────────────────────────
+
+    async def apply_config(self) -> None:
+        '''
+        Re-snapshots the audio block and pushes it at the host.  Async on
+        purpose: ConfigService awaits a hook's result, so the CONFIG_SET_RESULT
+        the user sees reflects a real apply rather than a scheduled one.
+        '''
+        audio = self.__config.audio_config
+        await self.__apply(audio.get("outputDevice") or "", audio.get("volumePercent"))
+
+    def health(self) -> dict:
+        '''The host audio stack and what it is set to, for the Järjestelmän tila card.'''
+        names = {"pulse": "PulseAudio / PipeWire (pactl)", "wireplumber": "PipeWire (wpctl)",
+                 "alsa": "ALSA (amixer)"}
+        if self.__backend.name == "none":
+            return {"state": "off", "detail": "Äänijärjestelmää ei löytynyt"}
+        label = next((d.label for d in self.__devices if d.identifier == self.__output_device), "")
+        volume = self.__volume_percent
+        return {"state": "ok", "detail": "Käytössä", "config": [
+            ["Järjestelmä", names.get(self.__backend.name, self.__backend.name)],
+            ["Ulostulo", label or self.__output_device or "Järjestelmän oletus"],
+            ["Äänenvoimakkuus", f"{volume} %" if volume is not None else "—"],
+        ]}
+
+    def device_options(self) -> list[dict]:
+        '''
+        Enum choices for `audio.outputDevice`, read from the cached device list.
+        Synchronous because ConfigService.build_schema() is.
+
+        Empty when the stack cannot switch outputs at runtime (ALSA, or no stack
+        at all), which makes ConfigService's existing membership check reject any
+        write to that key for free.
+        '''
+        if not self.__backend.supports_device_selection:
+            return []
+        # "" is the way back to "leave the host's own default alone".
+        # SettingSelect has no clear button — only the numeric editors do — so a
+        # sentinel option is the only route back, which is why this key is a
+        # plain enum rather than nullable.
+        return [{"value": "", "label": "Oletuslaite"}] + [
+            {"value": device.identifier, "label": device.label} for device in self.__devices
+        ]
+
+    def guard_write(self, key: str, value) -> None:
+        '''
+        Rejects a write that could not possibly take effect on this host.
+
+        Distinct from a hook: a hook runs after the value is already on disk and
+        its failure is swallowed, so a guard is the only place an honest "this
+        cannot work here" reaches the user.
+        Arguments:
+            key (str): Dotted config key being written.
+            value: Already-coerced candidate value.
+        '''
+        if self.__backend.name == "none":
+            raise ValueError(
+                "Ääntä ei voi ohjata: tuettua äänijärjestelmää ei löytynyt "
+                "(pactl, wpctl ja amixer puuttuvat)"
+            )
+        if key == "audio.outputDevice" and not self.__backend.supports_device_selection:
+            raise ValueError("Toistolaitetta ei voi vaihtaa ALSA-järjestelmässä ajon aikana")
+
+    # ── Internals ─────────────────────────────────────────────────
+
+    async def __apply(self, device: str, volume, force: bool = False) -> None:
+        '''
+        Pushes device then volume at the host.
+
+        ORDER MATTERS: a sink carries its OWN volume, so switching the output and
+        not re-applying the volume makes the user's setting silently stop
+        holding.  Device first, volume second, always — which also closes the one
+        real drift path between config.json and the live system.
+        Arguments:
+            device (str): Target output identifier; "" leaves the host default.
+            volume: Target volume percent, or None to leave it alone.
+            force (bool): Apply the device even when it has not changed.  Only
+                the startup push does; a volume-only edit must not spawn a
+                needless sink switch.
+        '''
+        if device and (force or device != self.__output_device):
+            await self.__backend.set_default_device(device)
+            await self.__refresh_devices()
+        self.__output_device = device
+
+        if volume is not None:
+            clamped = max(0, min(100, int(volume)))
+            await self.__backend.set_volume(clamped)
+            self.__volume_percent = volume
+
+    def __volume_is_stored(self) -> bool:
+        '''
+        Whether config.json holds a volume of its own, as opposed to the
+        _AUDIO_DEFAULTS value that audio_config merges in when it does not.
+        '''
+        block = self.__config.get("audio")
+        return isinstance(block, dict) and block.get("volumePercent") is not None
+
+    async def __adopt_host_volume(self) -> None:
+        '''
+        First start with no stored volume: takes the host's current volume as
+        the setting instead of pushing the schema default over a level the user
+        chose on this device.  Stored through ConfigService, so the Options view
+        shows the real level and a reboot restores it; from then on the value is
+        the user's and the startup force-apply is right.  An unreadable volume is
+        left exactly as it is.
+        '''
+        volume = await self.__backend.get_volume()
+        if volume is None:
+            logger.info("No stored volume and the host's cannot be read; leaving it as it is")
+            return
+        # pactl and wpctl report overdrive above 100 %; the setting cannot hold it.
+        volume = max(0, min(100, volume))
+        self.__volume_percent = volume
+        if self.__config_service is None:
+            return
+        result = await self.__config_service.apply_write("audio.volumePercent", volume)
+        if result["ok"] and result["applied"] == "unchanged":
+            # Equal to the default, so there is nothing to persist; the next start
+            # adopts the host's level again, which is still the right behaviour.
+            logger.info("Host volume (%d%%) already matches the setting", volume)
+        elif result["ok"]:
+            logger.info("Adopted the host's current volume (%d%%) as the stored setting", volume)
+        else:
+            logger.warning("Could not store the host's volume (%d%%): %s",
+                           volume, result["message"])
+
+    async def __refresh_devices(self) -> None:
+        '''Re-reads the selectable outputs, so hotplugged devices appear.'''
+        self.__devices = await self.__backend.list_devices()

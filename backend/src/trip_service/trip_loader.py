@@ -146,11 +146,27 @@ class TripLoader:
 
     def __init__(self, influx_handler, config):
         self.__influx = influx_handler
+        # Retained so apply_config() can re-read the tunables at runtime.
+        self.__config = config
         trip_config = config.trip_config
         self.__min_stop_ms = int(trip_config["min_stop_minutes"]) * 60 * 1000
         self.__min_distance_km = float(trip_config["min_trip_distance_km"])
         logger.info(
             "TripLoader initialized: min_stop=%s min, min_distance=%.2f km",
+            trip_config["min_stop_minutes"], self.__min_distance_km,
+        )
+
+    def apply_config(self) -> None:
+        '''
+        Re-reads the trip-detection tunables after the Options view writes them.
+        Trips are detected on demand per request, so the next TRIP_GET_LIST already
+        segments with the new thresholds -- nothing cached needs invalidating.
+        '''
+        trip_config = self.__config.trip_config
+        self.__min_stop_ms = int(trip_config["min_stop_minutes"]) * 60 * 1000
+        self.__min_distance_km = float(trip_config["min_trip_distance_km"])
+        logger.info(
+            "TripLoader reconfigured: min_stop=%s min, min_distance=%.2f km",
             trip_config["min_stop_minutes"], self.__min_distance_km,
         )
 

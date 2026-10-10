@@ -10,7 +10,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # meta-object symbols. CMP0100 (CMake 3.18+) opts .hh/.h++ into AUTOMOC.
 cmake_policy(SET CMP0100 NEW)
 
-find_package(Qt6 REQUIRED COMPONENTS Quick Network Concurrent Svg Location Positioning QuickControls2 Core5Compat Graphs LabsFolderListModel)
+find_package(Qt6 REQUIRED COMPONENTS Quick Network Concurrent Svg Location Positioning QuickControls2 Core5Compat Graphs LabsFolderListModel VirtualKeyboard)
 
 qt_standard_project_setup(REQUIRES 6.11)
 
@@ -49,14 +49,40 @@ qt_add_executable(appfrontend_v2
     core/serverclient.cpp
     core/appconfig.hh
     core/appconfig.cpp
+    core/dotenv.hh
+    core/dotenv.cpp
+    core/settings.hh
+    core/settings.cpp
     core/idlewatcher.hh
     core/idlewatcher.cpp
+    core/screenpower.hh
+    core/screenpower.cpp
+    core/connectionprobe.hh
+    core/connectionprobe.cpp
+    core/screensaverphotos.hh
+    core/screensaverphotos.cpp
+    core/usbimport.hh
+    core/usbimport.cpp
+    core/systemstatus.hh
+    core/systemstatus.cpp
+    core/systemhistory.hh
+    core/systemhistory.cpp
+    core/logcontrol.hh
+    core/logcontrol.cpp
+    core/appupdate.hh
+    core/appupdate.cpp
+    core/spotifyauth.hh
+    core/spotifyauth.cpp
+    core/spotifydevice.hh
+    core/spotifydevice.cpp
     core/tesla/tesladata_gen.hh
     core/tesla/tesladata_gen.cpp
     core/tesla/tesladata.hh
     core/tesla/tesladata.cpp
     core/tesla/teslahistory.hh
     core/tesla/teslahistory.cpp
+    core/tesla/teslafieldeditor.hh
+    core/tesla/teslafieldeditor.cpp
     core/trip/tripsdata.hh
     core/trip/tripsdata.cpp
     core/charging/chargingdata.hh
@@ -90,6 +116,44 @@ qt_add_qml_module(appfrontend_v2
         views/MapView.qml
         views/TripsView.qml
         views/ChargingView.qml
+        views/SettingsView.qml
+        items/settings/SettingRow.qml
+        items/settings/SettingRules.qml
+        items/settings/SettingSwitch.qml
+        items/settings/SettingSlider.qml
+        items/settings/SettingNumber.qml
+        items/settings/SettingAction.qml
+        items/settings/SettingText.qml
+        items/settings/SettingSelect.qml
+        items/settings/SettingsSidebar.qml
+        items/settings/SettingsPane.qml
+        items/settings/BackendProbeStatus.qml
+        items/settings/ScreenPowerStatus.qml
+        items/settings/TeslaFieldTable.qml
+        items/settings/SystemStatusSection.qml
+        items/settings/SystemOverviewCard.qml
+        items/settings/SystemGraphCard.qml
+        items/settings/SystemServiceCard.qml
+        items/settings/SystemLogPopup.qml
+        items/settings/DebugLogDetails.qml
+        items/settings/DebugLogPopup.qml
+        items/settings/LogClearPopup.qml
+        items/settings/UpdatePanel.qml
+        items/settings/UpdateBanner.qml
+        items/settings/SettingDetails.qml
+        items/settings/SpotifyAuthDetails.qml
+        items/settings/SpotifyDeviceDetails.qml
+        items/settings/ScreensaverPhotosDetails.qml
+        items/settings/SettingsIssues.qml
+        items/settings/SettingsIssuesPopup.qml
+        items/settings/SettingSpotlight.qml
+        items/settings/SpotifyAuthPopup.qml
+        items/settings/SpotifyDevicePopup.qml
+        items/settings/UsbImportPopup.qml
+        items/settings/SpotifyGlowBorder.qml
+        items/settings/SpotifyButton.qml
+        items/settings/DialogButton.qml
+        items/settings/SpotifyAuthAlert.qml
         items/trip/TripMap.qml
         items/trip/TripComboBox.qml
         items/trip/WeekSelector.qml
@@ -115,10 +179,16 @@ qt_add_qml_module(appfrontend_v2
         items/util/GradientCard.qml
         items/util/TintedIcon.qml
         items/util/GlowIcon.qml
+        items/util/HoldRepeatArea.qml
+        items/util/WheelStepArea.qml
+        items/util/ToggleSwitch.qml
+        items/util/Reveal.qml
+        items/util/ElasticFlickable.qml
         items/util/RoundedImage.qml
         items/util/GlassPanel.qml
         items/util/NotificationLayer.qml
         items/util/ScreenSaver.qml
+        items/util/NightSchedule.qml
         items/tesla/DataEntry.qml
         items/tesla/DataEntryList.qml
         items/tesla/TemperatureCard.qml
@@ -155,12 +225,40 @@ target_include_directories(appfrontend_v2 PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 # walk-up alone never reaches it. Used only to find .env; real environment
 # variables still take precedence, so this absolute dev path is harmless when the
 # directory no longer exists on a deployment target.
+# Stamp the commit this binary was BUILT from. The Options view's update card
+# otherwise has to report the repository's HEAD as "the running version", which
+# stops being true the moment an update checks out a new commit: between the
+# checkout and the app restarting, the repo is at the new version and this
+# process is still the old one. Resolved at configure time, and the build script
+# configures on every run, so it tracks. Empty when git is unavailable, which the
+# card renders as "unknown" rather than as a mismatch.
+set(FRONTEND_V2_BUILD_COMMIT "")
+find_package(Git QUIET)
+if(Git_FOUND)
+    execute_process(
+        COMMAND ${GIT_EXECUTABLE} rev-parse HEAD
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        OUTPUT_VARIABLE FRONTEND_V2_BUILD_COMMIT
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET)
+endif()
+
 target_compile_definitions(appfrontend_v2 PRIVATE
     FRONTEND_V2_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+
+# Scoped to the ONE file that reads it, not to the target. As a target-wide
+# definition it lands on every translation unit's command line, and its value
+# changes with every commit — so each in-app update would recompile the entire
+# C++ frontend on the Pi even for a one-line QML change, turning a sub-minute
+# build into tens of minutes with the backend already running on a freshly
+# synced virtualenv.
+set_source_files_properties(core/appupdate.cpp PROPERTIES
+    COMPILE_DEFINITIONS "FRONTEND_V2_BUILD_COMMIT=\"${FRONTEND_V2_BUILD_COMMIT}\"")
 
 target_link_libraries(appfrontend_v2
     PRIVATE Qt6::Quick Qt6::Network Qt6::Concurrent Qt6::Svg Qt6::Location Qt6::Positioning
             Qt6::QuickControls2 Qt6::Core5Compat Qt6::Graphs Qt6::LabsFolderListModel
+            Qt6::VirtualKeyboard
 )
 
 # Static resources (font + icons) exposed at :/resources/... — the same paths
@@ -171,20 +269,25 @@ qt_add_resources(appfrontend_v2 "app_resources"
     PREFIX "/"
     FILES
         resources/fonts/gothamrnd_medium.otf
+        resources/icons/app.svg
         resources/icons/arrow.svg
         resources/icons/arrow_left.svg
         resources/icons/arrow_right.svg
         resources/icons/charger.svg
         resources/icons/chart_line.svg
+        resources/icons/pulse.svg
+        resources/icons/folder.svg
         resources/icons/cooling.png
         resources/icons/greenshadow.png
         resources/icons/heating.png
         resources/icons/home.svg
+        resources/icons/link.svg
         resources/icons/location.svg
         resources/icons/music.svg
         resources/icons/minus.svg
         resources/icons/pause.svg
         resources/icons/play.svg
+        resources/icons/price.svg
         resources/icons/plus.svg
         resources/icons/power_off.svg
         resources/icons/power_on.svg
@@ -192,9 +295,11 @@ qt_add_resources(appfrontend_v2 "app_resources"
         resources/icons/redshadow.png
         resources/icons/screensaver.png
         resources/icons/seat.svg
+        resources/icons/settings.svg
         resources/icons/skip_backward.svg
         resources/icons/skip_forward.svg
         resources/icons/steering.svg
+        resources/icons/terminal.svg
         resources/icons/trip.svg
         resources/icons/yellowshadow.png
         resources/icons/weather/clouds.svg
@@ -217,6 +322,7 @@ qt_add_resources(appfrontend_v2 "app_resources"
         resources/Luna/walking_4.png
         resources/Luna/walking_5.png
         config/notifications.json
+        config/settings.json
 )
 
 # Developer convenience: regenerate the Tesla data layer from the registry.

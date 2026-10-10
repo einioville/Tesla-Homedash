@@ -117,7 +117,6 @@ Runtime config in `config.json`:
 - `spotifyDeviceId` — target Spotify Connect device ID
 - `spotifyCachePath` — absolute path for spotipy OAuth token cache
 - `spotifyRedirectUri` — OAuth callback (default `http://127.0.0.1:8080/callback`)
-- `defaultRadioStation` — key from `radioMediaIds` map
 - `timeZone` — IANA timezone (e.g. `Europe/Helsinki`)
 
 External services:

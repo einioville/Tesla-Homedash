@@ -36,7 +36,7 @@ Tesla-Homedash is a desktop dashboard that brings live vehicle telemetry, music,
 - [teslemetry-stream](https://pypi.org/project/teslemetry-stream/) — Teslemetry WebSocket client.
 
 ### C++
-- [Qt 6](https://www.qt.io/) — the frontend is built on Qt 6 Widgets, using the `Core`, `Gui`, `Widgets`, `Network`, `QuickWidgets`, `Location`, `Positioning`, `Quick`, `Svg`, `Graphs`, and `Concurrent` modules.
+- [Qt 6](https://www.qt.io/) — the frontend is a Qt 6 Quick (QML) application, using the `Quick`, `QuickControls2`, `Network`, `Concurrent`, `Svg`, `Location`, `Positioning`, `Graphs`, `Core5Compat`, `LabsFolderListModel` and `VirtualKeyboard` modules.
 - [CMake](https://cmake.org/) 3.16 or newer — the frontend's build system.
 - A C++20-capable compiler (MSVC 2019 16.10+, GCC 10+, or Clang 12+).
 
@@ -82,8 +82,12 @@ In the installer's **Additional Libraries** step, make sure the following module
 - **Qt Location**
 - **Qt Positioning**
 - **Qt Graphs**
+- **Qt 5 Compatibility Module** — `Qt5Compat.GraphicalEffects`, used by the icon tinting
+- **Qt Virtual Keyboard** — the on-screen keyboard for typing into the Options view on the touch panel
 
-The other Qt modules the frontend links against — `Core`, `Gui`, `Widgets`, `Network`, `Quick`, `QuickWidgets`, `Svg`, and `Concurrent` — are part of the default Qt 6 install and don't need to be enabled separately.
+The other Qt modules the frontend links against — `Core`, `Gui`, `Network`, `Quick`, `QuickControls2`, `Svg`, `Concurrent` and `LabsFolderListModel` — are part of the default Qt 6 install and don't need to be enabled separately.
+
+All five of the modules above are `REQUIRED` in `frontend_v2/CMakeLists.txt`, so leaving one unchecked makes `cmake` fail at configure time rather than at build time.
 
 Take note of the install path the installer reports when it finishes (for example `~/Qt/6.8.0/gcc_arm64/` on the Pi). You'll pass it to CMake when building the frontend later.
 
@@ -122,6 +126,14 @@ sudo mv spotifyd /usr/local/bin/
 ```
 
 The `-full` variant includes both ALSA and PulseAudio audio backends; the `-default` variant is ALSA-only. Raspberry Pi OS Desktop runs PipeWire with a PulseAudio compatibility layer, so the PulseAudio backend works out of the box.
+
+> **Optional, for the Options view's audio settings:** `sudo apt install pulseaudio-utils`.
+> The backend controls the system volume and output device through whichever of
+> `pactl`, `wpctl` or `amixer` it finds, in that order. `wpctl` is always present on
+> Bookworm (WirePlumber ships it), so audio works without this — but `pactl` addresses
+> sinks by a stable *name* rather than a session-scoped numeric id, which makes a saved
+> output device survive reboots and hotplugs more reliably. `pipewire-pulse` only
+> *suggests* the package, so it is not installed by default.
 
 Create the config file at `~/.config/spotifyd/spotifyd.conf`:
 
@@ -229,10 +241,8 @@ Open `config.json` and adjust the fields you'll typically need to change:
 - `spotifyDeviceId` — leave blank for now; fill in during step 5.
 - `spotifyCachePath` — absolute path where spotipy will store its OAuth refresh token (e.g. `/home/<your-user>/spotify_cache`).
 - `spotifyRedirectUri` — defaults to `http://127.0.0.1:8080/callback`; must match whatever you registered as a redirect URI in the Spotify Developer App.
-- `defaultRadioStation` — key from the `radioMediaIds` map.
 - `timeZone` — IANA timezone (e.g. `Europe/Helsinki`).
 - `weatherPlace` — city the FMI feed should report for.
-- `spotifyMarket` — Spotify catalog market as an ISO 3166-1 alpha-2 country code (e.g. `FI`).
 
 **5. Run the Spotify setup helper:**
 
@@ -244,6 +254,17 @@ uv run python -m src.media_service.setup.spotify_setup
 ```
 
 The helper opens the Spotify authorization page in your browser. After approving, paste the full redirect URL (`http://127.0.0.1:8080/callback?code=...`) back into the terminal — spotipy then writes the OAuth refresh token to `spotifyCachePath`.
+
+> **The authorization is not permanent.** Since Spotify's
+> [refresh-token expiration change](https://developer.spotify.com/blog/2026-06-18-refresh-token-expiration)
+> (new apps 2026-06-18, existing apps 2026-07-20), a refresh token
+> [lives 6 months](https://developer.spotify.com/documentation/web-api/tutorials/refreshing-tokens)
+> and **refreshing it does not extend that** — after six months the token endpoint answers
+> `invalid_grant` and Spotify playback stops until you re-authorize. You do not have to come back
+> to this helper: the dashboard's **Asetukset → Media → Spotify-tunnistautuminen** card renews it
+> on the device, and previously approved scopes carry over as long as the app asks for the same
+> ones. The 1-hour `expires_in` in the cache file is the *access* token and is refreshed
+> automatically — it is not the number that matters here.
 
 Next the helper prompts you to start playback on the Spotifyd device. Once Spotify is playing on it, press Enter and the helper prints the active device's name and ID. Copy that ID into `spotifyDeviceId` in `config.json`.
 
@@ -257,41 +278,47 @@ It should now connect to Teslemetry, InfluxDB, and Spotify without further promp
 
 ### Frontend
 
-The frontend is a Qt 6 Widgets application built with CMake.
+The frontend is a Qt 6 Quick (QML) application built with CMake. `scripts/build-frontend.sh` does
+the configure and the build in one command — it finds the Qt kit, picks Ninja when it is installed
+(and CMake's default generator otherwise), and reuses object files through `ccache`/`sccache` if
+either is present.
 
-**1. Configure the build**, pointing CMake at the Qt 6 install path you noted from the Qt 6 subsection above:
-
-```bash
-cmake -S frontend -B frontend/builddir \
-    -DCMAKE_PREFIX_PATH=~/Qt/6.8.0/gcc_arm64 \
-    -DCMAKE_BUILD_TYPE=Release
-```
-
-Adjust `CMAKE_PREFIX_PATH` to wherever your Qt installer placed the toolchain folder.
-
-**2. Build:**
+**1. Build:**
 
 ```bash
-cmake --build frontend/builddir -j
+./scripts/build-frontend.sh --config Release
 ```
 
-This produces the `gui` binary at `frontend/builddir/gui`.
+It looks for a Qt kit in `$QTDIR`, then in `~/Qt/*/gcc_64` and `~/Qt/*/gcc_arm64`. If your
+installer put it somewhere else, point at it explicitly:
 
-**3. Run:**
+```bash
+./scripts/build-frontend.sh --config Release --qt-prefix ~/Qt/6.8.0/gcc_arm64
+```
+
+This produces the `appfrontend_v2` binary at `frontend_v2/build/appfrontend_v2`. (The equivalent
+raw CMake invocation is `cmake -S frontend_v2 -B frontend_v2/build -DCMAKE_PREFIX_PATH=<kit>
+-DCMAKE_BUILD_TYPE=Release && cmake --build frontend_v2/build --target appfrontend_v2`.)
+
+**2. Run:**
 
 The frontend reads a few optional environment variables — the defaults already match a 1280×800 embedded display on the same Pi as the backend:
 
+Most of these only supply a *default* for the matching setting in the dashboard's own **Asetukset**
+view — a value saved there wins, so they matter on a fresh install and stop mattering afterwards.
+
 - `TESLA_HOMEDASH_BACKEND_HOST` — backend TCP host (default `127.0.0.1`). Set this if the backend runs on a different machine.
 - `TESLA_HOMEDASH_BACKEND_PORT` — backend TCP port (default `6969`).
-- `TESLA_HOMEDASH_WINDOW_WIDTH` — window width in pixels (default `1280`).
-- `TESLA_HOMEDASH_WINDOW_HEIGHT` — window height in pixels (default `800`).
 - `TESLA_HOMEDASH_FULLSCREEN` — set to `1` to open fullscreen on the touchscreen.
+- `TESLA_HOMEDASH_SCREENSAVER_TIMEOUT_MIN` — idle minutes before the screensaver (default `30`).
+- `TESLA_HOMEDASH_SETTINGS_FILE` — override where the dashboard's own settings are written (default `~/.config/Tesla-Homedash/frontend_config.json`).
 - `TESLA_HOMEDASH_LOG_LEVEL` — `debug` / `info` / `warning` / `error` / `critical` (default `info`).
+- `TESLA_HOMEDASH_LOG_DIR` — where both halves keep their own log files (default `~/.local/state/Tesla-Homedash/logs`). The journal gets the same lines at the chosen level but never below INFO; the log level is chosen in **Asetukset › Ylläpito › Lokit** (DEBUG there is temporary and reaches these files only), and the same card clears them. `TESLA_HOMEDASH_LOG_LEVEL` is the level until one is chosen there.
 
 Make sure the backend is already running (`cd backend && uv run python run.py`), then launch the frontend:
 
 ```bash
-TESLA_HOMEDASH_FULLSCREEN=1 ./frontend/builddir/gui
+TESLA_HOMEDASH_FULLSCREEN=1 ./frontend_v2/build/appfrontend_v2
 ```
 
 If everything is wired up correctly, the dashboard appears and starts streaming telemetry, weather, and media data from the backend.
@@ -369,12 +396,51 @@ WorkingDirectory=%h/Tesla-Homedash/backend
 # too, but waiting avoids a degraded first boot.
 ExecStartPre=/bin/sh -c 'for i in $(seq 1 60); do curl -sf http://localhost:8086/health >/dev/null && exit 0; sleep 1; done; exit 1'
 ExecStart=%h/.local/bin/uv run python run.py
+# The backend switches the panel on and off for the Options view's screen-off
+# setting, which goes through wlopm and therefore needs the compositor's socket.
+# XDG_RUNTIME_DIR is already in a --user unit's environment; WAYLAND_DISPLAY is
+# not, because this unit is wanted by default.target rather than
+# graphical-session.target. Drop this line if you do not use that setting.
+Environment=WAYLAND_DISPLAY=wayland-1
+# The in-app updater rebuilds the dashboard from source, and this unit is what
+# runs that build (its card is out of the Options view for now, see #56). A --user unit inherits none of your login shell's
+# environment, so point it at the Qt kit you installed. Drop this line only if
+# the kit is in ~/Qt/<version>/gcc_arm64, which is found automatically.
+Environment=QTDIR=%h/Qt/6.8.0/gcc_arm64
 Restart=on-failure
 RestartSec=5
 
 [Install]
 WantedBy=default.target
 ```
+
+> **The Options view's restart button works with this unit as written.** Some settings
+> (the timezone, the Zappi serial, the spot-pricing master switch) are consumed once when
+> a service is constructed and cannot be re-applied in place, so the dashboard offers a
+> *Käynnistä uudelleen* button. It makes the backend exit with code **42** — deliberately
+> non-zero, so `Restart=on-failure` above brings it straight back up. Switch to
+> `Restart=always` only if you also want a clean `systemctl --user stop` to relaunch.
+>
+> A bad value cannot restart-loop the unit: settings are validated against the schema
+> before being written, and `config.json` is snapshotted to `config.json.bak` before every
+> write — a config that fails to load rolls back to the backup on the next start.
+>
+> **`RestartSec=5` is load-bearing — do not remove it.** systemd gives up on a unit that
+> starts more than `StartLimitBurst=5` times in `StartLimitIntervalSec=10s` and leaves it
+> `failed`, recoverable only with `systemctl --user reset-failed`. At the default
+> `RestartSec` of 100 ms a crash-looping process trips that in about two seconds; at 5 s it
+> never can, so the unit keeps retrying and heals itself once the cause is fixed.
+
+> **Screen-off (the Options view's *Näytön sammutus*) is unreliable on current Raspberry Pi
+> OS.** It is off by default; two things break it:
+>
+> - **labwc 0.20 / wlroots 0.20** (Raspberry Pi OS since September 2026): after a long blank the
+>   output can disappear from the compositor and never come back — the panel stays black whatever
+>   you touch. Recover with `sudo systemctl restart lightdm` (the backend survives it). The backend
+>   detects this, refuses further power-offs until it is restarted, and the Options view says why.
+>   A plain `swayidle` + `wlopm` setup wedges the same way; it is not specific to this app.
+> - **A running VNC server (wayvnc)** blocks `wlopm` in both directions, so the panel simply never
+>   blanks. Stop the VNC server to use screen-off; the Options view reports the refusal.
 
 **3. Frontend** — `~/.config/systemd/user/tesla-homedash-frontend.service`. This one is
 tied to the graphical session (it needs the desktop's display), and it starts after the
@@ -388,12 +454,93 @@ PartOf=graphical-session.target
 
 [Service]
 Environment=TESLA_HOMEDASH_FULLSCREEN=1
-ExecStart=%h/Tesla-Homedash/frontend/builddir/gui
+ExecStart=%h/Tesla-Homedash/frontend_v2/build/appfrontend_v2
 Restart=on-failure
 RestartSec=5
 
 [Install]
 WantedBy=graphical-session.target
+```
+
+> **`Restart=on-failure` is what makes the dashboard's own restart button work.** The
+> Options view has an *Ylläpito* section with *Käynnistä sovellus uudelleen*, which quits the
+> app with exit code **42** so this unit relaunches it. That is the only way to apply the
+> connection settings (or recover a wedged UI) on the Pi, where the dashboard runs fullscreen
+> with no keyboard. The same section restarts the backend, and both buttons need a second
+> tap to confirm.
+
+### Updating
+
+The Options view has no update card for now. The in-app updater is being reworked so that it
+installs **release versions only**, and lets you pick any release rather than just the newest
+one ([#56](https://github.com/einioville/Tesla-Homedash/issues/56)). Until then, update over SSH:
+
+```bash
+cd ~/Tesla-Homedash
+git fetch --tags
+git checkout --detach v1.0.0        # the release to install
+./scripts/build-frontend.sh --config Release
+(cd backend && ~/.local/bin/uv sync --locked)
+systemctl --user restart tesla-homedash-backend.service tesla-homedash-frontend.service
+```
+
+`config.json`, `.env` and the dashboard's own settings file are all outside the repository
+or gitignored, so an update never touches them.
+
+### Rebooting the device from the dashboard (Laitteen uudelleenkäynnistys)
+
+**Asetukset → Ylläpito → Uudelleenkäynnistys → Käynnistä laite uudelleen** reboots the whole
+Raspberry Pi (twice, to confirm; refused while an update is running). The backend runs as your
+user, so the host has to grant that one right. Either of these works — the backend tries
+`systemctl reboot` first, then `sudo -n systemctl reboot`, and never asks for a password:
+
+- **A polkit rule** (preferred). Create `/etc/polkit-1/rules.d/50-tesla-homedash-reboot.rules`,
+  replacing `pi` with your user:
+
+  ```js
+  polkit.addRule(function (action, subject) {
+      if ((action.id == "org.freedesktop.login1.reboot" ||
+           action.id == "org.freedesktop.login1.reboot-multiple-sessions") &&
+          subject.user == "pi") {
+          return polkit.Result.YES;
+      }
+  });
+  ```
+
+- **A sudoers entry** for exactly that command: `sudo visudo -f /etc/sudoers.d/tesla-homedash-reboot`
+  and add `pi ALL=(root) NOPASSWD: /usr/bin/systemctl reboot`. (A user that already has
+  passwordless sudo — Raspberry Pi OS's default first user — needs nothing.)
+
+Without either, the button reports that the backend lacks the right, and nothing happens.
+
+### Screensaver photos (Näytönsäästäjä)
+
+The screensaver shows the photos in `~/.config/Tesla-Homedash/screensaver` (JPEG, PNG, BMP, WebP,
+GIF — subfolders are not shown). The folder is created on the dashboard's first start. There are
+two ways to fill it:
+
+- **Over the network:** `scp *.jpg pi@<pi>:~/.config/Tesla-Homedash/screensaver/`
+- **From a USB stick:** put the photos in a folder named `tesla_homedash_screensaver` in the root
+  of the stick, plug it into the Pi and open **Asetukset → Yleinen → Näytönsäästäjä → Kuvakansio →
+  Tuo USB:ltä**. Pick the stick, check the photo count, and import. The dashboard mounts the stick,
+  copies the photos and unmounts it again. Photos already in the folder are skipped, and a different
+  photo with a clashing name is saved as `name (2).jpg` rather than replacing anything.
+
+The screensaver switch stays unavailable until the folder holds at least one photo.
+
+The backend mounts the stick with `udisksctl` as your user. The desktop session may already mount
+sticks on its own, in which case nothing more is needed. If the import instead reports that the
+backend has no right to mount the stick, allow it with a polkit rule. Create
+`/etc/polkit-1/rules.d/50-tesla-homedash-usb.rules`, replacing `pi` with your user:
+
+```js
+polkit.addRule(function (action, subject) {
+    if ((action.id == "org.freedesktop.udisks2.filesystem-mount" ||
+         action.id == "org.freedesktop.udisks2.filesystem-mount-other-seat") &&
+        subject.user == "pi") {
+        return polkit.Result.YES;
+    }
+});
 ```
 
 Reload the unit files, then enable and start everything:
@@ -423,7 +570,7 @@ reachable underneath it.
 > [Desktop Entry]
 > Type=Application
 > Name=Tesla-Homedash
-> Exec=env TESLA_HOMEDASH_FULLSCREEN=1 /home/youruser/Tesla-Homedash/frontend/builddir/gui
+> Exec=env TESLA_HOMEDASH_FULLSCREEN=1 /home/youruser/Tesla-Homedash/frontend_v2/build/appfrontend_v2
 > ```
 >
 > (Replace `youruser` with your username.) The desktop session runs it on login, which

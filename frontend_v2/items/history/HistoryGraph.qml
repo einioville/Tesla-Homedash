@@ -4,7 +4,8 @@ import QtQuick.Effects
 import QtGraphs
 import frontend_v2
 
-// Interactive line graph for one property's history.
+// Interactive line graph for one property's history — and every other graph in the
+// app: further lines can share its axes (`extraSeries`, the Järjestelmän tila graphs).
 //
 //  - Data, axis bounds and point count are DATA-SOURCE-AGNOSTIC: they come from the
 //    pointsData / dataMinX… / dataCount / dataLoading properties, which default to the
@@ -37,6 +38,13 @@ Item {
     // between readings. Sourced per-property from config.json; buildStepped() and valueAt()
     // branch on it, and the glow / y-fit / live marker follow from those two.
     property string lineMode: "step"
+    // Pin the y-axis bottom to 0 for a quantity that cannot go negative (#42), and pad
+    // only the top. A fitted axis would otherwise show impossible values (a parked car
+    // graphs at -1…1 km/h) and blow a 2-point battery drift up to the full plot height,
+    // so a change reads as a collapse. Per property, never blanket: OutsideTemp and grid
+    // power are signed. Data that dips below 0 anyway falls back to the ordinary fit
+    // rather than being clipped.
+    property bool zeroBased: false
 
     // --- Gradient glow under the line (the modern look; tweak here) -----------
     // A translucent area fill under the line that fades to transparent toward the plot
@@ -44,8 +52,36 @@ Item {
     // Colour tracks the line (Theme.accent) by default; a host can override per graph.
     // glowOpacity is the alpha directly under the line (the fade bottoms out at 0). These
     // two are the knobs to iterate on the look.
-    property color glowColor: Theme.accent
+    property color glowColor: root.lineColor
     property real glowOpacity: 0.35
+
+    // --- Further lines over the same axes ---------------------------------------
+    // Every graph in the app is this one. The Järjestelmän tila graphs draw several
+    // lines (CPU per core, disk read / write, network down / up): the main series is
+    // the first, these the rest — each { points: [{x, y}] ascending, color, label,
+    // dashed }. Plain point-to-point lines with no glow or decimation: they are the
+    // small rolling series. Inspecting puts a dot on each and lists them all in the
+    // readout. Empty for every single-line graph, which renders exactly as before.
+    property var extraSeries: []
+    // The main line's colour (the glow follows it unless set apart) and its name in
+    // a multi-line readout.
+    property color lineColor: Theme.accent
+    property string seriesLabel: ""
+    // A fixed y-range instead of the fit, for a bounded quantity (0–100 %). NaN = fit.
+    property real fixedMinY: NaN
+    property real fixedMaxY: NaN
+    // Formats a readout value; null = two decimals and the unit.
+    property var formatValue: null
+    // Whether the mouse wheel zooms. Off inside a scrolling page, where the wheel
+    // belongs to the page (a left-drag still pans, a pinch still zooms).
+    property bool wheelZoom: true
+
+    function formatReadout(v) {
+        if (isNaN(v))
+            return ""
+        return root.formatValue !== null ? root.formatValue(v)
+                                         : v.toFixed(2) + (root.unit ? " " + root.unit : "")
+    }
 
     // --- Outer glow on the line itself (the bloom; tweak here) ----------------
     // A soft blurred halo behind the crisp line. Kept OFF by default — it read as too blurry —
@@ -109,15 +145,22 @@ Item {
     //    of the visible span. 0.5 → a half-screen pan or a ~2x zoom-out shows no empty edge
     //    before the settle rebuild catches up.
     //  settleMs — debounce after the last zoom/pan step before the detailed rebuild fires.
-    //  bucketsPerPx — target render density: buckets per plot pixel (≈ points per pixel).
-    property real renderMarginFrac: 0.5
-    property int settleMs: 120
-    property real bucketsPerPx: 1.0
+    //  bucketsPerPx — render density: M4 buckets per pixel of the VISIBLE plot, each keeping
+    //    up to four points. 1.0 reproduces the line pixel-exactly; <= 0 disables decimation.
+    //  sensitivity — multiplier on pan/zoom response. The 10" touch panel needs more
+    //    travel per gesture than a mouse does; 1.0 is the pre-setting behaviour.
+    // Defaults come from Theme, which binds them to the Options view's settings —
+    // the right values are hardware-dependent (the Pi wants a coarser density and a
+    // longer settle than a desktop). An instance can still override them locally.
+    property real renderMarginFrac: Theme.graphRenderMarginFrac
+    property int settleMs: Theme.graphSettleMs
+    property real bucketsPerPx: Theme.graphBucketsPerPx
+    property real sensitivity: Theme.graphSensitivity
 
     // Tightest allowed zoom: the visible window can never be narrower than this (ms). A flat
     // 1-minute floor (capped at the loaded span for a shorter range) — stops zooming into
     // sub-minute empty space, independent of the range's total length. clampWidth enforces it.
-    property real minZoomSpanMs: 60000
+    property real minZoomSpanMs: Theme.graphMinZoomSpanMs
 
     // The portion of steppedData revealed so far, left-to-right, driven by revealFrac (the
     // draw-in). At rest (revealFrac = 1) this IS the whole steppedData; while the load animation
@@ -232,8 +275,12 @@ Item {
 
     // y-fit over the visible window (recomputed when the window or data changes).
     readonly property var yFit: fitY(viewMinX, viewMaxX)
+    readonly property bool yFloorAtZero: zeroBased && yFit.min >= 0
+    // Padding relative to the span actually SHOWN, so a zero-based 61–63 % battery gets
+    // headroom proportional to 0–63 rather than to its 2-point wiggle. A flat series
+    // (zero span) gets 1.0, so a car parked all day reads as 0…1 km/h.
     readonly property real yPad: {
-        const span = yFit.max - yFit.min
+        const span = yFit.max - (yFloorAtZero ? 0 : yFit.min)
         return span > 0 ? span * 0.08 : 1.0
     }
     readonly property bool viewIsFull:
@@ -271,7 +318,7 @@ Item {
     // the glow. The inspect overlay is declared after the GraphsView, so it stays on top.
     Item {
         id: glowClip
-        visible: root.dataCount > 0 && root.glowPolyline.length > 0
+        visible: root.dataCount > 0 && root.glowPolyline.length > 0 && root.glowOpacity > 0
         x: graph.plotArea.x
         y: graph.plotArea.y
         width: graph.plotArea.width
@@ -402,8 +449,9 @@ Item {
         }
         axisY: ValueAxis {
             id: yAxis
-            min: root.yFit.min - root.yPad
-            max: root.yFit.max + root.yPad
+            min: !isNaN(root.fixedMinY) ? root.fixedMinY
+                 : root.yFloorAtZero ? 0 : root.yFit.min - root.yPad
+            max: !isNaN(root.fixedMaxY) ? root.fixedMaxY : root.yFit.max + root.yPad
             // Faint horizontal gridlines aligned with the value labels (colour from the
             // theme's grid.mainColor above); the X axis keeps its grid off so only
             // horizontals show. No minor gridlines.
@@ -414,7 +462,7 @@ Item {
         LineSeries {
             id: series
             width: 2
-            color: Theme.accent
+            color: root.lineColor
             // The path geometry is built explicitly in buildStepped() per the property's
             // lineMode, so the default straight-segment style renders exactly what we
             // intend: "step" holds each reading then jumps (telemetry only sends on change,
@@ -423,6 +471,53 @@ Item {
             // signals. Building the path ourselves avoids relying on any renderer line style.
             // (A smooth spline was tried and reverted: it turned a genuinely flat/held
             // value into a wobble, misrepresenting the data.)
+        }
+    }
+
+    // The extra lines, added to the GraphsView as they are created (its own children
+    // can only be series, so they cannot be declared inside it).
+    Instantiator {
+        id: extraLines
+        model: root.extraSeries.length
+
+        delegate: LineSeries {
+            required property int index
+            readonly property var entry: root.extraSeries[index]
+            width: 2
+            color: entry !== undefined ? entry.color : "transparent"
+            // A scoped enum: the unscoped LineSeries.DashLine the docs show is undefined.
+            strokeStyle: entry !== undefined && entry.dashed ? LineSeries.StrokeStyle.DashLine
+                                                             : LineSeries.StrokeStyle.SolidLine
+            dashPattern: [2, 1.5]
+        }
+
+        onObjectAdded: (index, object) => {
+            graph.addSeries(object)
+            root.refillExtras()
+        }
+        onObjectRemoved: (index, object) => graph.removeSeries(object)
+    }
+
+    onExtraSeriesChanged: refillExtras()
+    onRevealFracChanged: if (root.extraSeries.length > 0) refillExtras()
+
+    // Hands each extra line its points — cut at the draw-in's sweep while it runs,
+    // so every line draws in together.
+    function refillExtras() {
+        const cutX = root.revealFrac >= 1 ? Infinity
+                   : root.buildMinX + root.revealFrac * (root.buildMaxX - root.buildMinX)
+        for (let i = 0; i < extraLines.count; ++i) {
+            const line = extraLines.objectAt(i)
+            const entry = root.extraSeries[i]
+            if (line === null || entry === undefined)
+                continue
+            const out = []
+            for (const p of entry.points) {
+                if (p.x > cutX)
+                    break
+                out.push(Qt.point(p.x, p.y))
+            }
+            line.replace(out)
         }
     }
 
@@ -518,20 +613,25 @@ Item {
         }
 
         // Two-finger touch → pinch-zoom + pan the x-window. target:null so we
-        // drive the view ourselves from the gesture, keeping the data point under
-        // the centroid fixed while scaling and panning as the centroid moves.
+        // drive the view ourselves from the gesture: zoom around the point under the
+        // starting centroid, pan as the centroid moves (applyPinch). This is the
+        // ONLY pan on a touchscreen — one finger inspects.
         PinchHandler {
             id: pinch
             target: null
             property real startMinX: 0
             property real startMaxX: 0
             property real startFocalT: 0
+            property real startFrac: 0
 
             onActiveChanged: {
                 if (active) {
                     startMinX = root.viewMinX
                     startMaxX = root.viewMaxX
-                    startFocalT = root.pixelToTime(root.clampToPlot(centroid.position.x))
+                    const a = graph.plotArea
+                    const x = root.clampToPlot(centroid.position.x)
+                    startFocalT = root.pixelToTime(x)
+                    startFrac = a.width > 0 ? (x - a.x) / a.width : 0
                 } else {
                     // Gesture ended: refresh detail for the final window now, don't wait out the debounce.
                     settleTimer.stop()
@@ -547,9 +647,11 @@ Item {
         WheelHandler {
             id: wheelH
             target: null
+            enabled: root.wheelZoom
             acceptedDevices: PointerDevice.Mouse
             onWheel: (event) => {
-                const factor = event.angleDelta.y > 0 ? (1 / 1.2) : 1.2
+                const step = 1 + 0.2 * root.sensitivity
+                const factor = event.angleDelta.y > 0 ? (1 / step) : step
                 root.zoomAround(wheelH.point.position.x, factor)
             }
         }
@@ -573,7 +675,7 @@ Item {
             onActiveTranslationChanged: {
                 const dx = activeTranslation.x - lastTx
                 lastTx = activeTranslation.x
-                root.panByPixels(dx)
+                root.panByPixels(dx * root.sensitivity)
             }
         }
 
@@ -608,6 +710,40 @@ Item {
             border.color: root.glowColor
             x: overlay.clampedX - width / 2
             y: overlay.dataYPixel - height / 2
+        }
+
+        // The same highlight on each extra line, in its own colour.
+        Repeater {
+            model: root.extraSeries.length
+
+            Item {
+                required property int index
+                readonly property var entry: root.extraSeries[index]
+                readonly property real value: overlay.inspecting && entry !== undefined
+                                              ? root.interpAt(entry.points, overlay.dataX) : NaN
+
+                visible: !isNaN(value)
+                x: overlay.clampedX
+                y: isNaN(value) ? 0 : root.valueToPixel(value)
+
+                Rectangle {
+                    anchors.centerIn: parent
+                    width: 22
+                    height: 22
+                    radius: width / 2
+                    color: entry !== undefined ? Qt.rgba(entry.color.r, entry.color.g, entry.color.b, 0.30)
+                                               : "transparent"
+                }
+                Rectangle {
+                    anchors.centerIn: parent
+                    width: 12
+                    height: 12
+                    radius: width / 2
+                    color: "#ffffff"
+                    border.width: 2
+                    border.color: entry !== undefined ? entry.color : "transparent"
+                }
+            }
         }
 
         // Live "now" marker: a solid accent core with a slow radar-style pulse ring, at the
@@ -693,12 +829,56 @@ Item {
                     font.pixelSize: 13
                 }
                 Text {
-                    text: isNaN(overlay.dataY) ? ""
-                          : overlay.dataY.toFixed(2) + (root.unit ? " " + root.unit : "")
+                    visible: root.extraSeries.length === 0
+                    text: root.formatReadout(overlay.dataY)
                     color: Theme.notificationText
                     font.family: Theme.fontFamily
                     font.pixelSize: 16
                     font.bold: true
+                }
+
+                // Several lines: one row each, its colour beside its name and value.
+                Repeater {
+                    model: root.extraSeries.length > 0 ? root.extraSeries.length + 1 : 0
+
+                    Row {
+                        id: readoutRow
+
+                        required property int index
+                        readonly property var entry: index > 0 ? root.extraSeries[index - 1] : null
+                        readonly property real value: index === 0 ? overlay.dataY
+                            : entry !== undefined && entry !== null
+                              ? root.interpAt(entry.points, overlay.dataX) : NaN
+
+                        spacing: 6
+
+                        Rectangle {
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: 8
+                            height: 8
+                            radius: 4
+                            color: readoutRow.index === 0 ? root.lineColor
+                                 : readoutRow.entry !== undefined && readoutRow.entry !== null
+                                   ? readoutRow.entry.color : "transparent"
+                        }
+                        Text {
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: readoutRow.index === 0 ? root.seriesLabel
+                                : readoutRow.entry !== undefined && readoutRow.entry !== null
+                                  ? readoutRow.entry.label : ""
+                            color: Theme.dataLabelTitle
+                            font.family: Theme.fontFamily
+                            font.pixelSize: 13
+                        }
+                        Text {
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: isNaN(readoutRow.value) ? "—" : root.formatReadout(readoutRow.value)
+                            color: Theme.notificationText
+                            font.family: Theme.fontFamily
+                            font.pixelSize: 14
+                            font.bold: true
+                        }
+                    }
                 }
             }
         }
@@ -791,9 +971,15 @@ Item {
         const a = graph.plotArea
         if (a.width <= 0) return
         const startWidth = p.startMaxX - p.startMinX
-        const newWidth = clampWidth(startWidth / p.activeScale)
+        // Sensitivity exponentiates the gesture's own scale and multiplies the centroid's
+        // travel, so 1.0 is exactly the finger-follows-the-data behaviour (the point under
+        // the fingers stays under them) and higher values zoom further per pinch and pan
+        // further per stroke. Scaling only the zoom left the touchscreen's one pan at 1:1
+        // whatever the setting said.
+        const newWidth = clampWidth(startWidth / Math.pow(p.activeScale, root.sensitivity))
         const curFrac = (clampToPlot(p.centroid.position.x) - a.x) / a.width
-        const newMin = p.startFocalT - curFrac * newWidth
+        const panFrac = p.startFrac + (curFrac - p.startFrac) * root.sensitivity
+        const newMin = p.startFocalT - panFrac * newWidth
         setView(newMin, newMin + newWidth)
     }
 
@@ -812,7 +998,8 @@ Item {
     }
 
     // Build the pixel-matched render subset for [windowStart, windowEnd] from rawPoints, via
-    // M4 decimation: the window is divided into ~1 bucket per plot pixel, and each bucket keeps
+    // M4 decimation: the window is divided into bucketsPerPx buckets per visible plot pixel (at
+    // 1.0, one bucket per pixel column), and each bucket keeps
     // its first, last, min-y and max-y points (deduped, x-ascending). This reproduces the
     // rasterized line at pixel resolution — spikes survive (a spike is its bucket's min/max), a
     // held value collapses to one flat point, and the first/last points keep linear slopes
@@ -846,15 +1033,24 @@ Item {
             }
             R = lo
         }
-        // Early-out: a small visible set renders exactly (no decimation), keeping the small
-        // Trips / Charging graphs pixel-identical to the pre-LOD behaviour. Decimation only
-        // engages for the heavy History 1W / 1M case.
+        // Early-out: a visible set already under the bucket count renders exactly (no
+        // decimation), keeping the small Trips / Charging graphs pixel-identical to the
+        // pre-LOD behaviour. Decimation only engages for the heavy History 1W / 1M case —
+        // and not at all at the "max" resolution level (bucketsPerPx 0).
+        // The density is per VISIBLE pixel, so the count scales with how far this (build)
+        // window reaches past the view: otherwise a wider renderMarginFrac would quietly
+        // thin out what is on screen, and a smaller graph would get the same count as a
+        // full-width one.
         const plotW = Math.max(1, graph.plotArea.width)
+        const viewSpan = root.viewMaxX - root.viewMinX
         const startIdx = L < 0 ? 0 : L
-        if (R - startIdx <= 2 * plotW)
+        const cap = root.bucketsPerPx > 0 && viewSpan > 0
+                  ? Math.ceil(root.bucketsPerPx * plotW * (windowEnd - windowStart) / viewSpan)
+                  : 0
+        if (cap <= 0 || R - startIdx <= cap)
             return S.slice(startIdx, Math.min(R + 1, N))
 
-        const bucketDx = (windowEnd - windowStart) / (plotW * root.bucketsPerPx)
+        const bucketDx = (windowEnd - windowStart) / cap
         // Degenerate zero/negative-span window: bucketDx would be 0 and the advance loop below
         // would never progress. Can't normally happen (clampWidth floors the span), but guard
         // the hang and just return the raw slice.
@@ -1125,6 +1321,19 @@ Item {
         }
         const yR = valueAt(tMax)
         if (!isNaN(yR)) { mn = Math.min(mn, yR); mx = Math.max(mx, yR) }
+        // Extra lines (multi-line graphs only): the same envelope, edges included.
+        for (const extra of root.extraSeries) {
+            const ep = extra.points
+            for (const e of [interpAt(ep, tMin), interpAt(ep, tMax)]) {
+                if (!isNaN(e)) { mn = Math.min(mn, e); mx = Math.max(mx, e) }
+            }
+            for (let i = 0; i < ep.length; ++i) {
+                if (ep[i].x >= tMin && ep[i].x <= tMax) {
+                    mn = Math.min(mn, ep[i].y)
+                    mx = Math.max(mx, ep[i].y)
+                }
+            }
+        }
         if (mn === Infinity)
             return { min: root.dataMinY, max: root.dataMaxY }
         return { min: mn, max: mx }

@@ -108,6 +108,7 @@ Rectangle {
             // selected property always triggers a fresh fetch → reloadFull(), which rebuilds
             // the path with this mode, so no separate rebuild trigger is needed.
             lineMode: propertySelector.selectedLineMode
+            zeroBased: propertySelector.selectedZeroBased
             // Pulsing "now" marker only when this view is showing a genuinely rolling window
             // (live toggle on, not a custom range) — and paused when the view isn't current.
             live: view.isCurrent && view.live && view.rangeCode !== 3

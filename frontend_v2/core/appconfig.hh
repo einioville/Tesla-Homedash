@@ -7,6 +7,8 @@
 
 #include "logger.hh"
 
+class Settings;
+
 /**
  * AppConfig — minimal runtime configuration read at construction from the
  * environment, falling back to the repo-root .env (the same file the backend
@@ -17,21 +19,23 @@
  *
  *   TESLA_HOMEDASH_BACKEND_HOST  (string)  default "127.0.0.1"
  *   TESLA_HOMEDASH_BACKEND_PORT  (uint16)  default 6969
+ *                                Both are also Options-view settings: a value the
+ *                                user saved there WINS over the environment (see
+ *                                the Settings ctor arg), because an explicit
+ *                                on-device change must not be silently ignored.
  *   TESLA_HOMEDASH_LOG_LEVEL     (string)  default "info"
  *                                (debug|info|warning|error|critical)
- *   TESLA_HOMEDASH_MAP_API_KEY   (string)  optional — a National Land Survey of
- *                                Finland (Maanmittauslaitos) open-data api-key.
- *                                When set, the map uses MML's 0.5 m orthophoto;
- *                                otherwise it falls back to the keyless EOX
- *                                Sentinel-2 basemap. Kept in the environment so
- *                                the key never lives in the committed QML.
- *   TESLA_HOMEDASH_SCREENSAVER_DIR         (string)  optional — a folder of photos
- *                                the screensaver cycles through. Exposed to QML as
- *                                a file:// URL; empty (unset) → the screensaver has
- *                                nothing to show and stays off.
+ *   TESLA_HOMEDASH_MAP_API_KEY   (string)  a National Land Survey of Finland
+ *                                (Maanmittauslaitos) open-data api-key. With it the
+ *                                map uses MML's 0.5 m orthophoto; without it, the
+ *                                keyless EOX Sentinel-2 basemap (and a startup
+ *                                warning). A deployment secret: the environment or
+ *                                .env only, never the committed QML or the Options
+ *                                view.
  *   TESLA_HOMEDASH_SCREENSAVER_TIMEOUT_MIN (int)     minutes of inactivity before
  *                                the screensaver appears (default 30). Read by
- *                                main() and pushed to the IdleWatcher.
+ *                                main() and pushed to the IdleWatcher. Also an
+ *                                Options-view setting, which takes precedence.
  *
  * Registered with the QML engine as the singleton `App` (see main.cpp), which
  * is how items/tesla/TeslaMap.qml reads mapTilesUrl / mapAttribution.
@@ -42,12 +46,12 @@ class AppConfig : public QObject {
     // host. Both are decided once at construction (CONSTANT — no NOTIFY needed).
     Q_PROPERTY(QString mapTilesUrl READ mapTilesUrl CONSTANT)
     Q_PROPERTY(QString mapAttribution READ mapAttribution CONSTANT)
-    // Screensaver photo folder as a file:// URL (empty when unset). Decided once
-    // at construction. Consumed by items/util/ScreenSaver.qml's FolderListModel.
-    Q_PROPERTY(QString screensaverDir READ screensaverDir CONSTANT)
 
 public:
-    explicit AppConfig(QObject* parent = nullptr);
+    // `settings` is optional but normally supplied: main.cpp constructs Settings
+    // FIRST so a user override of the backend host/port/screensaver timeout beats
+    // the environment. Passing nullptr falls back to env/.env only.
+    explicit AppConfig(const Settings* settings = nullptr, QObject* parent = nullptr);
 
     // Startup config — read by main() before the QML engine exists.
     const QString& backendHost() const { return m_backendHost; }
@@ -58,7 +62,6 @@ public:
     // Exposed to QML via the Q_PROPERTYs above.
     const QString& mapTilesUrl() const { return m_mapTilesUrl; }
     const QString& mapAttribution() const { return m_mapAttribution; }
-    const QString& screensaverDir() const { return m_screensaverDir; }
 
 private:
     QString m_backendHost;
@@ -66,7 +69,6 @@ private:
     Logger::Level m_logLevel = Logger::Level::Info;
     QString m_mapTilesUrl;
     QString m_mapAttribution;
-    QString m_screensaverDir;
     int m_screensaverTimeoutMs = 30 * 60 * 1000;
 };
 

@@ -1,11 +1,12 @@
 # Tesla-Homedash — Project Guide
 
 > Guidance for working in this repository. These instructions override default behaviour;
-> follow them exactly. Keep this document up to date (see §7.6) and bump the currency
-> marker (§7.7) whenever you change behaviour the doc describes.
+> follow them exactly. **This root file is always loaded; detail specific to one area lives in a
+> nested `CLAUDE.md` beside the code** (★ in §2), which loads when you work in that directory —
+> read the nearest one before changing code there. Keep all of them current (§7.6).
 >
-> **At the start of a work session, follow the worktree ritual in §8** — ask what we're doing
-> and a name for it, then spin up an isolated worktree before changing any files.
+> **At the start of a work session, follow §8** — work in the main checkout by default, and set up
+> an isolated worktree only when a second session has to run in parallel.
 
 ## 1. What this project is
 
@@ -22,98 +23,103 @@ sources into one glanceable surface:
   Institute (FMI) open-data feed.
 - **HVAC** — start/stop climate and adjust the target (pre-conditioning) temperature.
 
-Architecture in one line: a **Python asyncio backend** streams data over a **custom binary
-TCP protocol** (port 6969) to a **Qt6 C++20 Widgets frontend**. The backend can fan out to
-several frontends at once.
+Architecture in one line: a **Python asyncio backend** streams data over a **custom binary TCP
+protocol** (port 6969) to a **Qt 6 frontend**. The backend can fan out to several frontends at
+once. Beyond the live dashboard there are History, Trips, Charging (myenergi Zappi + Nord Pool
+spot price) and Options (*Asetukset*) views.
 
-A second, exploratory **QML** frontend lives in `frontend_prototype/`. It is **out of scope
-for this document** — all feature work and everything below concerns the production **Qt
-Widgets** frontend in `frontend/`.
+There are two frontends. **`frontend_v2/`** (Qt Quick/QML over a C++20 core) is the live target and
+gets all feature work. **`frontend/`** (Qt Widgets) is the frozen predecessor — kept building,
+rarely changed.
 
 ## 2. Project structure
 
+★ = the directory has its own `CLAUDE.md`.
+
 ```
-backend/
+backend/                          # ★ orchestration, service contracts, .env + config.json keys
   run.py                          # Entry shim: asyncio.run(main())
   pyproject.toml                  # Package metadata + dependency pins
   uv.lock                         # Authoritative dependency lockfile (uv)
   requirements.txt                # Reference only; uv.lock is authoritative
   src/
     start_services.py             # Entrypoint / composition root — builds EVERY service (tesla, media, weather, trips, charging + myenergi), registers handlers, gathers the event loop. NOT tesla-specific despite the neighbours.
-    server/
+    server/                       # ★
       server.py                   # asyncio TCP server on 0.0.0.0:6969 — protocol-agnostic fan-out + handler routing
-    tesla_service/
+    tesla_service/                # ★
       telemetry.py                # Teslemetry stream client (teslemetry_stream) → Vehicle.on_telemetry_event
       vehicle.py                  # Vehicle state, telemetry handler, HVAC REST commands, rate limiting, snapshots
       vehicle_data_property.py    # VehicleDataProperty / CalculatedVehicleDataProperty — value store, formula eval, serialize
-    media_service/
+      property_editor.py          # The telemetry-field table: log / line_mode / zero_based (0x63-0x66); its Options card is out of the schema for now
+    media_service/                # ★
       base_media_player.py        # Abstract player interface
       media_manager.py            # Orchestrator — owns both players, routes controls, gates streaming to the active one
       spotify_player.py           # Spotify Web API polling + controls (spotipy); APScheduler poll loop
       radio_player.py             # libVLC internet radio (Nelonen Media stations)
       setup/
         spotify_setup.py          # Standalone OAuth + Connect-device-ID helper (run once during setup)
-    weather_service/
+      spotify_auth_service.py     # Re-authorisation from the Options view (0xA0-0xA4)
+      spotify_device_service.py   # Device identification — scan playback, confirm, write spotifyDeviceId (0xA5-0xAB)
+      spotify_oauth.py            # The one canonical SPOTIFY_SCOPE, the grant record + NonInteractiveSpotifyOAuth
+    weather_service/              # ★
       weather_service.py          # FMI WFS polling, forecast serialization, 15-min refresh
     trip_service/
       trip.py, trip_loader.py     # On-demand trip detection from stored telemetry (the Trips view)
-    charging_service/
+    charging_service/             # ★
       charging_loader.py          # On-demand charging-session detection (DetailedChargeState segmentation)
       charging_session.py         # Per-session energy + loss breakdown (charger vs AC-in vs battery) + spot cost
       spot_price.py               # SpotPriceProvider — Nord Pool FI spot price fetch/cache/convert (sähkötin.fi) + pricing helpers
       spot_price_service.py       # SpotPriceService — hourly live spot-price broadcast (SPOT_PRICE_STREAM)
-    myenergi_service/
+    myenergi_service/             # ★
       myenergi_service.py         # myenergi Zappi cloud poll → CHARGER_STREAM broadcast + myenergi_data logging
-    influxdb_service/
+    audio_service/                # ★
+      audio_backend.py            # AudioBackend adapters (pactl / wpctl / amixer) + detect_backend()
+      audio_service.py            # AudioService — system volume + output device, applied from config.json
+    display_service/              # ★
+      display_service.py          # DisplayService — panel power via wlopm; the frontend decides when
+    system_service/               # ★
+      system_metrics.py           # Pure /proc readers (uptime, CPU per core, memory, network, disk space + I/O, temp)
+      system_status_service.py    # SystemStatusService — SYSTEM_GET_STATUS / _LOG: the service cards' probes and error lists
+      system_history.py           # SystemHistory — background 2 s sampler, 10-min window, SYSTEM_GET_HISTORY (the graphs)
+      log_files.py                # LogFiles — LOG_CLEAR for the app's own log files (Ylläpito › Lokit)
+      log_level.py                # LogLevel — the Options view's log level; DEBUG returns to the previous level by itself
+    config_service/               # ★
+      config_service.py           # ConfigService — the Options view's backend half: SETTINGS_SCHEMA (the allow-list of
+                                  #   runtime-editable config.json keys), validation, persistence, apply hooks, restart
+    update_service/               # ★
+      update_service.py           # UpdateService — in-place app updates (0xD0-0xD3): git fetch/checkout, uv sync,
+                                  #   frontend rebuild, restart of both halves; two channels (main tip / newest v* tag)
+    usb_import_service/           # ★
+      usb_import_service.py       # UsbImportService — screensaver photos from a USB stick (0xE0-0xE4): lsblk,
+                                  #   udisksctl mount, copy into ~/.config/Tesla-Homedash/screensaver
+    influxdb_service/             # ★
       influxdb_handler.py         # Async InfluxDB client — telemetry write + Flux history reads
-    utils/
+    utils/                        # ★
       config_parser.py            # Config (config.json) + get_env (.env)
       protocol.py                 # Binary protocol constants + frame() — single source of truth
       logger_configurator.py      # Shared stdout logging setup
     ui/plot/
       dataplot.py                 # Optional standalone PySide6/pyqtgraph plot (not used at runtime)
 
-frontend/                         # Qt6 Widgets GUI (the production frontend)
-  CMakeLists.txt                  # Qt6 Core/Gui/Widgets/Network/QuickWidgets/Location/Positioning/Quick/Svg/Graphs/Concurrent
-  resources.qrc                   # Qt resource bundle manifest
-  resources/
-    fonts/                        # Gotham Rounded Medium OTF
-    icons/                        # SVG/PNG control + climate + weather icons
-    styles/                       # Per-widget QSS, selected by object name
-  src/
-    main.cpp                      # Entry — installs logger, global white-text default, loads font/AppConfig, builds MainWindow
-    mainwindow.{hh,cpp}           # 10×16 grid layout; constructs widgets, datahandlers, ServerClient
-    config/appconfig.{hh,cpp}     # AppConfig::load() — the one place that reads frontend env vars
-    utils/logger.{hh,cpp}         # Logger — stdout sink byte-identical to the backend format
-    server_client/serverclient.{hh,cpp}   # QTcpSocket client — frame reassembly, demux to per-type signals, reconnect
-    tesla/
-      vehicle.{hh,cpp}            # TeslaDataProperty registry (data_id ⇄ stream_id, unit, value_type)
-      datahandler/tesladatahandler.{hh,cpp}  # kRoutes table: deserialize stream packets → per-property signals; outbound HVAC commands
-      widgets/
-        tesladatawidget.{hh,cpp}            # Abstract TeslaDataWidget / TeslaDataMultiWidget
-        singletesladataentry.{hh,cpp}       # One labelled value
-        dataentrylist/tesladataentrylist.{hh,cpp}  # Grouped list of entries
-        map/teslamap.{hh,cpp} + map.qml     # QQuickView OSM map (location + heading)
-        climate/
-          climatecontrollercard.{hh,cpp}    # Climate panel container
-          temperaturecard.{hh,cpp}          # Inside/outside/target temp readout
-          teslaclimatestarter.{hh,cpp}      # HVAC on/off button + state glow
-          teslaseatwidget.{hh,cpp}          # Seat heater level indicator
-          teslasteeringwidget.{hh,cpp}      # Steering-wheel heater indicator
-    mediaplayer/
-      datahandler/mediaplayerdatahandler.{hh,cpp}  # Parse media packets (cover art decoded to QImage off-thread); outbound transport commands
-      widgets/mediaplayercard.{hh,cpp}      # Album art, k-means dominant colour, gradient bg, progress, transport
-    weather/
-      datahandler/weatherdatahandler.{hh,cpp}  # Parse forecast packets → MainWeather
-      widgets/
-        mainweather.{hh,cpp}                # Weather panel container
-        currentweathercard.{hh,cpp}         # Current-hour banner
-        weatherforecastcard.{hh,cpp}        # One forecast-hour card (×5)
+frontend_v2/                      # ★ Qt Quick/QML frontend — the live target (Main.qml, main.cpp)
+  app/                            # Theme.qml (design tokens + settings façade), ViewController.qml
+  config/                         # settings.json (bundled Options-view schema), notifications.json
+  core/                           # ★ C++: ServerClient, protocol.hh, Logger, AppConfig, Settings + QML singletons
+    tesla/ media/ weather/ charging/ trip/ notification/   # per-domain data models
+  items/                          # QML components by domain
+    settings/                     # ★ the Options view
+    tesla/                        # ★ Tesla cards + the map
+    util/                         # ★ dock, screensaver, shared widgets
+    charging/ history/ luna/ media/ trip/ weather/
+  views/                          # one screen per dock entry
+  resources/                      # fonts, icons, styles, Luna
 
-frontend_prototype/               # Exploratory QML rewrite — OUT OF SCOPE for this guide
+frontend/                         # ★ frozen Qt Widgets frontend (file layout in its CLAUDE.md)
+scripts/                          # ★ build-frontend.{sh,ps1,cmd}; Windows-only new-/finish-session
+docs/                             # wsl-dev-environment.md (WSL2 bootstrap), images/ (README screenshots)
+.claude/                          # settings.json (permissions + edit hook), hooks/check-edit.py (§7.3)
 config.json                       # Telemetry field metadata + radio/Spotify/weather/timezone config (gitignored; real values)
 config_template.json              # Copy to config.json and fill in
-docs/images/                      # README screenshots
 ```
 
 ## 3. Build, run & validation
@@ -129,35 +135,30 @@ The backend is an asyncio app managed with [uv](https://docs.astral.sh/uv/). Run
 - **Add a package**: `uv add <package>`
 - **Update everything**: `uv lock --upgrade && uv sync`
 
-### 3.2 Frontend (CMake / Qt Widgets)
+### 3.2 Frontend (CMake)
 
-Dev environment: **Ninja + Qt 6.11.1 MSVC2022**. CMake ships with Qt at
-`D:\Qt\Tools\CMake_64\bin\cmake.exe`. The build directory is **`frontend/builddir`**.
+**Two dev environments are supported, both on Qt 6.11.1.** Use whichever box you are on:
 
-> This section covers the frozen Widgets `frontend/`. For the active **`frontend_v2`**, prefer
-> `scripts\build-frontend.ps1` — it imports the MSVC env, finds the Qt kit, and configures + builds
-> (+ optionally runs) in one command, with sccache reuse. See §8.
+| | Windows | Linux / WSL2 |
+|---|---|---|
+| Toolchain | MSVC 2022 (`vcvars64.bat` via `vswhere`) | `g++` from `build-essential` |
+| Qt kit | `D:\Qt\6.11.1\msvc2022_64` | `~/Qt/6.11.1/gcc_64` |
+| CMake | ships with Qt: `D:\Qt\Tools\CMake_64\bin\cmake.exe` | `cmake` from apt |
+| `frontend_v2` script | `scripts\build-frontend.ps1` | `scripts/build-frontend.sh` |
+| Compiler cache | `sccache` | `ccache` (CMakeLists probes for either) |
+| `frontend_v2` binary | `frontend_v2\build\appfrontend_v2.exe` | `frontend_v2/build/appfrontend_v2` |
 
-- **Configure** (required once before the first build, and after CMakeLists changes):
+For **`frontend_v2`**, use the build script for your platform (see §8) — each finds the Qt kit and
+runs the configure + build in one command (Ninja when installed), with compiler-cache reuse. The
+frozen `frontend/` has its own commands in `frontend/CLAUDE.md`.
 
-  ```
-  D:\Qt\Tools\CMake_64\bin\cmake.exe -S frontend -B frontend/builddir -G Ninja -DCMAKE_PREFIX_PATH=D:/Qt/6.11.1/msvc2022_64
-  ```
-
-- **Build**:
-
-  ```
-  D:\Qt\Tools\CMake_64\bin\cmake.exe --build frontend/builddir --target all
-  ```
-
-- **Run**: `.\frontend\builddir\gui.exe`
-  (PowerShell with overrides: `$env:TESLA_HOMEDASH_FULLSCREEN=1; .\frontend\builddir\gui.exe`)
-
-**Important:** the Ninja generator does **not** set up the MSVC toolchain itself (unlike the
-Visual Studio generator). Run the configure/build from an **"x64 Native Tools Command Prompt
-for VS 2022"** (so `cl.exe` is on PATH), or let Qt Creator's configured kit drive it.
-Single-config Ninja puts the binary directly at `frontend/builddir/gui.exe` — there is no
-`Debug/` or `Release/` subfolder.
+> **WSL2 setup** — a full bootstrap guide (system packages, Qt, InfluxDB, spotifyd, WSLg
+> troubleshooting) lives in **`docs/wsl-dev-environment.md`**. Two things bite hardest: Qt needs the
+> OpenGL **-dev** packages (`libgl1-mesa-dev`), not just `libgl1`, or `find_package` fails
+> misleadingly on the `Quick` component; and the repo must live on ext4, not `/mnt/`.
+>
+> A third, subtler WSL2 bite — the GPU environment `build-frontend.sh --run` exports — is
+> documented in `scripts/CLAUDE.md`.
 
 ### 3.3 Validation
 
@@ -172,66 +173,13 @@ See the **Agent validation policy** (§7.3) for what the agent does vs. defers t
 
 ## 4. Configuration files
 
-### `.env` (repo root, gitignored)
-Required secrets/paths, loaded by `utils/config_parser.get_env`:
-- `CONFIG_PATH` — absolute path to `config.json`
-- `VIN` — Tesla vehicle identification number
-- `API_KEY` — Teslemetry access token
-- `INFLUX_TOKEN` — InfluxDB auth token
-- `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET` — from your Spotify Developer App
-
-`start_services.main()` fails fast if any of these are missing. **Optional:** `MYENERGI_HUB_SERIAL`
-/ `MYENERGI_API_KEY` (myenergi cloud digest-auth creds) — absent → the charger service is skipped
-and the rest of the stack still runs. Also optional: `TESLA_HOMEDASH_LOG_LEVEL` —
-`debug`/`info`/`warning`/`error`/`critical`, **default `info`** (invalid → `info` + a warning),
-mirroring the frontend variable of the same name. Read by `configure_logging()`, which calls
-`load_dotenv()` itself because `get_env`'s lazy load happens after logging is set up; a real
-environment variable (systemd `Environment=`) still wins over `.env`. **Keep the deployment at
-`info`** — `debug` logs a line per telemetry property and rotates the Pi's journal fast enough to
-destroy incident history.
-
-### `config.json` (copy from `config_template.json`)
-Parsed once by `Config` and injected into every service. Keys:
-- `tesla data` — per-field metadata map: `stream_id`, `category`, `unit`, `formula` (sympy
-  string or null), `log` (bool), and optional `sleep_default` — the value the field reverts to
-  when the vehicle goes to sleep (omit or `null` to leave it at its last reading; the default is
-  a final value, the `formula` is **not** re-applied to it). Optional `line_mode` (issue #20) —
-  the History-graph render mode for the field: `"step"` (hold the previous value, then jump — the
-  default when absent; right for sampled/held signals like `VehicleSpeed` or setpoints) or
-  `"linear"` (straight point-to-point line; right for accumulators / continuous quantities like
-  `Odometer`, the energy counters, `OutsideTemp`). Display-only hint handed to the frontend over
-  `TESLA_GRAPH_PROPERTIES`. A field is graphable (appears in the History dropdown) only if
-  `log: true` **and** numeric — set `log: false` to keep a numeric field off the graph (e.g.
-  `GpsHeading`, which wraps 0↔360 and isn't worth graphing).
-- `calculated tesla data` — derived fields (`DrivenToday`, `DrivenThisMonth`): adds
-  `source_data_property_id`, `period` (`day`/`month`), `calculation_formula` (e.g. `y - x`).
-- `radioMediaIds` — station name → Nelonen Media id; `defaultRadioStation` — a key from it.
-- `spotifyDeviceId` — target Spotify Connect device id; `spotifyRedirectUri`
-  (default `http://127.0.0.1:8080/callback`, must match the Spotify app); `spotifyCachePath`
-  — spotipy OAuth token cache; `spotifyMarket` — ISO-3166-1 alpha-2 (e.g. `FI`).
-- `weatherPlace` — FMI place (e.g. `Tampere`); `timeZone` — IANA zone (e.g. `Europe/Helsinki`).
-- `myenergi` (optional) — Zappi tunables: `zappiSerial` (`""` = auto-select the first Zappi),
-  `pollIntervalIdleSeconds` / `pollIntervalActiveSeconds`, `minSessionEnergyKwh`, `sessionMergeMinutes`.
-- `trip` (optional) — trip-detection tunables: `min_stop_minutes`, `min_trip_distance_km`.
-- `electricityPriceEurPerKwh` (optional) — flat €/kWh tariff for the Charging view's cost tiles
-  (`Latauskulut` = charging cost, `Sähkölasku` = total home electricity cost); `null`/absent → "—".
-  Now a **fallback**: used per-hour when spot pricing is off or a given hour has no spot price.
-- `spotPrice` (optional, issue #12) — Nord Pool FI hourly spot pricing for the cost tiles + the live
-  price tile: `enabled` (master switch; `false` → flat-tariff pricing, no live service),
-  `vatPercent` (Finnish electricity VAT, default `25.5`), `marginCentsPerKwh` (seller margin c/kWh
-  added before VAT), `baseUrl` (the no-key sähkötin.fi range endpoint; swappable for another source).
-  All-in €/kWh for an hour = `(spot + marginCentsPerKwh/100) × (1 + vatPercent/100)`. Prices are
-  fetched on demand (no self-logging) — historical hours price past sessions retroactively.
-
-### Frontend environment variables (read only by `AppConfig::load()`)
-All optional; defaults match the embedded target.
-- `TESLA_HOMEDASH_BACKEND_HOST` (default `127.0.0.1`)
-- `TESLA_HOMEDASH_BACKEND_PORT` (default `6969`)
-- `TESLA_HOMEDASH_WINDOW_WIDTH` / `_HEIGHT` (default `1280` / `800`)
-- `TESLA_HOMEDASH_FULLSCREEN` — `1`/`true`/`yes` for fullscreen (default off). Fullscreen
-  skips the fixed-size lock; windowed mode locks to the configured size.
-- `TESLA_HOMEDASH_LOG_LEVEL` — `debug`/`info`/`warning`/`error`/`critical` (default `info`;
-  invalid → `info` + a startup warning).
+| File | Read by | Documented in |
+|---|---|---|
+| `.env` (repo root, gitignored) — secrets (`VIN`, `API_KEY`, `INFLUX_TOKEN`, Spotify, myenergi), `CONFIG_PATH`, log level | backend `get_env`; `frontend_v2`'s `core/dotenv` for env-backed setting defaults | `backend/CLAUDE.md` |
+| The backend config — called `config.json` throughout these docs; by default `~/.config/Tesla-Homedash/backend_config.json`, or `CONFIG_PATH`. Template: `config_template.json`. **Written at runtime** by the Options view | backend `Config` | `backend/CLAUDE.md`, `backend/src/config_service/CLAUDE.md` |
+| `frontend_config.json` beside it — the frontend's saved setting overrides over the bundled schema `frontend_v2/config/settings.json` | `frontend_v2` `Settings` | `frontend_v2/CLAUDE.md` |
+| `TESLA_HOMEDASH_*` environment variables | the frontend (`AppConfig`, setting defaults); `TESLA_HOMEDASH_LOG_LEVEL` and `_LOG_DIR` in both halves | `frontend_v2/CLAUDE.md` |
+| The app's own log files — `backend.log`, `backend-errors.jsonl` (the warning/error store) and `frontend.log`, in `~/.local/state/Tesla-Homedash/logs` or `TESLA_HOMEDASH_LOG_DIR`. Written beside the journal; the temporary DEBUG log goes only here | both halves' loggers; cleared from Ylläpito › Lokit | `backend/src/utils/CLAUDE.md`, `frontend_v2/CLAUDE.md` |
 
 External services: InfluxDB at `http://localhost:8086` (org `Tesla-Homedash`, bucket `data`);
 Teslemetry stream at `eu.teslemetry.com`.
@@ -252,82 +200,21 @@ payload[0]      = message type byte
 payload[1..N-1] = type-specific data
 ```
 
-**Message types**
-
-| Byte | Name | Dir | Payload |
-|------|------|-----|---------|
-| `0x01` | MSG_JSON | F→B | JSON body |
-| `0x03` | MSG_TERMINATE | F→B | (empty) |
-| `0x04` | MSG_STREAM | B→F | `stream_id(2B) + value_type(1B) + value + timestamp(8B)` |
-| `0x14` | MEDIA_STREAM_IMAGE | B→F | Raw image bytes (JPEG/PNG) |
-| `0x15` | MEDIA_STREAM_NAME | B→F | `length(2B) + UTF-8` |
-| `0x16` | MEDIA_STREAM_PROGRESS | B→F | `progress_ms(4B)` |
-| `0x17` | MEDIA_STREAM_DURATION | B→F | `duration_ms(4B)` |
-| `0x18` | MEDIA_SKIP | F→B | (empty) |
-| `0x19` | MEDIA_SKIP_BACKWARD | F→B | (empty) |
-| `0x1A` | MEDIA_PAUSE_PLAY | F→B | (empty) |
-| `0x1B` | MEDIA_IS_PLAYING | B→F | `bool(1B)` |
-| `0x1C` | MEDIA_SET_PROGRESS | F→B | `progress_ms(4B)` |
-| `0x1D` | MEDIA_STREAM_ARTISTS | B→F | `length(2B) + UTF-8` |
-| `0x1E` | MEDIA_STREAM_TYPE | B→F | `media_type(1B)`: 0x01=radio, 0x02=spotify |
-| `0x30` | WEATHER_FORECAST | B→F | repeated `sub_id(1B) + value` |
-| `0x60` | TESLA_SWITCH_CLIMATE | F→B | (empty) |
-| `0x61` | TESLA_MINUS_TEMP | F→B | (empty) |
-| `0x62` | TESLA_PLUS_TEMP | F→B | (empty) |
-| `0x70` | TESLA_GET_GRAPH_PROPERTIES | F→B | (empty) |
-| `0x71` | TESLA_GRAPH_PROPERTIES | B→F | `count(2B)` + per property `id_len(2B)+id + unit_len(2B)+unit + cat_len(2B)+category + mode_len(2B)+line_mode` (UTF-8); `line_mode` = `step`/`linear` graph render hint |
-| `0x72` | TESLA_GET_HISTORY | F→B | `range_code(1B)` (0=1h,1=1d,2=1M,3=custom,4=1week) + `id_len(2B)+id` + `start_ms(8B)` + `end_ms(8B)` |
-| `0x73` | TESLA_HISTORY | B→F | `id_len(2B)+id` + `status(1B)` + `count(4B)` + count×(`ts_ms(8B)` + `value(8B double)`) |
-| `0x50` | CHARGER_STREAM | B→F | myenergi charger live state: repeated `sub_id(1B) + value` (see charger sub-ids below) |
-| `0x80` | CHARGING_GET_LIST | F→B | `start_ms(8B) + end_ms(8B)` |
-| `0x81` | CHARGING_LIST | B→F | `req_start(8B)+req_end(8B)+count(2B)` + count×(`start(8B)+end(8B)+charger_kwh(8B double)`) |
-| `0x82` | CHARGING_GET_SUMMARY | F→B | `start_ms(8B) + end_ms(8B)` |
-| `0x83` | CHARGING_SUMMARY | B→F | `session_id(8B)+status(1B)+start(8B)+end(8B)` + 11×`double` (per-session losses + `cost_eur` + `avg_price_eur_per_kwh`) |
-| `0x84` | CHARGING_GET_MONTH | F→B | (empty) |
-| `0x85` | CHARGING_MONTH | B→F | `status(1B)` + 13×`double` (month aggregate — see below) |
-| `0x86` | CHARGER_GET_HISTORY | F→B | `range_code(1B) + id_len(2B)+id + start_ms(8B) + end_ms(8B)` |
-| `0x87` | CHARGER_HISTORY | B→F | `id_len(2B)+id + status(1B) + count(4B)` + count×(`ts_ms(8B)+value(8B double)`) — reads `myenergi_data` |
-| `0x88` | SPOT_PRICE_STREAM | B→F | live spot price broadcast: `status(1B) + hour_start_ms(8B) + spot(8B double) + all_in(8B double)` (raw wholesale + VAT/margin all-in €/kWh; both NaN when status 0) |
-
-(Trip codes `0x74`–`0x7D` — the Trips view — are omitted from this table; they mirror the History
-request/response shape. See the `frontend_v2` memory.)
-
-The `0x70`–`0x73` pair is **request/response** (the History view): the backend replies to the
-requesting client only (`send_to`), never a broadcast, and `TESLA_HISTORY` echoes the requested id so
-a stale reply can be discarded. History values are returned **raw** (no downsampling); the frontend
-renders them as a **step line** (`StepLeft`) so a value held between records still displays as held.
-(`read_tesla_data_property` keeps an optional `aggregate_window` for capping very large ranges,
-currently unused.) When a window logged **nothing** (the value stayed constant, so no record falls
-inside it), the backend **boundary-fills**: it queries the last value before the window start and
-returns two synthetic points (window-start + window-end at that held value) so the graph draws a
-flat held line across the whole range instead of "no data". Only a genuinely absent prior value
-(or an InfluxDB outage, where the boundary query also yields nothing) replies `status=0`.
-
 **Tesla stream value types**: `0` float `double(8B)`; `1` string `length(2B)+UTF-8`;
 `2` bool `uint8(1B)`; `3` dict — sequence of `double(8B)` (Location = lat, lon).
 
-**Weather sub-IDs**: `0x31` temperature `int8` °C; `0x32` wind `uint8` m/s;
-`0x33` precipitation `uint8` mm; `0x34` cloud cover `uint8` %; `0x35` hour `uint8`.
-
-**Charger (myenergi) protocol** — the Charging view. `CHARGER_STREAM` (`0x50`) is a **broadcast** of
-the Zappi's live state, a weather-style sequence of `sub_id(1B) + value` pairs: `0x51` status `uint8`,
-`0x52` plug `uint8`, `0x53` mode `uint8`, `0x54` charge power `float64` W, `0x55` session energy
-`float64` kWh, `0x56` supply voltage `uint16` V, `0x57` grid power `float64` W (+import/−export),
-`0x58` generated power `float64` W, `0x59` frequency `float64` Hz, `0x5A` L1 phase `uint8`, and
-`0x5F` the full raw pymyenergi payload as `len(4B)+UTF-8 JSON` (every field, most unused — the one
-length-prefixed sub-id, so an unknown fixed-width sub-id can't be skipped and stops the parse). The
-`0x80`–`0x87` codes are **request/response** (reply to the requesting client only), served by
-`charging_service` from stored telemetry + `myenergi_data`; `0x88` (`SPOT_PRICE_STREAM`) is a
-**broadcast** of the live hourly spot price (see §5.2.7). `CHARGING_MONTH`'s 13 doubles, in order:
-charger_kwh, car_kwh, wasted_kwh, efficiency_pct, car_wh_per_km, charger_wh_per_km, driving_kwh,
-km_month, session_count, total_charge_s, charging_cost_eur, home_grid_kwh, home_cost_eur (any → NaN → "—").
-Both cost fields are now **spot-priced per hour** (flat-tariff fallback) — see §5.2.7.
+The full message-type table, sub-ids and per-feature conventions are in
+**`backend/src/utils/CLAUDE.md`**; `frontend_v2/core/protocol.hh` mirrors `protocol.py` and must
+change with it. A reply to a request goes to the requesting client only (`send_to`), live state is
+broadcast to every client, and a newly connected client receives each registered service's
+snapshot.
 
 **Adding a telemetry field** — update these in sync:
-1. `config.json` `tesla data` — new entry with a unique `stream_id`.
-2. `frontend/src/tesla/vehicle.cpp` — `properties[...]` with matching `data_stream_id` + `value_type`.
-3. `frontend/src/tesla/datahandler/tesladatahandler.{hh,cpp}` — a signal in the `.hh` and a row in
-   the `kRoutes` table (which both `processStreamData` and the `connectToDataUpdateSignal` overloads walk).
+1. `config.json` `tesla data` — new entry with a unique `stream_id` (keys: `backend/CLAUDE.md`).
+2. `frontend_v2/core/tesla/tesla_properties.json` — the matching registry entry, then regenerate
+   `tesladata_gen.{hh,cpp}` with the `regen_tesla_data` CMake target. The generated files are
+   committed; never edit them by hand.
+3. The frozen `frontend/` only if it should show the field too — steps in `frontend/CLAUDE.md`.
    `vehicle_data_property.py` needs no change unless a new value type is introduced.
 
 **Adding a command (F→B)**:
@@ -335,273 +222,30 @@ Both cost fields are now **spot-priced per hour** (flat-tariff fallback) — see
 2. In `start_services._register_handlers`, `server.register_handler(protocol.<NAME>, <async callable>)`.
    The callable gets `(payload, writer)` — the raw payload (no length prefix / type byte) and the
    requesting client's `StreamWriter`. Fire-and-forget commands ignore the writer; request/response
-   handlers reply to just that client via `server.send_to(writer, …)`. The server routes by integer only.
-3. In the frontend, build + send the packet via `QDataStream` (see `TeslaDataHandler::switchClimateState`).
+   handlers reply to just that client via `server.send_to(writer, …)`. The server routes by integer
+   only.
+3. In `frontend_v2`, add the constant to `core/protocol.hh` and build the packet with
+   `protocol::frame()`.
 
 ### 5.2 Backend services
 
-The backend is entirely asyncio. `start_services.main()` constructs every service,
-calls `_register_handlers` and `register_service` on the `Server`, runs
-`vehicle.init_async_dependent()`, then **`asyncio.gather`s the run tasks**: telemetry, the TCP
-server, `MediaManager.get_run_task()`, `WeatherService.get_run_task()`, and — when charger
-credentials are set — `MyEnergiService.get_run_task()`. (`trip_service` / `charging_service` are
-stateless request/response and have no run task.)
-
-> **Orchestration note.** The media and weather `run()` coroutines schedule APScheduler jobs
-> and then *return* — their ongoing work lives in those jobs, and APScheduler logs+swallows
-> per-job exceptions, so polling is self-healing per tick. Telemetry and the server run
-> forever. There is **no in-process supervisor**: an unhandled failure in either propagates
-> out of `gather` and ends the process. Resilience is delegated to **systemd
-> `Restart=on-failure`** in deployment (see README). Don't add a restart loop without a reason.
-
-#### 5.2.1 `server/server.py` — the TCP server
-`Server` owns the active-connection map and a `msg_type → handler` registry. Handlers are invoked
-as `handler(payload, writer)` — the writer lets request/response handlers reply to just the
-requesting client via `send_to`; passing it keeps the server protocol-agnostic (it still only moves
-bytes + the connection). `broadcast` sends a pre-framed packet to all clients in parallel (one task
-per client, gathered with `return_exceptions=True`); `send_to` targets one client.
-`__handle_connection` runs the on-connect **snapshot** (each registered service's
-`stream_everything(writer)`), then the read loop. **Communicates with:** every service, but only as
-a dumb byte pipe — it never imports protocol constants or calls concrete service methods.
-
-> **Load-bearing invariants — do not break:**
-> - **No recv/inactivity timeout.** The frontend only sends on user interaction; idle is
->   normal. Never wrap `__recv_message()` in `asyncio.wait_for`. Dead peers surface as
->   `IncompleteReadError`/`ConnectionError`; use TCP keepalive if you must detect them.
-> - **Broadcast never blocks on one slow client** — keep the per-client task fan-out.
-> - **Snapshot `__active_connections` keys before iterating** (`list(...)`) — concurrent
->   disconnects pop entries.
-> - **Enforce `MAX_MSG_SIZE`** (1 MB) in `__recv_message()`.
-> - **Server stays protocol-agnostic** — route via `register_handler`, snapshot via
->   `register_service` (duck-typed `stream_everything`). No `if msg_type == ...` in the server.
-
-#### 5.2.2 `tesla_service/` — telemetry & vehicle
-- **`telemetry.py`** (`TelemetryHandler`) wraps `teslemetry_stream.TeslemetryStream`, registers
-  `vehicle.on_telemetry_event` as the listener, and blocks on a close event. Reconnection is the
-  library's job (exponential backoff). **Talks to:** Teslemetry stream → `Vehicle`.
-- **`vehicle.py`** (`Vehicle`) loads a `VehicleDataProperty` per `config.json` field.
-  `init_async_dependent` starts the APScheduler, builds the `CalculatedVehicleDataProperty`s and
-  their period-reset jobs, and registers the **midnight snapshot** job (writes every logged
-  property at 00:00 so first-of-day/month baseline queries always find a record).
-  `on_telemetry_event → __update` applies formulas, broadcasts changed fields
-  (`protocol.frame(MSG_STREAM, …)`), and writes logged fields to InfluxDB (a failed write never
-  blocks the broadcast). Non-data **state** events carry `online`/`offline`/`asleep` (the car
-  reports a sleeping vehicle as `offline`, never `asleep`); `__update` writes the synthesized
-  `VehicleOnline` and nothing more. **Value-callbacks** (`add_callback`/`remove_callback`) drive
-  the rest: `add_callback(criteria, cb)` fires `cb(matches)` when every property in `criteria`
-  (`{id: target_value}`) simultaneously holds its target (edge-triggered, built on the per-property
-  callbacks; `matches` is a list of `(id, value, when)`). The **sleep reset** is registered this
-  way in `__init__` — `add_callback({"VehicleOnline": False}, __on_sleep)`; when the car goes
-  offline `__on_sleep` runs `__apply_sleep_defaults`, forcing every field with a configured
-  `sleep_default` to it and broadcasting only the ones that changed (never written to InfluxDB).
-  Edge-triggered, so it fires once per online→offline transition (lock ordering still lands it
-  after the reconnect burst).
-  HVAC: `switch_climate_state` toggles via the Teslemetry REST API behind
-  an in-memory **rate limiter** (reserve/refund/reset) and a **value lock** that pins the UI to
-  `HvacPowerStatePending` until the confirming telemetry arrives; `plus_temp`/`minus_temp` adjust
-  the local target and stream it (the **target temperature is a pre-conditioning setpoint** — it
-  is pushed to the car via `update_temperature` only when climate is next toggled, by design).
-  `stream_everything` snapshots all properties to a new client. History: `get_graphable_properties`
-  lists the logged numeric (value_float) properties for the History view's dropdown; `get_data_history`
-  reads one property's history and `get_value_before` reads the held value just before a window (the
-  empty-window boundary-fill) — all served by request/response handlers that reply
-  to the requesting client only. **Talks to:** `InfluxDBHandler`
-  (write/read), `Server` (broadcast/send_to), Teslemetry REST (aiohttp).
-- **`vehicle_data_property.py`**: `VehicleDataProperty` stores one field's value/timestamp,
-  evaluates its sympy `formula`, serializes to the wire format (`get_stream_data`), builds Influx
-  points, supports `lock_value_until` (the pending-state lock), `apply_sleep_default`
-  (force-reset to the field's configured asleep value, bypassing the formula and clearing any
-  active value-lock — a pending HVAC toggle can never confirm while asleep), and
-  `add_callback(target_value, cb)`/`remove_callback(handle)` — edge-triggered value-callbacks run
-  as independent tasks as `cb(data_id, value, when)` when the value transitions into `target_value`
-  (`when` is a tz-aware datetime), or on every value change if `target_value` is the
-  `VehicleDataProperty.ANY` sentinel; `Vehicle.add_callback` builds its combination callbacks on these.
-  `CalculatedVehicleDataProperty`
-  derives `calculation_formula(x=baseline, y=latest)`; the baseline is read from InfluxDB at period
-  start (falls back to the live value), reset by an APScheduler cron job. **Talks to:** `Vehicle`
-  (which owns Influx access).
-
-#### 5.2.3 `media_service/` — media manager & players
-- **`media_manager.py`** (`MediaManager`) constructs both players, holds the **active** one, and
-  routes controls to it. `claim_media_control` (Spotify took over) stops radio, switches active,
-  starts playback, streams media type + full state; `release_playback`/`load_default_media_player`
-  return to radio without auto-play. `stream_data` drops packets from the non-active player.
-  `get_run_task` starts Spotify polling then loads radio. **Talks to:** both players, `Server`.
-- **`base_media_player.py`**: the abstract control/stream interface both players implement.
-- **`spotify_player.py`** (`SpotifyPlayer`) polls the Spotify Web API via spotipy on an APScheduler
-  interval (10 s idle / 2 s active). `_update_state` is **serialised by `self._state_lock`**: it
-  runs both on the timer and inline after every control command, and `claim_media_control` re-enters
-  it via `play()`, so the guard (`if self._state_lock.locked(): return`) prevents both a deadlock and
-  double claim/release. On detecting playback on `spotifyDeviceId` it claims control and streams
-  name/artists/duration/image/progress/play-state; controls call `start/pause/next/previous/seek`.
-  **Talks to:** Spotify Web API (run in an executor), `MediaManager`. *(If `spotifyDeviceId` is
-  wrong, controls silently no-op — the `_current_device_id` vs `_target_device_id` comparison drives
-  claim/release.)*
-- **`radio_player.py`** (`RadioPlayer`) plays Nelonen Media HLS streams through libVLC, fetching the
-  stream + art URL per station, cycling stations on skip, and restarting on VLC error/end events
-  (guarded by `__intentional_stop`). **Talks to:** Nelonen API (aiohttp), libVLC, `MediaManager`.
-- **`setup/spotify_setup.py`**: a one-off helper (run during setup) that completes the OAuth
-  handshake and prints the active Connect device id for `config.json`. Not part of the runtime.
-
-#### 5.2.4 `weather_service/weather_service.py`
-`WeatherService` fetches the current-hour FMI observation + the next hours' harmonie forecast
-(`fmiopendata`, run in an executor), serialises them into a `WEATHER_FORECAST` frame, broadcasts,
-and caches the last frame to replay to new clients. Refreshes every 15 min via APScheduler.
-The current-hour **banner** takes temperature + wind from the real observation, but the observation
-station typically reports neither precipitation nor cloud cover — so those two are **backfilled from
-the harmonie forecast's current-hour row** (the model retains the current hour, so no caching is
-needed). `__fetch_observation` walks observation slots newest→oldest and uses the most recent one
-with a valid air-temperature reading (avoiding the all-NaN padding slots fmiopendata returns).
-**Talks to:** FMI open data, `Server`.
-
-> **Load-bearing invariants — do not break:**
-> - **Never call `fmiopendata.wfs.download_stored_query`.** Its fetch helper is `requests.get(url)`
->   with **no timeout** and no way to pass one. A stalled FMI response (connection accepted, partial
->   body, then silence — no FIN/RST) parks the caller in `read()` *forever*; in production that burned
->   an executor thread and killed weather for 16 days. `__download_stored_query` +
->   `__fetch_and_parse` replace it: the same URL (`STORED_QUERY_URL + query_id`, args as aiohttp
->   `params` so non-ASCII places like `Ryttylä` percent-encode) fetched with an explicit
->   `_FMI_TIMEOUT`, then handed to fmiopendata's own `MultiPoint` parser in an executor. Any failure
->   logs a WARNING and returns `None`. An `asyncio.wait_for(_FETCH_DEADLINE_SECONDS)` wraps both.
-> - **Keep `max_instances` ≥ 2 + a real `misfire_grace_time` on the refresh job.** APScheduler's
->   default `max_instances=1` turns one wedged run into a permanent outage — every later tick is
->   refused with *"skipped: maximum number of running instances reached (1)"*.
-> - **Schedule the job before the initial fetch** in `run()`, so a failed/slow first fetch can't
->   leave the service with no periodic refresh at all.
-> - **A cycle with no future forecast hours is a failed cycle** — return without broadcasting or
->   caching. The frontend replaces its whole forecast model per frame, so a banner-only frame blanks
->   all five cards *and* poisons `__last_forecast` for every later reconnect. Stale-but-complete
->   beats half-blank.
-
-#### 5.2.5 `influxdb_service/influxdb_handler.py`
-`InfluxDBHandler` wraps the async InfluxDB client: `write_tesla_data` (logged fields + midnight
-snapshot), `read_first_value_day`/`_month` (calculated-field baselines), `read_tesla_data_property`
-(history — the History path serves it **raw**; an optional `aggregate_window` arg can add
-`aggregateWindow(fn: mean) + fill(usePrevious)` to downsample + forward-fill onto a regular grid,
-dropping the leading null windows, but is currently unused), and `read_last_value_before` (a
-`last()` query bounded by `stop` — the held value before an empty window, used to boundary-fill the
-History graph with a flat line). For the myenergi charger it adds `write_charger_data` (the
-`myenergi_data` measurement), `read_charger_data_property` (raw charger history), and
-`read_grid_import_kwh_hourly` (reuses the raw `GridPower` read + the module-level pure
-`integrate_power_series_hourly` — a trapezoidal per-UTC-hour integral, export clamped to 0 → a
-`{utc_hour_ms: kwh}` map; the month home-import total is `sum(...)` and the spot-cost path dots it
-with hourly prices). Read failures degrade to `None` rather than crashing the app. **Talks to:** InfluxDB,
-`Vehicle`. *Flux queries interpolate `data_property_id` via f-strings gated by the `_SAFE_ID` regex
-`^[A-Za-z0-9_\-]+$`, and `aggregate_window` by `_SAFE_WINDOW` (`^[1-9][0-9]*[smhd]$`) — keep both
-guards; they're the only thing preventing injection if non-config input ever reaches these paths.*
-
-#### 5.2.6 `utils/`
-- **`config_parser.py`**: `Config` validates + exposes `config.json`; `get_env` loads `.env` once.
-- **`protocol.py`**: every message-type byte, weather sub-id, `MAX_MSG_SIZE`, and `frame()`. The
-  single source of truth — add new constants here, never on a class.
-- **`logger_configurator.py`**: `configure_logging(level=None)` resolves the level from
-  `TESLA_HOMEDASH_LOG_LEVEL` (default **INFO**, not DEBUG) and wires the shared stdout formatter
-  (`LEVEL | YYYY-MM-DD | HH:MM:SS | name | message`) onto an allow-list of top-level loggers.
-  **Every service's logger prefix must be in `_SERVICE_LOGGERS`** (`tesla_service`, `media_service`,
-  `weather_service`, `influxdb_service`, `charging_service`, `myenergi_service`, `trip_service`,
-  `server`, `start_services`, `utils`) — an unlisted prefix propagates to a handler-less root and its
-  INFO/DEBUG logs silently vanish.
-
-#### 5.2.7 `myenergi_service/` + `charging_service/` — charger + charging stats
-- **`myenergi_service.py`** (`MyEnergiService`) polls a myenergi Zappi via `pymyenergi` (cloud
-  digest auth), broadcasts its live state as `CHARGER_STREAM`, and logs to the `myenergi_data`
-  measurement: `GridPower` + `ChargePower` **every poll** (gap-free for the past-hour graphs and the
-  month home-import integral) and `ChargeAdded` (the session accumulator) **while charging**. Mirrors
-  `WeatherService` (initial poll + APScheduler job, last frame cached for `stream_everything`), with
-  two poll cadences (idle/active, config-driven — default **60 s idle / 20 s active** to stay under
-  the myenergi cloud's rate limit; 10 s throttled us with 429s). `__apply_interval` is the single
-  place that reschedules the job: it picks the active/idle base then stretches it by a **capped
-  exponential backoff** (`2**consecutive_failures`, ≤ 5 min) whenever a poll fails, snapping back on
-  the first success. This matters because every failed request flips pymyenergi's `do_query_asn` back
-  on, so the next poll fires two requests (director + status) — polling a failing endpoint at full
-  cadence deepens a throttle. Refresh/resolve failures are logged via the module helper
-  `_describe_exception`, which surfaces the HTTP status a `MyenergiException` otherwise hides (its
-  ctor stores it in `.code`/`.message` but stringifies to `""`, so the old `str(e)` logged a blank
-  reason — issue #18). Optional — skipped when the `.env` creds are unset.
-- **`charging_service/`** (`ChargingLoader` + `ChargingSession`) derives charging sessions **on
-  demand** from stored `DetailedChargeState` history (segmentation like `trip_service`), joined to
-  the logged charger energy — no live tracking. Serves `CHARGING_GET_LIST`/`_SUMMARY`/`_MONTH` +
-  `CHARGER_GET_HISTORY`. **Per-session charger energy = the SUM OF POSITIVE `ChargeAdded` increments
-  in the window** (NOT the in-window max: the myenergi accumulator can carry a value in from charging
-  that predates the Tesla-detected session, so a max double-counts — this was a real bug). `month_summary`
-  sums the sessions' charger/battery energy + the tesla month-counter deltas (`LifetimeEnergyUsed`,
-  `Odometer`) for consumption/km. **Talks to:** `InfluxDBHandler`, `Server`.
-- **Spot pricing (issue #12).** **`spot_price.py`** (`SpotPriceProvider`) fetches Nord Pool FI hourly
-  spot prices from the no-key **sähkötin.fi** range endpoint (`?start&end`, raw €/MWh, UTC hours),
-  converts to an all-in `(spot + margin) × (1 + VAT)` €/kWh, and caches immutable past hours — so a
-  session from days ago is priced retroactively **without self-logging prices**. The module also holds
-  the pure pricing helper `price_hourly_energy` (dot energy-by-hour with price, flat-tariff fallback).
-  Cost now lives in the **loader/session** (not the month handler): `ChargingSession.summary()` buckets
-  its `ChargeAdded` increments by UTC hour (`bucket_positive_increments_by_hour`) and prices each →
-  `cost_eur`/`avg_price_eur_per_kwh`; `month_summary` sums session costs (`charging_cost_eur`) and
-  prices the hourly home import (`home_cost_eur`), each falling back per-hour to the flat
-  `electricityPriceEurPerKwh` tariff (→ NaN → "—" when neither is available). **`spot_price_service.py`**
-  (`SpotPriceService`) is a thin always-on `WeatherService`-style broadcaster: it re-broadcasts the
-  current hour's price as `SPOT_PRICE_STREAM` (`0x88`) hourly + snapshots it on connect. Always
-  constructed (works with no Zappi); `run()` no-ops when `spotPrice.enabled` is false. **Talks to:**
-  sähkötin.fi (aiohttp), `InfluxDBHandler`, `Server`.
+`backend/src/start_services.py` is the composition root: it constructs every service, registers
+their handlers and snapshot providers on the `Server`, and `asyncio.gather`s the long-running
+tasks. The server itself is a protocol-agnostic byte pipe. Orchestration, the duck-typed service
+contracts and the `.env` / `config.json` keys are in `backend/CLAUDE.md`; each service's own
+invariants are in its directory's `CLAUDE.md`.
 
 ### 5.3 Frontend
 
-The Widgets frontend uses a signal/slot routing pattern: `ServerClient` emits one signal per
-packet type → datahandlers deserialize → datahandlers emit per-field signals → widgets update.
-`MainWindow` builds the 10×16 grid and wires widgets to their datahandlers and to the `ServerClient`.
-
-#### 5.3.1 `server_client/serverclient.{hh,cpp}`
-`QTcpSocket` client. `onReadyRead` reassembles framed packets out of the TCP byte stream
-(4-byte length + 1-byte type + payload), **rejects implausible lengths** (16 MB cap, 64-bit-safe
-size math) and demuxes each packet to a typed signal. Reconnects 10 s after disconnect/error.
-Outbound control packets are written **non-blocking** — do not reintroduce
-`flush()`/`waitForBytesWritten(...)` (it caused visible click latency; control packets are ≤6 bytes).
-
-#### 5.3.2 `tesla/` — telemetry widgets + datahandler
-- **`vehicle.{hh,cpp}`**: the `TeslaDataProperty` registry (`data_id` → `data_stream_id`, `unit`,
-  `value_type`). Mirrors `config.json`.
-- **`datahandler/tesladatahandler.{hh,cpp}`**: the **table-driven** core. `kRoutes` maps each
-  `data_id` to its value type and Qt signal; `processStreamData` deserializes a `MSG_STREAM` packet
-  (bounds-checking string payloads) and emits the matching signal; the two `connectToDataUpdateSignal`
-  overloads wire widgets to signals by walking the same table. It also builds the outbound HVAC
-  command packets. **A signal in the `.hh` with no `kRoutes` row (or vice versa) silently breaks that
-  field** — keep them in sync with `vehicle.cpp` and `config.json`.
-- **Widgets**: `tesladatawidget` (abstract `TeslaDataWidget` / `TeslaDataMultiWidget` bases);
-  `singletesladataentry` + `dataentrylist` (the two stat lists); `map/teslamap` + `map.qml` (a
-  `QQuickView` OSM map in a window container, driven by Location + GpsHeading — note: **never apply a
-  `QGraphicsEffect` to the map**, it forces the whole QML scene through the software rasteriser);
-  `climate/` (`climatecontrollercard` container + `temperaturecard`, `teslaclimatestarter` with
-  on/off/pending glow, `teslaseatwidget`, `teslasteeringwidget` — per-state SVG pixmaps are rendered
-  once at construction, the per-update path is just `setPixmap`).
-
-#### 5.3.3 `mediaplayer/` — media widgets + datahandler
-- **`datahandler/mediaplayerdatahandler.{hh,cpp}`**: parses media packets and builds outbound
-  transport commands. Cover-art packets are deduped by content hash and **decoded to a `QImage` on a
-  worker thread** (never a `QPixmap` — `QPixmap` is GUI-thread-only); an in-flight decode is dropped
-  when a newer packet arrives.
-- **`widgets/mediaplayercard.{hh,cpp}`**: converts the decoded `QImage` to a `QPixmap` **on the GUI
-  thread**, then runs the **k-means dominant-colour** extraction on a worker (operating on the
-  `QImage`). The k-means algorithm, hue/value gating and RNG seed (`69420`) define the dashboard's
-  visual identity — move execution context freely but **do not change the inputs or scoring**. The
-  gradient background is cached as a `QPixmap` (`m_background_dirty` invalidates it on resize / colour
-  change). The "spotifyplayer" object name is kept for `mediaplayercard.qss` selector compatibility.
-
-#### 5.3.4 `weather/` — weather widgets + datahandler
-- **`datahandler/weatherdatahandler.{hh,cpp}`**: parses the repeated-sub-id `WEATHER_FORECAST` frame
-  (bounds-checked) into vectors and emits one update.
-- **`widgets/`**: `mainweather` (container; fans the update out to the banner + 5 cards by id),
-  `currentweathercard` (current-hour banner, consumes the sentinel id), `weatherforecastcard`
-  (one forecast hour ×5, each ignoring ids that aren't its own).
-
-#### 5.3.5 `config/appconfig` + `utils/logger`
-- **`AppConfig`** is the **only** place to read frontend env vars; `main.cpp` calls `AppConfig::load()`
-  once before building `MainWindow`. Reading env elsewhere is a smell — extend `AppConfig` instead.
-- **`Logger`** mirrors the backend format to stdout. Never call `qInfo/qWarning/qDebug/qCritical`
-  directly — `Logger::install()` funnels Qt's own messages through the same formatter under the source
-  `qt`. Worker-thread logs are serialised by a static mutex. Source names today: `app`, `config`,
-  `server_client`, `tesla.data`, `media.data`, `media.card`, `weather.data`, `qt`.
-  `main.cpp` also sets a global `QLabel, QPushButton { color: #FFFFFF }` default so text stays white on
-  platforms (e.g. Raspberry Pi OS) whose default palette renders near-black on the dark background;
-  per-widget QSS still overrides it.
+In `frontend_v2`, `core/serverclient` reassembles frames and hands each packet to a per-domain C++
+data model or singleton that QML binds to, and user-tunable design tokens flow through
+`app/Theme.qml` — see `frontend_v2/CLAUDE.md`. The frozen `frontend/` routes packets through Qt
+Widgets datahandlers instead (`frontend/CLAUDE.md`).
 
 ## 6. Event flows
+
+Frontend class names in the telemetry, control and weather flows are the frozen `frontend/`'s; in
+`frontend_v2` the same packets land in the `core/` data models.
 
 **Live telemetry → UI**
 ```
@@ -634,6 +278,35 @@ Server.__handle_connection → for each registered service: service.stream_every
   → protocol.frame(...) per packet → Server.send_to(writer, …)   (delivered to the new client only)
 ```
 
+**Settings write (the Options view)**
+```
+SettingRow delegate → Settings.setValue(key, value)
+  local key:   coerce → QQmlPropertyMap.insert → QSaveFile → Theme binding re-evaluates (live)
+  backend key: protocol::frame(CONFIG_SET) → Server.__read_loop → ConfigService.handle_set
+    → validate against SETTINGS_SCHEMA → Config.set + Config.save (bak + atomic replace)
+    → apply tier "hook": run the registered service apply_config()s
+    → CONFIG_SET_RESULT → send_to(requesting client)   [+ CONFIG_SCHEMA broadcast to all]
+    → Settings.parseSetResult → writeSucceeded/writeFailed → result beside the row's title
+      (a keyless result → the notification pill)
+  apply tier "restart": banner → CONFIG_RESTART → ConfigService.run → os._exit(42) → systemd
+```
+
+**App update (the Options view's Päivitys card — out of the schema until the release-only rework, #56)**
+```
+UpdatePanel opens → Updater.active → UPDATE_GET_STATE{fetch:true}
+  → UpdateService.__refresh → git fetch (throttled) → resolve both channels
+  → verdict per channel (merge-base --is-ancestor ×2) + eligibility (cat-file -e)
+  → UPDATE_STATE broadcast → card renders current / target / verdict / blockers
+second tap on the button → UPDATE_APPLY{channel, commit}
+  → validate (channel enum, 40-hex sha, clean tree, tools, commit still current)
+  → fetch → checkout --detach → build-frontend.sh → verify artifact → uv sync --locked
+     (each step: own process group, streamed output, UPDATE_STATE broadcast ≤2 Hz)
+  → job.restartFrontend → Updater.restartRequested → Settings.restartApp() (exit 42)
+  → ConfigService.request_restart(force=True) → os._exit(42) → systemd restarts both
+  any failure after the checkout → git checkout --detach <previous> + uv sync --locked
+     (the job stays `running` across the rollback, so the banner and the restart veto hold)
+```
+
 **Weather refresh**
 ```
 APScheduler (15 min) → WeatherService.__update_forecast → FMI fetch (executor)
@@ -656,25 +329,16 @@ SpotifyPlayer poll → _update_state (under _state_lock) → device == target?
   throughout (the whole backend is asyncio).
 - **C++**: C++20; `.hh` headers / `.cpp` sources; `PascalCase` types, `camelCase` methods/members;
   Qt slot/signal naming (`onXxxUpdate`, `processXxx`).
-- **QSS**: scoped per widget in `frontend/resources/styles/`, selected by object name (`#ClimateController`).
-  Use the `:/resources/...` resource prefix (note the leading slash).
-- **UI language**: widget labels are **Finnish** (e.g. "Nopeus", "Akun Varaus", "Ilmastointi", "Sisä", "Ulko").
+- **QSS**: scoped per widget in `frontend/resources/styles/`, selected by object name
+  (`#ClimateController`). Use the `:/resources/...` resource prefix (note the leading slash).
+- **UI language**: widget labels are **Finnish** (e.g. "Nopeus", "Akun Varaus", "Ilmastointi",
+  "Sisä", "Ulko").
 - **Binary code**: always network byte order — `struct.pack("!...")` / `QDataStream::BigEndian`.
 - No committed formatter config — match the surrounding file.
 
 ### 7.2 Python docstrings
-Every class and function gets a triple-quoted docstring. Functions document each argument:
-```python
-def calculate_range(distance_miles: float, efficiency: float) -> float:
-    '''
-    Converts distance from miles to kilometers and applies efficiency factor.
-    Arguments:
-        distance_miles (float): Raw distance value from the Tesla API in miles
-        efficiency (float): Energy efficiency multiplier for the current drive mode
-    '''
-```
-Add inline comments only for non-obvious logic (protocol packing, formula eval, state-machine
-transitions, scheduling edge cases). Don't comment self-explanatory code.
+Every class and function gets a triple-quoted docstring documenting each argument — format and
+example in `backend/CLAUDE.md`.
 
 ### 7.3 Agent validation policy
 **The agent builds the frontend** — compile errors should surface in the session that caused them, not
@@ -698,12 +362,7 @@ syntax warnings — blocking on that backlog would fire on untouched code, so th
 rather than blocking edits. The hook is a fast filter, not a substitute for the build.
 
 ### 7.4 Frontend logging
-- Format is byte-identical to the backend; stdout only, no files/rotation.
-- Each `.cpp` gets a file-local `static const Logger logger = Logger::get("<name>");`.
-- Threshold via `TESLA_HOMEDASH_LOG_LEVEL`; `Logger::install` is called twice from `main()`
-  (INFO first so `AppConfig`'s own logs land, then the configured level).
-- Outbound control commands → INFO; protocol problems (truncated/unknown/mismatched/socket) → WARNING;
-  per-packet telemetry trace → DEBUG. New paths follow that convention.
+Byte-identical to the backend's format, stdout only — conventions in `frontend_v2/CLAUDE.md`.
 
 ### 7.5 Other conventions (git / PR)
 - Commit subjects use short imperative prefixes: `Add:`, `Fix:`, `Update:`, `Remove:`, `Create:`.
@@ -719,102 +378,123 @@ rather than blocking edits. The hook is a fast filter, not a substitute for the 
   manually-verified changes (the agent builds, but *runtime* verification happens on the user's
   side). When the user confirms a feature works — i.e. they say a manual test passed — proactively
   prompt to commit it then, in focused commits per the above, rather than letting verified work pile
-  up. The agent still only commits/pushes when the user agrees; this is about offering at the right
+  up. The agent still only commits when the user agrees; this is about offering at the right
   moment, not committing unprompted.
+- **Push every commit as soon as it is made.** After each `git commit`, `git push` the branch right
+  away (`git push -u origin <branch>` the first time) rather than letting local commits pile up.
 - **When creating an issue, always add a label and assign it to the maintainer.** Work is tracked as
   GitHub issues on `einioville/Tesla-Homedash`. Every issue you open must carry at least one label
   (`gh issue create --label "<label>"`; pick or create the fitting one — `bug`, `enhancement`, etc.)
   and be assigned to the maintainer (`--assignee "@me"`). Never open an unlabelled or unassigned issue.
-- **After a feature/fix commit, ask about closing its issue.** When a commit resolves an open issue,
-  automatically ask the user whether to also close that issue (and reference the issue number in the
-  commit/PR). Don't close issues unprompted.
+- **Close an issue as soon as a commit fixes it.** When a commit directly fixes an open issue — or the
+  work it lands would resolve one — reference it in the commit (`Closes #N`) and close the issue with
+  `gh issue close <N> --reason completed` and a short comment naming the commit, without asking first.
+  An issue the work only partly addresses gets `Refs #N` and stays open.
 
-### 7.6 Keeping this document current
-Update this `CLAUDE.md` whenever you change something it describes — a new telemetry field or command,
-a new/renamed service or widget, a protocol change, a build-command change, or a new load-bearing
-invariant. Treat the doc as part of the change, not an afterthought, and bump §7.7.
+### 7.6 Keeping these documents current
+Documentation is part of the change, not an afterthought. Update the `CLAUDE.md` **nearest the code
+you changed** — a service's own file for its invariants, `frontend_v2/core/CLAUDE.md` for a
+singleton, and so on — and this root file only for what is cross-cutting: project structure,
+build commands, the protocol overview, conventions, workflow. A new service or area with
+load-bearing details gets its own `CLAUDE.md` in its directory and a ★ in §2. A feature spanning
+directories is written up once, beside the file holding most of its facts, with pointers from the
+others.
+
+Keep this root file lean: it loads in every session, so detail that only matters inside one
+directory belongs in that directory, and nested files never repeat what is here. Describe the
+*current* behaviour and why it is that way; history belongs in commits, issues and PRs.
 
 ### 7.7 Documentation currency
-This guide is current as of the **agent-builds-the-frontend policy change** (§7.3): the agent now runs
-`scripts\build-frontend.ps1` itself after frontend changes instead of deferring every build to the
-user, so compile errors surface in the session that caused them. Backing that up, `.claude/settings.json`
-(new, committed) registers a `PostToolUse` hook on `Edit|Write` running `.claude/hooks/check-edit.py`,
-which byte-compiles `backend/src` on Python edits and runs `qmllint` on QML edits — the latter gated to
-`[syntax]`/`Error:` only, because `frontend_v2` carries ~750 pre-existing style diagnostics but zero
-syntax warnings. `.claude/settings.local.json` was trimmed from 46 permission rules to 16 (project-wide
-rules moved into the committed `settings.json`; dead entries for removed MCP servers and a stale
-machine's statusline paths dropped). Note for future edits: `QT_QML_GENERATE_QMLLS_INI` is **deprecated
-since Qt 6.10** ("no replacement needed") — don't add it to `frontend_v2/CMakeLists.txt`.
-Predecessor work — the **weather-service hang fix**: `WeatherService` had deadlocked on the
-Pi for 16 days (widget empty, rest of the backend healthy). `fmiopendata`'s fetch helper calls
-`requests.get()` with no timeout, so a stalled FMI response parked an executor thread forever, and
-APScheduler's default `max_instances=1` then refused every later tick. Fixed in three layers, all
-inside `backend/src` (no new dependencies): the FMI GET is now issued directly with aiohttp +
-`_FMI_TIMEOUT` and parsed with fmiopendata's own `MultiPoint` (`__download_stored_query` /
-`__fetch_and_parse`) under an `asyncio.wait_for` deadline; the refresh job gained
-`max_instances=2` / `misfire_grace_time=300` / `coalesce=True` and is now scheduled *before* the
-initial fetch; and a cycle yielding no future forecast hours returns without broadcasting or caching
-(a banner-only frame blanked the frontend's five cards permanently — see §5.2.4's invariants). Also
-`configure_logging` is now env-driven via `TESLA_HOMEDASH_LOG_LEVEL`, defaulting to **INFO** instead
-of the hardcoded DEBUG that was rotating the Pi's journal too fast for forensics.
-Predecessor work — this guide and `README.md` are current as of the **per-property graph line mode** work on
-`feature/graph-line-mode` (issue #20): a per-property `line_mode` (`step` default / `linear`) that
-tells the shared `HistoryGraph.qml` how to connect a property's consecutive readings — a held step
-for sampled/held signals (`VehicleSpeed`, setpoints) or a straight point-to-point line for
-accumulators / continuous quantities (`Odometer`, energy counters, `OutsideTemp`). Sourced from
-`config.json` `tesla data` metadata (new optional `line_mode` key, read via `prop_cfg.get`),
-threaded through a new `VehicleDataProperty.get_line_mode()`, added to
-`get_graphable_properties`, and serialized as a **4th** per-property field on
-`TESLA_GRAPH_PROPERTIES` `0x71` (`id/unit/category/line_mode`). Frontend: `TeslaHistory::parseProperties`
-reads the 4th field into `History.properties`; `PropertySelector.selectedLineMode` → `HistoryView`
-binds `HistoryGraph.lineMode`; `buildStepped()` and `valueAt()` branch on it (new `buildLinearPath`
-+ `interpAt` helpers), and the glow fill / y-fit / live marker follow from those two. Trips and
-Charging inherit the `step` default (their graphs — `VehicleSpeed`, grid/charge power — are sampled),
-so they were untouched. `GpsHeading` was flipped to `log: false` (it wraps 0↔360 and its logged
-history had no consumer — the live map heading reads the live stream, the trip heading is computed
-from Location geometry), removing it from the graphable list and stopping its InfluxDB writes.
-Predecessor work — the **spot-price cost** (`feature/spot-price-cost`, issue #12; `SpotPriceProvider`
-+ `SpotPriceService`, `SPOT_PRICE_STREAM` `0x88`, per-hour spot-valued Charging costs, `spotPrice`
-config, `CHARGING_SUMMARY` `0x83` = 11 doubles), the **charging-stats** backend (`966a04a`; myenergi
-`CHARGER_STREAM` `0x50`, `CHARGING_*`/`CHARGER_HISTORY` `0x80`–`0x87`, per-session energy = **sum of
-positive `ChargeAdded` increments**), and the History **empty-window boundary-fill**
-(`1184b60`/`cc11bb8`) — still applies.
-When you land changes that touch behaviour documented here, update this line to the new HEAD commit.
+Current as of the **issue sweep** on `feature/settings-options-view` — the Options-view series
+(#30–#41, host reboot #40 included), the telemetry-field table (#29), the zero-based graph axis
+(#42), the screen-off fixes (#43–#47), hold-to-repeat (#48) and the on-screen keyboard (#49) —
+after the map-tuning pass and the split of this guide into per-directory `CLAUDE.md` files — plus the
+second Options-view batch: navigation/home return, night mode, notification toggles, radio
+autoplay/resume, the temporary debug log, map imagery, and the self-closing Spotify consent window — plus
+the Media section's Spotify card redesign (per-row details, the grant record, device status, section
+order), the radio remembering its last station in place of a default-station setting, inline
+write results and the issues box with its fix spotlight — plus the Yleinen wording pass, the
+screensaver's fixed photo folder with its USB import (the in-app folder browser is gone, #50), and
+the screensaver switch that stays unavailable until that folder holds photos — plus the removal of
+the Yleinen › Ilmoitukset card pending its own section (#51), the Luna card (formerly
+Lisäasetukset) at the bottom of Yleinen, and the timezone as a list defaulting to the host's zone —
+plus the Kuvaajat card as named-level dropdowns (resolution, gesture sensitivity, redraw delay,
+render margin; the gesture settings' Qt Graphs follow-up is #53), the map's Eleherkkyys and warp
+settings as named levels too, whole-step default zoom, and the map imagery choice and MML key out of
+the Options view (the key is `.env`-only) — plus the north-up map's 0.001° bearing bias that makes
+it glide instead of stepping in whole pixels — plus the sidebar's section rows reduced to icon and title, and dependent settings nested under the
+setting they belong to, hidden while it is off — plus the Sähkö section: the tariff as a
+*Kiinteä* / *Pörssi* dropdown with each tariff's rows nested under it, one Zappi poll interval, and
+the price source and Zappi serial out of the Options view (`config.json`-only) — plus the Tesla
+section reduced to *Matkojen tunnistus* (the Telemetriakentät card is out of the schema until a later
+update's fuller Tesla options; its plumbing stays) with the trip distance stepping 0.5 km — plus
+Ylläpito: the *Päivitys* card out of the schema pending a release-only updater (#56), the port as a
+plain typed field, the help lines cut from the connection and restart cards, and restart badges that
+name the half (*sovelluksen* / *palvelimen uudelleenkäynnistys*) — plus the shared motion pieces in
+`items/util/` (stretching `ToggleSwitch`, domino `Reveal` for nested rows, `ElasticFlickable`,
+`WheelStepArea`) and settings rows that survive a write — plus the *Järjestelmän tila* sidebar section:
+a group `view` that replaces the cards with four rolling graphs (CPU per core, memory, disk I/O,
+network) fed by the backend's always-on sampler — plus its second round: a card per backend service
+(standing, settings in effect, connected displays, warning/error counts with a dated list), mouse
+hover on the graphs and a CPU temperature card; and Ylläpito's *Vianetsintä* replaced by *Lokit*: a
+DEBUG switch that asks how long, and a clear with a keep-warnings option, both over the app's own log
+files, to which the DEBUG detail now goes instead of the journal — plus the third round: the switch
+became a *Lokitaso* dropdown (DEBUG asks how long and returns to the previous level), the old status
+card retired from Ylläpito, every dialog swallowing the mouse wheel, and the system graphs rebuilt
+on the app's own `HistoryGraph`, which can now draw several lines over one set of axes — plus its
+fourth round: an overview card on top (healthy or not, the issues behind it, host and backend
+uptime), the *Versio* card folded into *Palvelin* as a row, the charging rows on *Laturi* only with
+trips on a *Matkat* card of their own, and service-card values that wrap instead of eliding.
+When you land a change that touches documented behaviour, update this line.
 
 ## 8. Session workflow — main checkout by default, worktree only for parallelism
 
-The default is to **work in the main checkout** (`P:\Tesla-Homedash`). An isolated git worktree is
-only worth its setup cost when you genuinely need **two sessions running at the same time** — reach
-for one *only then*. Most sessions are sequential and stay in the main checkout with a warm build
-dir and incremental builds. Pure Q&A / exploration that changes no files needs neither.
+The default is to **work in the main checkout** (`P:\Tesla-Homedash` on Windows, `~/Tesla-Homedash`
+on WSL2). An isolated git worktree is only worth its setup cost when you genuinely need **two
+sessions running at the same time** — reach for one *only then*. Most sessions are sequential and
+stay in the main checkout with a warm build dir and incremental builds. Pure Q&A / exploration that
+changes no files needs neither.
 
 **Backend — run one, shared.** The frontend connects to whatever backend is on `127.0.0.1:6969`
 (`TESLA_HOMEDASH_BACKEND_HOST` / `_PORT` default there), and port 6969 is fixed so only **one**
 backend can run at a time. Start it **once** (from the main checkout: `cd backend; uv run python
-run.py`) and leave it — every frontend, in any checkout, connects to it. Do **not** start a backend
-per session. Only a session that actually edits backend code runs its own, and it stops the shared
-one first.
+run.py` — identical on both platforms) and leave it — every frontend, in any checkout, connects to
+it. Do **not** start a backend per session. Only a session that actually edits backend code runs its
+own, and it stops the shared one first.
 
-**Frontend — build from the CLI, no Qt Creator needed.** Build + run `frontend_v2` with
-`powershell -ExecutionPolicy Bypass -File scripts\build-frontend.ps1 -Run` (add `-Clean` for a full
-rebuild, `-Config Release`, `-Fullscreen`). From **cmd.exe** use the `.cmd` shim instead:
-`scripts\build-frontend.cmd -Run` (same for `new-session.cmd` / `finish-session.cmd`). It imports the MSVC env, finds the newest Qt
-`msvc2022_64` kit, and runs a Ninja configure + build of `appfrontend_v2` into `frontend_v2\build`
-— works from the main checkout or any worktree. Open Qt Creator only when you need the debugger /
-QML profiler / designer. **sccache** is wired into `frontend_v2/CMakeLists.txt` (auto-enabled when
-on PATH), so object files are reused across rebuilds *and across worktrees* — a fresh worktree's
-"clean" build is mostly cache hits. Inspect with `sccache --show-stats`. (Per §7.3 the agent runs this
-script itself after frontend changes; the user still runs the built binary.)
+**Frontend — build from the CLI, no Qt Creator needed.** Build + run `frontend_v2` with the script
+for your platform; both configure + build `appfrontend_v2` into `frontend_v2/build` and work from
+the main checkout or any worktree.
+
+- **Windows:** `powershell -ExecutionPolicy Bypass -File scripts\build-frontend.ps1 -Run`
+  (add `-Clean`, `-Config Release`, `-Fullscreen`). From **cmd.exe** use the `.cmd` shim:
+  `scripts\build-frontend.cmd -Run` (same for `new-session.cmd` / `finish-session.cmd`).
+  It imports the MSVC env and finds the newest Qt `msvc2022_64` kit.
+- **Linux / WSL2:** `./scripts/build-frontend.sh --run` (add `--clean`, `--config Release`,
+  `--fullscreen`; `--help` lists everything). No MSVC environment to import — it takes the kit from
+  `--qt-prefix`, else `$QTDIR`, else the newest `~/Qt/*/gcc_64`. A cold build is 163 targets; an
+  incremental re-run is ~6s.
+
+Open Qt Creator only when you need the debugger / QML profiler / designer. A **compiler cache** is
+wired into `frontend_v2/CMakeLists.txt` — it probes for `sccache` *or* `ccache` and auto-enables
+whichever is on PATH — so object files are reused across rebuilds *and across worktrees*; a fresh
+worktree's "clean" build is mostly cache hits. Inspect with `sccache --show-stats` / `ccache
+--show-stats`. (Per §7.3 the agent runs this script itself after frontend changes; the user still
+runs the built binary.)
 
 **When you *do* need a parallel session (worktree).**
 1. Ask the user **(a) what we're doing** and **(b) a short name**; choose the branch **type**
    (`feature` / `fix` / `chore` / `docs` / `refactor` / `test` / `perf`).
-2. `powershell -ExecutionPolicy Bypass -File scripts\new-session.ps1 -Type <type> -Name "<name>"`
-   — makes branch `<type>/<slug>` off the freshest `origin/main`, adds a worktree under
+2. **Windows:** `powershell -ExecutionPolicy Bypass -File scripts\new-session.ps1 -Type <type> -Name
+   "<name>"` — **there is no Linux port of the session scripts**; on WSL2 use plain `git worktree
+   add ../Tesla-Homedash-worktrees/<type>-<slug> -b <type>/<slug> origin/main`, then copy `.env` +
+   `config.json` in by hand and repoint `CONFIG_PATH` at the copy. — makes branch `<type>/<slug>`
+   off the freshest `origin/main`, adds a worktree under
    `..\Tesla-Homedash-worktrees\<type>-<slug>`, copies the gitignored `.env` + `config.json` in, and
    repoints `CONFIG_PATH` at the worktree's copy. Final stdout line: `WORKTREE_PATH=<path>`.
 3. Switch in with the **`EnterWorktree`** tool (`path:` = that `WORKTREE_PATH`). Build there with
-   `build-frontend.ps1`; connect to the already-running shared backend (don't start a second one).
+   the platform's build script; connect to the already-running shared backend (don't start a second
+   one).
 
 **Finish — land via GitHub, never a local merge** (applies whether you used a branch or a worktree).
 1. Commit per §7.5 (only once the user confirms the work is verified), then
@@ -823,10 +503,12 @@ script itself after frontend changes; the user still runs the built binary.)
 3. Merge **on GitHub**: `gh pr merge --squash --delete-branch`. GitHub is the single source of
    truth — **do not** merge into `main` locally (it diverges local `main` from `origin/main`). Then
    update the main checkout: `git checkout main && git pull`.
-4. If a worktree was used: `ExitWorktree` (action `keep`), then
+4. If a worktree was used: `ExitWorktree` (action `keep`), then on **Windows**
    `powershell -ExecutionPolicy Bypass -File scripts\finish-session.ps1 -Type <type> -Name "<name>"`
    — refuses until the PR reads MERGED (via `gh`), then removes the worktree, pulls main, deletes the
-   merged local branch, and prunes. (`-Force` skips the merged check.)
+   merged local branch, and prunes. (`-Force` skips the merged check.) On **Linux/WSL2** there is no
+   port: `git worktree remove <path> && git checkout main && git pull && git branch -d <type>/<slug>
+   && git worktree prune`, after checking the PR merged yourself.
 
 **Memory caveat.** Memories load at session start from the main checkout, so their guidance stays in
 context even after an `EnterWorktree`. But the memory *store* follows the working directory, so any

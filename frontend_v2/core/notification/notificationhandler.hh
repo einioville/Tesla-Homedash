@@ -29,15 +29,15 @@ class ServerClient;
  * value, {SomeTeslaProperty} = that property's current value).
  *
  * post() lets any other data handler (or QML) raise a notification directly.
+ *
+ * How long a notification is shown is decided by items/util/NotificationLayer.qml;
+ * the file carries rules only, no display timing.
  */
 class NotificationHandler : public QObject {
     Q_OBJECT
-    Q_PROPERTY(int graceMs READ graceMs CONSTANT)
 
 public:
     NotificationHandler(TeslaData *tesla, ServerClient *server, QObject *parent = nullptr);
-
-    int graceMs() const { return m_graceMs; }
 
     // Raise a notification directly, bypassing the config rules.
     Q_INVOKABLE void post(const QString &id, const QString &message);
@@ -64,7 +64,6 @@ private:
 
     TeslaData *m_tesla;
     ServerClient *m_server;
-    int m_graceMs = 5000;
 
     QHash<QString, QVector<Rule>> m_teslaRules;  // source name -> rules watching it
     QHash<int, QString> m_signalToSource;        // notify-signal index -> source name

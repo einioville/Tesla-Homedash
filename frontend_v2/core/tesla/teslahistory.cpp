@@ -239,12 +239,20 @@ void TeslaHistory::parseProperties(const QByteArray &payload) {
             logger.warning(QStringLiteral("Truncated graph-properties frame at entry %1").arg(i));
             return;
         }
+        if (device->bytesAvailable() < 1) {
+            logger.warning(QStringLiteral("Truncated graph-properties frame at entry %1").arg(i));
+            return;
+        }
+        quint8 zeroBased;
+        stream >> zeroBased;
         QVariantMap entry;
         entry.insert(QStringLiteral("id"), id);
         entry.insert(QStringLiteral("unit"), unit);
         entry.insert(QStringLiteral("category"), category);
         // Graph render hint: "step" (hold-forward, default) or "linear" (point-to-point).
         entry.insert(QStringLiteral("line_mode"), lineMode);
+        // Pin the graph's y-axis bottom to 0 (a quantity that cannot go negative).
+        entry.insert(QStringLiteral("zero_based"), zeroBased != 0);
         properties.append(entry);
     }
 

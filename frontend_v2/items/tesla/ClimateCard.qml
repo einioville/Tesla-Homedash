@@ -14,6 +14,11 @@ GradientCard {
     // hidden (DashboardView binds this to its isCurrent).
     property bool isCurrent: true
 
+    // The target range Vehicle.plus_temp / minus_temp enforce; they refuse a step
+    // past it with a WARNING, so the arrows stop here instead of sending one.
+    readonly property real minTarget: 15.0
+    readonly property real maxTarget: 28.0
+
     gradientCx: 0.0
     gradientCy: 0.0
 
@@ -103,7 +108,14 @@ GradientCard {
                     source: "qrc:/resources/icons/arrow_left.svg"
                     glow: Theme.glowMinus
                 }
-                MouseArea { anchors.fill: parent; onClicked: Tesla.minusTemp() }
+                // Held, it keeps stepping, and stops at the backend's 15.0 °C
+                // floor rather than sending presses it would only log and drop.
+                HoldRepeatArea {
+                    anchors.fill: parent
+                    interval: 150
+                    canStep: Tesla.hvacLeftTemperatureRequest - 0.5 >= climate.minTarget
+                    onStepped: Tesla.minusTemp()
+                }
             }
 
             Item { Layout.fillWidth: true }
@@ -129,7 +141,12 @@ GradientCard {
                     source: "qrc:/resources/icons/arrow_right.svg"
                     glow: Theme.glowPlus
                 }
-                MouseArea { anchors.fill: parent; onClicked: Tesla.plusTemp() }
+                HoldRepeatArea {
+                    anchors.fill: parent
+                    interval: 150
+                    canStep: Tesla.hvacLeftTemperatureRequest + 0.5 <= climate.maxTarget
+                    onStepped: Tesla.plusTemp()
+                }
             }
 
             Item { Layout.fillWidth: true }

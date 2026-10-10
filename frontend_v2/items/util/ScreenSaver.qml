@@ -4,7 +4,8 @@ import Qt.labs.folderlistmodel
 import frontend_v2
 
 // Full-screen idle screensaver. After the inactivity timeout (or F10 for testing)
-// the screen fades to black and photos from App.screensaverDir are tossed onto a
+// the screen fades to black and photos from the screensaver folder
+// (~/.config/Tesla-Homedash/screensaver, the Photos singleton) are tossed onto a
 // pile — the newest lands on top in a white frame at a random tilt/offset, the
 // earlier ones peeking out underneath (up to Theme.screensaverStackCount kept),
 // like printed photos thrown on a table; the oldest fades out as a new one lands.
@@ -21,9 +22,18 @@ Item {
     // off Idle.idle would immediately cancel itself. forceShow sidesteps that.
     property bool forceShow: false
 
-    readonly property bool active: Theme.screensaverEnabled
-                                   && (Idle.idle || root.forceShow)
-                                   && folderModel.count > 0
+    // Set while the screensaver must stay away regardless of idleness. An app
+    // update is one case: it runs for minutes with nobody touching the panel,
+    // so the photo pile would fade in over a live rebuild and the backlight would
+    // follow it off — leaving a black screen mid-flash, which is exactly when a
+    // user reaches for the power. Night mode, which powers the panel off
+    // instead, is the other.
+    property bool inhibited: false
+
+    // No photos, no screensaver.
+    readonly property bool hasPhotos: folderModel.count > 0
+    readonly property bool active: !root.inhibited && Theme.screensaverEnabled
+                                   && root.hasPhotos && (Idle.idle || root.forceShow)
 
     // Fade in/out rather than pop. Stay renderable through the fade-out (visible
     // while any opacity remains) so the photos fade with the black backdrop.
@@ -65,7 +75,8 @@ Item {
     }
 
     function pushNext() {
-        if (folderModel.count === 0)
+        // The folder can empty while the screensaver is up.
+        if (!root.hasPhotos)
             return
         if (_shuffleBag.length === 0)
             _refillBag()
@@ -108,10 +119,25 @@ Item {
 
     FolderListModel {
         id: folderModel
-        folder: App.screensaverDir
+        // The fixed folder, never empty: a FolderListModel whose `folder` is EMPTY
+        // at component completion falls back to the process's working directory
+        // and lists whatever images sit there (measured against Qt 6.11). The
+        // model watches the folder, so photos copied in appear without a restart.
+        folder: Photos.url
         showDirs: false
         sortField: FolderListModel.Name
-        nameFilters: ["*.jpg", "*.jpeg", "*.png", "*.bmp", "*.webp", "*.gif"]
+        // Case-INSENSITIVE, and that is load-bearing rather than tidy:
+        // nameFilters match case-sensitively by default, and essentially every
+        // camera and phone writes DSC_0042.JPG in capitals. Measured on a folder
+        // of five files, the default matched 2 and this matches 4 — a folder of
+        // camera photos would otherwise show nothing at all, with the toggle on
+        // and the folder correct.
+        caseSensitive: false
+        // From the Photos singleton rather than a literal here, because the
+        // Options view counts images with the SAME filter to say "42 kuvaa
+        // löydetty". Two copies would drift, and the count would then vouch for
+        // photos this model never shows.
+        nameFilters: Photos.imageNameFilters
     }
 
     // Advance to the next photo while active; frozen (stopped) otherwise.

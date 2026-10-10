@@ -20,13 +20,14 @@ import requests
 from spotipy import Spotify, SpotifyException
 from spotipy.oauth2 import SpotifyOAuth
 
-from ...utils.config_parser import Config, get_env
+from ...utils.config_parser import Config, default_config_path, get_env
+from ..spotify_oauth import SPOTIFY_AUTH_SCOPE, write_grant_record
 
-SCOPE = (
-    "user-read-playback-state,"
-    "user-modify-playback-state,"
-    "user-read-currently-playing"
-)
+# Re-exported so this script keeps its old name for the value, while the one
+# authoritative definition lives beside the player that depends on it. This is an
+# ISSUER, so it asks for the wider SPOTIFY_AUTH_SCOPE the Options view's re-auth
+# asks for; a scope NARROWER than the reader's would silently invalidate the grant.
+SCOPE = SPOTIFY_AUTH_SCOPE
 
 MAX_ATTEMPTS = 3
 
@@ -87,9 +88,33 @@ def _run_oauth(config: Config, client_id: str, client_secret: str) -> SpotifyOAu
 
         sp_oauth.get_access_token(code, as_dict=False, check_cache=False)
         print(f"\nSaved Spotify token cache to {config.spotify_cache_path}")
+        _record_grant(sp_oauth, config)
         return sp_oauth
 
     _fail("Too many invalid redirect URLs — aborting.")
+
+
+def _record_grant(sp_oauth: SpotifyOAuth, config: Config) -> None:
+    '''
+    Writes the grant record the Options view reads its "authorized on / valid
+    until" dates and account from — the same record SpotifyAuthService writes
+    after its own exchange, so a grant issued here does not show the previous
+    one's dates.  Best effort: the grant itself is already saved.
+    Arguments:
+        sp_oauth (SpotifyOAuth): Auth manager that just completed the exchange.
+        config (Config): Loaded backend configuration (cache path).
+    '''
+    profile = None
+    try:
+        user = Spotify(auth_manager=sp_oauth).current_user() or {}
+        profile = {"id": user.get("id"), "displayName": user.get("display_name"),
+                   "email": user.get("email")}
+    except (SpotifyException, requests.exceptions.RequestException) as e:
+        print(f"  (Could not read the Spotify profile: {e})")
+    try:
+        write_grant_record(config, profile)
+    except OSError as e:
+        print(f"  (Could not write the grant record: {e})")
 
 
 def _pick_device(sp_oauth: SpotifyOAuth, config: Config) -> None:
@@ -140,10 +165,7 @@ def main() -> None:
     Entry point. Loads `.env` + `config.json`, then runs the OAuth handshake
     followed by the device-ID lookup.
     '''
-    config_path = get_env("CONFIG_PATH")
-    if not config_path:
-        _fail("CONFIG_PATH is not set. Make sure `.env` is in the project "
-              "root and points CONFIG_PATH at your config.json.")
+    config_path = get_env("CONFIG_PATH") or default_config_path()
 
     try:
         config = Config(config_path)

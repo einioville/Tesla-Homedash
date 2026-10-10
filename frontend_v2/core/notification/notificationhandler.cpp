@@ -76,9 +76,6 @@ void NotificationHandler::loadConfig() {
     }
 
     const QJsonObject root = doc.object();
-    if (root.contains("graceMs")) {
-        m_graceMs = root.value("graceMs").toInt(m_graceMs);
-    }
 
     const QJsonArray notifs = root.value("notifications").toArray();
     for (const QJsonValue &nv : notifs) {
@@ -102,8 +99,7 @@ void NotificationHandler::loadConfig() {
             }
         }
     }
-    logger.info(QStringLiteral("Loaded notification config | graceMs=%1 tesla sources=%2 connection rules=%3")
-                    .arg(m_graceMs)
+    logger.info(QStringLiteral("Loaded notification config | tesla sources=%1 connection rules=%2")
                     .arg(m_teslaRules.size())
                     .arg(m_connectionRules.size()));
 }

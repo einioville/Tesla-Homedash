@@ -30,8 +30,15 @@ import sys
 from pathlib import Path
 
 QMLLINT_ENV = "TESLA_HOMEDASH_QMLLINT"
-QT_GLOB = "*/msvc2022_64/bin/qmllint.exe"
-QT_ROOTS = ("D:/Qt", "C:/Qt")
+# (root, glob) pairs, searched on every platform. Windows kits keep qmllint.exe
+# under an MSVC kit directory; Linux kits (aqtinstall or the online installer)
+# keep it under gcc_64. A root that does not exist yields nothing, so listing
+# both costs nothing and keeps one hook working on Windows and WSL alike.
+QT_SEARCH = (
+    ("D:/Qt", "*/msvc2022_64/bin/qmllint.exe"),
+    ("C:/Qt", "*/msvc2022_64/bin/qmllint.exe"),
+    (str(Path.home() / "Qt"), "*/gcc_64/bin/qmllint"),
+)
 FATAL = re.compile(r"\[syntax\]|^Error:", re.MULTILINE)
 
 
@@ -56,8 +63,8 @@ def find_qmllint() -> str | None:
     if override and Path(override).exists():
         return override
     found = []
-    for root in QT_ROOTS:
-        found.extend(Path(root).glob(QT_GLOB))
+    for root, glob in QT_SEARCH:
+        found.extend(Path(root).glob(glob))
     if not found:
         return None
     return str(max(found, key=version_key))

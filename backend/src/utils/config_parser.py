@@ -13,14 +13,72 @@ Two public surfaces:
 import json
 import logging
 import os
+import shutil
+import tempfile
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+import tzlocal
 from dotenv import load_dotenv
+
+from .logger_configurator import LEVEL_CHOICES, default_level_name
 
 logger = logging.getLogger("utils.config_parser")
 
 _env_loaded: bool = False
+
+# The timeZone value meaning "the host's own zone" rather than a named one. It is
+# also the default when the key is absent.
+AUTO_TIMEZONE = "auto"
+
+
+def system_timezone_name() -> str:
+    '''
+    Returns the host's own IANA zone name, through tzlocal (TZ, /etc/timezone,
+    the /etc/localtime link, or the Windows registry).  Falls back to "UTC" with
+    a warning when the host names no zone, or one that does not resolve: a
+    dashboard on the wrong clock is recoverable, a backend that refuses to start
+    over it is not.
+    '''
+    try:
+        name = tzlocal.get_localzone_name()
+        if name:
+            ZoneInfo(name)
+            return name
+        logger.warning("The host names no timezone; using UTC")
+    except (LookupError, OSError, ValueError) as e:
+        # ZoneInfoNotFoundError is a LookupError; tzlocal raises it too for
+        # conflicting or unresolvable host configuration.
+        logger.warning("Could not detect the system timezone (%s); using UTC", e)
+    return "UTC"
+
+
+def resolve_timezone(value: str) -> ZoneInfo:
+    '''
+    Builds the ZoneInfo a timeZone setting stands for.  Raises
+    ZoneInfoNotFoundError / ValueError for a named zone that does not resolve.
+    Arguments:
+        value (str): "auto" for the host's own zone, else an IANA name such as
+            "Europe/Helsinki".
+    '''
+    if value == AUTO_TIMEZONE:
+        return ZoneInfo(system_timezone_name())
+    return ZoneInfo(value)
+
+
+def default_config_path() -> str:
+    '''
+    Where the backend's config.json lives when CONFIG_PATH is not set:
+    $XDG_CONFIG_HOME (or ~/.config) / Tesla-Homedash / backend_config.json.
+
+    Deliberately the SAME directory the frontend writes its own
+    frontend_config.json into, so both halves of the configuration sit together
+    rather than in the repo root and an app-name directory nobody can guess.
+    CONFIG_PATH still wins when set, so existing deployments are untouched.
+    '''
+    base = os.environ.get("XDG_CONFIG_HOME") or os.path.join(
+        os.path.expanduser("~"), ".config")
+    return os.path.join(base, "Tesla-Homedash", "backend_config.json")
 
 
 def _ensure_env() -> None:
@@ -57,17 +115,20 @@ class Config:
         config_path (str): Absolute path to the JSON config file.
     '''
 
+    # Suffix of the rollback copy written by save() before every runtime write.
+    # Paired with the __init__ fallback below: a structurally bad write costs one
+    # bad boot instead of a systemd restart LOOP.
+    BACKUP_SUFFIX = ".bak"
+
+    # timeZone is not required: absent means "auto" (see _load_and_validate).
     REQUIRED_KEYS = (
-        "timeZone",
         "tesla data",
         "calculated tesla data",
         "weatherPlace",
         "radioMediaIds",
-        "defaultRadioStation",
         "spotifyDeviceId",
         "spotifyRedirectUri",
         "spotifyCachePath",
-        "spotifyMarket",
     )
 
     # Trip-detection tunables. Not a REQUIRED_KEY: the real config.json is
@@ -86,8 +147,7 @@ class Config:
     # here — only non-secret tunables belong in config.json.
     _MYENERGI_DEFAULTS = {
         "zappiSerial": "",
-        "pollIntervalIdleSeconds": 30,
-        "pollIntervalActiveSeconds": 10,
+        "pollIntervalSeconds": 60,
         "minSessionEnergyKwh": 0.5,
         "sessionMergeMinutes": 5,
     }
@@ -98,6 +158,15 @@ class Config:
     # here — the sähkötin.fi source needs no API key. When "enabled" is false (or the
     # block is absent) the Charging view falls back to the flat electricityPriceEurPerKwh
     # tariff. All-in €/kWh for an hour = (spot + marginCentsPerKwh/100) * (1 + vatPercent/100).
+    # Host audio tunables.  Like the trip block this is NOT a required key: an
+    # existing config.json will not have it and the stack must still start.
+    # outputDevice "" means "leave the host's own default alone", which is not
+    # the same as a device literally named "".
+    _AUDIO_DEFAULTS = {
+        "volumePercent": 60,
+        "outputDevice": "",
+    }
+
     _SPOT_PRICE_DEFAULTS = {
         "enabled": True,
         "vatPercent": 25.5,
@@ -105,37 +174,58 @@ class Config:
         "baseUrl": "https://sahkotin.fi/prices",
     }
 
+    # Media playback behaviour.  Both off by default, which is exactly how the
+    # stack behaved before the keys existed: the radio is loaded but silent at
+    # startup, and stays silent when Spotify lets go of playback.
+    _MEDIA_DEFAULTS = {
+        "autoplayRadio": False,
+        "resumeRadioAfterSpotify": False,
+        "lastRadioStation": "",
+    }
+
+    # The log level from the Options view (Ylläpito › Lokit).  An absent level is
+    # the one the process was started with (TESLA_HOMEDASH_LOG_LEVEL) — resolved in
+    # logging_config, not here, because it depends on the environment.  "debug" is
+    # temporary: after debugMinutes it returns to levelBeforeDebug, which is state
+    # the LogLevel service writes, not a setting.  A debugEnabled left by an older
+    # version is ignored.
+    _LOGGING_DEFAULTS = {
+        "debugMinutes": 30,
+        "levelBeforeDebug": "",
+    }
+
     def __init__(self, config_path: str):
         if not config_path:
             raise RuntimeError("Config path is empty or None")
         if not os.path.isfile(config_path):
             raise FileNotFoundError(f"Config file not found: {config_path}")
-        try:
-            with open(config_path, "r") as f:
-                self.__data: dict = json.load(f)
-        except json.JSONDecodeError as e:
-            raise ValueError(f"Config file contains invalid JSON: {e}") from e
 
-        missing = [k for k in self.REQUIRED_KEYS if k not in self.__data]
-        if missing:
-            raise RuntimeError(
-                f"Config is missing required keys: {', '.join(missing)}"
+        # Load the live config, rolling back to the backup copy if it is
+        # unusable.  This file is now written at RUNTIME by the Options view
+        # (see config_service), and applying a restart-tier setting exits the
+        # process for systemd to restart -- so a structurally bad write would
+        # otherwise be a restart LOOP.  save() snapshots the previous good file
+        # to <path>.bak before every write, so one bad boot rolls back.
+        backup_path = config_path + self.BACKUP_SUFFIX
+        try:
+            self.__data, self.__zone_info = self._load_and_validate(config_path)
+        except (ValueError, RuntimeError) as e:
+            if not os.path.isfile(backup_path):
+                raise
+            logger.error(
+                "Config at %s is unusable (%s); rolling back to %s",
+                config_path, e, backup_path,
             )
-
-        # Build the ZoneInfo once at load time so services can take it
-        # directly without each re-parsing the IANA string.  Invalid zone
-        # names fail here, not deep inside a service's first scheduler call.
-        try:
-            self.__zone_info = ZoneInfo(self.__data["timeZone"])
-        except ZoneInfoNotFoundError as e:
-            raise ValueError(
-                f"Invalid timeZone in config: {self.__data['timeZone']!r}"
-            ) from e
+            self.__data, self.__zone_info = self._load_and_validate(backup_path)
+            # Promote the backup to the live file so the next start is clean and
+            # the Options view shows the values actually in effect.
+            shutil.copyfile(backup_path, config_path)
+            logger.warning("Restored %s from the rollback copy", config_path)
 
         self.__path = config_path
         logger.info(
-            "Configuration loaded from %s (timeZone=%s)",
-            config_path, self.__data["timeZone"],
+            "Configuration loaded from %s (timeZone=%s, in effect %s)",
+            config_path, self.__data["timeZone"], self.__zone_info.key,
         )
 
     # ── Generic access ─────────────────────────────────────────────
@@ -146,12 +236,24 @@ class Config:
     def get(self, key: str, default: Any = None) -> Any:
         return self.__data.get(key, default)
 
+    @property
+    def path(self) -> str:
+        '''
+        Absolute path of the live config.json, as resolved from CONFIG_PATH at
+        construction.  Reported to the frontend in the CONFIG_SCHEMA document so
+        the Options view can show WHICH file its remote half is editing — the
+        path is deployment-specific (a worktree copy, the Pi's own), and without
+        it the user has no way to tell from the screen.
+        '''
+        return self.__path
+
     # ── Typed accessors ────────────────────────────────────────────
 
     @property
     def timezone(self) -> str:
-        '''IANA name as configured (e.g. "Europe/Helsinki").'''
-        return self.__data["timeZone"]
+        '''IANA name in effect (e.g. "Europe/Helsinki") — the host's own zone,
+        as detected at load, when timeZone is "auto".'''
+        return self.__zone_info.key
 
     @property
     def zone_info(self) -> ZoneInfo:
@@ -177,10 +279,6 @@ class Config:
         return self.__data["radioMediaIds"]
 
     @property
-    def default_radio_station(self) -> str:
-        return self.__data["defaultRadioStation"]
-
-    @property
     def spotify_device_id(self) -> str:
         return self.__data["spotifyDeviceId"]
 
@@ -191,12 +289,6 @@ class Config:
     @property
     def spotify_cache_path(self) -> str:
         return self.__data["spotifyCachePath"]
-
-    @property
-    def spotify_market(self) -> str:
-        '''ISO 3166-1 alpha-2 country code passed to Spotify playback queries
-        (e.g. "FI"). Determines track/episode availability filtering.'''
-        return self.__data["spotifyMarket"]
 
     @property
     def electricity_price_eur_per_kwh(self) -> float | None:
@@ -221,9 +313,11 @@ class Config:
         '''MyEnergi (Zappi) tunables, with defaults filled in for any missing key so
         a fully or partially absent "myenergi" block is safe:
         - zappiSerial: which Zappi to read when the account has more than one; ""
-          lets MyEnergiService auto-select the first discovered Zappi.
-        - pollIntervalIdleSeconds / pollIntervalActiveSeconds: cloud poll cadence
-          when no car is connected vs. while a session is active.
+          lets MyEnergiService auto-select the first discovered Zappi. Edited only
+          here, not from the Options view.
+        - pollIntervalSeconds: cloud poll cadence, the same whether or not a session
+          is active (session energy is the Zappi's own accumulator, so a faster
+          poll while charging would only refresh the live display sooner).
         - minSessionEnergyKwh: charging sessions that delivered less than this are
           dropped from the list (noise / a car charged away from this Zappi).
         - sessionMergeMinutes: a non-charging gap shorter than this is absorbed into
@@ -242,5 +336,161 @@ class Config:
         - marginCentsPerKwh: the seller's fixed margin (c/kWh) added to the raw spot
           price before VAT, approximating a real spot contract's energy price.
         - baseUrl: the sähkötin.fi range endpoint; config-driven so an alternate
-          no-key source (e.g. sahkonhintatanaan.fi) can be swapped in without code.'''
+          no-key source (e.g. sahkonhintatanaan.fi) can be swapped in without code.
+          Edited only here, not from the Options view.'''
         return {**self._SPOT_PRICE_DEFAULTS, **self.__data.get("spotPrice", {})}
+
+    @property
+    def audio_config(self) -> dict:
+        '''
+        Audio block merged over _AUDIO_DEFAULTS, so an omitted or partial "audio"
+        block still reports the values actually in effect.
+        '''
+        return {**self._AUDIO_DEFAULTS, **self.__data.get("audio", {})}
+
+    @property
+    def media_config(self) -> dict:
+        '''
+        Media block merged over _MEDIA_DEFAULTS:
+        - autoplayRadio: start the radio when the backend starts, rather than only
+          loading it.
+        - resumeRadioAfterSpotify: when Spotify releases playback while it was
+          playing, restart the radio IF Spotify had interrupted it.
+        - lastRadioStation: the station last tuned to, written by RadioPlayer
+          itself (not an Options-view setting); "" until the first change.
+        '''
+        return {**self._MEDIA_DEFAULTS, **self.__data.get("media", {})}
+
+    @property
+    def logging_config(self) -> dict:
+        '''
+        Logging block merged over _LOGGING_DEFAULTS:
+        - level: the level both halves log at (one of LEVEL_CHOICES); absent or
+          unknown → TESLA_HOMEDASH_LOG_LEVEL's.
+        - debugMinutes: how long "debug" lasts before it returns.
+        - levelBeforeDebug: what it returns to ("" → the startup level).
+        '''
+        block = {**self._LOGGING_DEFAULTS, **self.__data.get("logging", {})}
+        if block.get("level") not in LEVEL_CHOICES:
+            block["level"] = default_level_name()
+        return block
+
+    # ── Loading / validation ───────────────────────────────────────
+
+    @classmethod
+    def _load_and_validate(cls, path: str) -> tuple[dict, ZoneInfo]:
+        '''
+        Parses one config file and validates it well enough to start services:
+        valid JSON, every REQUIRED_KEYS entry present, and a resolvable
+        timezone ("auto", the default, resolves to the host's own zone).  Returns the parsed document and its pre-built ZoneInfo so
+        callers assign both together.  Raises rather than returning a partial
+        result -- `__init__` turns a raise on the live file into a rollback.
+        Arguments:
+            path (str): Absolute path to a JSON config file.
+        '''
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data: dict = json.load(f)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Config file contains invalid JSON: {e}") from e
+
+        missing = [k for k in cls.REQUIRED_KEYS if k not in data]
+        if missing:
+            raise RuntimeError(
+                f"Config is missing required keys: {', '.join(missing)}"
+            )
+
+        # Build the ZoneInfo once at load time so services can take it directly
+        # without each re-parsing the IANA string.  Invalid zone names fail
+        # here, not deep inside a service's first scheduler call.  The default
+        # is written into the document so the Options view reports "auto"
+        # rather than a missing value.
+        data.setdefault("timeZone", AUTO_TIMEZONE)
+        try:
+            zone_info = resolve_timezone(data["timeZone"])
+        except (ZoneInfoNotFoundError, ValueError) as e:
+            raise ValueError(
+                f"Invalid timeZone in config: {data['timeZone']!r}"
+            ) from e
+
+        return data, zone_info
+
+    # ── Runtime writes (the Options view) ──────────────────────────
+
+    def set(self, key_path: str, value: Any) -> None:
+        '''
+        Writes one value into the in-memory document by dotted key path
+        ("myenergi.pollIntervalSeconds").  Missing intermediate blocks are
+        created: the optional "trip" / "myenergi" / "spotPrice" blocks are
+        merged over defaults at read time, so a real config.json may legitimately
+        not contain them yet.
+
+        The change is visible to every service immediately -- they hold this
+        instance by constructor injection and never re-read the file -- but is
+        NOT persisted until `save()`.  Does not validate; `config_service`
+        validates against the settings schema before calling this.
+        Arguments:
+            key_path (str): Dotted path into the config document.
+            value (Any): JSON-serializable value to store.
+        '''
+        parts = key_path.split(".")
+        target = self.__data
+        for part in parts[:-1]:
+            existing = target.get(part)
+            if not isinstance(existing, dict):
+                existing = {}
+                target[part] = existing
+            target = existing
+        target[parts[-1]] = value
+
+        # timeZone is the one key with a derived cached value.  Rebuild it so a
+        # live change is consistent even though the APScheduler cron jobs built
+        # from it only pick the new zone up on the next process start (which is
+        # why the schema marks timeZone as a restart-tier setting).
+        if key_path == "timeZone":
+            self.__zone_info = resolve_timezone(value)
+
+    def save(self) -> None:
+        '''
+        Persists the in-memory document to the config path, atomically.
+
+        Two safety steps matter on the embedded target, where the Options view
+        can write this file and power can be cut at any moment:
+        - the previous on-disk file is copied to `<path>.bak` first, which is
+          what `__init__` rolls back to if a write ever produces an unusable
+          config (otherwise a restart-tier setting could restart-loop systemd);
+        - the new document is written to a temp file in the SAME directory,
+          flushed + fsynced, then `os.replace`d onto the real path.  Same
+          directory because os.replace is only atomic within a filesystem, and
+          fsync because a rename can otherwise land before the data does.
+        '''
+        directory = os.path.dirname(self.__path) or "."
+
+        if os.path.isfile(self.__path):
+            try:
+                shutil.copyfile(self.__path, self.__path + self.BACKUP_SUFFIX)
+            except OSError as e:
+                # A missing rollback copy is worth a loud log but must not block
+                # the write -- the user asked for this change.
+                logger.warning("Could not write config backup: %s", e)
+
+        fd, tmp_path = tempfile.mkstemp(
+            prefix=".config-", suffix=".tmp", dir=directory
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(self.__data, f, indent=4, ensure_ascii=False)
+                f.write("\n")
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, self.__path)
+        except BaseException:
+            # Leave the live config untouched on any failure, including
+            # cancellation, and never leak the temp file.
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
+
+        logger.info("Configuration saved to %s", self.__path)

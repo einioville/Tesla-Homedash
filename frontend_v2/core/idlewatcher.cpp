@@ -73,6 +73,7 @@ bool IdleWatcher::eventFilter(QObject *watched, QEvent *event) {
 
 void IdleWatcher::registerActivity() {
     m_timer.start();  // restart the countdown
+    emit activity();
     if (m_idle) {
         m_idle = false;
         emit idleChanged();

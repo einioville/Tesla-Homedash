@@ -41,18 +41,59 @@ class RadioPlayer(BaseMediaPlayer):
             vlc.EventType.MediaPlayerEndReached, self.__on_vlc_event
         )
 
+        # Retained so a station change can be remembered (__remember_channel).
+        self.__config = config
         self.__media_ids = config.radio_media_ids
         self.__channels = list(self.__media_ids.keys())
-        self.__channel = config.default_radio_station
+        self.__channel = self.__initial_channel()
         self.__channel_index = self.__channels.index(self.__channel)
 
         self.__stream_url: str | None = None
         self.__image_url: str | None = None
+        # Why the last station lookup failed, or None after one that worked; the
+        # status view's Radio card reads it.
+        self.__fetch_error: str | None = None
 
         # Flag to prevent restart loops when intentionally stopped
         self.__intentional_stop = False
 
         self.__async_loop = asyncio.get_running_loop()
+
+    def __initial_channel(self) -> str:
+        '''
+        The station to start on: the one last tuned to, else the
+        defaultRadioStation of a config.json written before the station was
+        remembered, else the first configured.  A name that is not (or no longer)
+        a radioMediaIds key is skipped rather than raising, so renaming a station
+        in config.json cannot stop the backend from starting.
+        '''
+        for candidate in (self.__config.media_config.get("lastRadioStation"),
+                          self.__config.get("defaultRadioStation")):
+            if candidate in self.__channels:
+                return candidate
+        return self.__channels[0]
+
+    def __remember_channel(self) -> None:
+        '''
+        Saves the current station as media.lastRadioStation, so the radio comes
+        back on it after a restart.  (After Spotify it already does: the release
+        reloads whatever station is current.)
+
+        Written straight through Config, not ConfigService: this is state the radio
+        owns, not a setting — it is in no schema, has no hook to run, and is valid
+        by construction, being always a radioMediaIds key.  Saved at once rather
+        than debounced: each skip already waits on a stream fetch, so writes cannot
+        outpace a finger, and a debounce window is a window in which a power cut
+        loses the station.  A failed save is logged and the station still changes;
+        the value stays in memory and rides along with the next successful save.
+        '''
+        if self.__config.media_config.get("lastRadioStation") == self.__channel:
+            return
+        self.__config.set("media.lastRadioStation", self.__channel)
+        try:
+            self.__config.save()
+        except OSError as e:
+            logger.warning("Could not save the radio station %s: %s", self.__channel, e)
 
     def __on_vlc_event(self, event) -> None:
         '''
@@ -129,9 +170,13 @@ class RadioPlayer(BaseMediaPlayer):
             )
             if not self.__stream_url:
                 logger.warning("Nelonen API response missing streamUrls.audioHls.url for %s", self.__channel)
+                self.__fetch_error = "Asemalle ei löytynyt lähetystä"
+            else:
+                self.__fetch_error = None
         except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as e:
             # ValueError covers JSON decode errors from response.json()
             logger.warning("Failed to fetch radio station data for %s: %s: %s", self.__channel, type(e).__name__, e)
+            self.__fetch_error = "Aseman tietoja ei saatu"
 
     @staticmethod
     def __pick_cover(square: dict, target: int = 720) -> str | None:
@@ -184,6 +229,22 @@ class RadioPlayer(BaseMediaPlayer):
         self.__intentional_stop = False
         logger.debug("Radio player stopped")
 
+    def describe(self) -> dict:
+        '''The station, the station count and the last lookup's failure, for the status view.'''
+        return {"channel": self.__channel, "stations": len(self.__channels),
+                "error": self.__fetch_error}
+
+    def is_playing(self) -> bool:
+        '''
+        Whether VLC is currently producing audio.
+
+        Needed by the Spotify device scan, which silences the radio while the
+        user picks a device and restores it afterwards: resuming must not START
+        audio that was not playing to begin with, and only VLC knows which it
+        was.  Stays synchronous — it reads a libVLC flag and awaits nothing.
+        '''
+        return bool(self.__vlc_player.is_playing())
+
     async def pause(self) -> None:
         self.__vlc_player.pause()
 
@@ -206,6 +267,7 @@ class RadioPlayer(BaseMediaPlayer):
             self.__channel_index = 0
         self.__channel = self.__channels[self.__channel_index]
         logger.info("Skipped to next channel: %s", self.__channel)
+        self.__remember_channel()
         await self.load_player()
         self.__vlc_player.play()
 
@@ -215,6 +277,7 @@ class RadioPlayer(BaseMediaPlayer):
             self.__channel_index = len(self.__channels) - 1
         self.__channel = self.__channels[self.__channel_index]
         logger.info("Skipped to previous channel: %s", self.__channel)
+        self.__remember_channel()
         await self.load_player()
         self.__vlc_player.play()
 

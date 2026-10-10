@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 from aiohttp import ClientSession
 from teslemetry_stream import TeslemetryStream
 from .vehicle import Vehicle
@@ -26,6 +27,11 @@ class TelemetryHandler:
         self.__server = server
         self.__stream: TeslemetryStream | None = None
         self.__close_event = asyncio.Event()
+        # For the status view: whether the stream is up, since when, and when
+        # the last event arrived. None until the first of each happens.
+        self.__connected: bool | None = None
+        self.__changed_ms: int | None = None
+        self.__last_event_ms: int | None = None
 
     async def start(self) -> None:
         '''
@@ -49,17 +55,49 @@ class TelemetryHandler:
 
             # async_add_listener starts the internal listen() task which calls connect()
             # on first iteration and reconnects automatically after any disconnect.
-            self.__stream.async_add_listener(self.__vehicle.on_telemetry_event)
+            self.__stream.async_add_listener(self.__on_event)
 
             logger.info("Teslemetry stream listener started")
             await self.__close_event.wait()
 
+    def __on_event(self, data) -> None:
+        '''
+        Stamps the arrival for the status view, then hands the event on.
+        Arguments:
+            data (dict): One Teslemetry stream event.
+        '''
+        self.__last_event_ms = int(time.time() * 1000)
+        self.__vehicle.on_telemetry_event(data)
+
     def __on_connection_change(self, connected: bool) -> None:
         '''Logs connection state transitions reported by the TeslemetryStream library.'''
+        self.__connected = connected
+        self.__changed_ms = int(time.time() * 1000)
         if connected:
             logger.info("Teslemetry stream connected")
         else:
             logger.warning("Teslemetry stream disconnected — library will reconnect automatically")
+
+    async def health(self) -> dict:
+        '''
+        The stream's standing for the Järjestelmän tila card.  A dropped stream is
+        a warning, not an outage: the library reconnects by itself.
+        '''
+        if self.__connected is None:
+            state, detail = "warn", "Yhdistetään"
+        elif self.__connected:
+            state, detail = "ok", "Yhteys auki"
+        else:
+            state, detail = "warn", "Yhteys katkennut, yhdistetään uudelleen"
+        vin = await self.__vehicle.get_vin()
+        config = [["Palvelin", self.__server],
+                  ["Auto (VIN)", "…" + vin[-6:] if vin else "—"]]
+        online = await self.__vehicle.is_online()
+        if online is not None:
+            config.append(["Auto", "Hereillä" if online else "Nukkuu"])
+        if self.__last_event_ms is not None:
+            config.append(["Viimeisin tieto", {"time": self.__last_event_ms}])
+        return {"state": state, "detail": detail, "config": config}
 
     def close(self) -> None:
         '''

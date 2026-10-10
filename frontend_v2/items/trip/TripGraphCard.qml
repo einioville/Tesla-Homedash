@@ -34,6 +34,8 @@ Item {
         // keep the default card padding.
         plotMarginTop: 40
         unit: root.unitLabel
+        // Speed cannot go negative.
+        zeroBased: true
         // Feed from the Trips per-trip series instead of the History singleton, so this
         // graph is fully independent of the History view's graph.
         pointsData: Trips.seriesPoints

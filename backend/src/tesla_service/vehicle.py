@@ -69,6 +69,7 @@ class Vehicle:
                 log=prop_cfg["log"],
                 sleep_default=prop_cfg.get("sleep_default"),
                 line_mode=prop_cfg.get("line_mode"),
+                zero_based=prop_cfg.get("zero_based", False),
             )
         logger.debug("Loaded %d vehicle data properties", len(self.__data))
 
@@ -409,6 +410,17 @@ class Vehicle:
         async with self.__async_lock:
             return self.__vin
 
+    async def is_online(self) -> bool | None:
+        '''
+        Whether the car is awake, from the synthesized VehicleOnline field; None
+        when no state event has arrived yet (or the config has no such field).
+        '''
+        prop = self.__data.get("VehicleOnline")
+        if prop is None:
+            return None
+        value = await prop.get_value()
+        return None if value is None else bool(value)
+
     @property
     def vin(self) -> str:
         return self.__vin
@@ -458,7 +470,7 @@ class Vehicle:
         omitted until it next updates — the frontend re-requests this list each
         time the view is opened, so it fills in as the session runs.
         Returns:
-            list[dict]: [{"id", "unit", "category", "line_mode"}, ...].
+            list[dict]: [{"id", "unit", "category", "line_mode", "zero_based"}, ...].
         '''
         async with self.__async_lock:
             properties = list(self.__data.values())
@@ -473,6 +485,7 @@ class Vehicle:
                 "unit": await data_property.get_unit(),
                 "category": await data_property.get_category(),
                 "line_mode": (await data_property.get_line_mode()) or "step",
+                "zero_based": await data_property.get_zero_based(),
             })
         result.sort(key=lambda entry: (entry["category"] or "", entry["id"]))
         return result

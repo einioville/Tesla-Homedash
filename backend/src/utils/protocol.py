@@ -45,11 +45,22 @@ TESLA_SWITCH_CLIMATE_STATE = 0x60
 TESLA_MINUS_TARGET_TEMP = 0x61
 TESLA_PLUS_TARGET_TEMP = 0x62
 
+# The Options view's telemetry-field table (issue #29): the per-field flags in
+# config.json's `tesla data` that are safe to change at runtime — log, line_mode,
+# zero_based. Everything else in that table is mirrored by the frontend registry
+# and stays read-only. Status bytes are CONFIG_STATUS_*.
+TESLA_GET_PROPERTY_TABLE = 0x63    # F->B: (empty)
+TESLA_PROPERTY_TABLE = 0x64        # B->F: status(1B) + len(4B) + UTF-8 JSON {"properties": [...]};
+                                   #       to the requester, and broadcast after an accepted change
+TESLA_SET_PROPERTY = 0x65          # F->B: len(4B) + UTF-8 JSON {"id", "field", "value"}
+TESLA_SET_PROPERTY_RESULT = 0x66   # B->F: status(1B) + len(4B) + UTF-8 JSON
+                                   #       {"ok", "id", "field", "value", "message"}
+
 # Historical-data request/response (the History view). Unlike the fire-and-forget
 # command bytes above, these are a request/response pair: the backend replies to
 # the requesting client only (server.send_to), never a broadcast.
 TESLA_GET_GRAPH_PROPERTIES = 0x70  # F->B: request the graphable-property list (empty payload)
-TESLA_GRAPH_PROPERTIES = 0x71      # B->F: count(2B) + per property id/unit/category/line_mode (each len(2B)+UTF-8); line_mode = "step"|"linear" graph render hint
+TESLA_GRAPH_PROPERTIES = 0x71      # B->F: count(2B) + per property id/unit/category/line_mode (each len(2B)+UTF-8) + zero_based(1B); line_mode = "step"|"linear" graph render hint, zero_based = pin the y-axis bottom to 0
 TESLA_GET_HISTORY = 0x72           # F->B: range_code(1B) + id(len(2B)+UTF-8) + start_ms(8B) + end_ms(8B)
 TESLA_HISTORY = 0x73               # B->F: id(len(2B)+UTF-8) + status(1B) + count(4B) + count*(ts_ms(8B)+value(8B double))
 
@@ -171,6 +182,199 @@ CHARGER_HISTORY = 0x87      # B->F: id(len(2B)+UTF-8) + status(1B) + count(4B) +
 # price's hour, so the frontend can tell whether the tile is current.
 SPOT_PRICE_STREAM = 0x88    # B->F: status(1B) + hour_start_ms(8B) + spot_eur_per_kwh(8B double)
                             #       + all_in_eur_per_kwh(8B double) (both NaN when status 0)
+
+# --- Runtime configuration (the Options view) --------------------------------
+# A request/response pair plus one command, mirroring the History/Trip idiom: the
+# backend replies to the REQUESTING client only (send_to), except that a successful
+# CONFIG_SET also BROADCASTS a fresh CONFIG_SCHEMA so a second frontend refreshes.
+#
+# Both bodies are UTF-8 JSON with a 4-byte length prefix (the CHARGER_RAW_JSON idiom)
+# rather than a packed layout: the schema is variable-shaped and these packets are
+# rare (a settings screen, not a stream), so self-describing beats compact here.
+#
+# CONFIG_SCHEMA's JSON is {"groups": [{"id", "label", "settings": [...]}]} where each
+# setting carries key/type/label/default/value plus per-type bounds (min/max/step,
+# options) and an "apply" tier — see config_service.SETTINGS_SCHEMA. Keys are dotted
+# paths into config.json ("myenergi.pollIntervalSeconds").
+#
+# The "apply" tier tells the frontend what a write actually did:
+#   live    — services read the value on demand; the in-memory Config mutation is enough
+#   hook    — a service hook ran (rescheduled a poll job, forced a refresh)
+#   restart — written to config.json, but only picked up on the next process start
+CONFIG_GET_SCHEMA = 0x90    # F->B: (empty) — request the editable-settings schema + values
+CONFIG_SCHEMA = 0x91        # B->F: status(1B) + len(4B) + UTF-8 JSON
+CONFIG_SET = 0x92           # F->B: len(4B) + UTF-8 JSON {"key": <dotted>, "value": <json>}
+CONFIG_SET_RESULT = 0x93    # B->F: status(1B) + len(4B) + UTF-8 JSON
+                            #       {"key", "value", "applied": live|hook|restart, "message"}
+CONFIG_RESTART = 0x94       # F->B: (empty) — exit the process so systemd restarts it
+                            #       (needs Restart=always in the unit; see README)
+HOST_REBOOT = 0x95          # F->B: (empty) — reboot the whole host (issue #40). Nothing
+                            #       is replied when it starts; a refusal (a veto, or no
+                            #       privilege on the host) comes back as CONFIG_SET_RESULT
+
+# CONFIG_* status byte. 0 is the failure case for both CONFIG_SCHEMA (no schema could
+# be built) and CONFIG_SET_RESULT (validation rejected the value, nothing was written).
+CONFIG_STATUS_ERROR = 0
+CONFIG_STATUS_OK = 1
+
+# ── Spotify re-authorisation (the Options view's "refresh token" action) ────
+# Request/response like CONFIG_*: the backend replies to the requesting client
+# only. The frontend never holds the client secret — it only shows the page the
+# backend hands it and posts back the authorisation code it intercepted.
+# Only the short-lived AUTHORIZATION CODE ever crosses the wire — never a token.
+# The code is useless without SPOTIFY_CLIENT_SECRET, which stays in the backend's
+# .env, and Spotify invalidates it on first use (and after ~10 minutes).
+#
+# The backend opens the authorize URL in the host's real browser and catches the
+# redirect on its own loopback listener at the redirect URI's host/port, so the
+# code never leaves loopback (media_service/CLAUDE.md). The redirect URI still has
+# to be registered byte-identically in the Spotify Developer app, because the
+# token POST echoes it.
+SPOTIFY_AUTH_STATUS = 0xA0    # B->F: status(1B) + len(4B) + UTF-8 JSON — grant state.
+                              #   Snapshot on connect + broadcast after a successful
+                              #   exchange. {"authorized", "needsReauth", "scope",
+                              #   "expiresAt", "redirectUri", "cachePath", "reason",
+                              #   "authorizedAt", "validUntil", "email", "displayName"}
+SPOTIFY_AUTH_GET_URL = 0xA1   # F->B: (empty) — start a flow, replacing any pending one
+SPOTIFY_AUTH_URL = 0xA2       # B->F: status(1B) + len(4B) + UTF-8 JSON
+                              #   ok:    {"url", "redirectUri", "state"}
+                              #   error: {"message"}
+# 0xA3 is retired. It carried the redirect URL back from the embedded WebView;
+# the consent page now opens in the host's real browser and the backend catches
+# the redirect on its own loopback listener, so nothing produces one.
+SPOTIFY_AUTH_RESULT = 0xA4    # B->F: status(1B) + len(4B) + UTF-8 JSON, requester only
+                              #   {"ok", "message", "scope", "expiresAt"}
+
+# Leading status byte for the three B->F packets above. Same convention as
+# CONFIG_STATUS_*, named separately so the two families stay independent.
+SPOTIFY_AUTH_ERROR = 0
+SPOTIFY_AUTH_OK = 1
+
+# ── Spotify device detection (the Options view's "Tunnista laite" action) ───
+# Request/response like the auth codes above, and reusing their status byte: the
+# backend replies to the SCANNING client only (send_to), never a broadcast, so a
+# second dashboard is not fed a scan it did not ask for.
+#
+# The problem this solves: spotifyDeviceId decides which Spotify Connect device
+# this backend claims playback from, and a wrong value makes every transport
+# control silently do nothing. Until now the only fix was SSHing in and running
+# media_service/setup/spotify_setup.py. The scan asks the user to start playing
+# on the device they want, polls Spotify for what is playing anywhere, and shows
+# the device + track so the choice can be confirmed before it is written.
+#
+# Bodies are status(1B) + len(4B) + UTF-8 JSON (the CONFIG_* / SPOTIFY_AUTH_*
+# idiom): variable-shaped documents on a rare, user-initiated path.
+#
+# Every packet in this family carries a "scanId": an unsigned epoch the FRONTEND
+# generates (it is the side that knows when a new flow began) and the backend
+# stores on the scan and echoes on every reply. A single boolean fence cannot say
+# WHICH scan a late packet belongs to — cancel a scan, start another, and a state
+# from the old one still in flight would repopulate the dialog with the previous
+# device. Both halves drop anything whose scanId is not the current one, and a
+# missing/malformed field parses as 0 rather than raising.
+SPOTIFY_DEVICE_SCAN_START = 0xA5  # F->B: len(4B) + UTF-8 JSON {"scanId": <uint>}
+                                  #   — stop other playback and start scanning
+SPOTIFY_DEVICE_SCAN_STOP = 0xA6   # F->B: (empty) — stop the scan; nothing is replied
+SPOTIFY_DEVICE_STATE = 0xA7       # B->F: status(1B) + len(4B) + UTF-8 JSON, scanning client only
+                                  #   {"scanId", "scanning", "message", "device", "track", "current"}
+                                  #   device/track are null when nothing is playing anywhere;
+                                  #   "current" describes the configured spotifyDeviceId
+SPOTIFY_DEVICE_SELECT = 0xA8      # F->B: len(4B) + UTF-8 JSON
+                                  #   {"deviceId": "<id>", "scanId": <uint>};
+                                  #   a scanId that is not the live scan's is refused
+SPOTIFY_DEVICE_RESULT = 0xA9      # B->F: status(1B) + len(4B) + UTF-8 JSON, requester only
+                                  #   {"scanId", "ok", "message", "deviceId", "deviceName"}
+# The configured device's standing, for the "Tunnista laite" row's details. Not
+# part of the scan family and carries no scanId: it describes config.json, not a
+# flow. On request (it costs a Spotify device-list call, so it is not snapshotted
+# to every client), and broadcast after a successful select.
+SPOTIFY_DEVICE_GET_STATUS = 0xAA  # F->B: (empty)
+SPOTIFY_DEVICE_STATUS = 0xAB      # B->F: status(1B, always OK) + len(4B) + UTF-8 JSON
+                                  #   {"configured", "id", "name", "type", "detected",
+                                  #    "isRestricted", "reason"}; detected is null when
+                                  #   Spotify's device list could not be read
+
+# ── System status (the Options view's maintenance dashboard) ────────────────
+# Request/response rather than a broadcast: the Options view is open a fraction
+# of the time, and sampling /proc for every client every few seconds to feed a
+# screen nobody is looking at is pure waste.
+SYSTEM_GET_STATUS = 0xB0      # F->B: (empty)
+SYSTEM_STATUS = 0xB1          # B->F: status(1B) + len(4B) + UTF-8 JSON
+# The Järjestelmän tila graphs. Sampled in the background (a graph needs the
+# minutes before anyone looked), but still only sent on request, incrementally.
+SYSTEM_GET_HISTORY = 0xB2     # F->B: since_ms(8B, signed) — 0 = everything
+SYSTEM_HISTORY = 0xB3         # B->F: status(1B) + len(4B) + UTF-8 JSON
+                              #   {interval_s, window_s, reset, mem_total_b, cpu_count,
+                              #    disk{path,device,total_b,used_b,free_b,used_pct},
+                              #    samples[{t, cpu[], mem_used_b, disk_read_bps,
+                              #             disk_write_bps, net_rx_bps, net_tx_bps,
+                              #             cpu_temp_c}], temp_available}
+# One service card's warnings and errors, newest first, for its list dialog.
+SYSTEM_GET_LOG = 0xB4         # F->B: len(4B) + UTF-8 JSON {"service": <probe id>}
+SYSTEM_LOG = 0xB5             # B->F: status(1B) + len(4B) + UTF-8 JSON
+                              #   {service, label, entries[{t, level, logger, message}]}
+# The app's own log files (Ylläpito > Lokit). The journal is never touched.
+LOG_CLEAR = 0xB6              # F->B: len(4B) + UTF-8 JSON {"keep": "warnings" | "none"}
+LOG_CLEAR_RESULT = 0xB7       # B->F: status(1B) + len(4B) + UTF-8 JSON {ok, freedBytes, message}
+
+# ── Display power (the panel the dashboard runs on) ─────────────────────────
+# The FRONTEND decides WHEN (it is the only side that sees touch input); the
+# BACKEND does the switching, because talking to the system is the backend's job.
+DISPLAY_SET_POWER = 0xC0      # F->B: on(1B) — 1 = wake the panel, 0 = power it down
+DISPLAY_POWER_STATE = 0xC1    # B->F: available(1B) + on(1B) + fault(1B) — available=0
+                              #       means the host has no wlopm, so the feature is inert
+
+# DISPLAY_POWER_STATE fault codes: why the panel is not doing what was asked.
+DISPLAY_FAULT_NONE = 0
+DISPLAY_FAULT_REFUSED = 1      # wlopm exited non-zero (a VNC server holding the output)
+DISPLAY_FAULT_OUTPUT_LOST = 2  # wlopm --on "worked" but the output is gone or still off
+                               # (the labwc 0.20 / wlroots 0.20 wedge); sticky, and
+                               # power-off is refused until the backend restarts
+
+# ── App update (the Options view's "Päivitys" card) ─────────────────────────
+# Updates the checkout this backend and the dashboard are running FROM, in place:
+# fetch, move the working tree to a target commit, re-sync the backend's deps,
+# rebuild the frontend, then restart both halves.  Two channels the frontend
+# picks between: "development" tracks origin/main, "releases" tracks the newest
+# v* tag.  The verdict is a COMMIT COMPARISON, not a version-string compare, so
+# switching channels in either direction — including back to an older release —
+# is an ordinary outcome rather than a special case.
+#
+# UPDATE_STATE is a BROADCAST, unlike the Spotify device scan's per-client
+# stream.  A scan is one user's dialog; an update rewrites the installation both
+# dashboards are running, so a second panel must see it happening rather than be
+# free to start its own.  It is also the progress channel: the state document
+# carries a "job" object while a run is in flight, so there is one B->F code
+# instead of a separate progress packet that a late client would never see.
+UPDATE_GET_STATE = 0xD0   # F->B: len(4B) + UTF-8 JSON {"fetch": <bool>}
+                          #   fetch=true contacts origin first (seconds, network);
+                          #   fetch=false answers from the local repository only
+UPDATE_STATE = 0xD1       # B->F: status(1B) + len(4B) + UTF-8 JSON, BROADCAST
+                          #   {available, reason, repoPath, remoteUrl, branch, dirty,
+                          #    current{...}, channels{development{...}, releases{...}},
+                          #    job: null | {steps, log, ok, finished, restartFrontend, ...}}
+UPDATE_APPLY = 0xD2       # F->B: len(4B) + UTF-8 JSON {"channel": <str>, "commit": <sha>}
+                          #   the commit FENCES the request: if the channel no longer
+                          #   resolves to what the user was shown, the run is refused
+UPDATE_CANCEL = 0xD3      # F->B: (empty) — kill the running step's process group
+
+# ── Screensaver photo import from USB (the Options view's "Kuvakansio" row) ──
+# Copies the images in a USB stick's tesla_homedash_screensaver folder into the
+# screensaver's fixed folder.  The BACKEND lists the drives, mounts the chosen one
+# and copies, because those are system calls; the frontend only walks the user
+# through it.  Every request carries the frontend's flow epoch and every state
+# echoes it, so a reply from a dialog that was closed can be told apart from the
+# live one.  One state packet carries the whole flow (the drive list, the scan
+# result and the copy progress), sent to the client running the flow only.
+USB_IMPORT_LIST = 0xE0    # F->B: len(4B) + UTF-8 JSON {"flowId"} — list the USB drives
+USB_IMPORT_SCAN = 0xE1    # F->B: len(4B) + UTF-8 JSON {"flowId", "device"} — mount the
+                          #   drive if needed and count the photos in its folder
+USB_IMPORT_START = 0xE2   # F->B: len(4B) + UTF-8 JSON {"flowId", "device"} — copy them
+USB_IMPORT_CLOSE = 0xE3   # F->B: len(4B) + UTF-8 JSON {"flowId"} — end the flow: stop a
+                          #   copy after the current file and unmount what it mounted
+USB_IMPORT_STATE = 0xE4   # B->F: status(1B, always OK) + len(4B) + UTF-8 JSON
+                          #   {flowId, phase, message, drives, device, found, count,
+                          #    bytes, copied, skipped, total, unmounted}
 
 # Maximum accepted size of a single incoming message (defensive cap)
 MAX_MSG_SIZE = 1024 * 1024  # 1 MB
