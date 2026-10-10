@@ -6,7 +6,6 @@ parsing in the registered handlers, and the epoch-ms -> Flux time conversion.
 Runs under pytest, or standalone: `uv run python tests/test_start_services.py`.
 '''
 import asyncio
-import math
 import os
 import struct
 import sys
@@ -15,9 +14,7 @@ import time
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from src import start_services as ss  # noqa: E402
-from src.charging_service import charging_session  # noqa: E402
 from src.influxdb_service import influxdb_handler  # noqa: E402
-from src.trip_service import trip  # noqa: E402
 from src.utils import protocol  # noqa: E402
 
 NAN = float("nan")
@@ -45,10 +42,10 @@ def _same(a: bytes, b: bytes) -> bool:
 
 
 def test_history_frames():
-    for build, msg_type in ((ss._build_history_frame, protocol.TESLA_HISTORY),
-                            (ss._build_charger_history_frame, protocol.CHARGER_HISTORY)):
+    for msg_type in (protocol.TESLA_HISTORY, protocol.CHARGER_HISTORY):
         for result in (None, SERIES):
-            assert build("Speedä", result) == protocol.frame(msg_type, _id("Speedä") + _series_body(result))
+            assert ss._build_history_frame(msg_type, "Speedä", result) == \
+                protocol.frame(msg_type, _id("Speedä") + _series_body(result))
 
 
 def test_trip_series_frame():
@@ -60,16 +57,18 @@ def test_trip_series_frame():
 def test_list_frames():
     records = [(10, 20, 1.5), (30, 40, NAN)]
     expected = struct.pack("!qqH", 1, 2, 2) + struct.pack("!qqd", 10, 20, 1.5) + struct.pack("!qqd", 30, 40, NAN)
-    assert _same(ss._build_trip_list_frame(1, 2, records), protocol.frame(protocol.TRIP_LIST, expected))
-    assert _same(ss._build_charging_list_frame(1, 2, records), protocol.frame(protocol.CHARGING_LIST, expected))
+    for msg_type in (protocol.TRIP_LIST, protocol.CHARGING_LIST):
+        assert _same(ss._build_window_list_frame(msg_type, 1, 2, records), protocol.frame(msg_type, expected))
 
 
 def test_summary_frames():
     cases = (
-        (ss._build_trip_summary_frame, protocol.TRIP_SUMMARY, ss._TRIP_SUMMARY_FIELDS),
-        (ss._build_charging_summary_frame, protocol.CHARGING_SUMMARY, ss._CHARGING_SUMMARY_FIELDS),
+        (protocol.TRIP_SUMMARY, ss._TRIP_SUMMARY_FIELDS),
+        (protocol.CHARGING_SUMMARY, ss._CHARGING_SUMMARY_FIELDS),
     )
-    for build, msg_type, fields in cases:
+    for msg_type, fields in cases:
+        def build(*args):
+            return ss._build_summary_frame(msg_type, fields, *args)
         summary = {fields[0]: 3.25, fields[-1]: -1.0, "ignored": 9.0}
         head = struct.pack("!qBqq", 5, 1, 5, 9)
         values = b"".join(struct.pack("!d", summary.get(f, NAN)) for f in fields)
@@ -114,9 +113,8 @@ def test_history_bounds():
 def test_flux_time():
     cases = {1_700_000_000_000: "2023-11-14T22:13:20Z",
              1_700_000_000_123: "2023-11-14T22:13:20.123000Z"}
-    for convert in (trip.to_flux_time, charging_session.to_flux_time, influxdb_handler._ms_to_flux_z):
-        for ms, text in cases.items():
-            assert convert(ms) == text
+    for ms, text in cases.items():
+        assert influxdb_handler.to_flux_time(ms) == text
 
 
 class FakeServer:

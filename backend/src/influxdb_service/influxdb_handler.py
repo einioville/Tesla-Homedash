@@ -17,8 +17,13 @@ _HOUR_MS = 3_600_000
 logger = logging.getLogger("influxdb_service.influxdb_handler")
 
 
-def _ms_to_flux_z(timestamp_ms: int) -> str:
-    '''Epoch-ms -> the RFC3339 'Z' string a Flux range() accepts.'''
+def to_flux_time(timestamp_ms: int) -> str:
+    '''
+    Converts an epoch-ms instant to the RFC3339 "Z" string a Flux range() takes:
+    whole seconds print no fraction, anything else six digits.
+    Arguments:
+        timestamp_ms (int): Milliseconds since the Unix epoch (UTC).
+    '''
     return (
         datetime.fromtimestamp(timestamp_ms / 1000, tz=timezone.utc)
         .isoformat()
@@ -255,7 +260,7 @@ class InfluxDBHandler:
             dict | None: {utc_hour_start_ms: kwh}, or None.
         '''
         result = await self.read_charger_data_property(
-            "GridPower", _ms_to_flux_z(start_ms), _ms_to_flux_z(end_ms)
+            "GridPower", to_flux_time(start_ms), to_flux_time(end_ms)
         )
         if result is None:
             return None

@@ -28,10 +28,10 @@ partial-data session still yields a well-formed record.
 '''
 import logging
 import math
-from datetime import datetime, timezone
 
 import numpy as np
 
+from ..influxdb_service.influxdb_handler import to_flux_time
 from .spot_price import price_hourly_energy
 
 logger = logging.getLogger("charging_service.charging_session")
@@ -46,21 +46,6 @@ AC_ENERGY_IN_ID = "ACChargingEnergyIn"   # tesla: lifetime AC energy into the ca
 DC_ENERGY_IN_ID = "DCChargingEnergyIn"   # tesla: lifetime DC energy into the car (kWh)
 BATTERY_ENERGY_ID = "EnergyRemaining"    # tesla: energy currently in the pack (kWh)
 SOC_ID = "BatteryLevel"                  # tesla: state of charge (%)
-
-
-def to_flux_time(timestamp_ms: int) -> str:
-    '''
-    Converts an epoch-ms instant to the RFC3339 string Flux expects (matching the
-    idiom the History and Trip paths use). InfluxDBHandler reads take Flux range
-    strings, not raw ms.
-    Arguments:
-        timestamp_ms (int): Milliseconds since the Unix epoch (UTC).
-    '''
-    return (
-        datetime.fromtimestamp(timestamp_ms / 1000, tz=timezone.utc)
-        .isoformat()
-        .replace("+00:00", "Z")
-    )
 
 
 def _series_values(result):

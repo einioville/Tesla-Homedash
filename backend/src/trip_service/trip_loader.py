@@ -13,7 +13,8 @@ import math
 
 import numpy as np
 
-from .trip import Trip, to_flux_time
+from ..influxdb_service.influxdb_handler import to_flux_time
+from .trip import Trip
 
 logger = logging.getLogger("trip_service.trip_loader")
 

@@ -9,25 +9,10 @@ computes the per-trip metrics on demand, caching the result.
 '''
 import logging
 import math
-from datetime import datetime, timezone
+
+from ..influxdb_service.influxdb_handler import to_flux_time
 
 logger = logging.getLogger("trip_service.trip")
-
-
-def to_flux_time(timestamp_ms: int) -> str:
-    '''
-    Converts an epoch-ms instant to the RFC3339 string Flux expects, matching the
-    idiom the History path uses (datetime.fromtimestamp(...).isoformat() with the
-    "+00:00" suffix normalised to "Z"). InfluxDBHandler reads take Flux range
-    strings, not raw ms.
-    Arguments:
-        timestamp_ms (int): Milliseconds since the Unix epoch (UTC).
-    '''
-    return (
-        datetime.fromtimestamp(timestamp_ms / 1000, tz=timezone.utc)
-        .isoformat()
-        .replace("+00:00", "Z")
-    )
 
 
 def _series_values(result):

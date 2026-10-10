@@ -71,6 +71,14 @@ TESLA_GRAPH_PROPERTIES = 0x71      # B->F: count(2B) + per property id/unit/cate
 TESLA_GET_HISTORY = 0x72           # F->B: range_code(1B) + id(len(2B)+UTF-8) + start_ms(8B) + end_ms(8B)
 TESLA_HISTORY = 0x73               # B->F: id(len(2B)+UTF-8) + status(1B) + count(4B) + count*(ts_ms(8B)+value(8B double))
 
+# range_code values of TESLA_GET_HISTORY / CHARGER_GET_HISTORY. A custom range uses
+# the request's start_ms/end_ms; the presets end at "now".
+HISTORY_RANGE_1H = 0
+HISTORY_RANGE_1D = 1
+HISTORY_RANGE_1M = 2
+HISTORY_RANGE_CUSTOM = 3
+HISTORY_RANGE_1W = 4
+
 # Trip request/response (the Trips view, issue #6). Contiguous with the History
 # codes above and, like them, a request/response pair: the backend replies to the
 # requesting client only (server.send_to), never a broadcast. A trip's natural key

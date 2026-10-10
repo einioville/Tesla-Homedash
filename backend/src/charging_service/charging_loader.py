@@ -15,7 +15,8 @@ import math
 
 import numpy as np
 
-from .charging_session import CHARGER_ENERGY_ID, ChargingSession, to_flux_time
+from ..influxdb_service.influxdb_handler import to_flux_time
+from .charging_session import CHARGER_ENERGY_ID, ChargingSession
 from .spot_price import price_hourly_energy
 
 logger = logging.getLogger("charging_service.charging_loader")

@@ -10,7 +10,7 @@ from .config_service.config_service import ConfigService
 from .display_service.display_service import DisplayService
 from .charging_service.spot_price import SpotPriceProvider
 from .charging_service.spot_price_service import SpotPriceService
-from .influxdb_service.influxdb_handler import InfluxDBHandler
+from .influxdb_service.influxdb_handler import InfluxDBHandler, to_flux_time
 from .media_service.media_manager import MediaManager
 from .media_service.spotify_auth_service import SpotifyAuthService
 from .media_service.spotify_device_service import SpotifyDeviceService
@@ -48,12 +48,28 @@ REQUIRED_ENV_VARS = (
 )
 
 
-# History request range codes (mirrors the frontend RangeSelector).
-_RANGE_1H = 0
-_RANGE_1D = 1
-_RANGE_1M = 2
-_RANGE_CUSTOM = 3
-_RANGE_1W = 4
+# range_code -> (Flux range start, window width in ms) for the presets, which all
+# end at now(). The query and the empty-window boundary fill both read this, so
+# the held line always spans exactly the range that was queried.
+_PRESET_RANGES = {
+    protocol.HISTORY_RANGE_1H: ("-1h", 60 * 60 * 1000),
+    protocol.HISTORY_RANGE_1D: ("-1d", 24 * 60 * 60 * 1000),
+    protocol.HISTORY_RANGE_1W: ("-7d", 7 * 24 * 60 * 60 * 1000),
+    protocol.HISTORY_RANGE_1M: ("-30d", 30 * 24 * 60 * 60 * 1000),
+}
+
+
+def _is_custom_window(range_code: int, start_ms: int, end_ms: int) -> bool:
+    '''
+    True for a usable custom range: the custom code and a non-empty window
+    after the epoch.
+    Arguments:
+        range_code (int): One of the protocol.HISTORY_RANGE_* codes.
+        start_ms (int): Custom-range start (epoch ms).
+        end_ms (int): Custom-range end (epoch ms).
+    '''
+    return range_code == protocol.HISTORY_RANGE_CUSTOM and 0 < start_ms < end_ms
+
 
 def _history_range(range_code: int, start_ms: int, end_ms: int) -> tuple:
     '''
@@ -62,43 +78,24 @@ def _history_range(range_code: int, start_ms: int, end_ms: int) -> tuple:
     History is returned raw (no downsampling) — the frontend step-renders the
     points so a value held between records still displays as held.
     Arguments:
-        range_code (int): One of the _RANGE_* codes.
+        range_code (int): One of the protocol.HISTORY_RANGE_* codes.
         start_ms (int): Custom-range start (epoch ms); ignored for presets.
         end_ms (int): Custom-range end (epoch ms); ignored for presets.
     Returns:
         tuple[str, str]: (time_start, time_end).
     '''
-    if range_code == _RANGE_1H:
-        return "-1h", "now()"
-    if range_code == _RANGE_1D:
-        return "-1d", "now()"
-    if range_code == _RANGE_1W:
-        return "-7d", "now()"
-    if range_code == _RANGE_1M:
-        return "-30d", "now()"
-    # Custom range: convert the epoch-ms bounds to RFC3339 UTC. Guard first against
-    # an unknown preset code (a newer frontend / version skew) or an empty/inverted
-    # custom window — either would otherwise convert epoch 0 to a 1970 range and
-    # silently return no data. Degrade to the last hour and log so the skew is loud.
-    if range_code != _RANGE_CUSTOM or start_ms <= 0 or end_ms <= 0 or end_ms <= start_ms:
+    if range_code in _PRESET_RANGES:
+        return _PRESET_RANGES[range_code][0], "now()"
+    # An unknown preset code (a newer frontend / version skew) or an empty/inverted
+    # custom window would otherwise convert epoch 0 to a 1970 range and silently
+    # return no data. Degrade to the last hour and log so the skew is loud.
+    if not _is_custom_window(range_code, start_ms, end_ms):
         logger.warning(
             "History range fallback (range_code=%d, start_ms=%d, end_ms=%d) -> -1h",
             range_code, start_ms, end_ms,
         )
-        return "-1h", "now()"
-    time_start = datetime.fromtimestamp(start_ms / 1000, tz=timezone.utc).isoformat().replace("+00:00", "Z")
-    time_end = datetime.fromtimestamp(end_ms / 1000, tz=timezone.utc).isoformat().replace("+00:00", "Z")
-    return time_start, time_end
-
-
-# Preset window widths in milliseconds, kept beside the _history_range strings so
-# the empty-window boundary-fill spans exactly the same range the query asked for.
-_PRESET_WINDOW_MS = {
-    _RANGE_1H: 60 * 60 * 1000,
-    _RANGE_1D: 24 * 60 * 60 * 1000,
-    _RANGE_1W: 7 * 24 * 60 * 60 * 1000,
-    _RANGE_1M: 30 * 24 * 60 * 60 * 1000,
-}
+        return _PRESET_RANGES[protocol.HISTORY_RANGE_1H][0], "now()"
+    return to_flux_time(start_ms), to_flux_time(end_ms)
 
 
 def _history_bounds_ms(range_code: int, start_ms: int, end_ms: int) -> tuple:
@@ -109,61 +106,137 @@ def _history_bounds_ms(range_code: int, start_ms: int, end_ms: int) -> tuple:
     spans the whole selected range. Presets end at "now"; a custom range echoes its
     bounds; anything malformed falls back to the last hour (matching _history_range).
     Arguments:
-        range_code (int): One of the _RANGE_* codes.
+        range_code (int): One of the protocol.HISTORY_RANGE_* codes.
         start_ms (int): Custom-range start (epoch ms); ignored for presets.
         end_ms (int): Custom-range end (epoch ms); ignored for presets.
     Returns:
         tuple[int, int]: (start_ms, end_ms) in epoch milliseconds.
     '''
     now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
-    if range_code in _PRESET_WINDOW_MS:
-        return now_ms - _PRESET_WINDOW_MS[range_code], now_ms
-    if range_code == _RANGE_CUSTOM and start_ms > 0 and end_ms > start_ms:
+    if range_code in _PRESET_RANGES:
+        return now_ms - _PRESET_RANGES[range_code][1], now_ms
+    if _is_custom_window(range_code, start_ms, end_ms):
         return start_ms, end_ms
-    return now_ms - _PRESET_WINDOW_MS[_RANGE_1H], now_ms
+    return now_ms - _PRESET_RANGES[protocol.HISTORY_RANGE_1H][1], now_ms
 
 
-def _build_history_frame(data_property_id: str, result) -> bytes:
+def _parse_history_request(payload: bytes, label: str) -> tuple | None:
     '''
-    Builds a TESLA_HISTORY response frame. The echoed id lets the frontend drop
-    stale responses; status is 0 (no data) when result is None, else 1.
+    Unpacks a TESLA_GET_HISTORY / CHARGER_GET_HISTORY request: range_code(1B) +
+    id(len(2B)+UTF-8) + start_ms(8B) + end_ms(8B). A truncated request is logged
+    and returns None; it gets no reply.
     Arguments:
-        data_property_id (str): The requested property id, echoed back.
-        result: (count, timestamps_ms, values) from get_data_history, or None.
+        payload (bytes): The raw payload after the message-type byte.
+        label (str): Packet name, for the warning line.
+    Returns:
+        tuple | None: (range_code, data_property_id, start_ms, end_ms).
     '''
-    id_bytes = data_property_id.encode("utf-8")
-    body = struct.pack("!H", len(id_bytes)) + id_bytes
+    if len(payload) < 3:
+        logger.warning("%s: payload too short (%d bytes)", label, len(payload))
+        return None
+    range_code = payload[0]
+    id_len = struct.unpack("!H", payload[1:3])[0]
+    if len(payload) < 3 + id_len + 16:
+        logger.warning(
+            "%s: payload too short for id_len=%d (%d bytes)", label, id_len, len(payload),
+        )
+        return None
+    data_property_id = payload[3:3 + id_len].decode("utf-8")
+    start_ms, end_ms = struct.unpack("!qq", payload[3 + id_len:3 + id_len + 16])
+    return range_code, data_property_id, start_ms, end_ms
+
+
+def _parse_window(payload: bytes, label: str) -> tuple | None:
+    '''
+    Unpacks the start_ms(8B) + end_ms(8B) window a trip or charging request
+    carries. A truncated request is logged and returns None; it gets no reply.
+    Arguments:
+        payload (bytes): The raw payload after the message-type byte.
+        label (str): Packet name, for the warning line.
+    '''
+    if len(payload) < 16:
+        logger.warning("%s: payload too short (%d bytes)", label, len(payload))
+        return None
+    return struct.unpack("!qq", payload[:16])
+
+
+def _pack_id(text: str) -> bytes:
+    '''
+    Packs a len(2B) + UTF-8 string, the shape of every echoed property id.
+    Arguments:
+        text (str): The id.
+    '''
+    raw = text.encode("utf-8")
+    return struct.pack("!H", len(raw)) + raw
+
+
+def _pack_series(result) -> bytes:
+    '''
+    Packs status(1B) + count(4B) + count*(ts_ms(8B) + value(8B double)), the series
+    block of TESLA_HISTORY, CHARGER_HISTORY and TRIP_SERIES. status is 0 (no data)
+    with no points when result is None, else 1.
+    Arguments:
+        result: (count, timestamps_ms, values) from a history read, or None.
+    '''
     if result is None:
-        body += struct.pack("!B", 0) + struct.pack("!I", 0)
-        return protocol.frame(protocol.TESLA_HISTORY, body)
+        return struct.pack("!B", 0) + struct.pack("!I", 0)
     count, timestamps, values = result
-    body += struct.pack("!B", 1) + struct.pack("!I", int(count))
+    body = struct.pack("!B", 1) + struct.pack("!I", int(count))
     for timestamp, value in zip(timestamps, values):
         body += struct.pack("!q", int(timestamp)) + struct.pack("!d", float(value))
-    return protocol.frame(protocol.TESLA_HISTORY, body)
+    return body
 
 
-def _build_trip_list_frame(req_start_ms: int, req_end_ms: int, trips: list) -> bytes:
+def _pack_doubles(fields: tuple, summary: dict | None) -> bytes:
     '''
-    Builds a TRIP_LIST response frame from detected trips. The requested
-    [req_start_ms, req_end_ms] window is echoed first so the client can discard an
-    out-of-order reply from a superseded week request (the list path's analogue of
-    TRIP_DETAIL's trip_id echo). Each record is the trip's [start_ms, end_ms] window
-    plus its distance (km) for the dropdown label; distance may be NaN (a trip whose
-    distance could not be computed is still listed), which packs as an IEEE-754 NaN
-    the frontend renders without a distance.
+    Packs one IEEE-754 double per field, in order. A field missing from summary
+    — every field when summary is None — packs as NaN, which the frontend renders
+    as "—".
     Arguments:
+        fields (tuple): The field names, in wire order.
+        summary (dict | None): The computed values.
+    '''
+    body = b""
+    for field in fields:
+        value = summary.get(field, float("nan")) if summary else float("nan")
+        body += struct.pack("!d", float(value))
+    return body
+
+
+def _build_history_frame(msg_type: int, data_property_id: str, result) -> bytes:
+    '''
+    Builds a TESLA_HISTORY or CHARGER_HISTORY reply: the echoed id, which lets the
+    frontend drop a stale reply, then the series.
+    Arguments:
+        msg_type (int): protocol.TESLA_HISTORY or protocol.CHARGER_HISTORY.
+        data_property_id (str): The requested property id, echoed back.
+        result: (count, timestamps_ms, values) from the history read, or None.
+    '''
+    return protocol.frame(msg_type, _pack_id(data_property_id) + _pack_series(result))
+
+
+def _build_window_list_frame(msg_type: int, req_start_ms: int, req_end_ms: int,
+                             records: list) -> bytes:
+    '''
+    Builds a TRIP_LIST or CHARGING_LIST reply. The requested [req_start_ms,
+    req_end_ms] window is echoed first so the client can discard an out-of-order
+    reply from a superseded request. Each record is a [start_ms, end_ms] window
+    plus one double for the dropdown label: a trip's distance (km; NaN when it
+    could not be computed, and the trip is still listed) or a session's charger
+    energy (kWh; the loader has already dropped sessions without one).
+    Arguments:
+        msg_type (int): protocol.TRIP_LIST or protocol.CHARGING_LIST.
         req_start_ms (int): The requested window start, echoed back.
         req_end_ms (int): The requested window end, echoed back.
-        trips (list): [(start_ms, end_ms, distance_km), ...].
+        records (list): [(start_ms, end_ms, value), ...].
     '''
     body = struct.pack("!q", int(req_start_ms)) + struct.pack("!q", int(req_end_ms))
-    body += struct.pack("!H", len(trips))
-    for start_ms, end_ms, distance_km in trips:
+    body += struct.pack("!H", len(records))
+    for start_ms, end_ms, value in records:
         body += struct.pack("!q", int(start_ms))
         body += struct.pack("!q", int(end_ms))
-        body += struct.pack("!d", float(distance_km))
-    return protocol.frame(protocol.TRIP_LIST, body)
+        body += struct.pack("!d", float(value))
+    return protocol.frame(msg_type, body)
 
 
 def _build_trip_detail_frame(trip_id: int, route: list) -> bytes:
@@ -203,131 +276,25 @@ def _build_week_counts_frame(weeks: list) -> bytes:
     return protocol.frame(protocol.TRIP_WEEK_COUNTS, body)
 
 
-# The summary fields packed (in order) after the echoed trip_id/status/window. Every
-# value is an IEEE-754 double; a missing metric packs as NaN, which the frontend
-# renders as "—". SoC used is derived on the frontend from start_soc − end_soc.
+# TRIP_SUMMARY's fields, in wire order. SoC used is derived on the frontend from
+# start_soc − end_soc.
 _TRIP_SUMMARY_FIELDS = (
     "distance_km", "avg_speed", "max_speed", "energy_wh", "wh_per_km",
     "start_soc", "end_soc",
 )
 
-
-def _build_trip_summary_frame(
-    trip_id: int, start_ms: int, end_ms: int, summary: dict | None
-) -> bytes:
-    '''
-    Builds a TRIP_SUMMARY response frame from Trip.summary(). The echoed trip_id
-    (== start_ms) lets the frontend drop a reply for a trip it has switched away from;
-    status is 0 (no summary) when summary is None (an inverted window or a failed
-    computation), else 1. The window is echoed and the fixed field block is always
-    written (NaN-filled on status 0), so the payload is a constant size the client can
-    parse without branching.
-    Arguments:
-        trip_id (int): The requested trip's start_ms, echoed back.
-        start_ms (int): The trip window start, echoed for the frontend's time stats.
-        end_ms (int): The trip window end, echoed for the frontend's time stats.
-        summary (dict | None): Trip.summary()'s dict, or None.
-    '''
-    status = 0 if summary is None else 1
-    body = struct.pack("!q", int(trip_id))
-    body += struct.pack("!B", status)
-    body += struct.pack("!q", int(start_ms))
-    body += struct.pack("!q", int(end_ms))
-    for field in _TRIP_SUMMARY_FIELDS:
-        value = summary.get(field, float("nan")) if summary else float("nan")
-        body += struct.pack("!d", float(value))
-    return protocol.frame(protocol.TRIP_SUMMARY, body)
-
-
-def _build_trip_series_frame(trip_id: int, data_property_id: str, result) -> bytes:
-    '''
-    Builds a TRIP_SERIES response frame: one numeric property's raw time series over
-    the trip window (from get_data_history, the same read the History graph uses). The
-    trip_id and the property id are both echoed so the frontend can drop a reply after
-    the user switches trip or property. status is 0 (no data) when result is None, else 1.
-    Arguments:
-        trip_id (int): The requested trip's start_ms, echoed back.
-        data_property_id (str): The requested property id, echoed back.
-        result: (count, timestamps_ms, values) from get_data_history, or None.
-    '''
-    id_bytes = data_property_id.encode("utf-8")
-    body = struct.pack("!q", int(trip_id))
-    body += struct.pack("!H", len(id_bytes)) + id_bytes
-    if result is None:
-        body += struct.pack("!B", 0) + struct.pack("!I", 0)
-        return protocol.frame(protocol.TRIP_SERIES, body)
-    count, timestamps, values = result
-    body += struct.pack("!B", 1) + struct.pack("!I", int(count))
-    for timestamp, value in zip(timestamps, values):
-        body += struct.pack("!q", int(timestamp)) + struct.pack("!d", float(value))
-    return protocol.frame(protocol.TRIP_SERIES, body)
-
-
-# The charging-loss summary fields packed (in order) after the echoed
-# session_id/status/window. Every value is an IEEE-754 double; a missing metric packs
-# as NaN, which the frontend renders as "—". Mirrors _TRIP_SUMMARY_FIELDS. cost_eur /
-# avg_price_eur_per_kwh are the session's spot-priced cost + its average €/kWh (NaN when
-# spot pricing is off and no flat tariff is set).
+# CHARGING_SUMMARY's fields, in wire order. cost_eur / avg_price_eur_per_kwh are the
+# session's spot-priced cost and its average €/kWh (NaN when spot pricing is off and
+# no flat tariff is set).
 _CHARGING_SUMMARY_FIELDS = (
     "charger_kwh", "ac_in_kwh", "battery_kwh",
     "loss_cable_kwh", "loss_conversion_kwh", "loss_total_kwh", "loss_total_pct",
     "start_soc", "end_soc", "cost_eur", "avg_price_eur_per_kwh",
 )
 
-
-def _build_charging_list_frame(req_start_ms: int, req_end_ms: int, sessions: list) -> bytes:
-    '''
-    Builds a CHARGING_LIST response frame from detected charging sessions. The requested
-    [req_start_ms, req_end_ms] window is echoed first so the client can discard an
-    out-of-order reply (the list path's analogue of CHARGING_SUMMARY's session_id echo).
-    Each record is the session's [start_ms, end_ms] window plus the charger energy it
-    delivered (kWh) for the dropdown label; the loader has already dropped sessions with
-    no comparable charger energy, so charger_kwh is always a real number here.
-    Arguments:
-        req_start_ms (int): The requested window start, echoed back.
-        req_end_ms (int): The requested window end, echoed back.
-        sessions (list): [(start_ms, end_ms, charger_kwh), ...].
-    '''
-    body = struct.pack("!q", int(req_start_ms)) + struct.pack("!q", int(req_end_ms))
-    body += struct.pack("!H", len(sessions))
-    for start_ms, end_ms, charger_kwh in sessions:
-        body += struct.pack("!q", int(start_ms))
-        body += struct.pack("!q", int(end_ms))
-        body += struct.pack("!d", float(charger_kwh))
-    return protocol.frame(protocol.CHARGING_LIST, body)
-
-
-def _build_charging_summary_frame(
-    session_id: int, start_ms: int, end_ms: int, summary: dict | None
-) -> bytes:
-    '''
-    Builds a CHARGING_SUMMARY response frame from ChargingSession.summary(). The echoed
-    session_id (== start_ms) lets the frontend drop a reply for a session it has switched
-    away from; status is 0 (no summary) when summary is None (an inverted window), else 1.
-    The window is echoed and the fixed field block is always written (NaN-filled on status
-    0), so the payload is a constant size the client parses without branching. Mirrors
-    _build_trip_summary_frame.
-    Arguments:
-        session_id (int): The requested session's start_ms, echoed back.
-        start_ms (int): The session window start, echoed for the frontend's time stats.
-        end_ms (int): The session window end, echoed for the frontend's time stats.
-        summary (dict | None): ChargingSession.summary()'s dict, or None.
-    '''
-    status = 0 if summary is None else 1
-    body = struct.pack("!q", int(session_id))
-    body += struct.pack("!B", status)
-    body += struct.pack("!q", int(start_ms))
-    body += struct.pack("!q", int(end_ms))
-    for field in _CHARGING_SUMMARY_FIELDS:
-        value = summary.get(field, float("nan")) if summary else float("nan")
-        body += struct.pack("!d", float(value))
-    return protocol.frame(protocol.CHARGING_SUMMARY, body)
-
-
-# The month-to-date charging aggregate fields packed (in order) after the status byte.
-# Every value is an IEEE-754 double; a missing metric packs as NaN, rendered "—".
-# charging_cost_eur is filled by the handler from the configured tariff. Unlike the
-# per-session frames there is no echoed window — the month is derived server-side.
+# CHARGING_MONTH's fields, in wire order. Both cost fields are computed inside
+# ChargingLoader.month_summary(). Unlike the per-session frames there is no echoed
+# window: the month is derived server-side.
 _CHARGING_MONTH_FIELDS = (
     "charger_kwh", "car_kwh", "wasted_kwh", "efficiency_pct",
     "car_wh_per_km", "charger_wh_per_km", "driving_kwh", "km_month",
@@ -336,45 +303,59 @@ _CHARGING_MONTH_FIELDS = (
 )
 
 
+def _build_summary_frame(msg_type: int, fields: tuple, item_id: int,
+                         start_ms: int, end_ms: int, summary: dict | None) -> bytes:
+    '''
+    Builds a TRIP_SUMMARY or CHARGING_SUMMARY reply. The echoed id (== start_ms)
+    lets the frontend drop a reply for a trip or session it has switched away
+    from; status is 0 (no summary) when summary is None (an inverted window or a
+    failed computation), else 1. The window is echoed and the field block is
+    always written (NaN-filled on status 0), so the payload is a constant size the
+    client parses without branching.
+    Arguments:
+        msg_type (int): protocol.TRIP_SUMMARY or protocol.CHARGING_SUMMARY.
+        fields (tuple): _TRIP_SUMMARY_FIELDS or _CHARGING_SUMMARY_FIELDS.
+        item_id (int): The requested trip's or session's start_ms, echoed back.
+        start_ms (int): The window start, echoed for the frontend's time stats.
+        end_ms (int): The window end, echoed for the frontend's time stats.
+        summary (dict | None): The computed summary, or None.
+    '''
+    body = struct.pack("!q", int(item_id))
+    body += struct.pack("!B", 0 if summary is None else 1)
+    body += struct.pack("!q", int(start_ms))
+    body += struct.pack("!q", int(end_ms))
+    return protocol.frame(msg_type, body + _pack_doubles(fields, summary))
+
+
+def _build_trip_series_frame(trip_id: int, data_property_id: str, result) -> bytes:
+    '''
+    Builds a TRIP_SERIES response frame: one numeric property's raw time series over
+    the trip window (from get_data_history, the same read the History graph uses). The
+    trip_id and the property id are both echoed so the frontend can drop a reply after
+    the user switches trip or property.
+    Arguments:
+        trip_id (int): The requested trip's start_ms, echoed back.
+        data_property_id (str): The requested property id, echoed back.
+        result: (count, timestamps_ms, values) from get_data_history, or None.
+    '''
+    body = struct.pack("!q", int(trip_id)) + _pack_id(data_property_id) + _pack_series(result)
+    return protocol.frame(protocol.TRIP_SERIES, body)
+
+
 def _build_charging_month_frame(summary: dict | None) -> bytes:
     '''
-    Builds a CHARGING_MONTH response frame from ChargingLoader.month_summary() plus the
-    handler-computed charging_cost_eur. status is 0 when summary is None (a failed
-    computation), else 1; the fixed field block is always written (NaN-filled on status 0)
-    so the payload is a constant size the client parses without branching. Mirrors
-    _build_charging_summary_frame.
+    Builds a CHARGING_MONTH response frame from ChargingLoader.month_summary().
+    status is 0 when summary is None (a failed computation), else 1; the field
+    block is always written (NaN-filled on status 0), so the payload is a constant
+    size the client parses without branching.
     Arguments:
         summary (dict | None): The month aggregate dict, or None.
     '''
     status = 0 if summary is None else 1
-    body = struct.pack("!B", status)
-    for field in _CHARGING_MONTH_FIELDS:
-        value = summary.get(field, float("nan")) if summary else float("nan")
-        body += struct.pack("!d", float(value))
-    return protocol.frame(protocol.CHARGING_MONTH, body)
-
-
-def _build_charger_history_frame(data_property_id: str, result) -> bytes:
-    '''
-    Builds a CHARGER_HISTORY response frame — one charger power property's raw time series
-    over the requested window (from read_charger_data_property, "myenergi_data"). The
-    echoed id lets the frontend drop a stale reply; status is 0 (no data) when result is
-    None, else 1. Identical shape to _build_history_frame (TESLA_HISTORY), just a
-    different measurement + message type.
-    Arguments:
-        data_property_id (str): The requested charger property id, echoed back.
-        result: (count, timestamps_ms, values) from get_power_history, or None.
-    '''
-    id_bytes = data_property_id.encode("utf-8")
-    body = struct.pack("!H", len(id_bytes)) + id_bytes
-    if result is None:
-        body += struct.pack("!B", 0) + struct.pack("!I", 0)
-        return protocol.frame(protocol.CHARGER_HISTORY, body)
-    count, timestamps, values = result
-    body += struct.pack("!B", 1) + struct.pack("!I", int(count))
-    for timestamp, value in zip(timestamps, values):
-        body += struct.pack("!q", int(timestamp)) + struct.pack("!d", float(value))
-    return protocol.frame(protocol.CHARGER_HISTORY, body)
+    return protocol.frame(
+        protocol.CHARGING_MONTH,
+        struct.pack("!B", status) + _pack_doubles(_CHARGING_MONTH_FIELDS, summary),
+    )
 
 
 def _register_handlers(
@@ -421,19 +402,10 @@ def _register_handlers(
         to the requesting client only.  A bad id or unreachable InfluxDB yields a
         status=0 (no data) frame rather than no reply, so the UI never hangs.
         '''
-        if len(payload) < 3:
-            logger.warning("TESLA_GET_HISTORY: payload too short (%d bytes)", len(payload))
+        request = _parse_history_request(payload, "TESLA_GET_HISTORY")
+        if request is None:
             return
-        range_code = payload[0]
-        id_len = struct.unpack("!H", payload[1:3])[0]
-        if len(payload) < 3 + id_len + 16:
-            logger.warning(
-                "TESLA_GET_HISTORY: payload too short for id_len=%d (%d bytes)",
-                id_len, len(payload),
-            )
-            return
-        data_property_id = payload[3:3 + id_len].decode("utf-8")
-        start_ms, end_ms = struct.unpack("!qq", payload[3 + id_len:3 + id_len + 16])
+        range_code, data_property_id, start_ms, end_ms = request
 
         time_start, time_end = _history_range(range_code, start_ms, end_ms)
         result = None
@@ -450,19 +422,16 @@ def _register_handlers(
                 window_start_ms, window_end_ms = _history_bounds_ms(
                     range_code, start_ms, end_ms
                 )
-                window_start_rfc = (
-                    datetime.fromtimestamp(window_start_ms / 1000, tz=timezone.utc)
-                    .isoformat().replace("+00:00", "Z")
-                )
                 held = await vehicle.get_value_before(
-                    data_property_id, window_start_rfc
+                    data_property_id, to_flux_time(window_start_ms)
                 )
                 if held is not None:
                     result = (2, [window_start_ms, window_end_ms], [held, held])
         except ValueError as e:
             # Malformed id / window — reply empty rather than dropping the request.
             logger.warning("TESLA_GET_HISTORY rejected: %s", e)
-        await server.send_to(writer, _build_history_frame(data_property_id, result))
+        await server.send_to(
+            writer, _build_history_frame(protocol.TESLA_HISTORY, data_property_id, result))
 
     async def _get_trip_list(payload: bytes, writer) -> None:
         '''
@@ -470,10 +439,10 @@ def _register_handlers(
         requesting client only. A malformed request or an unreachable InfluxDB yields
         an empty list rather than no reply, so the Trips dropdown never hangs.
         '''
-        if len(payload) < 16:
-            logger.warning("TRIP_GET_LIST: payload too short (%d bytes)", len(payload))
+        window = _parse_window(payload, "TRIP_GET_LIST")
+        if window is None:
             return
-        start_ms, end_ms = struct.unpack("!qq", payload[:16])
+        start_ms, end_ms = window
         records = []
         try:
             trips = await trip_loader.list_trips(start_ms, end_ms)
@@ -484,7 +453,8 @@ def _register_handlers(
         except Exception as e:
             logger.warning("TRIP_GET_LIST failed: %s: %s", type(e).__name__, e)
         # Echo the requested window so the client can drop an out-of-order reply.
-        await server.send_to(writer, _build_trip_list_frame(start_ms, end_ms, records))
+        await server.send_to(
+            writer, _build_window_list_frame(protocol.TRIP_LIST, start_ms, end_ms, records))
 
     async def _get_trip_detail(payload: bytes, writer) -> None:
         '''
@@ -493,10 +463,10 @@ def _register_handlers(
         (known from the prior TRIP_LIST), so no re-detection is needed. A window that
         logged no fixes replies status=0 (no data) rather than no reply.
         '''
-        if len(payload) < 16:
-            logger.warning("TRIP_GET_DETAIL: payload too short (%d bytes)", len(payload))
+        window = _parse_window(payload, "TRIP_GET_DETAIL")
+        if window is None:
             return
-        start_ms, end_ms = struct.unpack("!qq", payload[:16])
+        start_ms, end_ms = window
         route = []
         try:
             route = await trip_loader.load_route(start_ms, end_ms)
@@ -555,17 +525,18 @@ def _register_handlers(
         failed computation replies status=0 rather than no reply, so the stats panel
         never hangs.
         '''
-        if len(payload) < 16:
-            logger.warning("TRIP_GET_SUMMARY: payload too short (%d bytes)", len(payload))
+        window = _parse_window(payload, "TRIP_GET_SUMMARY")
+        if window is None:
             return
-        start_ms, end_ms = struct.unpack("!qq", payload[:16])
+        start_ms, end_ms = window
         summary = None
         try:
             summary = await trip_loader.load_summary(start_ms, end_ms)
         except Exception as e:
             logger.warning("TRIP_GET_SUMMARY failed: %s: %s", type(e).__name__, e)
         await server.send_to(
-            writer, _build_trip_summary_frame(start_ms, start_ms, end_ms, summary)
+            writer, _build_summary_frame(protocol.TRIP_SUMMARY, _TRIP_SUMMARY_FIELDS,
+                                         start_ms, start_ms, end_ms, summary)
         )
 
     async def _get_trip_series(payload: bytes, writer) -> None:
@@ -589,7 +560,7 @@ def _register_handlers(
         data_property_id = payload[18:18 + id_len].decode("utf-8")
         result = None
         try:
-            time_start, time_end = _history_range(_RANGE_CUSTOM, start_ms, end_ms)
+            time_start, time_end = _history_range(protocol.HISTORY_RANGE_CUSTOM, start_ms, end_ms)
             result = await vehicle.get_data_history(data_property_id, time_start, time_end)
         except Exception as e:
             # Any read/parse failure replies status=0 rather than no reply, so the graph
@@ -607,10 +578,10 @@ def _register_handlers(
         empty list rather than no reply, so the sessions dropdown never hangs. Mirrors
         _get_trip_list.
         '''
-        if len(payload) < 16:
-            logger.warning("CHARGING_GET_LIST: payload too short (%d bytes)", len(payload))
+        window = _parse_window(payload, "CHARGING_GET_LIST")
+        if window is None:
             return
-        start_ms, end_ms = struct.unpack("!qq", payload[:16])
+        start_ms, end_ms = window
         records = []
         try:
             sessions = await charging_loader.list_sessions(start_ms, end_ms)
@@ -621,7 +592,8 @@ def _register_handlers(
         except Exception as e:
             logger.warning("CHARGING_GET_LIST failed: %s: %s", type(e).__name__, e)
         # Echo the requested window so the client can drop an out-of-order reply.
-        await server.send_to(writer, _build_charging_list_frame(start_ms, end_ms, records))
+        await server.send_to(
+            writer, _build_window_list_frame(protocol.CHARGING_LIST, start_ms, end_ms, records))
 
     async def _get_charging_summary(payload: bytes, writer) -> None:
         '''
@@ -631,17 +603,18 @@ def _register_handlers(
         request or a failed computation replies status=0 rather than no reply, so the
         panel never hangs. Mirrors _get_trip_summary.
         '''
-        if len(payload) < 16:
-            logger.warning("CHARGING_GET_SUMMARY: payload too short (%d bytes)", len(payload))
+        window = _parse_window(payload, "CHARGING_GET_SUMMARY")
+        if window is None:
             return
-        start_ms, end_ms = struct.unpack("!qq", payload[:16])
+        start_ms, end_ms = window
         summary = None
         try:
             summary = await charging_loader.load_summary(start_ms, end_ms)
         except Exception as e:
             logger.warning("CHARGING_GET_SUMMARY failed: %s: %s", type(e).__name__, e)
         await server.send_to(
-            writer, _build_charging_summary_frame(start_ms, start_ms, end_ms, summary)
+            writer, _build_summary_frame(protocol.CHARGING_SUMMARY, _CHARGING_SUMMARY_FIELDS,
+                                         start_ms, start_ms, end_ms, summary)
         )
 
     async def _get_charging_month(_payload: bytes, writer) -> None:
@@ -673,19 +646,10 @@ def _register_handlers(
         ChargePower, logged every poll). A bad id or unreachable InfluxDB replies status=0
         (no data) rather than no reply, so the graph never hangs.
         '''
-        if len(payload) < 3:
-            logger.warning("CHARGER_GET_HISTORY: payload too short (%d bytes)", len(payload))
+        request = _parse_history_request(payload, "CHARGER_GET_HISTORY")
+        if request is None:
             return
-        range_code = payload[0]
-        id_len = struct.unpack("!H", payload[1:3])[0]
-        if len(payload) < 3 + id_len + 16:
-            logger.warning(
-                "CHARGER_GET_HISTORY: payload too short for id_len=%d (%d bytes)",
-                id_len, len(payload),
-            )
-            return
-        data_property_id = payload[3:3 + id_len].decode("utf-8")
-        start_ms, end_ms = struct.unpack("!qq", payload[3 + id_len:3 + id_len + 16])
+        range_code, data_property_id, start_ms, end_ms = request
 
         time_start, time_end = _history_range(range_code, start_ms, end_ms)
         result = None
@@ -696,7 +660,8 @@ def _register_handlers(
         except ValueError as e:
             # Malformed id — reply empty rather than dropping the request.
             logger.warning("CHARGER_GET_HISTORY rejected: %s", e)
-        await server.send_to(writer, _build_charger_history_frame(data_property_id, result))
+        await server.send_to(
+            writer, _build_history_frame(protocol.CHARGER_HISTORY, data_property_id, result))
 
     # Handlers receive (payload, writer); fire-and-forget commands ignore the
     # writer, request/response handlers (below) reply to it via server.send_to.
