@@ -169,7 +169,9 @@ class MyEnergiService:
         '''
         Reports charger-poll health.  Needs no new state: the consecutive-failure
         count already drives the backoff, and the interval in force is already
-        tracked for the same reason.
+        tracked for the same reason.  The session-detection settings that share
+        the `myenergi` block are the Charging view's, added to the same card by
+        start_services, which builds it whether or not this service exists.
         '''
         if self.__consecutive_failures >= 3:
             state = "error"
@@ -183,17 +185,12 @@ class MyEnergiService:
             detail = "Odottaa ensimmäistä kyselyä"
         else:
             detail = "Lataa" if self.__is_charging else "Ei lataa"
-        block = self.__config.myenergi_config
         config = [["Kyselyväli", f"{self.__interval} s"]]
         if self.__current_interval and self.__current_interval != self.__interval:
             # The backoff is stretching it after failures.
             config.append(["Kyselyväli nyt", f"{self.__current_interval} s"])
         serial = self.__zappi.serial_number if self.__zappi is not None else None
-        config += [
-            ["Zappi", str(serial) if serial else (self.__zappi_serial or "Automaattinen")],
-            ["Pienin lataus", f"{float(block['minSessionEnergyKwh']):.1f} kWh"],
-            ["Latausten yhdistäminen", f"{int(block['sessionMergeMinutes'])} min"],
-        ]
+        config.append(["Zappi", str(serial) if serial else (self.__zappi_serial or "Automaattinen")])
         return {"state": state, "detail": detail, "config": config}
 
     def get_run_task(self) -> asyncio.Task:

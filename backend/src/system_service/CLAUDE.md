@@ -16,8 +16,14 @@ every client to feed a screen nobody is looking at is pure waste. The document i
   string, or `{time: ms}` / `{bytes: n}` / `{duration: s}` for the frontend to format in its own
   locale and zone — and optionally `items` (the server card's connected clients). The probes live on
   the services (`influx_handler.health`, `mm.radio_health`, `telemetry.health`, …) or, where the
-  facts span services, in `start_services` (server, Spotify, trips & charging). **Probe order is
+  facts span services, in `start_services` (server, Spotify, *Laturi*, *Matkat*). **Probe order is
   card order.**
+- **A card is a service with a standing, and a setting appears on one card only.** *Laturi* is the
+  Zappi poll plus the Charging view's session detection (`myenergi.health()` + the session rows, as
+  in the Options view's Sähkö › Laturi), built even without a Zappi; *Matkat* is trip detection
+  alone. The app's version is a row of the *Palvelin* card (`updater.version_label()`), not a card —
+  a version has no *Toiminnassa* to report, and `update_service`'s warnings are that card's.
+  Config labels match the Options view's row labels.
 - **Each probe claims the loggers whose warnings its card counts** (`register_probe(…, loggers=…)`,
   exact names or their dotted descendants — `media_service.spotify` would NOT match
   `media_service.spotify_player`, so list them). The server card is the **catch-all**: it also takes

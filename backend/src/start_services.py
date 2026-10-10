@@ -850,12 +850,14 @@ async def main():
     started_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
 
     def _server_health() -> dict:
-        '''The backend process and the frontends connected to it.'''
+        '''The backend process, what it runs and the frontends connected to it.
+        `updater` is built further down, like `telemetry` below.'''
         count = server.client_count
         return {
             "state": "ok" if count else "warn",
             "detail": "1 näyttö yhdistetty" if count == 1 else f"{count} näyttöä yhdistetty",
             "config": [
+                ["Versio", updater.version_label() or "—"],
                 ["Portti", str(server.PORT)],
                 ["Käynnistetty", {"time": started_ms}],
                 ["Muisti", {"bytes": system_metrics.read_process_rss_bytes()}],
@@ -867,7 +869,7 @@ async def main():
     system_status.register_probe(
         "server", "Palvelin", _server_health, catch_all=True,
         loggers=("server", "start_services", "utils", "config_service", "system_service",
-                 "usb_import_service"))
+                 "usb_import_service", "update_service"))
 
     async def _tesla_health() -> dict:
         '''The Teslemetry stream. `telemetry` is built further down, before the
@@ -906,31 +908,38 @@ async def main():
                                           "media_service.spotify_device", "media_service.spotify_oauth",
                                           "spotipy"))
     system_status.register_probe("weather", "Sää", weather.health, loggers=("weather_service",))
-    if myenergi is not None:
-        system_status.register_probe("myenergi", "Laturi", myenergi.health,
-                                     loggers=("myenergi_service",))
-    else:
-        system_status.register_probe("myenergi", "Laturi", lambda: {
-            "state": "off", "detail": "myenergi-tunnukset puuttuvat (.env)"},
-            loggers=("myenergi_service",))
+
+    def _charger_health() -> dict:
+        '''Charging in one card, as in the Options view's Sähkö › Laturi: the
+        Zappi poll's standing, then the Charging view's session detection, which
+        reads InfluxDB on request and works with or without a Zappi.'''
+        if myenergi is not None:
+            result = myenergi.health()
+        else:
+            result = {"state": "off", "detail": "myenergi-tunnukset puuttuvat (.env)", "config": []}
+        block = config.myenergi_config
+        result["config"] = result.get("config", []) + [
+            ["Latauksen vähimmäisenergia", f"{float(block['minSessionEnergyKwh']):.1f} kWh"],
+            ["Istuntojen yhdistysväli", f"{int(block['sessionMergeMinutes'])} min"],
+        ]
+        return result
+
+    system_status.register_probe("charger", "Laturi", _charger_health,
+                                 loggers=("myenergi_service", "charging_service.charging_loader",
+                                          "charging_service.charging_session"))
     system_status.register_probe("spot_price", "Pörssisähkö", spot_price_service.health,
                                  loggers=("charging_service.spot_price", "charging_service.spot_price_service"))
 
-    def _history_health() -> dict:
-        '''The Trips and Charging views' detection settings; both read InfluxDB
-        on request and keep no running state of their own.'''
+    def _trips_health() -> dict:
+        '''The Trips view's detection settings (Tesla › Matkojen tunnistus); it
+        reads InfluxDB on request and keeps no running state of its own.'''
         trip = config.trip_config
-        charger = config.myenergi_config
         return {"state": "ok", "detail": "Haetaan tietokannasta pyydettäessä", "config": [
-            ["Matkan katkaiseva pysähdys", f"{trip['min_stop_minutes']} min"],
-            ["Lyhin matka", f"{float(trip['min_trip_distance_km']):g} km"],
-            ["Pienin lataus", f"{float(charger['minSessionEnergyKwh']):.1f} kWh"],
-            ["Latausten yhdistäminen", f"{int(charger['sessionMergeMinutes'])} min"],
+            ["Pysähdyksen vähimmäiskesto", f"{trip['min_stop_minutes']} min"],
+            ["Matkan vähimmäispituus", f"{float(trip['min_trip_distance_km']):g} km"],
         ]}
 
-    system_status.register_probe("history", "Matkat ja lataukset", _history_health,
-                                 loggers=("trip_service", "charging_service.charging_loader",
-                                          "charging_service.charging_session"))
+    system_status.register_probe("trips", "Matkat", _trips_health, loggers=("trip_service",))
     system_status.register_probe("audio", "Ääni", audio.health, loggers=("audio_service",))
     system_status.register_probe("display", "Näyttö", display.health, loggers=("display_service",))
     logger.debug("System status service initialized")
@@ -988,7 +997,6 @@ async def main():
     # the updater rewrites the checkout underneath us and then has to come back
     # on the new code, which is the same exit CONFIG_RESTART performs.
     updater = UpdateService(server=server, config_service=config_service)
-    system_status.register_probe("update", "Versio", updater.health, loggers=("update_service",))
     logger.debug("Update service initialized")
 
     # The Options view's telemetry-field table: log / line_mode / zero_based per

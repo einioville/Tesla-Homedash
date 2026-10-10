@@ -512,19 +512,15 @@ class UpdateService:
 
     # ── Health probe (the maintenance dashboard) ──────────────────
 
-    def health(self) -> dict:
+    def version_label(self) -> str | None:
         '''
-        Duck-typed probe for SystemStatusService: whether this deployment can
-        update itself, and what it is running.
+        What this checkout is running — the tag on HEAD, else its short sha — for
+        the Palvelin status card; None when the tree cannot be read (no git, not
+        a working tree) or before the startup task has described it.
         '''
         if not self.__available:
-            return {"state": "off", "detail": self.__reason}
-        if self.__job is not None and not self.__job.get("finished"):
-            return {"state": "warn", "detail": "Päivitys käynnissä"}
-        if self.__job is not None and self.__job.get("ok") is False:
-            return {"state": "warn", "detail": "Edellinen päivitys epäonnistui"}
-        current = self.__state.get("current", {})
-        return {"state": "ok", "detail": current.get("label", "")}
+            return None
+        return self.__state.get("current", {}).get("label") or None
 
     # ── Run task ──────────────────────────────────────────────────
 

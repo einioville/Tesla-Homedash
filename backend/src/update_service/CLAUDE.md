@@ -108,7 +108,7 @@ Load-bearing details, most of them measured:
   never throttled and every card open pays the full timeout again.
 
 **Talks to:** `git`/`uv`/`bash` (subprocesses), `ConfigService` (restart + veto), `Server`
-(broadcast/send_to), `SystemStatusService` (a `health()` probe).
+(broadcast/send_to), the *Palvelin* status card (`version_label()`, the running version).
 
 **Deliberately deferred:** job state is not persisted across a backend restart, so an update
 interrupted by a power cut is reported only by the journal, not by the card.
