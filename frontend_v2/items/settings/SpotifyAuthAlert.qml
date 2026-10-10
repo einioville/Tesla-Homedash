@@ -21,6 +21,10 @@ Item {
     // scrim — this reports a problem, it does not demand a decision.
     MouseArea {
         anchors.fill: parent
+        // A MouseArea with no wheel handler lets the wheel through, which
+        // scrolled the view behind the dialog. Swallow it; a list inside the
+        // card still scrolls, since it sits above this.
+        onWheel: (wheel) => wheel.accepted = true
         preventStealing: true
         onClicked: {}
     }
