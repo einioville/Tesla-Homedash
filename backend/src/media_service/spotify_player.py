@@ -556,20 +556,15 @@ class SpotifyPlayer(BaseMediaPlayer):
     # ── Streaming ─────────────────────────────────────────────────
 
     async def _stream_progress(self, client=None) -> None:
-        payload = struct.pack("!I", self._song_details["progress_ms"])
-        packet = protocol.frame(protocol.MEDIA_STREAM_PROGRESS, payload)
-        await self._media_manager.stream_data(data=packet, player=self, client=client)
+        await self._send(protocol.MEDIA_STREAM_PROGRESS,
+                         struct.pack("!I", self._song_details["progress_ms"]), client)
 
     async def _stream_duration(self, client=None) -> None:
-        payload = struct.pack("!I", self._song_details.get("duration_ms", 0))
-        packet = protocol.frame(protocol.MEDIA_STREAM_DURATION, payload)
-        await self._media_manager.stream_data(data=packet, player=self, client=client)
+        await self._send(protocol.MEDIA_STREAM_DURATION,
+                         struct.pack("!I", self._song_details.get("duration_ms", 0)), client)
 
     async def _stream_name(self, client=None) -> None:
-        payload = self._song_details.get("name", "").encode("utf-8")
-        body = struct.pack("!H", len(payload)) + payload
-        packet = protocol.frame(protocol.MEDIA_STREAM_NAME, body)
-        await self._media_manager.stream_data(data=packet, player=self, client=client)
+        await self._send_text(protocol.MEDIA_STREAM_NAME, self._song_details.get("name", ""), client)
 
     @staticmethod
     def _artist_text(item: dict) -> str:
@@ -615,39 +610,17 @@ class SpotifyPlayer(BaseMediaPlayer):
         return best.get("url") or images[0].get("url") or None
 
     async def _stream_artists(self, client=None) -> None:
-        payload = self._artist_text(self._song_details).encode("utf-8")
-        body = struct.pack("!H", len(payload)) + payload
-        packet = protocol.frame(protocol.MEDIA_STREAM_ARTISTS, body)
-        await self._media_manager.stream_data(data=packet, player=self, client=client)
+        await self._send_text(protocol.MEDIA_STREAM_ARTISTS,
+                              self._artist_text(self._song_details), client)
 
     async def _stream_image(self, client=None) -> None:
-        image_data = await self._download_image()
-        if image_data is None:
-            return
-        packet = protocol.frame(protocol.MEDIA_STREAM_IMAGE, image_data)
-        await self._media_manager.stream_data(data=packet, player=self, client=client)
-
-    async def _download_image(self) -> bytes | None:
-        url = self._image_url(self._song_details)
-        if not url:
-            return None
-
-        try:
-            # Bounded timeout: a slow CDN response would otherwise stall the
-            # poll cycle, queueing every subsequent _update_state() behind it.
-            async with aiohttp.ClientSession(timeout=_IMAGE_FETCH_TIMEOUT) as session:
-                async with session.get(url) as response:
-                    if response.status != 200:
-                        return None
-                    return await response.read()
-        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-            logger.debug("Failed to download album art: %s: %s", type(e).__name__, e)
-            return None
+        # Bounded: a slow CDN response would otherwise stall the poll cycle,
+        # queueing every subsequent _update_state() behind it.
+        await self._send_image(self._image_url(self._song_details), client,
+                               timeout=_IMAGE_FETCH_TIMEOUT)
 
     async def _stream_play_state(self, client=None) -> None:
-        payload = struct.pack("!B", self._is_playing)
-        packet = protocol.frame(protocol.MEDIA_IS_PLAYING, payload)
-        await self._media_manager.stream_data(data=packet, player=self, client=client)
+        await self._send(protocol.MEDIA_IS_PLAYING, struct.pack("!B", self._is_playing), client)
 
     async def stream_everything(self, client=None) -> None:
         if self._song_details is None:

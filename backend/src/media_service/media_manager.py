@@ -138,8 +138,7 @@ class MediaManager:
         await self.load_default_media_player()
         if self.__resume_radio_after_spotify and interrupted and was_playing:
             logger.info("Resuming the radio Spotify interrupted")
-            await self.__radio_player.play()
-            await self.__radio_player.stream_everything(client=None)
+            await self.__play_radio()
 
     async def load_default_media_player(self) -> None:
         '''
@@ -153,6 +152,11 @@ class MediaManager:
         await self.__stream_media_type()
         await self.__active_player.stream_everything(client=None)
         logger.info("Default radio player loaded")
+
+    async def __play_radio(self) -> None:
+        '''Starts the radio and streams its whole state to every client.'''
+        await self.__radio_player.play()
+        await self.__radio_player.stream_everything(client=None)
 
     async def __stream_media_type(self, client=None) -> None:
         media_type = protocol.MEDIA_TYPE_RADIO
@@ -191,8 +195,7 @@ class MediaManager:
         await self.load_default_media_player()
         if self.__autoplay_radio:
             logger.info("Starting the radio (autoplayRadio)")
-            await self.__radio_player.play()
-            await self.__radio_player.stream_everything(client=None)
+            await self.__play_radio()
 
     def set_spotify_auth_listener(self, listener) -> None:
         '''
@@ -305,8 +308,7 @@ class MediaManager:
         if self.__active_player is not self.__radio_player:
             await self.load_default_media_player()
         logger.info("Resuming radio playback after a Spotify device scan")
-        await self.__radio_player.play()
-        await self.__radio_player.stream_everything(client=None)
+        await self.__play_radio()
 
     def health(self) -> dict:
         '''Reports which player currently owns playback.'''
