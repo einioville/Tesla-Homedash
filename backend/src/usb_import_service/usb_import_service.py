@@ -28,6 +28,7 @@ import shutil
 import threading
 
 from ..utils import process, protocol
+from ..utils.config_parser import app_config_dir
 
 logger = logging.getLogger("usb_import_service")
 
@@ -63,13 +64,10 @@ _FREE_SPACE_MARGIN_BYTES = 200 * 1024 * 1024
 
 def screensaver_dir() -> str:
     '''
-    The screensaver's photo folder: $XDG_CONFIG_HOME (or ~/.config) /
-    Tesla-Homedash / screensaver — the same path the frontend's
-    ScreensaverPhotos resolves, beside backend_config.json.
+    The screensaver's photo folder: app_config_dir() / screensaver — the same
+    path the frontend's ScreensaverPhotos resolves, beside backend_config.json.
     '''
-    base = os.environ.get("XDG_CONFIG_HOME") or os.path.join(
-        os.path.expanduser("~"), ".config")
-    return os.path.join(base, "Tesla-Homedash", "screensaver")
+    return os.path.join(app_config_dir(), "screensaver")
 
 
 def usb_volumes(document: dict) -> list:

@@ -43,6 +43,7 @@ from zoneinfo import ZoneInfo, available_timezones
 
 from ..utils import process, protocol
 from ..utils.config_parser import AUTO_TIMEZONE, system_timezone_name
+from ..utils.logger_configurator import LEVEL_CHOICES
 
 logger = logging.getLogger("config_service.config_service")
 
@@ -598,13 +599,8 @@ SETTINGS_SCHEMA: list[dict] = [
                         "key": "logging.level",
                         "type": "enum",
                         "label": "Lokitaso",
-                        "options": [
-                            {"value": "debug", "label": "DEBUG"},
-                            {"value": "info", "label": "INFO"},
-                            {"value": "warning", "label": "WARNING"},
-                            {"value": "error", "label": "ERROR"},
-                            {"value": "critical", "label": "CRITICAL"},
-                        ],
+                        "options": [{"value": name, "label": name.upper()}
+                                    for name in LEVEL_CHOICES],
                         # DEBUG is temporary: choosing it asks for how long first.
                         "onSelect": {"debug": "debugDuration"},
                         "details": "debugLog",

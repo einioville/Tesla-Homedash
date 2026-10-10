@@ -66,19 +66,27 @@ def resolve_timezone(value: str) -> ZoneInfo:
     return ZoneInfo(value)
 
 
+def app_config_dir() -> str:
+    '''
+    $XDG_CONFIG_HOME (or ~/.config) / Tesla-Homedash — the folder both halves
+    keep their configuration in, and the screensaver its photos.
+    '''
+    base = os.environ.get("XDG_CONFIG_HOME") or os.path.join(
+        os.path.expanduser("~"), ".config")
+    return os.path.join(base, "Tesla-Homedash")
+
+
 def default_config_path() -> str:
     '''
     Where the backend's config.json lives when CONFIG_PATH is not set:
-    $XDG_CONFIG_HOME (or ~/.config) / Tesla-Homedash / backend_config.json.
+    app_config_dir() / backend_config.json.
 
     Deliberately the SAME directory the frontend writes its own
     frontend_config.json into, so both halves of the configuration sit together
     rather than in the repo root and an app-name directory nobody can guess.
     CONFIG_PATH still wins when set.
     '''
-    base = os.environ.get("XDG_CONFIG_HOME") or os.path.join(
-        os.path.expanduser("~"), ".config")
-    return os.path.join(base, "Tesla-Homedash", "backend_config.json")
+    return os.path.join(app_config_dir(), "backend_config.json")
 
 
 def _ensure_env() -> None:

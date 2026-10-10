@@ -1556,28 +1556,10 @@ class UpdateService:
             logger.warning("Update refusal suppressed (run in flight): %s", message)
             return
         logger.warning("Update refused: %s", message)
-        now = int(time.time() * 1000)
-        self.__job_seq += 1
-        self.__job = {
-            "id": self.__job_seq,
-            "running": False,
-            "finished": True,
-            "ok": False,
-            "cancellable": False,
-            "stepId": "",
-            "stepIndex": 0,
-            "channel": "",
-            "targetLabel": "",
-            "targetCommit": "",
-            "previousCommit": "",
-            "verdict": "",
-            "startedMs": now,
-            "finishedMs": now,
-            "message": message,
-            "restartFrontend": False,
-            "steps": [],
-            "log": [],
-        }
+        job = self.__new_job("", {}, "")
+        job.update(running=False, finished=True, ok=False, finishedMs=job["startedMs"],
+                   message=message, steps=[])
+        self.__job = job
         self.__log.clear()
         await self.__broadcast(force=True)
 
