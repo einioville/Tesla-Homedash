@@ -19,7 +19,6 @@ the host's uptime and the backend's own, for the overview above the graphs.
 
 import asyncio
 import inspect
-import json
 import logging
 import time
 from typing import Any, Callable
@@ -103,9 +102,8 @@ class SystemStatusService:
             document = {}
             status = protocol.CONFIG_STATUS_ERROR
 
-        body = json.dumps(document, ensure_ascii=False).encode("utf-8")
-        payload = bytes((status,)) + len(body).to_bytes(4, "big") + body
-        await self.__server.send_to(writer, protocol.frame(protocol.SYSTEM_STATUS, payload))
+        await self.__server.send_to(
+            writer, protocol.json_frame(protocol.SYSTEM_STATUS, status, document))
 
     async def handle_get_log(self, payload: bytes, writer) -> None:
         '''
@@ -116,9 +114,8 @@ class SystemStatusService:
             writer (StreamWriter): The requesting client.
         '''
         try:
-            length = int.from_bytes(payload[:4], "big")
-            service = str(json.loads(payload[4:4 + length].decode("utf-8")).get("service", ""))
-        except (ValueError, UnicodeDecodeError, AttributeError):
+            service = str(protocol.parse_json_body(payload).get("service", ""))
+        except ValueError:
             service = ""
         probe = self.__probes.get(service)
         if probe is None:
@@ -129,9 +126,8 @@ class SystemStatusService:
             document = {"service": service, "label": probe[0],
                         "entries": entries[:_LOG_LIST_LIMIT]}
             status = protocol.CONFIG_STATUS_OK
-        body = json.dumps(document, ensure_ascii=False).encode("utf-8")
-        reply = bytes((status,)) + len(body).to_bytes(4, "big") + body
-        await self.__server.send_to(writer, protocol.frame(protocol.SYSTEM_LOG, reply))
+        await self.__server.send_to(
+            writer, protocol.json_frame(protocol.SYSTEM_LOG, status, document))
 
     # ── Internals ─────────────────────────────────────────────────
 

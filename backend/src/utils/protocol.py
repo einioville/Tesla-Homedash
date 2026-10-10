@@ -6,6 +6,7 @@ values are single bytes unless noted otherwise.  See CLAUDE.md
 "Binary Protocol Reference" for the authoritative specification.
 '''
 
+import json
 import struct
 
 
@@ -397,3 +398,44 @@ def frame(msg_type: int, payload: bytes = b"") -> bytes:
     '''
     body = bytes((msg_type,)) + payload
     return struct.pack("!I", len(body)) + body
+
+
+def json_frame(msg_type: int, status: int, document, compact: bool = False) -> bytes:
+    '''
+    Frames status(1B) + len(4B) + UTF-8 JSON, the reply shape of every
+    JSON-bodied code (CONFIG_*, SPOTIFY_*, SYSTEM_*, UPDATE_STATE, ...).
+    Non-ASCII text goes out as raw UTF-8, never \\u-escaped.  Raises
+    TypeError/ValueError when the document is not JSON-serializable.
+    Arguments:
+        msg_type (int): Single-byte message type from the constants above.
+        status (int): The leading status byte (CONFIG_STATUS_* and friends).
+        document: Any JSON-serializable value, normally a dict.
+        compact (bool): Drop the separator spaces, for a document sent often.
+    '''
+    separators = (",", ":") if compact else None
+    body = json.dumps(document, ensure_ascii=False, separators=separators).encode("utf-8")
+    return frame(msg_type, bytes((status,)) + struct.pack("!I", len(body)) + body)
+
+
+def parse_json_body(payload: bytes) -> dict:
+    '''
+    Unpacks a len(4B) + UTF-8 JSON object request body.  Bytes past the
+    declared length are ignored.  Raises ValueError with a Finnish message the
+    Options view shows verbatim: "Vaillinainen pyyntö" (truncated),
+    "Virheellinen JSON" (undecodable) or "Virheellinen pyyntö" (not an object).
+    Arguments:
+        payload (bytes): The raw payload after the message-type byte.
+    '''
+    if len(payload) < 4:
+        raise ValueError("Vaillinainen pyyntö")
+    (length,) = struct.unpack("!I", payload[:4])
+    body = payload[4:4 + length]
+    if len(body) != length:
+        raise ValueError("Vaillinainen pyyntö")
+    try:
+        request = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as e:
+        raise ValueError("Virheellinen JSON") from e
+    if not isinstance(request, dict):
+        raise ValueError("Virheellinen pyyntö")
+    return request

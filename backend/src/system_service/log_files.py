@@ -14,7 +14,6 @@ this only answers for the backend's.
 
 import asyncio
 import glob
-import json
 import logging
 import os
 
@@ -93,10 +92,8 @@ class LogFiles:
             writer (StreamWriter): The requesting client.
         '''
         try:
-            length = int.from_bytes(payload[:4], "big")
-            request = json.loads(payload[4:4 + length].decode("utf-8"))
-            keep_warnings = request.get("keep") == "warnings"
-        except (ValueError, UnicodeDecodeError, AttributeError):
+            keep_warnings = protocol.parse_json_body(payload).get("keep") == "warnings"
+        except ValueError:
             await self.__reply(writer, False, 0, "Virheellinen pyyntö")
             return
         try:
@@ -174,8 +171,7 @@ class LogFiles:
 
     async def __reply(self, writer, ok: bool, freed: int, message: str) -> None:
         '''Sends LOG_CLEAR_RESULT to the requesting client.'''
-        body = json.dumps({"ok": ok, "freedBytes": freed, "message": message},
-                          ensure_ascii=False).encode("utf-8")
         status = protocol.CONFIG_STATUS_OK if ok else protocol.CONFIG_STATUS_ERROR
-        packet = bytes((status,)) + len(body).to_bytes(4, "big") + body
-        await self.__server.send_to(writer, protocol.frame(protocol.LOG_CLEAR_RESULT, packet))
+        await self.__server.send_to(writer, protocol.json_frame(
+            protocol.LOG_CLEAR_RESULT, status,
+            {"ok": ok, "freedBytes": freed, "message": message}))

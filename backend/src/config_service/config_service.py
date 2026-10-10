@@ -31,7 +31,6 @@ MyEnergiService) is reported back as "restart", because that is what it actually
 is for that deployment.
 '''
 import asyncio
-import json
 import logging
 import os
 import shutil
@@ -1235,17 +1234,8 @@ class ConfigService:
         Arguments:
             payload (bytes): The raw payload after the message-type byte.
         '''
-        if len(payload) < 4:
-            raise ValueError("Vaillinainen pyyntö")
-        (length,) = struct.unpack("!I", payload[:4])
-        body = payload[4:4 + length]
-        if len(body) != length:
-            raise ValueError("Vaillinainen pyyntö")
-        try:
-            request = json.loads(body.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError) as e:
-            raise ValueError("Virheellinen JSON") from e
-        if not isinstance(request, dict) or "key" not in request:
+        request = protocol.parse_json_body(payload)
+        if "key" not in request:
             raise ValueError("Pyynnöstä puuttuu avain")
         return str(request["key"]), request.get("value")
 
@@ -1271,17 +1261,14 @@ class ConfigService:
     def __schema_frame(self) -> bytes:
         '''Builds a framed CONFIG_SCHEMA packet from the current schema+values.'''
         try:
-            body = json.dumps(self.build_schema(), ensure_ascii=False).encode("utf-8")
+            return protocol.json_frame(
+                protocol.CONFIG_SCHEMA, protocol.CONFIG_STATUS_OK, self.build_schema())
         except (TypeError, ValueError) as e:
             logger.error("Could not serialize settings schema: %s", e)
             return protocol.frame(
                 protocol.CONFIG_SCHEMA,
                 bytes((protocol.CONFIG_STATUS_ERROR,)) + struct.pack("!I", 0),
             )
-        return protocol.frame(
-            protocol.CONFIG_SCHEMA,
-            bytes((protocol.CONFIG_STATUS_OK,)) + struct.pack("!I", len(body)) + body,
-        )
 
     @staticmethod
     def __result_frame(status: int, key: str, value: Any, applied: str, message: str) -> bytes:
@@ -1295,13 +1282,9 @@ class ConfigService:
             applied (str): "hook", "restart" or "unchanged".
             message (str): Human-readable failure reason, empty on success.
         '''
-        body = json.dumps(
+        return protocol.json_frame(
+            protocol.CONFIG_SET_RESULT, status,
             {"key": key, "value": value, "applied": applied, "message": message},
-            ensure_ascii=False,
-        ).encode("utf-8")
-        return protocol.frame(
-            protocol.CONFIG_SET_RESULT,
-            bytes((status,)) + struct.pack("!I", len(body)) + body,
         )
 
     async def __reply_ok(self, writer, key: str, value: Any, applied: str, message: str) -> None:

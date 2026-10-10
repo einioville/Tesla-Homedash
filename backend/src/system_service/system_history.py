@@ -12,7 +12,6 @@ last sample it holds.
 '''
 
 import asyncio
-import json
 import logging
 import os
 import shutil
@@ -118,15 +117,12 @@ class SystemHistory:
                 "temp_available": metrics.cpu_thermal_zone() is not None,
                 "samples": samples,
             }
-            body = json.dumps(document, separators=(",", ":")).encode("utf-8")
-            status = protocol.CONFIG_STATUS_OK
+            reply = protocol.json_frame(protocol.SYSTEM_HISTORY, protocol.CONFIG_STATUS_OK,
+                                        document, compact=True)
         except Exception as e:
             logger.error("Could not build the system history: %s", e)
-            body = b"{}"
-            status = protocol.CONFIG_STATUS_ERROR
-
-        reply = bytes((status,)) + len(body).to_bytes(4, "big") + body
-        await self.__server.send_to(writer, protocol.frame(protocol.SYSTEM_HISTORY, reply))
+            reply = protocol.json_frame(protocol.SYSTEM_HISTORY, protocol.CONFIG_STATUS_ERROR, {})
+        await self.__server.send_to(writer, reply)
 
     # ── Internals ─────────────────────────────────────────────────
 

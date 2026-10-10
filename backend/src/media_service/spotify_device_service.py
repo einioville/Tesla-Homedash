@@ -32,9 +32,7 @@ the schema re-broadcast that keeps a second dashboard honest.
 '''
 
 import asyncio
-import json
 import logging
-import struct
 import time
 
 from ..utils import protocol
@@ -214,7 +212,7 @@ class SpotifyDeviceService:
             writer (StreamWriter): The requesting client.
         '''
         try:
-            request = self.__parse_json_payload(payload)
+            request = protocol.parse_json_body(payload)
         except ValueError as e:
             logger.warning("Malformed SPOTIFY_DEVICE_SELECT: %s", e)
             # The epoch is unreadable in a broken frame, so 0 is all that can be
@@ -589,28 +587,6 @@ class SpotifyDeviceService:
     # ── Internals ─────────────────────────────────────────────────
 
     @staticmethod
-    def __parse_json_payload(payload: bytes) -> dict:
-        '''
-        Unpacks the len(4B) + UTF-8 JSON body shared by SCAN_START and SELECT.
-        Raises ValueError with a Finnish message shown to the user verbatim.
-        Arguments:
-            payload (bytes): The raw payload after the message-type byte.
-        '''
-        if len(payload) < 4:
-            raise ValueError("Vaillinainen pyyntö")
-        (length,) = struct.unpack("!I", payload[:4])
-        body = payload[4:4 + length]
-        if len(body) != length:
-            raise ValueError("Vaillinainen pyyntö")
-        try:
-            request = json.loads(body.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError) as e:
-            raise ValueError("Virheellinen JSON") from e
-        if not isinstance(request, dict):
-            raise ValueError("Virheellinen pyyntö")
-        return request
-
-    @staticmethod
     def __scan_id_of(request: dict) -> int:
         '''
         Reads the frontend's scan epoch out of a request.  Anything missing or
@@ -636,7 +612,7 @@ class SpotifyDeviceService:
             payload (bytes): The raw payload after the message-type byte.
         '''
         try:
-            request = cls.__parse_json_payload(payload)
+            request = protocol.parse_json_body(payload)
         except ValueError as e:
             logger.debug("Scan start without a readable scanId: %s", e)
             return 0
@@ -657,20 +633,6 @@ class SpotifyDeviceService:
             raise ValueError("Laitetta ei voi valita (ei tunnusta)")
         return device_id.strip()
 
-    @staticmethod
-    def __json_frame(msg_type: int, status: int, body: bytes) -> bytes:
-        '''
-        Frames a status-prefixed JSON body, the shape the CONFIG_* and
-        SPOTIFY_AUTH_* codes use.
-        Arguments:
-            msg_type (int): Message-type byte.
-            status (int): protocol.SPOTIFY_AUTH_OK or _ERROR.
-            body (bytes): UTF-8 JSON payload.
-        '''
-        return protocol.frame(
-            msg_type, bytes((status,)) + struct.pack("!I", len(body)) + body
-        )
-
     def __status_frame(self, status: dict) -> bytes:
         '''
         Frames a SPOTIFY_DEVICE_STATUS packet.  The status byte is always OK: the
@@ -678,8 +640,7 @@ class SpotifyDeviceService:
         Arguments:
             status (dict): The document built by build_status.
         '''
-        body = json.dumps(status, ensure_ascii=False).encode("utf-8")
-        return self.__json_frame(protocol.SPOTIFY_DEVICE_STATUS, protocol.SPOTIFY_AUTH_OK, body)
+        return protocol.json_frame(protocol.SPOTIFY_DEVICE_STATUS, protocol.SPOTIFY_AUTH_OK, status)
 
     async def __send_state(self, writer, state: dict) -> None:
         '''
@@ -695,11 +656,10 @@ class SpotifyDeviceService:
         if writer.is_closing():
             logger.debug("Skipping a device state for a closing client")
             return
-        body = json.dumps(state, ensure_ascii=False).encode("utf-8")
         status = (protocol.SPOTIFY_AUTH_ERROR if state["message"]
                   else protocol.SPOTIFY_AUTH_OK)
         await self.__server.send_to(
-            writer, self.__json_frame(protocol.SPOTIFY_DEVICE_STATE, status, body)
+            writer, protocol.json_frame(protocol.SPOTIFY_DEVICE_STATE, status, state)
         )
 
     async def __reply_result(self, writer, ok: bool, message: str,
@@ -717,16 +677,12 @@ class SpotifyDeviceService:
                 the reply — a refusal stamped with the live scan's id instead
                 would be dropped by the very fence it is answering.
         '''
-        body = json.dumps(
-            {"scanId": scan_id, "ok": ok, "message": message,
-             "deviceId": device_id, "deviceName": device_name},
-            ensure_ascii=False,
-        ).encode("utf-8")
         await self.__server.send_to(
             writer,
-            self.__json_frame(
+            protocol.json_frame(
                 protocol.SPOTIFY_DEVICE_RESULT,
                 protocol.SPOTIFY_AUTH_OK if ok else protocol.SPOTIFY_AUTH_ERROR,
-                body,
+                {"scanId": scan_id, "ok": ok, "message": message,
+                 "deviceId": device_id, "deviceName": device_name},
             ),
         )

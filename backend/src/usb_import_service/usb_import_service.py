@@ -25,7 +25,6 @@ import json
 import logging
 import os
 import shutil
-import struct
 import threading
 
 from ..utils import protocol
@@ -552,9 +551,7 @@ class UsbImportService:
         Arguments:
             state (dict): The state document, flowId included.
         '''
-        body = json.dumps(state).encode("utf-8")
-        return protocol.frame(protocol.USB_IMPORT_STATE,
-                              bytes((1,)) + struct.pack("!I", len(body)) + body)
+        return protocol.json_frame(protocol.USB_IMPORT_STATE, protocol.CONFIG_STATUS_OK, state)
 
     def __copying(self) -> bool:
         '''True while a copy task is running.'''
@@ -589,16 +586,8 @@ class UsbImportService:
             payload (bytes): The raw handler payload.
             label (str): Packet name, for the warning line.
         '''
-        if len(payload) < 4:
-            logger.warning("%s: payload too short (%d bytes)", label, len(payload))
-            return None
-        length = int.from_bytes(payload[:4], "big")
-        if len(payload) < 4 + length:
-            logger.warning("%s: truncated body", label)
-            return None
         try:
-            body = json.loads(payload[4:4 + length].decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError) as e:
-            logger.warning("%s: malformed JSON (%s)", label, e)
+            return protocol.parse_json_body(payload)
+        except ValueError as e:
+            logger.warning("%s: %s", label, e)
             return None
-        return body if isinstance(body, dict) else None

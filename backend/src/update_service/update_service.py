@@ -57,7 +57,6 @@ picture from its on-connect snapshot instead of having missed the packets.
 
 import asyncio
 import contextlib
-import json
 import logging
 import os
 import re
@@ -1618,9 +1617,7 @@ class UpdateService:
         else:
             document["job"] = None
 
-        body = json.dumps(document, ensure_ascii=False).encode("utf-8")
-        payload = bytes((protocol.CONFIG_STATUS_OK,)) + len(body).to_bytes(4, "big") + body
-        return protocol.frame(protocol.UPDATE_STATE, payload)
+        return protocol.json_frame(protocol.UPDATE_STATE, protocol.CONFIG_STATUS_OK, document)
 
     @staticmethod
     def __decode_json(payload: bytes, label: str) -> dict | None:
@@ -1630,16 +1627,8 @@ class UpdateService:
             payload (bytes): The raw handler payload.
             label (str): Packet name, for the warning line.
         '''
-        if len(payload) < 4:
-            logger.warning("%s: payload too short (%d bytes)", label, len(payload))
-            return None
-        length = int.from_bytes(payload[:4], "big")
-        if len(payload) < 4 + length:
-            logger.warning("%s: truncated body", label)
-            return None
         try:
-            body = json.loads(payload[4:4 + length].decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError) as e:
-            logger.warning("%s: malformed JSON (%s)", label, e)
+            return protocol.parse_json_body(payload)
+        except ValueError as e:
+            logger.warning("%s: %s", label, e)
             return None
-        return body if isinstance(body, dict) else None

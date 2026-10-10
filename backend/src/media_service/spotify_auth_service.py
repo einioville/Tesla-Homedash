@@ -15,13 +15,11 @@ refresh token, only the code.
 '''
 
 import asyncio
-import json
 import logging
 import os
 import secrets
 import shutil
 import signal
-import struct
 import time
 import urllib.parse
 
@@ -172,17 +170,13 @@ class SpotifyAuthService:
             return
 
         logger.info("Spotify authorization flow started | consent page opened in the browser")
-        body = json.dumps(
-            {
+        await self.__server.send_to(
+            writer,
+            protocol.json_frame(protocol.SPOTIFY_AUTH_URL, protocol.SPOTIFY_AUTH_OK, {
                 "url": url,
                 "redirectUri": self.__config.spotify_redirect_uri,
                 "state": nonce,
-            },
-            ensure_ascii=False,
-        ).encode("utf-8")
-        await self.__server.send_to(
-            writer,
-            self.__json_frame(protocol.SPOTIFY_AUTH_URL, protocol.SPOTIFY_AUTH_OK, body),
+            }),
         )
 
     # ── Loopback callback (the external-browser flow) ─────────────
@@ -667,31 +661,18 @@ class SpotifyAuthService:
 
     # ── Internals ─────────────────────────────────────────────────
 
-    def __json_frame(self, msg_type: int, status: int, body: bytes) -> bytes:
-        '''
-        Frames a status-prefixed JSON body, the shape the CONFIG_* codes use.
-        Arguments:
-            msg_type (int): Message-type byte.
-            status (int): SPOTIFY_AUTH_OK or SPOTIFY_AUTH_ERROR.
-            body (bytes): UTF-8 JSON payload.
-        '''
-        return protocol.frame(
-            msg_type, bytes((status,)) + struct.pack("!I", len(body)) + body
-        )
-
     def __status_frame(self) -> bytes:
         '''Builds a SPOTIFY_AUTH_STATUS packet from the cached grant.'''
-        body = json.dumps(self.build_status(), ensure_ascii=False).encode("utf-8")
-        return self.__json_frame(
-            protocol.SPOTIFY_AUTH_STATUS, protocol.SPOTIFY_AUTH_OK, body
+        return protocol.json_frame(
+            protocol.SPOTIFY_AUTH_STATUS, protocol.SPOTIFY_AUTH_OK, self.build_status()
         )
 
     async def __reply_url_error(self, writer, message: str) -> None:
         '''Replies to a failed SPOTIFY_AUTH_GET_URL.'''
-        body = json.dumps({"message": message}, ensure_ascii=False).encode("utf-8")
         await self.__server.send_to(
             writer,
-            self.__json_frame(protocol.SPOTIFY_AUTH_URL, protocol.SPOTIFY_AUTH_ERROR, body),
+            protocol.json_frame(protocol.SPOTIFY_AUTH_URL, protocol.SPOTIFY_AUTH_ERROR,
+                                {"message": message}),
         )
 
     async def __reply_result(self, writer, ok: bool, message: str,
@@ -705,15 +686,11 @@ class SpotifyAuthService:
             scope (str): Granted scope on success.
             expires_at: Token expiry (epoch seconds) on success.
         '''
-        body = json.dumps(
-            {"ok": ok, "message": message, "scope": scope, "expiresAt": expires_at},
-            ensure_ascii=False,
-        ).encode("utf-8")
         await self.__server.send_to(
             writer,
-            self.__json_frame(
+            protocol.json_frame(
                 protocol.SPOTIFY_AUTH_RESULT,
                 protocol.SPOTIFY_AUTH_OK if ok else protocol.SPOTIFY_AUTH_ERROR,
-                body,
+                {"ok": ok, "message": message, "scope": scope, "expiresAt": expires_at},
             ),
         )

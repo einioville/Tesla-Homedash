@@ -2,7 +2,10 @@
 
 - **`config_parser.py`**: `Config` validates + exposes `config.json`; `get_env` loads `.env` once.
 - **`protocol.py`**: every message-type byte, weather sub-id, `MAX_MSG_SIZE`, and `frame()`. The
-  single source of truth — add new constants here, never on a class.
+  single source of truth — add new constants here, never on a class. Every JSON-bodied code goes
+  through `json_frame()` (a `status(1B) + len(4B) + UTF-8 JSON` reply, raw UTF-8) and
+  `parse_json_body()` (a `len(4B) + UTF-8 JSON` object request; raises `ValueError` with the
+  Finnish message the Options view shows).
 - **`logger_configurator.py`**: `configure_logging(level=None)` resolves the level from
   `TESLA_HOMEDASH_LOG_LEVEL` (default **INFO**, not DEBUG) and wires the shared stdout formatter
   (`LEVEL | YYYY-MM-DD | HH:MM:SS | name | message`) onto an allow-list of top-level loggers.

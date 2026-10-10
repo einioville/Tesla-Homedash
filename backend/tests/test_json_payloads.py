@@ -15,12 +15,9 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from src.config_service.config_service import ConfigService  # noqa: E402
-from src.media_service.spotify_auth_service import SpotifyAuthService  # noqa: E402
-from src.media_service.spotify_device_service import SpotifyDeviceService  # noqa: E402
 from src.system_service.log_files import LogFiles  # noqa: E402
 from src.system_service.system_history import SystemHistory  # noqa: E402
 from src.system_service.system_status_service import SystemStatusService  # noqa: E402
-from src.tesla_service.property_editor import TeslaPropertyEditor  # noqa: E402
 from src.update_service.update_service import UpdateService  # noqa: E402
 from src.usb_import_service.usb_import_service import UsbImportService  # noqa: E402
 from src.utils import protocol  # noqa: E402
@@ -84,25 +81,21 @@ def _raises(parse, payload) -> str | None:
     return None
 
 
-def test_raising_parsers():
-    parsers = [
-        TeslaPropertyEditor._TeslaPropertyEditor__parse,
-        SpotifyDeviceService._SpotifyDeviceService__parse_json_payload,
-    ]
-    for parse in parsers:
-        for name, payload, expected in REQUESTS:
-            if isinstance(expected, ValueError):
-                assert _raises(parse, payload) == str(expected), name
-            else:
-                assert parse(payload) == expected, name
+def test_parse_json_body():
+    parse = protocol.parse_json_body
+    for name, payload, expected in REQUESTS:
+        if isinstance(expected, ValueError):
+            assert _raises(parse, payload) == str(expected), name
+        else:
+            assert parse(payload) == expected, name
 
 
 def test_config_set_parser_requires_a_key():
     parse = ConfigService._ConfigService__parse_set_payload
     for name, payload, expected in REQUESTS:
-        if name == "JSON array":
-            assert _raises(parse, payload) == "Pyynnöstä puuttuu avain", name
-        elif isinstance(expected, ValueError):
+        # A JSON array used to answer "Pyynnöstä puuttuu avain"; it now gets the
+        # shared parser's "Virheellinen pyyntö" like every other request.
+        if isinstance(expected, ValueError):
             assert _raises(parse, payload) == str(expected), name
         else:
             assert parse(payload) == (expected["key"], expected.get("value")), name
@@ -135,9 +128,9 @@ def test_system_log_request():
     for name, payload in [("empty", b""), ("not JSON", raw_body(b"nope")),
                           ("JSON array", body([1]))]:
         assert asyncio.run(run(payload))[2]["service"] == "", name
-    # The body is read up to its prefix, so a prefix longer than the body still
-    # parses when what is there is a whole document.
-    assert asyncio.run(run(raw_body(b'{"service": "x"}', length=40)))[2]["service"] == "x"
+    # A body shorter than its length prefix is refused, even when what is there
+    # happens to be a whole document (it used to be parsed).
+    assert asyncio.run(run(raw_body(b'{"service": "x"}', length=40)))[2]["service"] == ""
 
 
 def test_log_clear_refuses_a_malformed_request():
@@ -160,9 +153,7 @@ DOC = {"message": "Ääni ei käytössä", "n": 1}
 def test_status_json_frames():
     raw = json.dumps(DOC, ensure_ascii=False).encode("utf-8")
     expected = protocol.frame(0x42, bytes((1,)) + struct.pack("!I", len(raw)) + raw)
-    assert TeslaPropertyEditor._TeslaPropertyEditor__json_frame(0x42, 1, DOC) == expected
-    assert SpotifyDeviceService._SpotifyDeviceService__json_frame(0x42, 1, raw) == expected
-    assert SpotifyAuthService._SpotifyAuthService__json_frame(None, 0x42, 1, raw) == expected
+    assert protocol.json_frame(0x42, 1, DOC) == expected
 
 
 def test_config_set_result_frame():
@@ -173,10 +164,11 @@ def test_config_set_result_frame():
     assert "ä".encode("utf-8") in frame
 
 
-def test_usb_import_state_frame_escapes_non_ascii():
+def test_usb_import_state_frame():
     frame = UsbImportService._UsbImportService__frame(DOC)
     assert unframe(frame) == (protocol.USB_IMPORT_STATE, 1, DOC)
-    assert b"\\u00c4" in frame
+    # Raw UTF-8 now, like every other reply; it used to be \\u-escaped.
+    assert "Ä".encode("utf-8") in frame
 
 
 def test_system_history_frame_is_compact():
