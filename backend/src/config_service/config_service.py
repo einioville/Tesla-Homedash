@@ -1,9 +1,10 @@
 '''
 Runtime configuration service — the backend half of the frontend's Options view.
 
-Serves the CONFIG_* protocol codes (0x90-0x94): it publishes a *schema* of the
-settings in config.json that are safe to change at runtime, validates incoming
-writes against it, persists them, and applies them to the running services.
+Serves the CONFIG_* protocol codes (0x90-0x94) and HOST_REBOOT (0x95, which
+shares the restart's vetoes): it publishes a *schema* of the settings in
+config.json that are safe to change at runtime, validates incoming writes
+against it, persists them, and applies them to the running services.
 
 Why a schema rather than "let the frontend write any key": config.json also holds
 structural data the rest of the stack mirrors (the `tesla data` property table is
@@ -26,9 +27,8 @@ running system:
               from spotPrice.enabled).
               Written to config.json and picked up on the next process start.
 
-A "hook" setting whose service is absent (no Zappi configured -> no
-MyEnergiService) is reported back as "restart", because that is what it actually
-is for that deployment.
+A "hook" setting whose service is absent is reported back as "restart"
+(ConfigService.__effective_apply).
 '''
 import asyncio
 import logging
@@ -695,12 +695,13 @@ class ConfigService:
         # value is already on disk and its failure is swallowed, so a guard is the
         # only place an honest "this cannot work here" reaches the user.
         self.__guards: dict[str, Callable[[str, Any], None]] = {}
-        # Set by the CONFIG_RESTART handler and awaited by run(), which turns it
-        # into a process exit for the service manager to restart.
         # name -> callable returning a refusal reason, or "" to allow. See
         # register_restart_veto: some restarts can only be refused honestly by
         # the service that knows what is in flight.
         self.__restart_vetoes: dict[str, Callable[[], str]] = {}
+        # Set by request_restart (CONFIG_RESTART, or the updater's final restart)
+        # and awaited by run(), which turns it into a process exit for the service
+        # manager to restart.
         self.__restart_requested = asyncio.Event()
         # Identifies THIS process in every schema it sends.  The frontend uses it
         # to tell "the backend restarted, so the values it now reports are the new
@@ -823,15 +824,14 @@ class ConfigService:
                 section_entry["settings"] = settings
                 sections.append(section_entry)
             # Copy every group-level key except "sections" rather than naming
-            # them one by one: a new group field (the sidebar icon was the first)
-            # then reaches the frontend without touching this function.
+            # them one by one: a new group field then reaches the frontend
+            # without touching this function.
             entry = {k: v for k, v in group.items() if k != "sections"}
             entry["sections"] = sections
             groups.append(entry)
-        # The path names the file this half writes (the frontend keeps it as
-        # Settings.backendStoragePath for diagnostics; the view no longer shows
-        # it).  Top-level rather than per-group: it describes the whole document,
-        # and a frontend that does not read it simply ignores the extra key.
+        # The path names the file this half writes; the frontend keeps it as
+        # Settings.backendStoragePath for diagnostics, and the view does not show
+        # it.  Top-level rather than per-group: it describes the whole document.
         return {
             "path": self.__config.path,
             "startedAt": self.__started_at_ms,
@@ -842,7 +842,7 @@ class ConfigService:
         '''
         Resolves an enum whose choices are built at schema time rather than
         listed in the schema, through the provider its service registered
-        (register_options) — audio.outputDevice and timeZone today.
+        (register_options), such as audio.outputDevice and timeZone.
         Arguments:
             key (str): The setting key whose options are being built.
         '''
@@ -926,10 +926,6 @@ class ConfigService:
         schema, persists it, applies it through the setting's hooks, and replies
         to the requesting client.  A successful write also broadcasts the fresh
         schema so any other connected frontend updates its displayed values.
-
-        Nothing is written unless validation passes, and a failed save rolls the
-        in-memory value back — the running services must never disagree with what
-        is on disk.
         Arguments:
             payload (bytes): len(4B) + UTF-8 JSON request body.
             writer (StreamWriter): The requesting client.
@@ -957,8 +953,9 @@ class ConfigService:
         '''
         Writes one setting exactly as a CONFIG_SET would, but on behalf of another
         backend service rather than a client — so it replies to nobody and returns
-        the outcome instead.  SpotifyDeviceService uses it to store the device id
-        its scan found.
+        the outcome instead.  SpotifyDeviceService (the scanned device),
+        AudioService (the host's volume, adopted at startup) and LogLevel (the
+        level an expired DEBUG returns to) use it.
 
         Going through here rather than touching Config directly is the point: a
         service-initiated write gets the same schema coercion, the same guard, the
@@ -1018,8 +1015,6 @@ class ConfigService:
         try:
             self.__config.save()
         except OSError as e:
-            # Put the in-memory document back so services and disk stay in
-            # agreement, then report the failure.
             self.__config.set(key, previous)
             logger.error("Could not save config after setting %s: %s", key, e)
             return {"ok": False, "applied": "", "value": previous,
@@ -1059,9 +1054,8 @@ class ConfigService:
 
         The sibling of register_guard, and for the same reason — some things can
         only be refused honestly by the service that owns them.  The one that
-        matters is an update in flight: this button sits three rows below the
-        update card, and pressing it mid-checkout would kill the process while
-        the working tree is half-moved.
+        matters is an update in flight: a restart mid-checkout would kill the
+        process while the working tree is half-moved.
         Arguments:
             name (str): Identifier for the log line.
             veto (Callable): Returns a Finnish refusal reason, or "" to allow.
