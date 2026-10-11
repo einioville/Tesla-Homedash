@@ -79,3 +79,63 @@ function rgb(c) {
 function hour2(h) {
     return (h < 10 ? "0" : "") + h
 }
+
+// An ISO time's clock time laid on `now`'s date. The snapshot holds one day's sunrise and
+// sunset, so later days reuse them (a few minutes off per day until the live view gets
+// today's from the backend).
+function todayAt(iso, now) {
+    var t = new Date(iso)
+    var d = new Date(now.getTime())
+    d.setHours(t.getHours(), t.getMinutes(), 0, 0)
+    return d.getTime()
+}
+
+// 1 by day, 0 by night, ramping over half an hour either side of sunrise and sunset.
+function dayness(now, astro) {
+    if (!astro || !astro.sunriseIso)
+        return 1
+    var ramp = 30 * 60000
+    var t = now.getTime()
+    var up = (t - todayAt(astro.sunriseIso, now) + ramp) / (2 * ramp)
+    var down = (todayAt(astro.sunsetIso, now) + ramp - t) / (2 * ramp)
+    return Math.max(0, Math.min(1, up, down))
+}
+
+// The kind of weather a SmartSymbol shows (night = value + 100), per FMI's mapping guide in
+// github.com/fmidev/opendata-resources/symbols/SmartSymbol.
+function skyKind(symbol) {
+    var c = symbol % 100
+    if (c === 1 || c === 2) return "clear"
+    if (c === 4) return "partly"
+    if (c === 6 || c === 7) return "cloudy"
+    if (c === 9) return "fog"
+    if (c >= 71) return "thunder"
+    if (c >= 51 && c < 60) return "snow"
+    if (c === 14 || c === 17 || (c >= 41 && c < 50) || c >= 61) return "sleet"
+    if (c >= 11) return "rain"
+    return "cloudy"
+}
+
+// Backdrop gradient [top, bottom] per kind, by day and by night. All dark, so the cards and
+// text read the same over every one; night is near-black with just the hue left.
+var SKY = {
+    clear:   { day: ["#12304a", "#0c1620"], night: ["#0a1024", "#05070d"] },
+    partly:  { day: ["#172a3c", "#0c141c"], night: ["#0d1220", "#06080d"] },
+    cloudy:  { day: ["#1e252c", "#0e1114"], night: ["#111418", "#08090b"] },
+    fog:     { day: ["#272b2f", "#121416"], night: ["#15171a", "#0a0b0c"] },
+    rain:    { day: ["#132431", "#0a1016"], night: ["#0c131a", "#06090c"] },
+    sleet:   { day: ["#192b32", "#0c1317"], night: ["#0e161a", "#070a0c"] },
+    snow:    { day: ["#25313d", "#10161c"], night: ["#141a22", "#090c10"] },
+    thunder: { day: ["#231a37", "#0d0b14"], night: ["#160f24", "#08060c"] }
+}
+
+function skyColors(symbol, dayness) {
+    var s = SKY[skyKind(symbol || 7)]
+    return [mix(s.night[0], s.day[0], dayness), mix(s.night[1], s.day[1], dayness)]
+}
+
+function mix(a, b, f) {
+    var ca = [1, 3, 5].map(function (i) { return parseInt(a.substr(i, 2), 16) })
+    var cb = [1, 3, 5].map(function (i) { return parseInt(b.substr(i, 2), 16) })
+    return rgb([0, 1, 2].map(function (k) { return ca[k] + f * (cb[k] - ca[k]) }))
+}

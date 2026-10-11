@@ -13,15 +13,40 @@ Item {
     property var wx: ({})
     property bool active: true
     property bool demoLightning: false
+    // A SmartSymbol to colour the backdrop by instead of the current one; 100 and up is night.
+    property int demoSymbol: 0
 
     readonly property var now: wx.now || ({})
     readonly property var here: (wx.warnings || []).filter(w => w.appliesHere)
 
+    property date clock: new Date()
+    Timer {
+        interval: 60000
+        running: root.active
+        repeat: true
+        triggeredOnStart: true
+        onTriggered: root.clock = new Date()
+    }
+
+    // The backdrop takes on the current weather: its kind from the symbol, its light from where
+    // the sun is now, so dusk and dawn blend over the hour around sunset and sunrise.
+    readonly property int skySymbol: demoSymbol > 0 ? demoSymbol : (now.symbol || 0)
+    readonly property real dayness: demoSymbol > 0 ? (demoSymbol >= 100 ? 0 : 1) : U.dayness(clock, wx.astro)
+    readonly property var sky: U.skyColors(skySymbol, dayness)
+
     Rectangle {
         anchors.fill: parent
         gradient: Gradient {
-            GradientStop { position: 0.0; color: "#0e1922" }
-            GradientStop { position: 1.0; color: "#0b0e12" }
+            GradientStop {
+                position: 0.0
+                color: root.sky[0]
+                Behavior on color { ColorAnimation { duration: 2000 } }
+            }
+            GradientStop {
+                position: 1.0
+                color: root.sky[1]
+                Behavior on color { ColorAnimation { duration: 2000 } }
+            }
         }
     }
 
@@ -197,6 +222,7 @@ Item {
             anchors.margins: 14
             anchors.topMargin: 40
             astro: root.wx.astro
+            now: root.clock
         }
     }
 

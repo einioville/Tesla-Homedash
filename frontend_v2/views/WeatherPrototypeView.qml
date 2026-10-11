@@ -17,6 +17,9 @@ Rectangle {
     property bool demoWarning: false
     // Likewise a made-up storm's lightning on the radar, there being none on most days.
     property bool demoLightning: false
+    // And a SmartSymbol (e.g. 1 clear, 77 thunder; 100 and up for night) to colour the backdrop
+    // by in place of the current weather.
+    property int demoSymbol: 0
 
     readonly property var wx: {
         var d = Snap.data
@@ -33,5 +36,6 @@ Rectangle {
         wx: view.wx
         active: view.isCurrent
         demoLightning: view.demoLightning
+        demoSymbol: view.demoSymbol
     }
 }

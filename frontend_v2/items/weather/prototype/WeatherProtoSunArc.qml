@@ -10,18 +10,8 @@ Item {
     property var astro: ({})
     property date now: new Date()
 
-    // The snapshot holds one day's sunrise and sunset; their clock times are laid on today, so
-    // the sun keeps moving on later days too (a few minutes off per day until the live view
-    // gets today's from the backend).
-    function todayAt(iso) {
-        var t = new Date(iso)
-        var d = new Date(now.getTime())
-        d.setHours(t.getHours(), t.getMinutes(), 0, 0)
-        return d.getTime()
-    }
-
-    readonly property real rise: todayAt(astro.sunriseIso)
-    readonly property real set: todayAt(astro.sunsetIso)
+    readonly property real rise: U.todayAt(astro.sunriseIso, now)
+    readonly property real set: U.todayAt(astro.sunsetIso, now)
     // 0 at sunrise, 1 at sunset; outside the day the sun rests on the horizon.
     readonly property real progress: Math.max(0, Math.min(1, (now.getTime() - rise) / (set - rise)))
     readonly property bool isDay: now.getTime() > rise && now.getTime() < set
@@ -100,13 +90,5 @@ Item {
         color: "white"
         font.family: Theme.fontFamily
         font.pixelSize: 13
-    }
-
-    Timer {
-        interval: 60000
-        running: root.visible
-        repeat: true
-        triggeredOnStart: true
-        onTriggered: root.now = new Date()
     }
 }
