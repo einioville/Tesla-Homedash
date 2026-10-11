@@ -411,8 +411,10 @@ Item {
                     border.color: dayCol.selected ? "#70ffffff" : "transparent"
                     Behavior on color { ColorAnimation { duration: 150 } }
                 }
+                // Divider on the left, except on whichever day sits at the list's left edge,
+                // where it would read as a stray line once the list has scrolled.
                 Rectangle {
-                    visible: dayCol.index > 0
+                    visible: dayCol.x - dayList.contentX > 0.5
                     width: 1
                     height: parent.height - 10
                     y: 5
