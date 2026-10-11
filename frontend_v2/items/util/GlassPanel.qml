@@ -24,6 +24,17 @@ Item {
     property bool active: true
     property point backdropOrigin: Qt.point(0, 0)
     property int radius: Theme.notificationRadius
+    // The rim's width and the translucent tint, per instance; the defaults are the
+    // notification pill's and the dock's.
+    property real rimWidth: 1.5
+    property color tintTop: Theme.notificationGlassTop
+    property color tintBottom: Theme.notificationGlassBottom
+    // The bright line just inside the top edge; a thin rim can do without it.
+    property bool highlight: true
+    // MultiEffect's brightness is added to every channel, so the default darkening turns an
+    // already dark backdrop (the weather radar) black; such a panel passes its own.
+    property real frostBrightness: Theme.notificationFrostBrightness
+    property real frostSaturation: Theme.notificationFrostSaturation
 
     readonly property bool frostActive: frostedBackdrop && backdropSource !== null
 
@@ -56,8 +67,8 @@ Item {
         blurEnabled: true
         blur: 1.0
         blurMax: 64
-        brightness: Theme.notificationFrostBrightness
-        saturation: Theme.notificationFrostSaturation
+        brightness: panel.frostBrightness
+        saturation: panel.frostSaturation
         maskEnabled: true
         maskSource: frostMask
     }
@@ -68,11 +79,11 @@ Item {
         anchors.fill: parent
         radius: panel.radius
         color: "transparent"
-        border.width: 1.5
+        border.width: panel.rimWidth
         border.color: Theme.notificationBorder
         gradient: Gradient {
-            GradientStop { position: 0.0; color: Theme.notificationGlassTop }
-            GradientStop { position: 1.0; color: Theme.notificationGlassBottom }
+            GradientStop { position: 0.0; color: panel.tintTop }
+            GradientStop { position: 1.0; color: panel.tintBottom }
         }
     }
 
@@ -80,6 +91,7 @@ Item {
     // transparent at both ends so the inset line tapers out instead of showing a
     // hard end-cap (it stops short of the rounded corners by `radius`).
     Rectangle {
+        visible: panel.highlight
         anchors.left: glass.left
         anchors.right: glass.right
         anchors.top: glass.top

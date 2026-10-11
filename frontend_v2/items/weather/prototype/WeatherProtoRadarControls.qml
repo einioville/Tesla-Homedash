@@ -1,9 +1,11 @@
 import QtQuick
 import QtQuick.Shapes
 import frontend_v2
+import "../../util"
 
 // PROTOTYPE — play/pause, the frame's time and a scrub track for a WeatherProtoRadarMap.
-Rectangle {
+// Frosted glass over the radar behind it (the app's GlassPanel, as the notification pill has).
+GlassPanel {
     id: bar
 
     property Item radar: null
@@ -11,10 +13,10 @@ Rectangle {
 
     implicitWidth: row.implicitWidth + 24
     implicitHeight: 44
-    radius: height / 2
-    color: "#d9101418"
-    border.color: "#33ffffff"
-    border.width: 1
+    radius: 12
+    backdropSource: bar.radar
+    backdropOrigin: Qt.point(bar.x - (bar.radar ? bar.radar.x : 0), bar.y - (bar.radar ? bar.radar.y : 0))
+    active: bar.radar ? bar.radar.active : false
 
     function timeText(d) {
         return Qt.formatTime(d, "HH:mm")

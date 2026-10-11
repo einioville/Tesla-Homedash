@@ -281,6 +281,11 @@ Item {
             anchors.bottom: parent.bottom
             anchors.bottomMargin: 12
             radar: radar
+            rimWidth: 0.75
+            highlight: false
+            frostBrightness: -0.05
+            tintTop: "#1f1a1a24"
+            tintBottom: "#2e121218"
         }
     }
 
