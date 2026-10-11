@@ -8,8 +8,9 @@ uses the graph's levels through ONE table, `Theme.gestureSensitivityLevels`, so 
 same on both, and `mapFollowResumeSec` sits where `graphSettleDelay` does. Seven schema entries plus
 seven `Theme.map*` bindings; **no protocol change and no C++ change at all**, since everything is
 consumed by `items/tesla/TeslaMap.qml` (the dashboard card AND the full-screen `MapView`).
-`Theme.mapSensitivity` alone also reaches `items/trip/TripMap.qml`, which carries the same
-pan/pinch/wheel handlers. The basemap is not a setting: `AppConfig` picks MML's orthophoto when
+`Theme.mapSensitivity` also reaches `items/trip/TripMap.qml`, which carries the same
+pan/pinch/wheel handlers, and the Weather view's radar map, which carries them too and also returns
+home after `mapFollowResumeSec` (`items/weather/prototype/WeatherProtoRadarMap.qml`). The basemap is not a setting: `AppConfig` picks MML's orthophoto when
 `TESLA_HOMEDASH_MAP_API_KEY` is in the environment or `.env`, else EOX Sentinel-2
 (`frontend_v2/CLAUDE.md`). Two facts verified against the Qt 6.11.1 sources on disk, both
 load-bearing:

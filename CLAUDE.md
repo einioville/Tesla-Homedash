@@ -63,6 +63,7 @@ backend/                          # ★ orchestration, service contracts, .env +
       spotify_oauth.py            # The one canonical SPOTIFY_SCOPE, the grant record + NonInteractiveSpotifyOAuth
     weather_service/              # ★
       weather_service.py          # FMI WFS polling, forecast serialization, 15-min refresh
+      weather_view.py             # The Weather view's document (WEATHER_VIEW): stations, ~10 days, sun/moon, warnings
     trip_service/
       trip.py, trip_loader.py     # On-demand trip detection from stored telemetry (the Trips view)
     charging_service/             # ★
@@ -313,6 +314,9 @@ second tap on the button → UPDATE_APPLY{channel, commit}
 APScheduler (15 min) → WeatherService.__update_forecast → FMI fetch (executor)
   → serialize → protocol.frame(WEATHER_FORECAST, …) → Server.broadcast
   → WeatherDataHandler.onMainForecastUpdate → MainWeather → banner + 5 cards
+APScheduler (10 min) → WeatherService.__update_view → WeatherViewBuilder.build (FMI timeseries
+  JSON + CAP warnings, parts in parallel) → protocol.frame(WEATHER_VIEW, JSON) → Server.broadcast
+  → Weather.view (frontend_v2) → the Weather view + the dashboard's hourly panel
 ```
 
 **Spotify claim / release**
@@ -447,7 +451,9 @@ fourth round: an overview card on top (healthy or not, the issues behind it, hos
 uptime), the *Versio* card folded into *Palvelin* as a row, the charging rows on *Laturi* only with
 trips on a *Matkat* card of their own, and service-card values that wrap instead of eliding — plus
 Media › *Taajuuskorjain*: a five-band equalizer and a bass shelf on a PipeWire filter-chain the
-audio service runs only while the curve is not flat, drawn as knobs on a curve by `EqualizerPanel`.
+audio service runs only while the curve is not flat, drawn as knobs on a curve by `EqualizerPanel`
+— plus, on `prototype/weather-view`, the Weather view (*Sää*) on live FMI data: the backend's
+`WEATHER_VIEW` document (`weather_service/weather_view.py`) and a pannable, zoomable radar map.
 When you land a change that touches documented behaviour, update this line.
 
 ## 8. Session workflow — main checkout by default, worktree only for parallelism

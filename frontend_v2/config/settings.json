@@ -455,7 +455,7 @@
                             "key": "mapFollowResumeSec",
                             "type": "int",
                             "label": "Keskitysviive",
-                            "help": "Kuinka nopeasti kartta palaa takaisin auton sijaintiin.",
+                            "help": "Kuinka nopeasti kartta palaa takaisin auton sijaintiin ja sadetutka kotipaikkaan.",
                             "unit": "s",
                             "min": 2,
                             "max": 120,

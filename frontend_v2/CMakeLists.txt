@@ -117,6 +117,7 @@ qt_add_qml_module(appfrontend_v2
         views/TripsView.qml
         views/ChargingView.qml
         views/SettingsView.qml
+        views/WeatherPrototypeView.qml
         items/settings/SettingRow.qml
         items/settings/SettingRules.qml
         items/settings/SettingSwitch.qml
@@ -205,6 +206,16 @@ qt_add_qml_module(appfrontend_v2
         items/weather/WeatherForecastCard.qml
         items/weather/CurrentWeatherCard.qml
         items/weather/MainWeather.qml
+        items/weather/prototype/WeatherProtoUtil.js
+        items/weather/prototype/WeatherProtoWindArrow.qml
+        items/weather/prototype/WeatherProtoRadarMap.qml
+        items/weather/prototype/WeatherProtoRadarControls.qml
+        items/weather/prototype/WeatherProtoSunArc.qml
+        items/weather/prototype/WeatherProtoMoon.qml
+        items/weather/prototype/WeatherProtoCard.qml
+        items/weather/prototype/WeatherProtoChart.qml
+        items/weather/prototype/WeatherProtoHourlyCard.qml
+        items/weather/prototype/WeatherProtoDashboard.qml
 )
 
 # Qt for iOS sets MACOSX_BUNDLE_GUI_IDENTIFIER automatically since Qt 6.1.
@@ -266,6 +277,15 @@ target_link_libraries(appfrontend_v2
 # the Widgets frontend used, so QML references qrc:/resources/icons/... and the
 # application font (main.cpp) loads identically. Kept out of the QML module so
 # the prefix stays /resources rather than /qt/qml/frontend_v2.
+# PROTOTYPE (prototype/weather-view): FMI's SmartSymbol icon set (MIT, see its LICENCE.md),
+# file names are the SmartSymbol values.
+file(GLOB SMARTSYMBOL_ICONS RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
+    resources/icons/weather/smartsymbol/*.svg)
+qt_add_resources(appfrontend_v2 "smartsymbol_icons"
+    PREFIX "/"
+    FILES ${SMARTSYMBOL_ICONS}
+)
+
 qt_add_resources(appfrontend_v2 "app_resources"
     PREFIX "/"
     FILES

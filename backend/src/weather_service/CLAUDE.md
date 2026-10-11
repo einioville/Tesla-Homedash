@@ -35,3 +35,28 @@ hours go out with no rain rather than the accumulated amount.
 >   caching. The frontend replaces its whole forecast model per frame, so a banner-only frame blanks
 >   all five cards *and* poisons `__last_forecast` for every later reconnect. Stale-but-complete
 >   beats half-blank.
+
+## `weather_view.py` — the Weather view's document (`WEATHER_VIEW`)
+
+`frontend_v2`'s Weather view, and the dashboard panel that reuses its hourly card, read one JSON
+document instead of `WEATHER_FORECAST`, which stays for the frozen frontend. `WeatherViewBuilder`
+builds it on its own job, **every 10 minutes at :04, :14, …** — FMI's 10-minute observations land a
+few minutes after their slot — under the same scheduler rules as the forecast job, with
+`_VIEW_DEADLINE_SECONDS` around the whole build and `_FMI_TIMEOUT` on every request.
+
+- **Source: FMI's `timeseries` service (JSON), not WFS**, so no fmiopendata parse. The parts, fetched
+  in parallel: the place (name, coordinates, its own zone — cached per place), observations
+  (`numberofstations=5`, `maxdistance=50 km`, each field from the nearest station reporting it — the
+  place's own station rarely measures everything), the **edited** forecast (~230 h, what
+  ilmatieteenlaitos.fi shows), HARMONIE's `RadiationGlobal` for the hour, sun and moon, and the CAP
+  warnings feed, each tested against the place's coordinates (`appliesHere`).
+- **A failed part keeps its last good value**; parts are dropped when the place changes. A forecast
+  kept from an earlier cycle is trimmed to start at the current hour. No forecast hours at all → no
+  frame, the previous one stays (the forecast job's rule). A build that finishes after the place
+  changed is discarded.
+- **The UV index is an estimate** — FMI publishes none: Madronich's clear-sky index from the sun's
+  elevation × HARMONIE's radiation against a Haurwitz clear-sky model. Not radiation alone, which
+  overstates a low spring or autumn sun two to three times.
+- Times in the document are in the configured zone (`epochtime` converted; the astro rise/set strings
+  are in the place's zone and converted too). `now.time` is the newest observation used — the view's
+  *havainto* — or `null` when no observation has arrived yet.
