@@ -53,6 +53,8 @@ _MISFIRE_GRACE_SECONDS = 300
 # this bounds the whole build the way _FETCH_DEADLINE_SECONDS bounds one query.
 _VIEW_DEADLINE_SECONDS = 90
 
+_HARMONIE_QUERY = "fmi::forecast::harmonie::surface::point::multipointcoverage"
+
 
 class ForecastMeasurement:
     def __init__(self, name, value, unit: None):
@@ -521,27 +523,46 @@ class WeatherService:
         start_str = current_hour.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
         end_str = end_time.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
-        data = await self.__download_stored_query(
-            query_id="fmi::forecast::harmonie::surface::point::multipointcoverage",
-            params={
-                "starttime": start_str,
-                "endtime": end_str,
-                "place": self.__place,
-            },
-            label="forecast",
+        # The default fields' "PrecipitationAmount" is the rain ACCUMULATED since
+        # the model run started (it only ever grows), not the hour's. The hour's is
+        # "Precipitation1h", fetched alongside and put in its place.
+        params = {"starttime": start_str, "endtime": end_str, "place": self.__place}
+        data, hourly_rain = await asyncio.gather(
+            self.__download_stored_query(
+                query_id=_HARMONIE_QUERY, params=params, label="forecast"
+            ),
+            self.__download_stored_query(
+                query_id=_HARMONIE_QUERY,
+                params={**params, "parameters": "Precipitation1h"},
+                label="forecast hourly rain",
+            ),
         )
 
         if not data or not data.data:
             return []
 
+        # One parameter asked for, so each row's only field is the hour's rain.
+        rain_by_time = {}
+        if hourly_rain and hourly_rain.data:
+            for time, value in hourly_rain.data.items():
+                fields = next(iter(value.values()), {})
+                if fields:
+                    rain_by_time[time] = next(iter(fields.values()))
+
         # Sort by timestamp so the list is strictly chronological: the frontend
         # shows the first five forecast rows as "the nearest five", which only
         # holds if the rows are time-ordered (fmiopendata is normally ordered,
         # but sorting makes the guarantee independent of its iteration order).
-        return [
-            ForecastHour(time, next(iter(value.values())), self.__zone_info)
-            for time, value in sorted(data.data.items())
-        ]
+        # Without the hour's rain an hour goes out with none rather than with the
+        # accumulated amount.
+        hours = []
+        for time, value in sorted(data.data.items()):
+            fields = dict(next(iter(value.values())))
+            fields.pop("Precipitation amount", None)
+            if time in rain_by_time:
+                fields["Precipitation amount"] = rain_by_time[time]
+            hours.append(ForecastHour(time, fields, self.__zone_info))
+        return hours
 
     async def __get_stream_data(self, forecasts: list) -> list[bytes]:
         '''
