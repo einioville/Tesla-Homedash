@@ -22,10 +22,8 @@
 - **`logger_configurator.py`**: `configure_logging()` resolves the level from
   `TESLA_HOMEDASH_LOG_LEVEL` (default **INFO**, not DEBUG) and wires the shared stdout formatter
   (`LEVEL | YYYY-MM-DD | HH:MM:SS | name | message`) onto an allow-list of top-level loggers.
-  **Every service's logger prefix must be in `_SERVICE_LOGGERS`** (`tesla_service`, `media_service`,
-  `weather_service`, `influxdb_service`, `charging_service`, `myenergi_service`, `trip_service`,
-  `config_service`, `audio_service`, `display_service`, `system_service`, `server`,
-  `start_services`, `utils`) — an unlisted prefix propagates to a handler-less root and its
+  **Every service's logger prefix must be in `_SERVICE_LOGGERS`** (the tuple in
+  `logger_configurator.py`) — an unlisted prefix propagates to a handler-less root and its
   INFO/DEBUG logs silently vanish. **`spotipy` gets the same handlers but a PINNED level**
   (`max(level, INFO)`): its "Couldn't write token to cache" warning is the only evidence that a
   re-authorisation silently lost the grant, but at DEBUG it prints the token POST body and the
@@ -108,7 +106,7 @@ Framing, byte order and the Tesla stream value types are in the root `CLAUDE.md`
 | `0xAA` | SPOTIFY_DEVICE_GET_STATUS | F→B | (empty) — ask for the configured device's standing |
 | `0xAB` | SPOTIFY_DEVICE_STATUS | B→F | `status(1B, always OK) + len(4B) + JSON` — `{configured, id, name, type, detected, isRestricted, reason}`; `detected` is `null` when Spotify's device list could not be read. Replied to the requester, **broadcast** after a successful select; no `scanId` — it describes `config.json`, not a flow |
 | `0xB0` | SYSTEM_GET_STATUS | F→B | (empty) — poll the service probes now |
-| `0xB1` | SYSTEM_STATUS | B→F | `status(1B) + len(4B) + JSON` — `{services[{id, label, state, detail, config, items, errors{warnings, errors}}], sampled_ms}`; the host's metrics are `SYSTEM_HISTORY`'s |
+| `0xB1` | SYSTEM_STATUS | B→F | `status(1B) + len(4B) + JSON` — `{services[{id, label, state, detail, config, items, errors{warnings, errors}}], sampled_ms, uptime_s, backend_uptime_s}`; the host's metrics are `SYSTEM_HISTORY`'s |
 | `0xB2` | SYSTEM_GET_HISTORY | F→B | `since_ms(8B, signed)` — the samples newer than this; `0` (or an empty payload) = everything |
 | `0xB3` | SYSTEM_HISTORY | B→F | `status(1B) + len(4B) + JSON` — `{interval_s, window_s, reset, mem_total_b, cpu_count, temp_available, disk{path, device, total_b, used_b, free_b, used_pct}, samples[{t, cpu[], mem_used_b, disk_read_bps, disk_write_bps, net_rx_bps, net_tx_bps, cpu_temp_c}]}`; to the requester only. `reset` = drop what you hold rather than append (asked for everything, or the host clock went backwards). A value that could not be computed is `null` (`../system_service/CLAUDE.md`) |
 | `0xB4` | SYSTEM_GET_LOG | F→B | `len(4B) + JSON` — `{service}`: one status card's probe id |

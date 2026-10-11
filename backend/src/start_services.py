@@ -782,7 +782,7 @@ async def main():
     logger.debug("Spotify auth service initialized")
 
     # Host audio (system volume + output device). Always constructed: detection is
-    # two cheap subprocess probes and needs no credentials, and a host with no
+    # at most three cheap subprocess probes and needs no credentials, and a host with no
     # controllable audio stack must be able to SAY so rather than silently accept
     # writes that do nothing.
     audio = AudioService(config=config)
