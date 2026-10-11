@@ -3,17 +3,16 @@ import frontend_v2
 
 // Spotify re-authorization, as a small modal dialog over the dashboard.
 //
-// This used to host the project's only WebEngineView, rendering Spotify's consent
-// page inline. It no longer renders anything: the BACKEND opens the page in the
+// It renders no web content: the BACKEND opens Spotify's consent page in the
 // host's real browser and catches the redirect on its own loopback listener
-// (RFC 8252 §7.3), so all this screen has to do is report progress and get out of
-// the way. Two reasons that is not a downgrade:
+// (RFC 8252 §7.3), so all this screen does is report progress and stay out of
+// the way. Why not an embedded view:
 //
 //  - RFC 8252 §8.12 says a native app MUST NOT use an embedded user-agent for
 //    authorization — it can read the user's password keystrokes and lift session
-//    cookies — and Spotify enforces that with a reCAPTCHA gate the embedded view
-//    could never pass, even once WebGL and compositing were both working.
-//  - It takes Qt WebEngine (an entire Chromium, ~200 MB) out of the build.
+//    cookies — and Spotify enforces that with a reCAPTCHA gate an embedded view
+//    cannot pass.
+//  - It keeps Qt WebEngine (an entire Chromium, ~200 MB) out of the build.
 //
 // No code, access token or refresh token ever reaches this side; the dialog only
 // ever learns "started" and "finished".

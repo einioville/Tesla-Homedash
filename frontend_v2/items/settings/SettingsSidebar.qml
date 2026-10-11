@@ -6,10 +6,10 @@ import frontend_v2
 // the right.
 //
 // Selection is tracked by group ID rather than index on purpose: the group list
-// grows when the backend's schema arrives (three sections at startup, six once
-// connected — Media, Sähkö and Tesla hold no local settings, so they stay hidden
-// until their backend half lands) and shrinks again if the backend goes away, so
-// an index would silently point at a different section. `currentId` survives both.
+// grows when the backend's schema arrives (five sections at startup, seven once
+// connected — Sähkö and Tesla hold no local settings, so they stay hidden until
+// their backend half lands) and shrinks again if the backend goes away, so an
+// index would silently point at a different section. `currentId` survives both.
 //
 // Icons are named SEMANTICALLY in the schema ("charger", "media", …) and mapped
 // to resources here, so the backend never has to know about frontend assets.
@@ -96,8 +96,8 @@ Rectangle {
                 tint: row.current ? Theme.dataLabelValue : Theme.dataLabelTitle
             }
 
-            // The title alone: a line listing the section's subsections was cut
-            // mid-word in this width, and the pane's cards name them anyway.
+            // The title alone: a line listing the section's subsections would be
+            // cut mid-word at this width, and the pane's cards name them anyway.
             Text {
                 anchors.left: sectionIcon.right
                 anchors.leftMargin: 12

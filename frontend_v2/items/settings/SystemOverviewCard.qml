@@ -104,7 +104,6 @@ Rectangle {
         bottomPadding: 16
         spacing: 12
 
-        // --- Verdict, with the uptimes at the right ---------------------------
         Item {
             width: content.width
             height: Math.max(verdictRow.height, uptimeGrid.height)
@@ -209,7 +208,6 @@ Rectangle {
             }
         }
 
-        // --- The issues -------------------------------------------------------
         Rectangle {
             visible: card.issues.length > 0
             width: content.width

@@ -6,8 +6,8 @@ import frontend_v2
 // error store (System.openLog → SYSTEM_GET_LOG), so it reaches back past a
 // restart, to the last time the logs were cleared in full.
 //
-// A child of SettingsView like the other dialogs, drawn the same way, anchored
-// high and capped in height so it never reaches the dock band; the list scrolls.
+// A child of SettingsView like the other dialogs, anchored high and capped in
+// height so it never reaches the dock band; the list scrolls.
 ModalDialog {
     id: popup
 
@@ -16,8 +16,8 @@ ModalDialog {
     onScrimClicked: System.closeLog()
     cardTopMargin: Theme.gridMargin + 48
     cardWidth: 760
-    // Clear of the dock band at the bottom of the screen.
-    // Room for the empty / loading line when there is no list yet.
+    // At least room for the empty / loading line when there is no list yet; at
+    // most what stays clear of the dock band.
     cardHeight: Math.min(header.height + Math.max(list.contentHeight, 72) + footer.height + 64,
                          height - cardTopMargin - 140)
 

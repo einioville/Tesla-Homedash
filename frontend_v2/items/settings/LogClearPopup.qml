@@ -7,7 +7,7 @@ import frontend_v2
 // (Logs, core/CLAUDE.md); the outcome comes back on the row, not here, so the
 // dialog closes the moment a choice is made.
 //
-// A child of SettingsView like the other dialogs, drawn the same way.
+// A child of SettingsView like the other dialogs.
 ModalDialog {
     id: popup
 

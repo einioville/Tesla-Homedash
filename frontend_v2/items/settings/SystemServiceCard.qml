@@ -72,7 +72,7 @@ Rectangle {
     border.width: 1
     border.color: Theme.tripCardBorder
 
-    // --- Header band (as SettingsPane's cards) --------------------------------
+    // The header band, drawn as SettingsPane's cards draw theirs.
     Item {
         id: header
         anchors.left: parent.left
@@ -143,7 +143,6 @@ Rectangle {
         }
     }
 
-    // --- Body ----------------------------------------------------------------
     Column {
         id: body
         anchors.left: parent.left
@@ -244,7 +243,6 @@ Rectangle {
             }
         }
 
-        // --- Warnings and errors -------------------------------------------
         Item {
             width: body.width
             height: 10

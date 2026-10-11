@@ -4,8 +4,7 @@ import frontend_v2
 // The list behind the header's "Ongelmia havaittu": each detected problem with a
 // "Korjaa" button that takes the user to the setting that fixes it.
 //
-// A child of SettingsView like SpotifyDevicePopup, and drawn the same way (scrim
-// over the view's blurred content, an opaque card), but anchored to the TOP of the
+// A child of SettingsView like the other dialogs, anchored to the TOP of the
 // view rather than centred: it answers the header line directly above it. It
 // holds no state of its own beyond being open — the list is SettingsIssues' live
 // binding, so an issue fixed while the box is open leaves it at once.

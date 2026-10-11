@@ -140,7 +140,7 @@ Item {
         font.pixelSize: 16
     }
 
-    // --- Legend (several lines only) ---------------------------------------------
+    // The legend, for graphs of several lines only.
     TextMetrics {
         id: valueMetrics
         font.family: Theme.fontFamily

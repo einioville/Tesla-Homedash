@@ -1,10 +1,10 @@
 import QtQuick
 import frontend_v2
 
-// One pill button for the Options view's dialogs (SpotifyAuthPopup,
-// UsbImportPopup). Matches the view's combo styling (TripComboBox's field
-// colours) so a dialog reads as part of the same screen; `primary` tints the one
-// action a dialog exists for in the accent.
+// One pill button for the Options view (its dialogs, header and service cards)
+// and the app-level Spotify re-authorization prompts. Matches the view's combo
+// styling (TripComboBox's field colours) so a dialog reads as part of the same
+// screen; `primary` tints the one action a dialog exists for in the accent.
 Rectangle {
     id: control
 

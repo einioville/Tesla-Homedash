@@ -22,7 +22,7 @@ import frontend_v2
 //
 // Approaches built and discarded, so they are not re-derived:
 //  - A crisp core stroke under the glow. It reads as a hard band with a gradient
-//    behind it rather than as one light — which is what this looked like before.
+//    behind it rather than as one light.
 //  - PathRectangle.strokeAdjustment to keep the stroke inside the rim. It SHIFTS
 //    the stroke rather than cutting it, so round caps stay fully round and it
 //    reads as a complete pill floating just inside the border.
@@ -72,8 +72,8 @@ Item {
         duration: trace.spinMs
     }
 
-    // Lightening toward white is the "found it" signal now that there is no
-    // second, brighter element to switch on.
+    // Lightening toward white is the "found it" signal: there is no second,
+    // brighter element to switch on.
     property color litColor: complete ? Qt.lighter(glowColor, 1.2) : glowColor
     Behavior on litColor { ColorAnimation { duration: 420 } }
 

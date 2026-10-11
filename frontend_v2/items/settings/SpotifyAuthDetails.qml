@@ -5,10 +5,10 @@ import frontend_v2
 // works, when it was made and when it runs out.
 //
 // The dates come from the backend's grant record, written at each exchange this
-// app makes — Spotify reports neither — so a grant made before the record existed
-// reads "ei tiedossa" (and amber) until the next re-authorization records one.
-// The e-mail needs the user-read-email scope, which only grants issued since it
-// was added carry; the display name stands in until then.
+// app makes — Spotify reports neither — so a grant with no record reads
+// "ei tiedossa" (and amber) until the next re-authorization records one.
+// The e-mail needs the user-read-email scope; for a grant without it, the
+// display name stands in.
 SettingDetails {
     id: auth
 

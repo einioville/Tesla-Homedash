@@ -7,7 +7,7 @@ import frontend_v2
 // restarts with the backend process and only it knows when that was. Styled as
 // the warning text the row's state is: DEBUG left on is the thing to notice.
 // An Item around the line, collapsing to no height while there is nothing to say:
-// an empty Text keeps a line's height and pushed the row's label up.
+// an empty Text keeps a line's height and would push the row's label up.
 Item {
     id: details
 

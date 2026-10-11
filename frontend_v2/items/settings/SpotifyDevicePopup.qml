@@ -19,8 +19,6 @@ ModalDialog {
     id: popup
 
     visible: SpotifyDevice.phase !== "idle"
-    // Already the last child of the view, so this only pins the ordering if a
-    // card is ever added after it.
 
     readonly property bool scanning: SpotifyDevice.phase === "scanning"
     readonly property bool saving: SpotifyDevice.phase === "saving"
@@ -305,7 +303,7 @@ ModalDialog {
                 primary: true
                 // Gated on the FLOW, not the phase. A failed save leaves the
                 // phase on "error" while the backend keeps scanning, so a
-                // phase gate made the dialog a dead end — the device on
+                // phase gate would make the dialog a dead end — the device on
                 // screen with no way to select it. And the slot is held for
                 // the whole scanning/saving flow rather than appearing with
                 // the device: a button that joins and leaves the row moves

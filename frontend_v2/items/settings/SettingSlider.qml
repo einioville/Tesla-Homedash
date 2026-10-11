@@ -5,8 +5,8 @@ import frontend_v2
 // Numeric editor (int and float): a slider with a live readout.
 //
 // One line — track, then the readout at its right — so the control centres on the
-// row's label like every other editor. The readout used to sit ABOVE the track,
-// which pushed the track below the label's centre line.
+// row's label like every other editor. A readout stacked ABOVE the track would
+// push the track below the label's centre line.
 //
 // The important behaviour here is COMMIT-ON-RELEASE. A slider emits a value on
 // every frame of a drag; writing each one would rewrite the settings file dozens

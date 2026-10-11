@@ -26,8 +26,7 @@ Item {
     // Found by key for the issues spotlight (SettingsPane.rowItem).
     objectName: "settingRow:" + setting.key
 
-    // Width given to the editor on the right. The detail pane widens this from
-    // the default now that one section fills the screen.
+    // Width given to the editor on the right; SettingsPane widens it.
     property int editorWidth: 240
 
     readonly property bool needsRestart: setting.apply === "restart"
@@ -76,7 +75,6 @@ Item {
     // first and last rows sit exactly like the ones between dividers.
     implicitHeight: Math.max(56, labelColumn.implicitHeight + 24)
 
-    // --- Left: label, help text, restart badge ---------------------------
     Column {
         id: labelColumn
         anchors.left: parent.left
@@ -199,7 +197,6 @@ Item {
         }
     }
 
-    // --- Right: the editor ------------------------------------------------
     Loader {
         id: editorLoader
         anchors.right: parent.right

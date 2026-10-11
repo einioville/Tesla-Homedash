@@ -3,9 +3,9 @@ import frontend_v2
 
 // The frame every dialog shares: a scrim that takes every press and wheel turn
 // that misses the card, so nothing underneath can be operated while it is open,
-// and an opaque card that holds the content. A MouseArea with no wheel handler
-// lets the wheel through, which scrolled the view behind an open dialog; a list
-// inside the card still scrolls, since it sits above the scrim.
+// and an opaque card that holds the content. The scrim takes the wheel
+// explicitly: a MouseArea with no wheel handler lets it through to the view
+// behind. A list inside the card still scrolls, since it sits above the scrim.
 //
 // Children go into the card. A dialog sets `cardHeight`, and `cardTopMargin` to
 // hang the card under the header instead of centring it: a dialog inside a view
