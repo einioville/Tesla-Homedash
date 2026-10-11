@@ -10,7 +10,7 @@ file, so nothing here repeats it.
 ```
 Main.qml        # the window: view host, dock, app-level overlays (see z-order below)
 main.cpp        # construction order matters — Settings before AppConfig (core/CLAUDE.md)
-app/            # Theme.qml (design tokens + the settings façade), ViewController.qml
+app/            # Theme.qml (design tokens + the settings façade), ViewController.qml, Format.js
 config/         # settings.json (bundled Options-view schema), notifications.json
 core/           # C++: ServerClient, protocol.hh, Logger, AppConfig, dotenv, the QML singletons
   tesla/ media/ weather/ charging/ trip/ notification/   # per-domain data models
@@ -30,6 +30,7 @@ resources/      # fonts, icons, styles, Luna
 | `items/util/ScreenSaver.qml` | `items/util/CLAUDE.md` |
 | A new control or anything that moves — reuse `ToggleSwitch`, `Reveal`, `ElasticFlickable`, `WheelStepArea`, `HoldRepeatArea` (timings are `Theme` *Motion* tokens) | `items/util/CLAUDE.md` |
 | The wire format of anything `ServerClient` parses | `backend/src/utils/CLAUDE.md` |
+| Anything that might already exist — the shared helpers to reuse instead of copying | root `CLAUDE.md` §7.8 |
 
 A feature that spans C++ and QML is documented once, beside the file holding most of its
 load-bearing facts, with a pointer from the other side. Add new notes the same way.

@@ -347,10 +347,9 @@ cards from `System` (`../../core/CLAUDE.md`), both retained only while the secti
   would rebuild every card.
 - **Temperature**'s headline gives the window's peak. A host with no sensor (`temp_available: false`,
   WSL2) shows *Tällä laitteella ei ole lämpötila-anturia* in place of the graph.
-- **Every dialog but the app-level `SpotifyAuthAlert` is a `ModalDialog`** — the opaque card over a
-  scrim that takes every press and wheel turn beside it (a MouseArea with no wheel handler lets the
-  wheel through to the page behind; a list inside the card still scrolls, since it sits above the
-  scrim). `SpotifyAuthAlert` draws its own scrim and card the same way. A new dialog is built on
+- **Every dialog is a `ModalDialog`** — the opaque card over a scrim that takes every press and
+  wheel turn beside it (a MouseArea with no wheel handler lets the wheel through to the page behind;
+  a list inside the card still scrolls, since it sits above the scrim). A new dialog is built on
   `ModalDialog`, not on another scrim and card.
 
 - **Disk is graphed as I/O** (read / write rates) with the free space as the card's headline: space
