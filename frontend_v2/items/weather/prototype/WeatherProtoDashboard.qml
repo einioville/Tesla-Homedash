@@ -71,6 +71,10 @@ Item {
         property string sub
         property real arrow: -1
         spacing: 2
+        // Top-aligned in its grid cell, so a row's metrics line up whatever their sub-lines, and
+        // one preferred width for all, so the columns share the card evenly whatever their text.
+        Layout.alignment: Qt.AlignTop
+        Layout.preferredWidth: 1
         Text { text: parent.label; color: "#8f9aa6"; font.family: Theme.fontFamily; font.pixelSize: 12 }
         Row {
             spacing: 6
@@ -82,7 +86,8 @@ Item {
             }
             Text { text: parent.parent.value; color: "white"; font.family: Theme.fontFamily; font.pixelSize: 19 }
         }
-        Text { text: parent.sub; color: "#6f7a86"; font.family: Theme.fontFamily; font.pixelSize: 11; visible: text !== "" }
+        // Always one line tall, so every metric in a row is the same height.
+        Text { text: parent.sub || " "; color: "#6f7a86"; font.family: Theme.fontFamily; font.pixelSize: 11 }
     }
 
     // ---- row 1 ---------------------------------------------------------------------------
@@ -161,7 +166,7 @@ Item {
                     label: qsTr("Tuuli")
                     arrow: root.now.windDir ?? -1
                     value: Math.round(root.now.wind) + " m/s"
-                    sub: qsTr("puuskat ") + Math.round(root.now.gust)
+                    sub: qsTr("puuskat ") + Math.round(root.now.gust) + " m/s"
                 }
                 Metric {
                     Layout.fillWidth: true
