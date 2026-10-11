@@ -2,7 +2,7 @@ import QtQuick
 import QtQuick.Shapes
 import frontend_v2
 
-// PROTOTYPE — play/pause, the frame's time and a scrub track for a WeatherRadarMap.
+// Play/pause, the frame's time and a scrub track for a WeatherRadarMap.
 // Frosted glass over the radar behind it (the app's GlassPanel, as the notification pill has).
 GlassPanel {
     id: bar

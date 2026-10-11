@@ -2,8 +2,9 @@ import QtQuick
 import QtQuick.Effects
 import frontend_v2
 
-// Reusable "liquid glass" surface — used by the notification pill, the dock and
-// the graph's inspect readout (HistoryGraph, without the frost).
+// Reusable "liquid glass" surface — used by the notification pill, the dock, the
+// graph's inspect readout (HistoryGraph, without the frost) and the weather radar's
+// controls.
 // It captures the region of `backdropSource` directly behind itself, blurs and
 // rounds it, then overlays a dark translucent tint, a bright white rim and a
 // specular highlight so white content reads clearly. The chrome below is declared

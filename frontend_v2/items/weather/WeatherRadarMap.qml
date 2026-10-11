@@ -42,8 +42,8 @@ Item {
     // 10 a town and its surroundings, about where the radar's own resolution runs out.
     property real minimumZoom: 5
     property real maximumZoom: 10
-    // Where the place sits, in pixels from the map's centre (so a variant can keep it
-    // clear of its own panels).
+    // Where the place sits, in pixels from the map's centre, so it can be kept clear of
+    // the controls laid over the map.
     property point placeOffset: Qt.point(0, 0)
     property bool active: true
     property int frameCount: 13          // one hour at FMI's 5-minute cadence

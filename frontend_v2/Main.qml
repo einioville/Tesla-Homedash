@@ -38,7 +38,6 @@ Window {
     readonly property var viewModel: [
         { name: qsTr("Dashboard"), icon: "qrc:/resources/icons/home.svg", component: dashboardComponent },
         { name: qsTr("Kartta"), icon: "qrc:/resources/icons/location.svg", component: mapComponent },
-        // PROTOTYPE (prototype/weather-view): the Weather view.
         { name: qsTr("Sää"), icon: "qrc:/resources/icons/weather/clouds.svg", component: weatherComponent },
         { name: qsTr("Musiikki"), icon: "qrc:/resources/icons/music.svg", component: mediaComponent },
         { name: qsTr("Historia"), icon: "qrc:/resources/icons/chart_line.svg", component: historyComponent },

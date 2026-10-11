@@ -4,7 +4,7 @@ import QtQuick.Shapes
 import frontend_v2
 import "WeatherUtil.js" as U
 
-// PROTOTYPE — variant A, "Kojelauta": everything at once in the app's card grid.
+// The Weather view's content: everything at once in the app's card grid.
 //   row 1: now (merged station observations), sun and moon under it | the radar loop, big
 //   row 2: the hourly chart, 24 h wide and scrollable through the whole forecast | the
 //          coming days, three at a time and scrollable; a tapped day scrolls the chart
@@ -417,8 +417,8 @@ Item {
             boundsBehavior: Flickable.StopAtBounds
 
             readonly property real itemW: width / daysCard.perPage
-            // From originX, not 0: a ListView's content need not start at 0 (it sat at -853 here,
-            // with contentX equal to it at the first day), which left every dot unlit.
+            // From originX, not 0: a ListView's content need not start at 0 (here contentX is
+            // -853 at the first day), and counted from 0 every dot would be unlit.
             readonly property int first: itemW > 0 ? Math.round((contentX - originX) / itemW) : 0
 
             delegate: Item {

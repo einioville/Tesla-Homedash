@@ -1,4 +1,4 @@
-// PROTOTYPE — formatting + colour helpers for the Weather view.
+// Formatting and colour helpers for the Weather view.
 .pragma library
 
 var WEEKDAYS_LONG = { ma: "maanantai", ti: "tiistai", ke: "keskiviikko", to: "torstai",

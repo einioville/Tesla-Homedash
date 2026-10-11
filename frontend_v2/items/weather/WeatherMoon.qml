@@ -1,6 +1,6 @@
 import QtQuick
 
-// PROTOTYPE — the moon's lit fraction drawn as a disc (illuminated % from FMI's moonphase).
+// The moon's lit fraction drawn as a disc (illuminated % from FMI's moonphase).
 Canvas {
     id: moon
 

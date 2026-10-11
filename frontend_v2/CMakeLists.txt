@@ -266,8 +266,9 @@ target_link_libraries(appfrontend_v2
 # the Widgets frontend uses, so QML references qrc:/resources/icons/... and the
 # application font (main.cpp) loads identically. Kept out of the QML module so
 # the prefix stays /resources rather than /qt/qml/frontend_v2.
-# PROTOTYPE (prototype/weather-view): FMI's SmartSymbol icon set (MIT, see its LICENCE.md),
-# file names are the SmartSymbol values.
+#
+# FMI's SmartSymbol icon set (MIT, see its LICENCE.md); the file names are the
+# SmartSymbol values.
 file(GLOB SMARTSYMBOL_ICONS RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
     resources/icons/weather/smartsymbol/*.svg)
 qt_add_resources(appfrontend_v2 "smartsymbol_icons"

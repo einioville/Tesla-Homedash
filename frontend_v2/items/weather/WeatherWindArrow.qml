@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Shapes
 
-// PROTOTYPE — a wind arrow pointing where the wind blows TO (FMI's convention), given the
+// A wind arrow pointing where the wind blows TO (FMI's convention), given the
 // meteorological direction it blows FROM.
 Item {
     id: root
