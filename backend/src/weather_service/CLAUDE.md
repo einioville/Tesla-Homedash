@@ -2,7 +2,8 @@
 
 `WeatherService` fetches the current-hour FMI observation + the next hours' harmonie forecast
 (`fmiopendata`, run in an executor), serialises them into a `WEATHER_FORECAST` frame, broadcasts,
-and caches the last frame to replay to new clients. Refreshes every 15 min via APScheduler.
+and caches the last frame to replay to new clients. Refreshes every 15 min via APScheduler. Only the
+frozen `frontend/` reads that frame; `frontend_v2` reads `WEATHER_VIEW` (below) and ignores it.
 The current-hour **banner** takes temperature + wind from the real observation, but the observation
 station typically reports neither precipitation nor cloud cover — so those two are **backfilled from
 the harmonie forecast's current-hour row** (the model retains the current hour, so no caching is
@@ -32,7 +33,7 @@ hours go out with no rain rather than the accumulated amount.
 > - **Schedule the job before the initial fetch** in `run()`, so a failed/slow first fetch can't
 >   leave the service with no periodic refresh at all.
 > - **A cycle with no future forecast hours is a failed cycle** — return without broadcasting or
->   caching. The frontend replaces its whole forecast model per frame, so a banner-only frame blanks
+>   caching. The frozen frontend replaces its whole forecast model per frame, so a banner-only frame blanks
 >   all five cards *and* poisons `__last_forecast` for every later reconnect. Stale-but-complete
 >   beats half-blank.
 

@@ -46,7 +46,7 @@ inline constexpr quint8 MEDIA_STREAM_TYPE = 0x1E;
 inline constexpr quint8 MEDIA_TYPE_RADIO = 0x01;
 inline constexpr quint8 MEDIA_TYPE_SPOTIFY = 0x02;
 
-// Weather forecast frame + sub-field IDs
+// Weather forecast frame + sub-field IDs: the frozen frontend's, ignored here.
 inline constexpr quint8 WEATHER_FORECAST = 0x30;
 inline constexpr quint8 FORECAST_TEMPERATURE = 0x31;
 inline constexpr quint8 FORECAST_WIND_SPEED = 0x32;

@@ -92,8 +92,6 @@ qt_add_executable(appfrontend_v2
     core/media/mediaimageprovider.hh
     core/media/mediadata.hh
     core/media/mediadata.cpp
-    core/weather/weatherforecastmodel.hh
-    core/weather/weatherforecastmodel.cpp
     core/weather/weatherdata.hh
     core/weather/weatherdata.cpp
     core/notification/notificationhandler.hh
@@ -205,8 +203,6 @@ qt_add_qml_module(appfrontend_v2
         items/media/MediaCover.qml
         items/media/MediaTransport.qml
         items/media/MediaSeekBar.qml
-        items/weather/WeatherForecastCard.qml
-        items/weather/CurrentWeatherCard.qml
         items/weather/MainWeather.qml
         items/weather/prototype/WeatherProtoUtil.js
         items/weather/prototype/WeatherProtoWindArrow.qml
@@ -317,9 +313,6 @@ qt_add_resources(appfrontend_v2 "app_resources"
         resources/icons/trip.svg
         resources/icons/yellowshadow.png
         resources/icons/weather/clouds.svg
-        resources/icons/weather/rain.svg
-        resources/icons/weather/thermometer.svg
-        resources/icons/weather/wind.svg
         resources/Luna/stationary.png
         resources/Luna/eating_1.png
         resources/Luna/eating_2.png
