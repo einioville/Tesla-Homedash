@@ -16,7 +16,9 @@ import frontend_v2
 //
 // Gestures are TripMap's: one-finger pan, pinch and wheel zoom, scaled by the shared map
 // sensitivity. The zoom stays between minimumZoom and maximumZoom, and the centre within
-// the radar's coverage, so the map cannot be lost somewhere the radar does not reach.
+// the radar's coverage, so the map cannot be lost somewhere the radar does not reach. Like the
+// home map, it glides back to the place on its own once left alone for the *Keskitysviive*
+// (Theme.mapFollowResumeSec), and is back there whenever the view is opened again.
 //
 // The basemap here is EOX Sentinel-2, not the app's MML orthophoto: MML covers Finland only
 // and answers everywhere else (sea, Sweden, Estonia) with a blank white tile, which a
@@ -199,6 +201,23 @@ Item {
     onViewChanged: strikeLayer.requestPaint()
     onLatitudeChanged: Qt.callLater(goHome)
     onLongitudeChanged: Qt.callLater(goHome)
+    onActiveChanged: {
+        if (!active) {
+            returnTimer.stop()
+            if (moved)
+                goHome()
+        }
+    }
+
+    // A gesture holds the map where it is; letting go starts the wait to go back.
+    function gestureActive(isActive) {
+        if (isActive) {
+            homeAnim.stop()
+            returnTimer.stop()
+        } else if (moved) {
+            returnTimer.restart()
+        }
+    }
 
     function merc(c) {
         var R = 6378137
@@ -320,7 +339,11 @@ Item {
             maximumPointCount: 1
             dragThreshold: 0
             property point lastCentroid
-            onActiveChanged: if (active) { lastCentroid = centroid.position; homeAnim.stop() }
+            onActiveChanged: {
+                if (active)
+                    lastCentroid = centroid.position
+                root.gestureActive(active)
+            }
             onCentroidChanged: {
                 if (!active)
                     return
@@ -336,8 +359,9 @@ Item {
         WheelHandler {
             acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
             onWheel: function(event) {
-                homeAnim.stop()
+                root.gestureActive(true)
                 root.zoomTo(map.zoomLevel + event.angleDelta.y / 120 * 0.5 * Theme.mapSensitivity)
+                root.gestureActive(false)
             }
         }
 
@@ -345,13 +369,23 @@ Item {
             target: null
             minimumPointCount: 2
             property real startZoom: root.zoom
-            onActiveChanged: if (active) { startZoom = map.zoomLevel; homeAnim.stop() }
+            onActiveChanged: {
+                if (active)
+                    startZoom = map.zoomLevel
+                root.gestureActive(active)
+            }
             onActiveScaleChanged: {
                 if (!active)
                     return
                 root.zoomTo(startZoom + Math.log2(activeScale) * Theme.mapSensitivity)
             }
         }
+    }
+
+    Timer {
+        id: returnTimer
+        interval: Theme.mapFollowResumeSec * 1000
+        onTriggered: root.returnHome()
     }
 
     Timer {
@@ -527,7 +561,10 @@ Item {
             id: homeTap
             anchors.fill: parent
             anchors.margins: -6
-            onClicked: root.returnHome()
+            onClicked: {
+                returnTimer.stop()
+                root.returnHome()
+            }
         }
     }
 
