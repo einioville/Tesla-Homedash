@@ -77,8 +77,6 @@ Item {
     readonly property var strikes: view ? allStrikes.filter(s => s.mx >= view.x0 && s.mx <= view.x1
                                                                  && s.my >= view.y0 && s.my <= view.y1)
                                         : []
-    // A made-up storm crossing the map instead of FMI's strikes, to see them on a calm day.
-    property bool demoLightning: false
     // What strikeLayer draws for the shown frame.
     readonly property int strikesShown: {
         if (!frameTimes.length)
@@ -122,10 +120,6 @@ Item {
     function fetchLightning() {
         if (!frameTimes.length)
             return
-        if (demoLightning) {
-            allStrikes = demoStrikes()
-            return
-        }
         // Cleared before the abort, whose DONE callback must not count as this fetch's.
         if (strikeXhr) {
             var old = strikeXhr
@@ -174,28 +168,6 @@ Item {
         return Qt.point((s.mx - v.x0) / (v.x1 - v.x0) * v.w, (v.y1 - s.my) / (v.y1 - v.y0) * v.h)
     }
 
-    // A cell drifting from the south-west past home over the loop, a few strikes a minute.
-    function demoStrikes() {
-        if (!view)
-            return []
-        var t0 = frameTimes[0].getTime() - frameStepMin * 60000
-        var t1 = Date.now()
-        var home = merc({ latitude: latitude, longitude: longitude })
-        var mpp = (view.x1 - view.x0) / view.w
-        var spread = () => Math.random() + Math.random() + Math.random() - 1.5
-        var list = []
-        for (var t = t0; t < t1; t += 60000) {
-            var f = (t - t0) / (t1 - t0)
-            var cx = -260 + 380 * f
-            var cy = 150 - 210 * f
-            for (var k = Math.floor(Math.random() * 4); k > 0; k--)
-                list.push({ mx: home.x + (cx + spread() * 50) * mpp, my: home.y - (cy + spread() * 40) * mpp,
-                            t: t + Math.random() * 60000 })
-        }
-        return list
-    }
-
-    onDemoLightningChanged: fetchLightning()
     onFrameChanged: strikeLayer.requestPaint()
     onStrikesChanged: strikeLayer.requestPaint()
     onViewChanged: strikeLayer.requestPaint()

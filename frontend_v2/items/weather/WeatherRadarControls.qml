@@ -8,7 +8,6 @@ GlassPanel {
     id: bar
 
     property Item radar: null
-    property bool showLegend: true
 
     implicitWidth: row.implicitWidth + 24
     implicitHeight: 44
@@ -16,10 +15,6 @@ GlassPanel {
     backdropSource: bar.radar
     backdropOrigin: Qt.point(bar.x - (bar.radar ? bar.radar.x : 0), bar.y - (bar.radar ? bar.radar.y : 0))
     active: bar.radar ? bar.radar.active : false
-
-    function timeText(d) {
-        return Qt.formatTime(d, "HH:mm")
-    }
 
     Row {
         id: row
@@ -48,7 +43,7 @@ GlassPanel {
         Text {
             anchors.verticalCenter: parent.verticalCenter
             width: 48
-            text: bar.radar ? bar.timeText(bar.radar.frameTime) : ""
+            text: bar.radar ? Qt.formatTime(bar.radar.frameTime, "HH:mm") : ""
             color: "white"
             font.family: Theme.fontFamily
             font.pixelSize: 17
@@ -143,7 +138,6 @@ GlassPanel {
 
         // dBZ legend, FMI's palette from light to heavy.
         Row {
-            visible: bar.showLegend
             anchors.verticalCenter: parent.verticalCenter
             spacing: 4
             Text { text: qsTr("heikko"); color: "#b8c2cc"; font.pixelSize: 11; font.family: Theme.fontFamily }

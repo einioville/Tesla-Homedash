@@ -35,7 +35,6 @@ Item {
     // MultiEffect's brightness is added to every channel, so the default darkening turns an
     // already dark backdrop (the weather radar) black; such a panel passes its own.
     property real frostBrightness: Theme.notificationFrostBrightness
-    property real frostSaturation: Theme.notificationFrostSaturation
 
     readonly property bool frostActive: frostedBackdrop && backdropSource !== null
 
@@ -69,7 +68,7 @@ Item {
         blur: 1.0
         blurMax: 64
         brightness: panel.frostBrightness
-        saturation: panel.frostSaturation
+        saturation: Theme.notificationFrostSaturation
         maskEnabled: true
         maskSource: frostMask
     }

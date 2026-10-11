@@ -25,9 +25,6 @@ Item {
 
     property var wx: ({})
     property bool active: true
-    property bool demoLightning: false
-    // A SmartSymbol to colour the backdrop by instead of the current one; 100 and up is night.
-    property int demoSymbol: 0
 
     readonly property var now: wx.now || ({})
     readonly property var here: (wx.warnings || []).filter(w => w.appliesHere)
@@ -43,9 +40,7 @@ Item {
 
     // The backdrop takes on the current weather: its kind from the symbol, its light from where
     // the sun is now, so dusk and dawn blend over the hour around sunset and sunrise.
-    readonly property int skySymbol: demoSymbol > 0 ? demoSymbol : (now.symbol || 0)
-    readonly property real dayness: demoSymbol > 0 ? (demoSymbol >= 100 ? 0 : 1) : U.dayness(clock, wx.astro)
-    readonly property var sky: U.skyColors(skySymbol, dayness)
+    readonly property var sky: U.skyColors(now.symbol || 0, U.dayness(clock, wx.astro))
 
     Rectangle {
         anchors.fill: parent
@@ -276,7 +271,6 @@ Item {
             zoom: 8.0
             placeOffset: Qt.point(0, -20)
             active: root.active
-            demoLightning: root.demoLightning
         }
         Text {
             x: 14; y: 10

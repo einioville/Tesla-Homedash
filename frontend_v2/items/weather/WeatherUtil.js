@@ -31,12 +31,6 @@ function dayLength(min) {
     return Math.floor(min / 60) + " h " + (min % 60) + " min"
 }
 
-function signed(v, decimals) {
-    if (v === null || v === undefined)
-        return "–"
-    return (v > 0 ? "+" : v < 0 ? "-" : "±") + num(Math.abs(v), decimals)
-}
-
 function visibility(m) {
     if (m === null || m === undefined)
         return "–"
