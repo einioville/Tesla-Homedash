@@ -492,6 +492,16 @@ Four kinds of debris do not belong in this codebase; review your own diff for th
   Two copies that behave differently are merged only once you know which behaviour is right — ask
   when it is not obvious.
 
+### 7.9 Settings for a new feature
+Every feature you build or change ends with a **settings check**: list what in it a user could want
+to set on the device — the feature's own on/off, intervals and timings, thresholds, a source or
+device choice — above all the values the change hard-codes or reads only from `config.json`. Propose
+each candidate to the user (key, type, default, range, which half owns it, its section and card) and
+add the agreed ones on the same branch: a frontend tunable is a `config/settings.json` entry plus a
+`Theme` binding (`frontend_v2/CLAUDE.md`), a backend one a `SETTINGS_SCHEMA` entry plus an
+`apply_config()` hook (`backend/src/config_service/CLAUDE.md`). Protocol and hardware constraints
+stay constants, and secrets stay in `.env`.
+
 ## 8. Session workflow — main checkout by default, worktree only for parallelism
 
 The default is to **work in the main checkout** (`P:\Tesla-Homedash` on Windows, `~/Tesla-Homedash`
