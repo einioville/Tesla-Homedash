@@ -318,16 +318,6 @@ Item {
         color: Theme.accent
         border.color: "white"
         border.width: 2
-
-        Rectangle {
-            anchors.centerIn: parent
-            width: 40
-            height: 40
-            radius: 20
-            color: "transparent"
-            border.color: "#80ffffff"
-            border.width: 1
-        }
     }
 
     Timer {

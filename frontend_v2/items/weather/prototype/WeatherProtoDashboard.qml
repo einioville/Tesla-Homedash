@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
+import QtQuick.Shapes
 import frontend_v2
 import "WeatherProtoUtil.js" as U
 
@@ -254,11 +255,12 @@ Item {
         width: root.width - root.margin - x; height: root.topH
         clip: true
         color: "black"
+        // Drawn by the corner overlay below instead, where the map cannot cover its arcs.
+        border.color: "transparent"
 
         WeatherProtoRadarMap {
             id: radar
             anchors.fill: parent
-            anchors.margins: 1
             latitude: root.wx.meta.lat
             longitude: root.wx.meta.lon
             zoom: 8.0
@@ -286,6 +288,48 @@ Item {
             frostBrightness: -0.05
             tintTop: "#1f1a1a24"
             tintBottom: "#2e121218"
+        }
+
+        // Rounded corners, as the home map has: the map is square, so paint the backdrop back
+        // over its four corners (odd-even fill of the square minus the rounded card). The
+        // backdrop is the sky gradient, so the fill follows it down the window, easing with it.
+        // Then the card's border, over the map like every other card's over its fill.
+        Shape {
+            anchors.fill: parent
+            preferredRendererType: Shape.CurveRenderer
+            z: 10
+
+            ShapePath {
+                fillRule: ShapePath.OddEvenFill
+                strokeWidth: 0
+                strokeColor: "transparent"
+                fillGradient: LinearGradient {
+                    x1: 0; y1: -radarCard.y
+                    x2: 0; y2: root.height - radarCard.y
+                    GradientStop {
+                        position: 0
+                        color: root.sky[0]
+                        Behavior on color { ColorAnimation { duration: 2000 } }
+                    }
+                    GradientStop {
+                        position: 1
+                        color: root.sky[1]
+                        Behavior on color { ColorAnimation { duration: 2000 } }
+                    }
+                }
+                PathRectangle { width: radarCard.width; height: radarCard.height; radius: 0 }
+                PathRectangle { width: radarCard.width; height: radarCard.height; radius: radarCard.radius }
+            }
+            ShapePath {
+                fillColor: "transparent"
+                strokeWidth: 1
+                strokeColor: "#24ffffff"
+                PathRectangle {
+                    x: 0.5; y: 0.5
+                    width: radarCard.width - 1; height: radarCard.height - 1
+                    radius: radarCard.radius - 0.5
+                }
+            }
         }
     }
 
