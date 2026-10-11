@@ -9,14 +9,14 @@ mistake without a full build:
     backend/src/**.py -> python -m compileall backend/src   (CLAUDE.md 3.3)
     **.qml            -> qmllint, gated to syntax errors only
 
-The qmllint gate matters: across the 53 files in frontend_v2 the linter reports
-~750 style diagnostics (unqualified access, missing-property) but zero [syntax]
+The qmllint gate matters: across frontend_v2 the linter reports hundreds of
+style diagnostics (unqualified access, missing-property) but zero [syntax]
 warnings and zero errors. Blocking on the style backlog would fire on untouched
 code, so only [syntax] and Error: lines fail the hook -- the same contract as
 compileall, which catches syntax and leaves style alone.
 
-Missing tooling is never fatal: a machine without a Qt kit (the Raspberry Pi
-deployment, a fresh clone) skips the QML check instead of blocking every edit.
+Missing tooling is never fatal: a machine without a Qt kit skips the QML check
+instead of blocking every edit.
 
 Exit codes:
     0 -- nothing to check, tooling absent, or the check passed
