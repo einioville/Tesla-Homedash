@@ -1,8 +1,6 @@
 #include "spotifydevice.hh"
 
-#include <QJsonDocument>
 #include <QJsonValue>
-#include <QtEndian>
 
 #include "logger.hh"
 #include "protocol.hh"
@@ -13,40 +11,6 @@ const Logger logger = Logger::get("spotify.device");
 
 // How long a configuredStatus answer stays fresh enough not to re-ask.
 constexpr qint64 kStatusThrottleMs = 15000;
-
-// Reads a status(1B) + len(4B) + UTF-8 JSON body, the CONFIG_*/SPOTIFY_*
-// shape. Leaves *ok false on any truncation, so a malformed frame is refused
-// rather than half-parsed. Deliberately identical to spotifyauth.cpp's reader:
-// one parser per wire shape, not two that can drift apart.
-QJsonObject readStatusJson(const QByteArray &payload, quint8 *status, bool *ok) {
-    *ok = false;
-    if (payload.size() < 5) {
-        return {};
-    }
-    *status = static_cast<quint8>(payload.at(0));
-    const quint32 length = qFromBigEndian<quint32>(payload.constData() + 1);
-    if (static_cast<qint64>(payload.size()) < 5 + static_cast<qint64>(length)) {
-        return {};
-    }
-    QJsonParseError error{};
-    const QJsonDocument doc =
-        QJsonDocument::fromJson(payload.mid(5, static_cast<int>(length)), &error);
-    if (error.error != QJsonParseError::NoError || !doc.isObject()) {
-        return {};
-    }
-    *ok = true;
-    return doc.object();
-}
-
-// Frames a JSON request body as len(4B) + UTF-8, the CONFIG_SET payload shape.
-QByteArray jsonRequestBody(const QJsonObject &object) {
-    const QByteArray json = QJsonDocument(object).toJson(QJsonDocument::Compact);
-    QByteArray body;
-    body.resize(4);
-    qToBigEndian<quint32>(static_cast<quint32>(json.size()), body.data());
-    body.append(json);
-    return body;
-}
 }  // namespace
 
 SpotifyDevice::SpotifyDevice(QObject *parent) : QObject(parent) {}
@@ -116,12 +80,11 @@ void SpotifyDevice::begin() {
     QJsonObject request;
     request.insert(QStringLiteral("scanId"), static_cast<qint64>(m_scanId));
     m_server->sendPacket(
-        protocol::frame(protocol::SPOTIFY_DEVICE_SCAN_START, jsonRequestBody(request)));
+        protocol::frame(protocol::SPOTIFY_DEVICE_SCAN_START, protocol::jsonRequestBody(request)));
 }
 
 void SpotifyDevice::cancel() {
-    // Fences every reply still in flight: a SPOTIFY_DEVICE_STATE arriving after
-    // this must not reopen the dialog for a scan nobody is running any more.
+    // Fences every reply still in flight.
     setFlowActive(false);
     m_stateError = false;
     if (m_server != nullptr && m_server->connected()) {
@@ -135,8 +98,6 @@ void SpotifyDevice::cancel() {
 
 void SpotifyDevice::select() {
     if (!m_deviceSelectable || m_deviceId.isEmpty()) {
-        // Spotify gives a restricted device no id at all, so there is nothing
-        // that could be written to spotifyDeviceId.
         logger.warning(QStringLiteral("Refusing to save an unselectable Spotify device"));
         setPhase(QStringLiteral("error"), QStringLiteral("Tätä laitetta ei voi valita"));
         return;
@@ -158,7 +119,7 @@ void SpotifyDevice::select() {
                     .arg(m_deviceName, m_deviceId));
     setPhase(QStringLiteral("saving"));
     m_server->sendPacket(
-        protocol::frame(protocol::SPOTIFY_DEVICE_SELECT, jsonRequestBody(request)));
+        protocol::frame(protocol::SPOTIFY_DEVICE_SELECT, protocol::jsonRequestBody(request)));
 }
 
 void SpotifyDevice::refreshStatus(bool force) {
@@ -179,14 +140,12 @@ void SpotifyDevice::refreshStatus(bool force) {
 }
 
 void SpotifyDevice::applyConfiguredStatus(const QByteArray &payload) {
-    quint8 status = protocol::SPOTIFY_AUTH_ERROR;
-    bool ok = false;
-    const QJsonObject body = readStatusJson(payload, &status, &ok);
-    if (!ok) {
+    const auto reply = protocol::readJsonReply(payload);
+    if (!reply) {
         logger.warning(QStringLiteral("Malformed Spotify device status packet"));
         return;
     }
-    m_configuredStatus = body.toVariantMap();
+    m_configuredStatus = reply->body.toVariantMap();
     m_statusPending = false;
     emit configuredStatusChanged();
 }
@@ -215,7 +174,6 @@ void SpotifyDevice::clearDevice() {
     m_deviceType.clear();
     m_deviceVolume = -1;
     m_deviceSelectable = false;
-    m_trackPlaying = false;
     m_trackName.clear();
     m_trackArtists.clear();
     m_trackAlbum.clear();
@@ -239,8 +197,7 @@ void SpotifyDevice::applyState(const QJsonObject &body) {
         m_deviceId = device.value(QStringLiteral("id")).toString();
         m_deviceName = device.value(QStringLiteral("name")).toString();
         m_deviceType = device.value(QStringLiteral("type")).toString();
-        // volumePercent is null for a device that reports none; -1 keeps that
-        // distinct from a real 0 %.
+        // volumePercent is null for a device that reports none.
         const QJsonValue volume = device.value(QStringLiteral("volumePercent"));
         m_deviceVolume = volume.isDouble() ? volume.toInt() : -1;
         // The backend already decides this, but an empty id is unsaveable
@@ -258,7 +215,6 @@ void SpotifyDevice::applyState(const QJsonObject &body) {
         m_trackArtists = track.value(QStringLiteral("artists")).toString();
         m_trackAlbum = track.value(QStringLiteral("album")).toString();
         m_trackImageUrl = track.value(QStringLiteral("imageUrl")).toString();
-        m_trackPlaying = track.value(QStringLiteral("isPlaying")).toBool();
     }
 
     const QJsonObject current = body.value(QStringLiteral("current")).toObject();
@@ -279,27 +235,24 @@ void SpotifyDevice::onPacket(quint8 type, const QByteArray &payload) {
     if (type != protocol::SPOTIFY_DEVICE_STATE && type != protocol::SPOTIFY_DEVICE_RESULT) {
         return;
     }
-    // Both packets belong to a flow this side started, so both are fenced: one
-    // arriving after cancel() would reopen the dialog on a dead scan.
+    // Both packets belong to a flow this side started, so both are fenced.
     if (!m_flowActive) {
         return;
     }
 
-    quint8 status = protocol::SPOTIFY_AUTH_ERROR;
-    bool ok = false;
-    const QJsonObject body = readStatusJson(payload, &status, &ok);
-    if (!ok) {
+    const auto reply = protocol::readJsonReply(payload);
+    if (!reply) {
         logger.warning(QStringLiteral("Malformed Spotify device packet 0x%1")
                            .arg(type, 2, 16, QLatin1Char('0')));
         return;
     }
+    const quint8 status = reply->status;
+    const QJsonObject &body = reply->body;
 
-    // The second half of the fence, answering the question m_flowActive cannot:
-    // not "is a flow running" but "does this packet belong to THIS flow". Cancel
-    // a scan and start another straight away and a reply already in flight from
-    // the old one passes the re-armed m_flowActive — and would repopulate the
-    // dialog with the PREVIOUS device, which the user could then save. A missing
-    // or malformed field reads as 0, which never matches a live scan.
+    // The second half of the fence (m_scanId). Cancel a scan and start another
+    // straight away and a reply already in flight from the old one passes the
+    // re-armed m_flowActive — and would repopulate the dialog with the PREVIOUS
+    // device, which the user could then save.
     const qint64 scanId = body.value(QStringLiteral("scanId")).toInteger(0);
     if (scanId != static_cast<qint64>(m_scanId)) {
         logger.debug(QStringLiteral("Dropping Spotify device packet 0x%1 from scan %2 "
@@ -352,11 +305,9 @@ void SpotifyDevice::onPacket(quint8 type, const QByteArray &payload) {
             // knock the success screen back to "scanning".
             setFlowActive(false);
         } else {
-            // Keep the fence up — the user may press "Valitse laite" again, and
-            // that retry's own result must still be accepted. The scan itself is
-            // still running on the backend, and the button is gated on the flow
-            // rather than on the phase, so it stays available on this error
-            // phase instead of the dialog becoming a dead end.
+            // Keep the fence up — the scan is still running on the backend, and
+            // the user may press "Valitse laite" again (gated on flowActive, not
+            // the phase); that retry's own result must still be accepted.
             m_stateError = false;
         }
         setPhase(succeeded ? QStringLiteral("done") : QStringLiteral("error"), message);

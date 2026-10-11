@@ -2,14 +2,28 @@
 
 - **`config_parser.py`**: `Config` validates + exposes `config.json`; `get_env` loads `.env` once.
 - **`protocol.py`**: every message-type byte, weather sub-id, `MAX_MSG_SIZE`, and `frame()`. The
-  single source of truth — add new constants here, never on a class.
-- **`logger_configurator.py`**: `configure_logging(level=None)` resolves the level from
+  single source of truth — add new constants here, never on a class. Every JSON-bodied code goes
+  through `json_frame()` (a `status(1B) + len(4B) + UTF-8 JSON` reply, raw UTF-8) and
+  `parse_json_body()` (a `len(4B) + UTF-8 JSON` object request; raises `ValueError` with the
+  Finnish message the Options view shows).
+- **`process.py`**: `run(argv, timeout, …)` — the one way a service runs a command to completion
+  (audio, display, USB import, git queries, host reboot). stdin is `/dev/null`; a timeout kills
+  and **reaps** the child (the whole process group with `new_session=True`) and raises
+  `asyncio.TimeoutError`, which callers must catch **before** `OSError` — it is a subclass since
+  Python 3.11. The updater's streaming build runner is the exception: it reads output live.
+- **`atomic_write.py`**: `write_atomic(path, text, mode)` — every whole-file rewrite (`config.json`,
+  the Spotify grant record, the error store, kept log backups): a temp file in the same directory,
+  fsynced, then `os.replace`d, and removed on any failure. `mode` is applied through the umask;
+  pass `0o600` for anything private.
+- **`timeline.py`**: `collapse_transitions()` + `segment()` — the one segmentation of a logged state
+  timeline into activity windows. Trips (`Gear` out of Park) and charging sessions
+  (`DetailedChargeState` charging) bind their own `is_active` and idle state with `partial`; a new
+  "detect runs of X in stored telemetry" feature does the same.
+- **`logger_configurator.py`**: `configure_logging()` resolves the level from
   `TESLA_HOMEDASH_LOG_LEVEL` (default **INFO**, not DEBUG) and wires the shared stdout formatter
   (`LEVEL | YYYY-MM-DD | HH:MM:SS | name | message`) onto an allow-list of top-level loggers.
-  **Every service's logger prefix must be in `_SERVICE_LOGGERS`** (`tesla_service`, `media_service`,
-  `weather_service`, `influxdb_service`, `charging_service`, `myenergi_service`, `trip_service`,
-  `config_service`, `audio_service`, `display_service`, `system_service`, `server`,
-  `start_services`, `utils`) — an unlisted prefix propagates to a handler-less root and its
+  **Every service's logger prefix must be in `_SERVICE_LOGGERS`** (the tuple in
+  `logger_configurator.py`) — an unlisted prefix propagates to a handler-less root and its
   INFO/DEBUG logs silently vanish. **`spotipy` gets the same handlers but a PINNED level**
   (`max(level, INFO)`): its "Couldn't write token to cache" warning is the only evidence that a
   re-authorisation silently lost the grant, but at DEBUG it prints the token POST body and the
@@ -37,7 +51,6 @@ Framing, byte order and the Tesla stream value types are in the root `CLAUDE.md`
 
 | Byte | Name | Dir | Payload |
 |------|------|-----|---------|
-| `0x01` | MSG_JSON | F→B | JSON body |
 | `0x03` | MSG_TERMINATE | F→B | (empty) |
 | `0x04` | MSG_STREAM | B→F | `stream_id(2B) + value_type(1B) + value + timestamp(8B)` |
 | `0x14` | MEDIA_STREAM_IMAGE | B→F | Raw image bytes (JPEG/PNG) |
@@ -93,7 +106,7 @@ Framing, byte order and the Tesla stream value types are in the root `CLAUDE.md`
 | `0xAA` | SPOTIFY_DEVICE_GET_STATUS | F→B | (empty) — ask for the configured device's standing |
 | `0xAB` | SPOTIFY_DEVICE_STATUS | B→F | `status(1B, always OK) + len(4B) + JSON` — `{configured, id, name, type, detected, isRestricted, reason}`; `detected` is `null` when Spotify's device list could not be read. Replied to the requester, **broadcast** after a successful select; no `scanId` — it describes `config.json`, not a flow |
 | `0xB0` | SYSTEM_GET_STATUS | F→B | (empty) — poll the service probes now |
-| `0xB1` | SYSTEM_STATUS | B→F | `status(1B) + len(4B) + JSON` — `{services[{id, label, state, detail, config, items, errors{warnings, errors}}], sampled_ms}`; the host's metrics are `SYSTEM_HISTORY`'s |
+| `0xB1` | SYSTEM_STATUS | B→F | `status(1B) + len(4B) + JSON` — `{services[{id, label, state, detail, config, items, errors{warnings, errors}}], sampled_ms, uptime_s, backend_uptime_s}`; the host's metrics are `SYSTEM_HISTORY`'s |
 | `0xB2` | SYSTEM_GET_HISTORY | F→B | `since_ms(8B, signed)` — the samples newer than this; `0` (or an empty payload) = everything |
 | `0xB3` | SYSTEM_HISTORY | B→F | `status(1B) + len(4B) + JSON` — `{interval_s, window_s, reset, mem_total_b, cpu_count, temp_available, disk{path, device, total_b, used_b, free_b, used_pct}, samples[{t, cpu[], mem_used_b, disk_read_bps, disk_write_bps, net_rx_bps, net_tx_bps, cpu_temp_c}]}`; to the requester only. `reset` = drop what you hold rather than append (asked for everything, or the host clock went backwards). A value that could not be computed is `null` (`../system_service/CLAUDE.md`) |
 | `0xB4` | SYSTEM_GET_LOG | F→B | `len(4B) + JSON` — `{service}`: one status card's probe id |
@@ -119,8 +132,7 @@ The `0x70`–`0x73` pair is **request/response** (the History view): the backend
 requesting client only (`send_to`), never a broadcast, and `TESLA_HISTORY` echoes the requested id so
 a stale reply can be discarded. History values are returned **raw** (no downsampling); the frontend
 renders them as a **step line** (`StepLeft`) so a value held between records still displays as held.
-(`read_tesla_data_property` keeps an optional `aggregate_window` for capping very large ranges,
-currently unused.) When a window logged **nothing** (the value stayed constant, so no record falls
+When a window logged **nothing** (the value stayed constant, so no record falls
 inside it), the backend **boundary-fills**: it queries the last value before the window start and
 returns two synthetic points (window-start + window-end at that held value) so the graph draws a
 flat held line across the whole range instead of "no data". Only a genuinely absent prior value

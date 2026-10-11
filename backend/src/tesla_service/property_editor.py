@@ -16,9 +16,7 @@ rolled back if the save fails) and applied to the live VehicleDataProperty, so
 it takes effect from the next telemetry update with no restart.
 '''
 
-import json
 import logging
-import struct
 
 from ..utils import protocol
 
@@ -29,8 +27,8 @@ _LINE_MODES = ("step", "linear")
 # Fields whose STORED history another view reads back, so their logging must
 # not be switched off from here: the view would silently stop getting new data.
 # Turning logging ON is always allowed.  Keep in step with the readers:
-# trip_service/trip_loader.py, charging_service/charging_loader.py and
-# charging_session.py; calculated-field sources are added from config.json.
+# trip_service/trip.py and trip_loader.py, charging_service/charging_loader.py
+# and charging_session.py; calculated-field sources are added from config.json.
 _REQUIRED_LOGGED = {
     "Gear": "Matkat",
     "Location": "Matkat",
@@ -38,7 +36,6 @@ _REQUIRED_LOGGED = {
     "Odometer": "Matkat, Lataus",
     "DetailedChargeState": "Lataus",
     "ACChargingEnergyIn": "Lataus",
-    "DCChargingEnergyIn": "Lataus",
     "EnergyRemaining": "Lataus",
     "BatteryLevel": "Lataus",
     "LifetimeEnergyUsed": "Lataus",
@@ -59,8 +56,6 @@ class TeslaPropertyEditor:
         self.__config = config
         self.__vehicle = vehicle
         self.__server = server
-
-    # ── Protocol handlers ─────────────────────────────────────────
 
     async def handle_get(self, _payload: bytes, writer) -> None:
         '''
@@ -83,7 +78,7 @@ class TeslaPropertyEditor:
         '''
         request = {}
         try:
-            request = self.__parse(payload)
+            request = protocol.parse_json_body(payload)
             changed = await self.__write(request)
         except ValueError as e:
             logger.info("TESLA_SET_PROPERTY rejected: %s", e)
@@ -92,8 +87,6 @@ class TeslaPropertyEditor:
         await self.__reply(writer, True, request, "")
         if changed:
             await self.__server.broadcast(await self.__table_frame())
-
-    # ── Internals ─────────────────────────────────────────────────
 
     async def __write(self, request: dict) -> bool:
         '''
@@ -218,7 +211,7 @@ class TeslaPropertyEditor:
             logger.error("Could not build the tesla property table: %s", e)
             document = {"properties": []}
             status = protocol.CONFIG_STATUS_ERROR
-        return self.__json_frame(protocol.TESLA_PROPERTY_TABLE, status, document)
+        return protocol.json_frame(protocol.TESLA_PROPERTY_TABLE, status, document)
 
     async def __reply(self, writer, ok: bool, request: dict, message: str) -> None:
         '''
@@ -239,39 +232,5 @@ class TeslaPropertyEditor:
         }
         status = protocol.CONFIG_STATUS_OK if ok else protocol.CONFIG_STATUS_ERROR
         await self.__server.send_to(
-            writer, self.__json_frame(protocol.TESLA_SET_PROPERTY_RESULT, status, document)
+            writer, protocol.json_frame(protocol.TESLA_SET_PROPERTY_RESULT, status, document)
         )
-
-    @staticmethod
-    def __json_frame(msg_type: int, status: int, document: dict) -> bytes:
-        '''
-        Frames status(1B) + len(4B) + UTF-8 JSON.
-        Arguments:
-            msg_type (int): The protocol message type.
-            status (int): CONFIG_STATUS_OK or CONFIG_STATUS_ERROR.
-            document (dict): The JSON body.
-        '''
-        body = json.dumps(document, ensure_ascii=False).encode("utf-8")
-        return protocol.frame(msg_type, bytes((status,)) + struct.pack("!I", len(body)) + body)
-
-    @staticmethod
-    def __parse(payload: bytes) -> dict:
-        '''
-        Unpacks a len(4B) + UTF-8 JSON request body.  Raises ValueError with a
-        Finnish message shown to the user verbatim.
-        Arguments:
-            payload (bytes): The raw payload after the message-type byte.
-        '''
-        if len(payload) < 4:
-            raise ValueError("Vaillinainen pyyntö")
-        (length,) = struct.unpack("!I", payload[:4])
-        body = payload[4:4 + length]
-        if len(body) != length:
-            raise ValueError("Vaillinainen pyyntö")
-        try:
-            request = json.loads(body.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError) as e:
-            raise ValueError("Virheellinen JSON") from e
-        if not isinstance(request, dict):
-            raise ValueError("Virheellinen pyyntö")
-        return request

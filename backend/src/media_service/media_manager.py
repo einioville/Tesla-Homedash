@@ -50,16 +50,6 @@ class MediaManager:
         self.__autoplay_radio = bool(media.get("autoplayRadio"))
         self.__resume_radio_after_spotify = bool(media.get("resumeRadioAfterSpotify"))
 
-    async def play(self) -> None:
-        logger.debug("Media command: play")
-        if self.__active_player:
-            await self.__active_player.play()
-
-    async def pause(self) -> None:
-        logger.debug("Media command: pause")
-        if self.__active_player:
-            await self.__active_player.pause()
-
     async def pause_play(self) -> None:
         logger.debug("Media command: pause_play")
         if self.__active_player:
@@ -138,13 +128,12 @@ class MediaManager:
         await self.load_default_media_player()
         if self.__resume_radio_after_spotify and interrupted and was_playing:
             logger.info("Resuming the radio Spotify interrupted")
-            await self.__radio_player.play()
-            await self.__radio_player.stream_everything(client=None)
+            await self.__play_radio()
 
     async def load_default_media_player(self) -> None:
         '''
-        Loads the default radio player without starting playback.
-        The radio is prepared and ready, call play() to start.
+        Loads the default radio player without starting playback; the radio
+        stays silent until __play_radio() starts it.
         '''
         if self.__active_player:
             await self.__active_player.stop()
@@ -153,6 +142,11 @@ class MediaManager:
         await self.__stream_media_type()
         await self.__active_player.stream_everything(client=None)
         logger.info("Default radio player loaded")
+
+    async def __play_radio(self) -> None:
+        '''Starts the radio and streams its whole state to every client.'''
+        await self.__radio_player.play()
+        await self.__radio_player.stream_everything(client=None)
 
     async def __stream_media_type(self, client=None) -> None:
         media_type = protocol.MEDIA_TYPE_RADIO
@@ -184,15 +178,14 @@ class MediaManager:
     async def run(self) -> None:
         '''
         Starts the media manager: launches Spotify polling and loads the
-        default media player ready for playback.
+        default radio player, playing it when media.autoplayRadio is on.
         '''
         logger.info("MediaManager starting")
         await self.__spotify_player.run()
         await self.load_default_media_player()
         if self.__autoplay_radio:
             logger.info("Starting the radio (autoplayRadio)")
-            await self.__radio_player.play()
-            await self.__radio_player.stream_everything(client=None)
+            await self.__play_radio()
 
     def set_spotify_auth_listener(self, listener) -> None:
         '''
@@ -223,10 +216,8 @@ class MediaManager:
     async def probe_spotify_playback(self) -> dict | None:
         '''
         Asks the Spotify player what is playing on ANY Connect device, for the
-        Options view's device scan.  Forwarded rather than reached for directly,
-        the same boundary spotify_auth_error() keeps: the player owns the Spotify
-        client, the auth latch and the executor pattern, so all API access stays
-        there.
+        Options view's device scan.  Forwarded so that all Spotify API access
+        stays in the player, behind its auth latch and executor.
         '''
         return await self.__spotify_player.probe_playback()
 
@@ -288,25 +279,21 @@ class MediaManager:
 
     async def resume_default_playback(self) -> None:
         '''
-        Restarts the radio a Spotify device scan silenced.  The scan's dialog
-        promises playback resumes "tunnistuksen ajaksi" — for the duration of
-        the identification — so the backend has to keep that promise on every
-        way out of a scan: cancel, timeout, a dead client or a failed write.
+        Restarts the radio a Spotify device scan silenced;
+        SpotifyDeviceService.__resume_playback lists the scan endings that call it.
 
         RadioPlayer.play() reloads the stream itself when no media is set, which
         is exactly the state stop() left it in.
         '''
         if self.__active_player is self.__spotify_player:
-            # Spotify claimed control while the scan ran — which is the outcome
-            # the scan was arranging.  The radio is only the fallback under it
-            # and must stay silent.
+            # Spotify claimed control while the scan ran, which is what the scan
+            # was arranging; the radio under it must stay silent.
             logger.debug("Not resuming the radio: Spotify holds playback")
             return
         if self.__active_player is not self.__radio_player:
             await self.load_default_media_player()
         logger.info("Resuming radio playback after a Spotify device scan")
-        await self.__radio_player.play()
-        await self.__radio_player.stream_everything(client=None)
+        await self.__play_radio()
 
     def health(self) -> dict:
         '''Reports which player currently owns playback.'''

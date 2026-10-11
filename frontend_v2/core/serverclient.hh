@@ -14,8 +14,8 @@
  *
  * Inbound: reassembles framed packets ([4B big-endian length][1B type][payload])
  * out of the TCP byte stream and emits ONE packetReceived(type, payload) signal;
- * the feature datahandlers (added in later stages) filter by type. It is
- * protocol-agnostic by design — it never interprets payloads.
+ * the per-domain data models and singletons connect to it and filter by type. It
+ * is protocol-agnostic by design — it never interprets payloads.
  *
  * Outbound: sendPacket() writes a pre-framed packet (build with protocol::frame)
  * non-blocking.
@@ -23,9 +23,9 @@
  * Reconnects every 10 s on disconnect/error and exposes a bindable connection
  * state (connected / stateText) to QML.
  *
- * Registered as the QML singleton `Server`, constructed eagerly in main.cpp so
- * it is subscribed to the socket before the backend's on-connect snapshot burst
- * arrives (later stages rely on this).
+ * Registered as the QML singleton `Server`. main.cpp constructs it and every
+ * listener before calling start(), so none misses the backend's on-connect
+ * snapshot burst.
  */
 class ServerClient : public QObject {
     Q_OBJECT

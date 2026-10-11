@@ -1,9 +1,9 @@
 import QtQuick
 import QtQuick.Shapes
 import frontend_v2
-import "WeatherProtoUtil.js" as U
+import "WeatherUtil.js" as U
 
-// PROTOTYPE — every forecast hour on one horizontally scrollable chart, `hoursVisible` of
+// Every forecast hour on one horizontally scrollable chart, `hoursVisible` of
 // them across the width: the temperature curve, rain bars with their amount on top, and a
 // symbol / temperature / hour every `labelEvery` hours.
 //
@@ -45,12 +45,12 @@ Item {
     // Square-root scale, so the common light rain still shows: 0.1 mm ≈ 11 %, 1 mm ≈ 35 %.
     function barH(mm) { return mm > 0 ? Math.max(2, Math.sqrt(Math.min(mm, 8) / 8) * barMaxH) : 0 }
 
-    // Fit the scale to the hours on screen (plus a neighbour each side), but never tighter
-    // than 5°, so a near-constant day reads as calm rather than as a zig-zag.
     function updateRange() {
         fitRange(firstVisible)
     }
 
+    // Fits the scale to the hours on screen from `first` (plus a neighbour each side), but
+    // never tighter than 5°, so a near-constant day reads as calm rather than as a zig-zag.
     function fitRange(first) {
         if (!hours.length)
             return

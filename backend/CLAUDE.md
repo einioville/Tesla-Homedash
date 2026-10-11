@@ -162,4 +162,5 @@ def calculate_range(distance_miles: float, efficiency: float) -> float:
     '''
 ```
 Add inline comments only for non-obvious logic (protocol packing, formula eval, state-machine
-transitions, scheduling edge cases). Don't comment self-explanatory code.
+transitions, scheduling edge cases). Don't comment self-explanatory code; the full rules — comments,
+dead code, and the shared helpers to reuse — are the root `CLAUDE.md` §7.8.

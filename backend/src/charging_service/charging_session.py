@@ -28,85 +28,34 @@ partial-data session still yields a well-formed record.
 '''
 import logging
 import math
-from datetime import datetime, timezone
 
 import numpy as np
 
-from .spot_price import price_hourly_energy
+from ..influxdb_service.influxdb_handler import to_flux_time
+from ..influxdb_service.series import delta, first, last, positive_increment, series_values
+from .spot_price import _HOUR_MS, price_hourly_energy
 
 logger = logging.getLogger("charging_service.charging_session")
 
-_HOUR_MS = 3_600_000
 
 # InfluxDB "id" tags this module reads. The charger ids are written by
 # MyEnergiService under the "myenergi_data" measurement; the tesla ids are logged by
 # Vehicle under "tesla_data". Kept as constants so the writer and reader can't drift.
 CHARGER_ENERGY_ID = "ChargeAdded"        # myenergi: kWh added this session (accumulator)
 AC_ENERGY_IN_ID = "ACChargingEnergyIn"   # tesla: lifetime AC energy into the car (kWh)
-DC_ENERGY_IN_ID = "DCChargingEnergyIn"   # tesla: lifetime DC energy into the car (kWh)
 BATTERY_ENERGY_ID = "EnergyRemaining"    # tesla: energy currently in the pack (kWh)
 SOC_ID = "BatteryLevel"                  # tesla: state of charge (%)
-
-
-def to_flux_time(timestamp_ms: int) -> str:
-    '''
-    Converts an epoch-ms instant to the RFC3339 string Flux expects (matching the
-    idiom the History and Trip paths use). InfluxDBHandler reads take Flux range
-    strings, not raw ms.
-    Arguments:
-        timestamp_ms (int): Milliseconds since the Unix epoch (UTC).
-    '''
-    return (
-        datetime.fromtimestamp(timestamp_ms / 1000, tz=timezone.utc)
-        .isoformat()
-        .replace("+00:00", "Z")
-    )
-
-
-def _series_values(result):
-    '''
-    Extracts the values array from a read result tuple (count, timestamps_ms,
-    values), or None if the result is empty/missing.
-    Arguments:
-        result (tuple | None): The (count, timestamps, values) triple or None.
-    '''
-    if result is None:
-        return None
-    count, _timestamps, values = result
-    if count == 0 or len(values) == 0:
-        return None
-    return values
-
-
-def _delta(result) -> float:
-    '''Last minus first value of a series (a lifetime-counter delta), or NaN.'''
-    values = _series_values(result)
-    if values is None:
-        return float("nan")
-    return float(values[-1] - values[0])
-
-
-def _positive_increment(result) -> float:
-    '''
-    Sum of an accumulator series' positive increments over the read window (kWh) — the
-    energy delivered, robust to the accumulator carrying a non-zero value into the window
-    or resetting inside it (a plain in-window max over-counts both cases). NaN when the
-    series has fewer than two samples (nothing to difference).
-    '''
-    values = _series_values(result)
-    if values is None or len(values) < 2:
-        return float("nan")
-    return float(np.clip(np.diff(values), 0.0, None).sum())
 
 
 def bucket_positive_increments_by_hour(timestamps_ms, values) -> dict:
     '''
     Buckets an accumulator series' positive increments (kWh) by the UTC hour they fell in —
-    the per-hour version of _positive_increment, so charging energy can be priced against
+    the per-hour version of positive_increment, so charging energy can be priced against
     each hour's spot price. Each increment (ChargeAdded step between two samples) is
-    attributed to the UTC hour of the *later* sample; since ChargeAdded is logged ~10 s
-    apart while charging, an interval almost never straddles an hour boundary, so no
-    sub-step splitting is needed. Pure/testable: no I/O. Fewer than two samples -> {}.
+    attributed to the UTC hour of the *later* sample; ChargeAdded is logged once per Zappi
+    poll while charging (default 60 s), so only the one interval straddling each hour
+    boundary is misattributed, by at most a poll's worth of energy — not worth sub-step
+    splitting. Pure/testable: no I/O. Fewer than two samples -> {}.
     Arguments:
         timestamps_ms: Ascending epoch-ms sample times (int64 array/sequence).
         values: The accumulator value (kWh) at each sample, same length.
@@ -125,18 +74,6 @@ def bucket_positive_increments_by_hour(timestamps_ms, values) -> dict:
             key = int(hour)
             result[key] = result.get(key, 0.0) + float(increment)
     return result
-
-
-def _first(result) -> float:
-    '''First value of a series, or NaN if empty/missing.'''
-    values = _series_values(result)
-    return float(values[0]) if values is not None else float("nan")
-
-
-def _last(result) -> float:
-    '''Last value of a series, or NaN if empty/missing.'''
-    values = _series_values(result)
-    return float(values[-1]) if values is not None else float("nan")
 
 
 def _diff(a: float, b: float) -> float:
@@ -182,15 +119,9 @@ class ChargingSession:
         self.__flat_tariff = flat_tariff
         self.__summary: dict | None = None
         self.__charger_kwh: float | None = None
-        # Optional (timestamps_ms, values) of the window's ChargeAdded series, seeded by
-        # ChargingLoader from its single bulk read so the cost path buckets by hour without
-        # a re-read. None -> summary() reads the series itself (the single-session path).
+        # The window's ChargeAdded (timestamps_ms, values) from seed_charger_series, or
+        # None -> the cost path reads the series itself (the single-session path).
         self.__charger_series: tuple | None = None
-
-    @property
-    def session_id(self) -> int:
-        '''Stable natural key for the session (== start_ms).'''
-        return self.__start_ms
 
     @property
     def start_ms(self) -> int:
@@ -200,16 +131,12 @@ class ChargingSession:
     def end_ms(self) -> int:
         return self.__end_ms
 
-    @property
-    def in_progress(self) -> bool:
-        return self.__in_progress
-
     def seed_charger_kwh(self, value: float) -> None:
         '''
         Seeds the cached charger energy from a value computed elsewhere (ChargingLoader
         reads the whole span's ChargeAdded once and sums each window's positive
         increments), so charger_kwh()/summary() don't re-read it per session. NaN when the
-        window held no charger sample (a session at another charger).
+        window held fewer than two charger samples (e.g. a session at another charger).
         Arguments:
             value (float): The session's delivered energy in kWh (may be NaN).
         '''
@@ -274,9 +201,8 @@ class ChargingSession:
     async def charger_kwh(self) -> float:
         '''
         Computes (and caches) just the charger-delivered energy (kWh): the SUM OF POSITIVE
-        INCREMENTS of the myenergi ChargeAdded accumulator over the window (robust to the
-        accumulator carrying a value in from before the detected session, or resetting
-        inside it — a plain max over-counts both). Split out from summary() so the
+        INCREMENTS of the myenergi ChargeAdded accumulator over the window (see the module
+        docstring for why not a max). Split out from summary() so the
         session-list path — which only needs this for its min-energy filter and the
         CHARGING_LIST record — can skip the other reads summary() performs. summary()
         reuses this value. NaN when fewer than two charger samples fall in the window.
@@ -288,14 +214,14 @@ class ChargingSession:
         charger = await self.__influx.read_charger_data_property(
             CHARGER_ENERGY_ID, start_iso, end_iso
         )
-        self.__charger_kwh = _positive_increment(charger)
+        self.__charger_kwh = positive_increment(series_values(charger))
         return self.__charger_kwh
 
     async def summary(self) -> dict:
         '''
         Computes (and caches) the session's loss breakdown and cost. Charger energy is the
-        sum of the myenergi accumulator's positive increments in the window; AC-in / DC-in
-        / battery energies are deltas of the vehicle's in-window series; SoC is read at the
+        sum of the myenergi accumulator's positive increments in the window; AC-in and
+        battery energies are deltas of the vehicle's in-window series; SoC is read at the
         window endpoints. Losses are simple differences, each NaN if either operand is
         missing — so a session with no charger data (charged elsewhere) reports NaN losses
         rather than a fabricated number. cost_eur prices the delivered energy per UTC hour
@@ -311,13 +237,11 @@ class ChargingSession:
         charger_kwh = await self.charger_kwh()
 
         ac_in = await self.__influx.read_tesla_data_property(AC_ENERGY_IN_ID, start_iso, end_iso)
-        dc_in = await self.__influx.read_tesla_data_property(DC_ENERGY_IN_ID, start_iso, end_iso)
         battery = await self.__influx.read_tesla_data_property(BATTERY_ENERGY_ID, start_iso, end_iso)
         soc = await self.__influx.read_tesla_data_property(SOC_ID, start_iso, end_iso)
 
-        ac_in_kwh = _delta(ac_in)
-        dc_in_kwh = _delta(dc_in)
-        battery_kwh = _delta(battery)
+        ac_in_kwh = delta(ac_in)
+        battery_kwh = delta(battery)
 
         loss_cable_kwh = _diff(charger_kwh, ac_in_kwh)
         loss_conversion_kwh = _diff(ac_in_kwh, battery_kwh)
@@ -337,14 +261,13 @@ class ChargingSession:
             "duration_s": (self.__end_ms - self.__start_ms) / 1000.0,
             "charger_kwh": charger_kwh,
             "ac_in_kwh": ac_in_kwh,
-            "dc_in_kwh": dc_in_kwh,
             "battery_kwh": battery_kwh,
             "loss_cable_kwh": loss_cable_kwh,
             "loss_conversion_kwh": loss_conversion_kwh,
             "loss_total_kwh": loss_total_kwh,
             "loss_total_pct": loss_total_pct,
-            "start_soc": _first(soc),
-            "end_soc": _last(soc),
+            "start_soc": first(soc),
+            "end_soc": last(soc),
             "cost_eur": cost_eur,
             "avg_price_eur_per_kwh": avg_price_eur_per_kwh,
             "in_progress": self.__in_progress,

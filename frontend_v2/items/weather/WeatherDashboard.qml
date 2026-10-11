@@ -2,9 +2,9 @@ import QtQuick
 import QtQuick.Layouts
 import QtQuick.Shapes
 import frontend_v2
-import "WeatherProtoUtil.js" as U
+import "WeatherUtil.js" as U
 
-// PROTOTYPE — variant A, "Kojelauta": everything at once in the app's card grid.
+// The Weather view's content: everything at once in the app's card grid.
 //   row 1: now (merged station observations), sun and moon under it | the radar loop, big
 //   row 2: the hourly chart, 24 h wide and scrollable through the whole forecast | the
 //          coming days, three at a time and scrollable; a tapped day scrolls the chart
@@ -25,9 +25,6 @@ Item {
 
     property var wx: ({})
     property bool active: true
-    property bool demoLightning: false
-    // A SmartSymbol to colour the backdrop by instead of the current one; 100 and up is night.
-    property int demoSymbol: 0
 
     readonly property var now: wx.now || ({})
     readonly property var here: (wx.warnings || []).filter(w => w.appliesHere)
@@ -43,9 +40,7 @@ Item {
 
     // The backdrop takes on the current weather: its kind from the symbol, its light from where
     // the sun is now, so dusk and dawn blend over the hour around sunset and sunrise.
-    readonly property int skySymbol: demoSymbol > 0 ? demoSymbol : (now.symbol || 0)
-    readonly property real dayness: demoSymbol > 0 ? (demoSymbol >= 100 ? 0 : 1) : U.dayness(clock, wx.astro)
-    readonly property var sky: U.skyColors(skySymbol, dayness)
+    readonly property var sky: U.skyColors(now.symbol || 0, U.dayness(clock, wx.astro))
 
     Rectangle {
         anchors.fill: parent
@@ -63,7 +58,7 @@ Item {
         }
     }
 
-    component Card: WeatherProtoCard {}
+    component Card: WeatherCard {}
 
     component Metric: Column {
         property string label
@@ -78,7 +73,7 @@ Item {
         Text { text: parent.label; color: "#8f9aa6"; font.family: Theme.fontFamily; font.pixelSize: 12 }
         Row {
             spacing: 6
-            WeatherProtoWindArrow {
+            WeatherWindArrow {
                 visible: parent.parent.arrow >= 0
                 direction: parent.parent.arrow
                 size: 15
@@ -213,7 +208,7 @@ Item {
         x: root.margin; y: nowCard.y + nowCard.height + root.gap
         width: (nowCard.width - root.gap) / 2; height: radarCard.height - nowCard.height - root.gap
         title: qsTr("AURINKO")
-        WeatherProtoSunArc {
+        WeatherSunArc {
             anchors.fill: parent
             anchors.margins: 14
             anchors.topMargin: 40
@@ -231,7 +226,7 @@ Item {
             anchors.horizontalCenter: parent.horizontalCenter
             y: 40
             spacing: 4
-            WeatherProtoMoon {
+            WeatherMoon {
                 anchors.horizontalCenter: parent.horizontalCenter
                 width: 72; height: 72
                 illuminated: root.wx.astro.moonPhase
@@ -268,7 +263,7 @@ Item {
         // Drawn by the corner overlay below instead, where the map cannot cover its arcs.
         border.color: "transparent"
 
-        WeatherProtoRadarMap {
+        WeatherRadarMap {
             id: radar
             anchors.fill: parent
             latitude: root.wx.meta.lat
@@ -276,7 +271,6 @@ Item {
             zoom: 8.0
             placeOffset: Qt.point(0, -20)
             active: root.active
-            demoLightning: root.demoLightning
         }
         Text {
             x: 14; y: 10
@@ -288,7 +282,7 @@ Item {
             style: Text.Outline
             styleColor: "#80000000"
         }
-        WeatherProtoRadarControls {
+        WeatherRadarControls {
             anchors.horizontalCenter: parent.horizontalCenter
             anchors.bottom: parent.bottom
             anchors.bottomMargin: 12
@@ -364,7 +358,7 @@ Item {
         }
     }
 
-    WeatherProtoHourlyCard {
+    WeatherHourlyCard {
         id: chartCard
         x: root.margin; y: radarCard.y + radarCard.height + root.gap
         width: root.innerW * 840 / 1250; height: root.height - root.margin - y
@@ -423,8 +417,8 @@ Item {
             boundsBehavior: Flickable.StopAtBounds
 
             readonly property real itemW: width / daysCard.perPage
-            // From originX, not 0: a ListView's content need not start at 0 (it sat at -853 here,
-            // with contentX equal to it at the first day), which left every dot unlit.
+            // From originX, not 0: a ListView's content need not start at 0 (here contentX is
+            // -853 at the first day), and counted from 0 every dot would be unlit.
             readonly property int first: itemW > 0 ? Math.round((contentX - originX) / itemW) : 0
 
             delegate: Item {

@@ -2,13 +2,13 @@
 
 #include "../logger.hh"
 #include "../protocol.hh"
+#include "../seriesbounds.hh"
 #include "../serverclient.hh"
 
 #include <QDataStream>
 #include <QIODevice>
 #include <QString>
 #include <QVariantMap>
-#include <limits>
 
 namespace {
 const Logger logger = Logger::get("trips");
@@ -17,8 +17,6 @@ const Logger logger = Logger::get("trips");
 TripsData::TripsData(ServerClient *server, QObject *parent)
     : QObject(parent), m_server(server) {
     connect(server, &ServerClient::packetReceived, this, &TripsData::onPacket);
-    // Self-heal: a request sent while the socket was down is silently dropped, so
-    // re-issue any still-pending request when the connection is (re)established.
     connect(server, &ServerClient::connectedChanged, this, &TripsData::onConnectedChanged);
 }
 
@@ -54,11 +52,7 @@ void TripsData::sendTripSeriesRequest(qint64 startMs, qint64 endMs, const QStrin
     QDataStream stream(&payload, QIODevice::WriteOnly);
     stream.setByteOrder(QDataStream::BigEndian);
     stream << startMs << endMs;
-    // 2-byte length + raw UTF-8 (NOT `stream << idBytes`, which would prefix a 4-byte
-    // QByteArray length and break the id_len(2B)+UTF-8 wire format the backend parses).
-    const QByteArray idBytes = propertyId.toUtf8();
-    stream << static_cast<quint16>(idBytes.size());
-    stream.writeRawData(idBytes.constData(), static_cast<int>(idBytes.size()));
+    protocol::writeString(stream, propertyId);
     m_server->sendPacket(protocol::frame(protocol::TRIP_GET_SERIES, payload));
     logger.info(QStringLiteral("Trip series requested | id=%1 property=%2")
                     .arg(startMs)
@@ -152,7 +146,6 @@ void TripsData::clearRoute() {
     m_minLat = m_maxLat = m_minLon = m_maxLon = 0.0;
     setRouteLoading(false);
     emit routeChanged();
-    // A new week has no trip selected, so the stats panel + graph clear too.
     clearSummaryAndSeries();
 }
 
@@ -166,10 +159,9 @@ void TripsData::clearSummaryAndSeries() {
     m_seriesTripId = 0;
     m_seriesEndMs = 0;
     m_seriesReqPropertyId.clear();
-    m_seriesPropertyId.clear();
     m_seriesPoints.clear();
-    // Neutral (non-degenerate) axis bounds — see parseTripSeries: a zero-width range
-    // crashes QtGraphs when the (empty) graph resets its view on clear.
+    // Neutral (non-degenerate) axis bounds, as seriesBounds() gives an empty series:
+    // a zero-width range crashes QtGraphs when the (empty) graph resets its view.
     m_seriesMinX = 0.0;
     m_seriesMaxX = 1.0;
     m_seriesMinY = 0.0;
@@ -333,7 +325,6 @@ void TripsData::parseTripDetail(const QByteArray &payload) {
         m_maxLat = maxLat;
         m_minLon = minLon;
         m_maxLon = maxLon;
-        // First/last fix drive the start/end markers.
         const QVariantMap first = route.first().toMap();
         const QVariantMap last = route.last().toMap();
         m_routeStart.insert(QStringLiteral("latitude"), first.value(QStringLiteral("latitude")));
@@ -455,26 +446,21 @@ void TripsData::parseTripSummary(const QByteArray &payload) {
 void TripsData::parseTripSeries(const QByteArray &payload) {
     QDataStream stream(payload);
     stream.setByteOrder(QDataStream::BigEndian);
-    QIODevice *device = stream.device();
 
     // trip_id(8) + id_len(2)
-    if (device->bytesAvailable() < 10) {
+    if (stream.device()->bytesAvailable() < 10) {
         logger.warning(QStringLiteral("Trip-series frame too short (header)"));
         setSeriesLoading(false);
         return;
     }
     qint64 tripId;
     stream >> tripId;
-    quint16 idLen;
-    stream >> idLen;
-    if (device->bytesAvailable() < idLen) {
+    QString propertyId;
+    if (!protocol::readString(stream, propertyId)) {
         logger.warning(QStringLiteral("Trip-series frame too short (id)"));
         setSeriesLoading(false);
         return;
     }
-    QByteArray idBytes(idLen, '\0');
-    stream.readRawData(idBytes.data(), idLen);
-    const QString propertyId = QString::fromUtf8(idBytes);
 
     // Drop a reply for a trip/property the user has already switched away from (either
     // key mismatching means a superseded request).
@@ -484,70 +470,31 @@ void TripsData::parseTripSeries(const QByteArray &payload) {
                          .arg(propertyId));
         return;
     }
-    if (device->bytesAvailable() < 5) {
+    const auto series = protocol::readSeries(stream);
+    if (!series) {
         logger.warning(QStringLiteral("Trip-series frame too short (status)"));
         setSeriesLoading(false);
         return;
     }
-    quint8 status;
-    stream >> status;
-    quint32 count;
-    stream >> count;
+    if (series->truncated) {
+        logger.warning(QStringLiteral("Truncated trip-series points at %1").arg(series->points.size()));
+    }
+    const quint8 status = series->status;
 
     QVariantList points;
-    double minX = std::numeric_limits<double>::max();
-    double maxX = std::numeric_limits<double>::lowest();
-    double minY = std::numeric_limits<double>::max();
-    double maxY = std::numeric_limits<double>::lowest();
-
-    if (status == 1) {
-        points.reserve(static_cast<int>(count));
-        for (quint32 i = 0; i < count; ++i) {
-            // ts(8) + value(8) = 16 bytes per point.
-            if (device->bytesAvailable() < 16) {
-                logger.warning(QStringLiteral("Truncated trip-series points at %1").arg(i));
-                break;
-            }
-            qint64 ts;
-            double value;
-            stream >> ts >> value;
-            const double x = static_cast<double>(ts);
-            QVariantMap point;
-            point.insert(QStringLiteral("x"), x);
-            point.insert(QStringLiteral("y"), value);
-            points.append(point);
-
-            minX = qMin(minX, x);
-            maxX = qMax(maxX, x);
-            minY = qMin(minY, value);
-            maxY = qMax(maxY, value);
-        }
+    points.reserve(series->points.size());
+    for (const QPointF &p : series->points) {
+        QVariantMap point;
+        point.insert(QStringLiteral("x"), p.x());
+        point.insert(QStringLiteral("y"), p.y());
+        points.append(point);
     }
-
     m_seriesPoints = points;
-    m_seriesPropertyId = propertyId;
-    if (points.isEmpty()) {
-        // Neutral, valid axis bounds so the empty graph still renders. A ValueAxis with
-        // min == max divides by zero mapping data to pixels and crashes QtGraphs, so an
-        // empty series (a property with no records in the trip window) must NOT leave a
-        // zero-width range (mirrors TeslaHistory's empty-bounds handling).
-        m_seriesMinX = 0.0;
-        m_seriesMaxX = 1.0;
-        m_seriesMinY = 0.0;
-        m_seriesMaxY = 1.0;
-    } else {
-        m_seriesMinX = minX;
-        m_seriesMaxX = maxX;
-        m_seriesMinY = minY;
-        m_seriesMaxY = maxY;
-        // A single point (or several sharing one timestamp) leaves minX == maxX — a
-        // zero-width x-range that also crashes QtGraphs. Pad to a non-zero span centred
-        // on the point (y is padded by HistoryGraph's yPad, so only x needs guarding).
-        if (m_seriesMaxX <= m_seriesMinX) {
-            m_seriesMinX -= 60000.0;  // +/- 1 min in ms
-            m_seriesMaxX += 60000.0;
-        }
-    }
+    const SeriesBounds bounds = seriesBounds(series->points);
+    m_seriesMinX = bounds.minX;
+    m_seriesMaxX = bounds.maxX;
+    m_seriesMinY = bounds.minY;
+    m_seriesMaxY = bounds.maxY;
     setSeriesLoading(false);
     emit seriesChanged();
     emit seriesReady();

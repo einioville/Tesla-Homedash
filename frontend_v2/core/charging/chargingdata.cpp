@@ -2,16 +2,14 @@
 
 #include "../logger.hh"
 #include "../protocol.hh"
+#include "../seriesbounds.hh"
 #include "../serverclient.hh"
 
 #include <QDataStream>
 #include <QDateTime>
 #include <QIODevice>
-#include <QJsonDocument>
-#include <QJsonObject>
 #include <QPointF>
 #include <QString>
-#include <limits>
 
 namespace {
 const Logger logger = Logger::get("charging");
@@ -20,8 +18,6 @@ const Logger logger = Logger::get("charging");
 ChargingData::ChargingData(ServerClient *server, QObject *parent)
     : QObject(parent), m_server(server) {
     connect(server, &ServerClient::packetReceived, this, &ChargingData::onPacket);
-    // Self-heal: a request written into a disconnected socket is silently dropped, so
-    // re-issue any still-pending request when the connection is (re)established.
     connect(server, &ServerClient::connectedChanged, this, &ChargingData::onConnectedChanged);
 }
 
@@ -62,21 +58,18 @@ void ChargingData::parseStream(const QByteArray &payload) {
                 if (device->bytesAvailable() < 1) { stop = true; break; }
                 { quint8 v; stream >> v; m_status = v; }
                 break;
+            // Sent but not shown: read past them.
             case protocol::CHARGER_PLUG_STATUS:
-                if (device->bytesAvailable() < 1) { stop = true; break; }
-                { quint8 v; stream >> v; m_plugStatus = v; }
-                break;
             case protocol::CHARGER_MODE:
-                if (device->bytesAvailable() < 1) { stop = true; break; }
-                { quint8 v; stream >> v; m_mode = v; }
-                break;
             case protocol::CHARGER_L1_PHASE:
-                if (device->bytesAvailable() < 1) { stop = true; break; }
-                { quint8 v; stream >> v; m_l1Phase = v; }
+                stop = stream.skipRawData(1) != 1;
                 break;
             case protocol::CHARGER_SUPPLY_VOLTAGE:
-                if (device->bytesAvailable() < 2) { stop = true; break; }
-                { quint16 v; stream >> v; m_supplyVoltage = v; }
+                stop = stream.skipRawData(2) != 2;
+                break;
+            case protocol::CHARGER_GENERATED_POWER:
+            case protocol::CHARGER_SUPPLY_FREQUENCY:
+                stop = stream.skipRawData(8) != 8;
                 break;
             case protocol::CHARGER_CHARGE_POWER:
                 if (device->bytesAvailable() < 8) { stop = true; break; }
@@ -90,27 +83,10 @@ void ChargingData::parseStream(const QByteArray &payload) {
                 if (device->bytesAvailable() < 8) { stop = true; break; }
                 { double v; stream >> v; m_gridPowerW = v; }
                 break;
-            case protocol::CHARGER_GENERATED_POWER:
-                if (device->bytesAvailable() < 8) { stop = true; break; }
-                { double v; stream >> v; m_generatedPowerW = v; }
+            case protocol::CHARGER_RAW_JSON:
+                // The last field, so nothing after it needs reaching.
+                stop = true;
                 break;
-            case protocol::CHARGER_SUPPLY_FREQUENCY:
-                if (device->bytesAvailable() < 8) { stop = true; break; }
-                { double v; stream >> v; m_supplyFrequency = v; }
-                break;
-            case protocol::CHARGER_RAW_JSON: {
-                if (device->bytesAvailable() < 4) { stop = true; break; }
-                quint32 len;
-                stream >> len;
-                if (static_cast<quint32>(device->bytesAvailable()) < len) { stop = true; break; }
-                QByteArray rawBytes(static_cast<int>(len), Qt::Uninitialized);
-                stream.readRawData(rawBytes.data(), static_cast<int>(len));
-                const QJsonDocument doc = QJsonDocument::fromJson(rawBytes);
-                if (doc.isObject()) {
-                    m_raw = doc.object().toVariantMap();
-                }
-                break;
-            }
             default:
                 stop = true;  // unknown width — cannot skip, stop the frame
                 break;
@@ -120,7 +96,6 @@ void ChargingData::parseStream(const QByteArray &payload) {
         }
     }
 
-    m_hasLiveState = true;
     emit liveStateChanged();
 
     // Extend the rolling power graphs from this frame while the view is live.
@@ -154,8 +129,6 @@ void ChargingData::parseSpotPrice(const QByteArray &payload) {
     // status 0 => no price this hour (fetch failed / unpublished): drop to "no price" so
     // the tile shows "—" rather than a stale value.
     m_hasSpotPrice = (status == 1);
-    m_spotHourStartMs = static_cast<double>(hourStartMs);
-    m_spotRawEurPerKwh = spot;
     m_spotPriceEurPerKwh = allIn;
     emit spotPriceChanged();
 }
@@ -168,7 +141,6 @@ void ChargingData::parseMonth(const QByteArray &payload) {
     // status(1) + 13*double(8) = 105 bytes.
     if (device->bytesAvailable() < 105) {
         logger.warning(QStringLiteral("Charging-month frame too short"));
-        setMonthLoading(false);
         return;
     }
     quint8 status;
@@ -208,7 +180,6 @@ void ChargingData::parseMonth(const QByteArray &payload) {
 
     m_month = month;
     m_monthRequested = false;
-    setMonthLoading(false);
     emit monthChanged();
     emit monthReady();
     logger.debug(QStringLiteral("Charging-month applied | status=%1").arg(status));
@@ -217,44 +188,26 @@ void ChargingData::parseMonth(const QByteArray &payload) {
 void ChargingData::parseChargerHistory(const QByteArray &payload) {
     QDataStream stream(payload);
     stream.setByteOrder(QDataStream::BigEndian);
-    QIODevice *device = stream.device();
 
-    if (device->bytesAvailable() < 2) {
+    QString id;
+    if (!protocol::readString(stream, id)) {
         logger.warning(QStringLiteral("Charger-history frame too short (id)"));
         return;
     }
-    quint16 idLen;
-    stream >> idLen;
-    if (device->bytesAvailable() < idLen) {
-        logger.warning(QStringLiteral("Charger-history frame too short (id body)"));
-        return;
-    }
-    QByteArray idBytes(idLen, '\0');
-    stream.readRawData(idBytes.data(), idLen);
-    const QString id = QString::fromUtf8(idBytes);
-
-    if (device->bytesAvailable() < 5) {
+    const auto series = protocol::readSeries(stream);
+    if (!series) {
         logger.warning(QStringLiteral("Charger-history frame too short (header)"));
         return;
     }
-    quint8 status;
-    stream >> status;
-    quint32 count;
-    stream >> count;
-
+    if (series->truncated) {
+        logger.warning(
+            QStringLiteral("Truncated charger-history points at %1").arg(series->points.size()));
+    }
+    const quint8 status = series->status;
     QVariantList points;
-    if (status == 1) {
-        points.reserve(static_cast<int>(count));
-        for (quint32 i = 0; i < count; ++i) {
-            if (device->bytesAvailable() < 16) {
-                logger.warning(QStringLiteral("Truncated charger-history points at %1").arg(i));
-                break;
-            }
-            qint64 ts;
-            double value;
-            stream >> ts >> value;
-            points.append(QVariant::fromValue(QPointF(static_cast<double>(ts), value)));
-        }
+    points.reserve(series->points.size());
+    for (const QPointF &point : series->points) {
+        points.append(QVariant::fromValue(point));
     }
 
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
@@ -296,33 +249,11 @@ void ChargingData::appendLive(Series &s, double value, qint64 nowMs) {
 }
 
 void ChargingData::rollBounds(Series &s, qint64 nowMs) {
-    const double left = static_cast<double>(nowMs - kWindowMs);
-    // Drop points older than the left edge, but keep the last one before it as the
-    // boundary so the value held at the edge is still known (the step line needs it).
-    int firstInside = 0;
-    while (firstInside < s.points.size() && s.points[firstInside].toPointF().x() < left) {
-        ++firstInside;
-    }
-    const int dropCount = firstInside > 0 ? firstInside - 1 : 0;
-    if (dropCount > 0) {
-        s.points.remove(0, dropCount);
-    }
-    s.minX = left;
-    s.maxX = static_cast<double>(nowMs);
-    double minY = std::numeric_limits<double>::max();
-    double maxY = std::numeric_limits<double>::lowest();
-    for (const QVariant &p : s.points) {
-        const double y = p.toPointF().y();
-        minY = qMin(minY, y);
-        maxY = qMax(maxY, y);
-    }
-    if (s.points.isEmpty()) {
-        s.minY = 0.0;
-        s.maxY = 1.0;
-    } else {
-        s.minY = minY;
-        s.maxY = maxY;
-    }
+    const SeriesBounds bounds = rollLiveWindow(s.points, kWindowMs, nowMs);
+    s.minX = bounds.minX;
+    s.maxX = bounds.maxX;
+    s.minY = bounds.minY;
+    s.maxY = bounds.maxY;
 }
 
 QVariantMap ChargingData::seriesMap(const Series &s) {
@@ -337,16 +268,9 @@ QVariantMap ChargingData::seriesMap(const Series &s) {
 }
 
 void ChargingData::sendHistoryRequest(const QString &id) {
-    QByteArray payload;
-    QDataStream stream(&payload, QIODevice::WriteOnly);
-    stream.setByteOrder(QDataStream::BigEndian);
-    stream << static_cast<quint8>(protocol::HISTORY_RANGE_1H);
-    const QByteArray idBytes = id.toUtf8();
-    stream << static_cast<quint16>(idBytes.size());
-    stream.writeRawData(idBytes.constData(), static_cast<int>(idBytes.size()));
-    // Preset range ignores the bounds; send zeros to keep the fixed wire layout.
-    stream << static_cast<qint64>(0) << static_cast<qint64>(0);
-    m_server->sendPacket(protocol::frame(protocol::CHARGER_GET_HISTORY, payload));
+    m_server->sendPacket(protocol::frame(
+        protocol::CHARGER_GET_HISTORY,
+        protocol::historyRequestBody(protocol::HISTORY_RANGE_1H, id, 0, 0)));
 }
 
 void ChargingData::startLive() {
@@ -363,7 +287,6 @@ void ChargingData::stopLive() {
 
 void ChargingData::requestMonth() {
     m_monthRequested = true;
-    setMonthLoading(true);
     m_server->sendPacket(protocol::frame(protocol::CHARGING_GET_MONTH));
     logger.info(QStringLiteral("Month charging summary requested"));
 }
@@ -382,14 +305,6 @@ void ChargingData::onConnectedChanged() {
         logger.info(QStringLiteral("Reconnected — re-requesting month charging summary"));
         m_server->sendPacket(protocol::frame(protocol::CHARGING_GET_MONTH));
     }
-}
-
-void ChargingData::setMonthLoading(bool loading) {
-    if (m_monthLoading == loading) {
-        return;
-    }
-    m_monthLoading = loading;
-    emit monthLoadingChanged();
 }
 
 void ChargingData::setHistoryLoading(bool loading) {

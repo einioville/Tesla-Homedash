@@ -5,7 +5,6 @@ from sympy import symbols, sympify
 from influxdb_client import Point, WritePrecision
 import datetime
 from datetime import timezone
-from json import dumps
 import struct
 from zoneinfo import ZoneInfo
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -110,14 +109,7 @@ class VehicleDataProperty:
                     )
                     return
                 # Target arrived — release lock and fall through to commit.
-                if (
-                    self.__lock_timeout_task is not None
-                    and not self.__lock_timeout_task.done()
-                ):
-                    self.__lock_timeout_task.cancel()
-                self.__lock_timeout_task = None
-                self.__locked_target = None
-                self.__lock_generation += 1
+                self.__drop_lock()
 
             previous_value = self._value
             self._value = new_value
@@ -176,6 +168,20 @@ class VehicleDataProperty:
             self.__id, placeholder_value, target_value, timeout_seconds,
         )
 
+    def __drop_lock(self) -> None:
+        '''
+        Releases the value lock: cancels its timeout and bumps the generation so a
+        timeout already in flight finds it stale.  Caller holds _async_lock.
+        '''
+        if (
+            self.__lock_timeout_task is not None
+            and not self.__lock_timeout_task.done()
+        ):
+            self.__lock_timeout_task.cancel()
+        self.__lock_timeout_task = None
+        self.__locked_target = None
+        self.__lock_generation += 1
+
     async def __lock_timeout_handler(self, generation: int, seconds: int) -> None:
         try:
             await asyncio.sleep(seconds)
@@ -212,14 +218,7 @@ class VehicleDataProperty:
                 current value untouched.
         '''
         async with self._async_lock:
-            if (
-                self.__lock_timeout_task is not None
-                and not self.__lock_timeout_task.done()
-            ):
-                self.__lock_timeout_task.cancel()
-            self.__lock_timeout_task = None
-            self.__locked_target = None
-            self.__lock_generation += 1
+            self.__drop_lock()
             if value is not None:
                 self._value = value
 
@@ -241,14 +240,7 @@ class VehicleDataProperty:
         async with self._async_lock:
             # Drop any in-flight value-lock (e.g. an HvacPower toggle still
             # showing "Pending"): it can never be confirmed while asleep.
-            if (
-                self.__lock_timeout_task is not None
-                and not self.__lock_timeout_task.done()
-            ):
-                self.__lock_timeout_task.cancel()
-            self.__lock_timeout_task = None
-            self.__locked_target = None
-            self.__lock_generation += 1
+            self.__drop_lock()
 
             if self.__value_type is None:
                 self.__value_type = self.__infer_value_type(self.__sleep_default)
@@ -378,8 +370,8 @@ class VehicleDataProperty:
         '''
         Builds an InfluxDB point from the current value stamped with the given
         timestamp (ms since epoch, UTC) rather than the last telemetry event
-        time.  Used by the midnight snapshot job so there is always a record
-        at the start of the day/month for period-boundary queries.
+        time.  Used by the midnight snapshot job
+        (Vehicle.__snapshot_logged_properties).
         Arguments:
             timestamp_ms (int): Epoch milliseconds to tag the point with.
         '''
@@ -422,18 +414,6 @@ class VehicleDataProperty:
             # expected, malformed timestamp.  Anything else should surface.
             logger.error("Failed to create InfluxDB point for %s: %s: %s", self.__id, type(e).__name__, e)
             return
-
-    async def get_as_json(self) -> str:
-        async with self._async_lock:
-            data = {
-                "id": self.__id,
-                "category": self.__category,
-                "unit": self.__unit,
-                "value": self._value,
-                "value_type": self.__value_type,
-                "timestamp": self.__timestamp,
-            }
-            return dumps(data)
 
     async def get_as_dict(self) -> dict:
         async with self._async_lock:
@@ -513,6 +493,21 @@ class CalculatedVehicleDataProperty(VehicleDataProperty):
 
         self.__period = period
 
+    def __calculate(self, latest) -> float:
+        '''
+        Evaluates calculation_formula with x = the period baseline, y = latest.
+        Arguments:
+            latest: The formula-converted reading (y).
+        '''
+        return float(
+            self.__calculation_sympy_expr.subs(
+                {
+                    self.__calculation_sympy_x: self.__calculate_value,
+                    self.__calculation_sympy_y: latest,
+                }
+            ).evalf()
+        )
+
     async def lock_value_until(self, *args, **kwargs):
         # Calculated properties overwrite _value after super().update() with the
         # calculation formula, which would defeat the lock.  No use case exists
@@ -550,8 +545,6 @@ class CalculatedVehicleDataProperty(VehicleDataProperty):
         startup via init_async_dependent().  I/O is performed outside the lock
         so telemetry updates are never blocked during the database roundtrip.
         '''
-        # Fetch the period baseline OUTSIDE the lock — this is an async I/O
-        # operation and must not hold _async_lock while it runs.
         if self.__period == "month":
             new_base = await self._vehicle.get_first_data_this_month(
                 self.__source_data_id
@@ -579,14 +572,7 @@ class CalculatedVehicleDataProperty(VehicleDataProperty):
             self.__unable_to_retrieve_value = False
             # Derived value resets to zero at the period boundary
             # (e.g. DrivenToday = 0 at midnight): formula(base, base) = base - base = 0.
-            self._value = float(
-                self.__calculation_sympy_expr.subs(
-                    {
-                        self.__calculation_sympy_x: self.__calculate_value,
-                        self.__calculation_sympy_y: self.__calculate_value,
-                    }
-                ).evalf()
-            )
+            self._value = self.__calculate(self.__calculate_value)
 
         await self._vehicle.stream_data_property(self)
         
@@ -600,7 +586,6 @@ class CalculatedVehicleDataProperty(VehicleDataProperty):
             value: Raw telemetry value from the Teslemetry stream.
             timestamp: Event timestamp in milliseconds (epoch).
         '''
-        # super() stores the formula-converted raw value under its own lock.
         await super().update(value, timestamp)
 
         # Re-acquire the lock so the calculation formula application is atomic
@@ -611,14 +596,7 @@ class CalculatedVehicleDataProperty(VehicleDataProperty):
                 self.__calculate_value = self._value
                 self.__unable_to_retrieve_value = False
 
-            self._value = float(
-                self.__calculation_sympy_expr.subs(
-                    {
-                        self.__calculation_sympy_x: self.__calculate_value,
-                        self.__calculation_sympy_y: self._value,
-                    }
-                ).evalf()
-            )
+            self._value = self.__calculate(self._value)
 
         logger.debug(
             "Calculated property updated: id=%s, base=%s, raw=%s, derived=%s",

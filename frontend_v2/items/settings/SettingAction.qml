@@ -1,5 +1,4 @@
 import QtQuick
-import QtQuick.Controls
 import frontend_v2
 
 // Action editor: a button, for schema entries of type "action".
@@ -22,10 +21,11 @@ Item {
     readonly property int confirmMs: 4000
     // Whether the action needs a live backend (the backend restart does).
     readonly property bool needsConnection: setting.requiresConnection === true
-    // Nothing in this family may fire during an update. Two of them restart a
-    // process, and doing that mid-checkout or mid-dependency-sync is how a device
-    // is left half-updated — the backend refuses the restart anyway, but a button
-    // that silently does nothing is worse than one that visibly cannot be used.
+    // Nothing in this family may fire during an update. Three of them restart the
+    // app, the backend or the host, and doing that mid-checkout or
+    // mid-dependency-sync is how a device is left half-updated — the backend
+    // refuses its own restart and the reboot anyway, but a button that silently
+    // does nothing is worse than one that visibly cannot be used.
     readonly property bool available: (!needsConnection || Server.connected)
                                       && !Updater.busy
 

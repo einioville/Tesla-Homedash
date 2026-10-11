@@ -46,7 +46,7 @@ Rectangle {
     // time on this always-on device. The picked week/trip is preserved.
     onIsCurrentChanged: if (isCurrent) weekSelector.refresh()
 
-    // Left column (60% width): map (40% of view height) + graph (fills the rest).
+    // Left column (60% width): map (60% of the stack height) + graph (fills the rest).
     ColumnLayout {
         id: leftColumn
         anchors.left: parent.left
@@ -58,7 +58,6 @@ Rectangle {
         width: view.contentWidth * 0.60
         spacing: 10
 
-        // --- Map card (60% of the stack height) ------------------------------
         Item {
             id: mapCard
             Layout.fillWidth: true
@@ -105,7 +104,6 @@ Rectangle {
             }
         }
 
-        // --- Graph card (fills the remaining height ≈ 40%) ------------------
         TripGraphCard {
             id: graphCard
             Layout.fillWidth: true
@@ -126,7 +124,7 @@ Rectangle {
         anchors.bottomMargin: Theme.gridMargin
         spacing: 10
 
-        // --- Week + trip selector card (tall enough for the two-line dropdowns) ---
+        // Week + trip selector card, tall enough for the two-line dropdowns.
         Rectangle {
             id: selectorCard
             Layout.fillWidth: true
@@ -170,7 +168,6 @@ Rectangle {
             }
         }
 
-        // --- Stats grid (fills the rest) -------------------------------------
         TripStatsGrid {
             Layout.fillWidth: true
             Layout.fillHeight: true

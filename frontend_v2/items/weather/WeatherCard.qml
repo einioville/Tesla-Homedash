@@ -1,7 +1,7 @@
 import QtQuick
 import frontend_v2
 
-// PROTOTYPE — the Weather view's card: a translucent panel with a small caps title on the
+// The Weather view's card: a translucent panel with a small caps title on the
 // left and a note on the right. Children are laid over it.
 Rectangle {
     property string title

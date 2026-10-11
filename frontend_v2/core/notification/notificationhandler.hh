@@ -60,7 +60,6 @@ private:
     void wireTeslaSource(const QString &sourceName);
     QString render(const Rule &rule, const QString &triggerValue) const;
     QString substitute(const QString &templ, const QString &triggerValue) const;
-    static QString qmlName(const QString &registryName);
 
     TeslaData *m_tesla;
     ServerClient *m_server;

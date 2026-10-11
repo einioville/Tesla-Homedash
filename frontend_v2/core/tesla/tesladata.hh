@@ -12,8 +12,9 @@ class ServerClient;
  * sends HVAC commands back.
  *
  * Parsing runs on the GUI thread — the bound properties are not thread-safe.
- * Malformed/unknown/value-type-mismatched packets are dropped (a single
- * mis-applied packet would corrupt a bound property).
+ * Packets with an unknown stream id, a mismatched value type or a truncated
+ * string are dropped (a single mis-applied packet would corrupt a bound
+ * property).
  */
 class TeslaData : public TeslaDataGen {
     Q_OBJECT
@@ -26,6 +27,12 @@ public:
     Q_INVOKABLE void switchClimate();
     Q_INVOKABLE void plusTemp();
     Q_INVOKABLE void minusTemp();
+
+    // The Q_PROPERTY name of a registry id: the first character lower-cased
+    // (ACChargingPower -> aCChargingPower), as generate_tesladata.py's qml_name.
+    static QString qmlName(const QString &registryName) {
+        return registryName.left(1).toLower() + registryName.mid(1);
+    }
 
 private slots:
     void onPacket(quint8 type, const QByteArray &payload);

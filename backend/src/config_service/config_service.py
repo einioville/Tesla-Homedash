@@ -1,9 +1,10 @@
 '''
 Runtime configuration service — the backend half of the frontend's Options view.
 
-Serves the CONFIG_* protocol codes (0x90-0x94): it publishes a *schema* of the
-settings in config.json that are safe to change at runtime, validates incoming
-writes against it, persists them, and applies them to the running services.
+Serves the CONFIG_* protocol codes (0x90-0x94) and HOST_REBOOT (0x95, which
+shares the restart's vetoes): it publishes a *schema* of the settings in
+config.json that are safe to change at runtime, validates incoming writes
+against it, persists them, and applies them to the running services.
 
 Why a schema rather than "let the frontend write any key": config.json also holds
 structural data the rest of the stack mirrors (the `tesla data` property table is
@@ -26,12 +27,10 @@ running system:
               from spotPrice.enabled).
               Written to config.json and picked up on the next process start.
 
-A "hook" setting whose service is absent (no Zappi configured -> no
-MyEnergiService) is reported back as "restart", because that is what it actually
-is for that deployment.
+A "hook" setting whose service is absent is reported back as "restart"
+(ConfigService.__effective_apply).
 '''
 import asyncio
-import json
 import logging
 import os
 import shutil
@@ -42,8 +41,9 @@ from functools import lru_cache
 from typing import Any, Callable
 from zoneinfo import ZoneInfo, available_timezones
 
-from ..utils import protocol
+from ..utils import process, protocol
 from ..utils.config_parser import AUTO_TIMEZONE, system_timezone_name
+from ..utils.logger_configurator import LEVEL_CHOICES
 
 logger = logging.getLogger("config_service.config_service")
 
@@ -599,13 +599,8 @@ SETTINGS_SCHEMA: list[dict] = [
                         "key": "logging.level",
                         "type": "enum",
                         "label": "Lokitaso",
-                        "options": [
-                            {"value": "debug", "label": "DEBUG"},
-                            {"value": "info", "label": "INFO"},
-                            {"value": "warning", "label": "WARNING"},
-                            {"value": "error", "label": "ERROR"},
-                            {"value": "critical", "label": "CRITICAL"},
-                        ],
+                        "options": [{"value": name, "label": name.upper()}
+                                    for name in LEVEL_CHOICES],
                         # DEBUG is temporary: choosing it asks for how long first.
                         "onSelect": {"debug": "debugDuration"},
                         "details": "debugLog",
@@ -700,12 +695,13 @@ class ConfigService:
         # value is already on disk and its failure is swallowed, so a guard is the
         # only place an honest "this cannot work here" reaches the user.
         self.__guards: dict[str, Callable[[str, Any], None]] = {}
-        # Set by the CONFIG_RESTART handler and awaited by run(), which turns it
-        # into a process exit for the service manager to restart.
         # name -> callable returning a refusal reason, or "" to allow. See
         # register_restart_veto: some restarts can only be refused honestly by
         # the service that knows what is in flight.
         self.__restart_vetoes: dict[str, Callable[[], str]] = {}
+        # Set by request_restart (CONFIG_RESTART, or the updater's final restart)
+        # and awaited by run(), which turns it into a process exit for the service
+        # manager to restart.
         self.__restart_requested = asyncio.Event()
         # Identifies THIS process in every schema it sends.  The frontend uses it
         # to tell "the backend restarted, so the values it now reports are the new
@@ -828,15 +824,14 @@ class ConfigService:
                 section_entry["settings"] = settings
                 sections.append(section_entry)
             # Copy every group-level key except "sections" rather than naming
-            # them one by one: a new group field (the sidebar icon was the first)
-            # then reaches the frontend without touching this function.
+            # them one by one: a new group field then reaches the frontend
+            # without touching this function.
             entry = {k: v for k, v in group.items() if k != "sections"}
             entry["sections"] = sections
             groups.append(entry)
-        # The path names the file this half writes (the frontend keeps it as
-        # Settings.backendStoragePath for diagnostics; the view no longer shows
-        # it).  Top-level rather than per-group: it describes the whole document,
-        # and a frontend that does not read it simply ignores the extra key.
+        # The path names the file this half writes; the frontend keeps it as
+        # Settings.backendStoragePath for diagnostics, and the view does not show
+        # it.  Top-level rather than per-group: it describes the whole document.
         return {
             "path": self.__config.path,
             "startedAt": self.__started_at_ms,
@@ -847,7 +842,7 @@ class ConfigService:
         '''
         Resolves an enum whose choices are built at schema time rather than
         listed in the schema, through the provider its service registered
-        (register_options) — audio.outputDevice and timeZone today.
+        (register_options), such as audio.outputDevice and timeZone.
         Arguments:
             key (str): The setting key whose options are being built.
         '''
@@ -931,10 +926,6 @@ class ConfigService:
         schema, persists it, applies it through the setting's hooks, and replies
         to the requesting client.  A successful write also broadcasts the fresh
         schema so any other connected frontend updates its displayed values.
-
-        Nothing is written unless validation passes, and a failed save rolls the
-        in-memory value back — the running services must never disagree with what
-        is on disk.
         Arguments:
             payload (bytes): len(4B) + UTF-8 JSON request body.
             writer (StreamWriter): The requesting client.
@@ -953,7 +944,7 @@ class ConfigService:
             await self.__reply_error(writer, key, value, result["message"])
             return
 
-        await self.__reply_ok(writer, key, result["value"], result["applied"], "")
+        await self.__reply_ok(writer, key, result["value"], result["applied"])
         if result["applied"] != "unchanged":
             # Tell every client (including this one) the new authoritative values.
             await self.__server.broadcast(self.__schema_frame())
@@ -962,8 +953,9 @@ class ConfigService:
         '''
         Writes one setting exactly as a CONFIG_SET would, but on behalf of another
         backend service rather than a client — so it replies to nobody and returns
-        the outcome instead.  SpotifyDeviceService uses it to store the device id
-        its scan found.
+        the outcome instead.  SpotifyDeviceService (the scanned device),
+        AudioService (the host's volume, adopted at startup) and LogLevel (the
+        level an expired DEBUG returns to) use it.
 
         Going through here rather than touching Config directly is the point: a
         service-initiated write gets the same schema coercion, the same guard, the
@@ -1023,8 +1015,6 @@ class ConfigService:
         try:
             self.__config.save()
         except OSError as e:
-            # Put the in-memory document back so services and disk stay in
-            # agreement, then report the failure.
             self.__config.set(key, previous)
             logger.error("Could not save config after setting %s: %s", key, e)
             return {"ok": False, "applied": "", "value": previous,
@@ -1064,9 +1054,8 @@ class ConfigService:
 
         The sibling of register_guard, and for the same reason — some things can
         only be refused honestly by the service that owns them.  The one that
-        matters is an update in flight: this button sits three rows below the
-        update card, and pressing it mid-checkout would kill the process while
-        the working tree is half-moved.
+        matters is an update in flight: a restart mid-checkout would kill the
+        process while the working tree is half-moved.
         Arguments:
             name (str): Identifier for the log line.
             veto (Callable): Returns a Finnish refusal reason, or "" to allow.
@@ -1145,28 +1134,17 @@ class ConfigService:
 
         for argv in attempts:
             try:
-                process = await asyncio.create_subprocess_exec(
-                    *argv,
-                    stdin=asyncio.subprocess.DEVNULL,
-                    stdout=asyncio.subprocess.DEVNULL,
-                    stderr=asyncio.subprocess.PIPE,
-                )
+                returncode, _, stderr = await process.run(argv, _REBOOT_TIMEOUT_SECONDS)
+            except asyncio.TimeoutError:
+                logger.warning("%s timed out", " ".join(argv))
+                continue
             except OSError as e:
                 logger.warning("Could not run %s: %s", " ".join(argv), e)
                 continue
-            try:
-                _, stderr = await asyncio.wait_for(
-                    process.communicate(), timeout=_REBOOT_TIMEOUT_SECONDS
-                )
-            except asyncio.TimeoutError:
-                process.kill()
-                logger.warning("%s timed out", " ".join(argv))
-                continue
-            if process.returncode == 0:
+            if returncode == 0:
                 logger.warning("Host reboot started via: %s", " ".join(argv))
                 return ""
-            logger.info("%s refused (%s): %s", " ".join(argv), process.returncode,
-                        stderr.decode("utf-8", "replace").strip())
+            logger.info("%s refused (%s): %s", " ".join(argv), returncode, stderr.strip())
         return ("Palvelimella ei ole oikeutta käynnistää laitetta uudelleen. Lisää "
                 "polkit-sääntö tai sudoers-rivi (README: Laitteen uudelleenkäynnistys).")
 
@@ -1235,17 +1213,8 @@ class ConfigService:
         Arguments:
             payload (bytes): The raw payload after the message-type byte.
         '''
-        if len(payload) < 4:
-            raise ValueError("Vaillinainen pyyntö")
-        (length,) = struct.unpack("!I", payload[:4])
-        body = payload[4:4 + length]
-        if len(body) != length:
-            raise ValueError("Vaillinainen pyyntö")
-        try:
-            request = json.loads(body.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError) as e:
-            raise ValueError("Virheellinen JSON") from e
-        if not isinstance(request, dict) or "key" not in request:
+        request = protocol.parse_json_body(payload)
+        if "key" not in request:
             raise ValueError("Pyynnöstä puuttuu avain")
         return str(request["key"]), request.get("value")
 
@@ -1271,17 +1240,14 @@ class ConfigService:
     def __schema_frame(self) -> bytes:
         '''Builds a framed CONFIG_SCHEMA packet from the current schema+values.'''
         try:
-            body = json.dumps(self.build_schema(), ensure_ascii=False).encode("utf-8")
+            return protocol.json_frame(
+                protocol.CONFIG_SCHEMA, protocol.CONFIG_STATUS_OK, self.build_schema())
         except (TypeError, ValueError) as e:
             logger.error("Could not serialize settings schema: %s", e)
             return protocol.frame(
                 protocol.CONFIG_SCHEMA,
                 bytes((protocol.CONFIG_STATUS_ERROR,)) + struct.pack("!I", 0),
             )
-        return protocol.frame(
-            protocol.CONFIG_SCHEMA,
-            bytes((protocol.CONFIG_STATUS_OK,)) + struct.pack("!I", len(body)) + body,
-        )
 
     @staticmethod
     def __result_frame(status: int, key: str, value: Any, applied: str, message: str) -> bytes:
@@ -1295,20 +1261,16 @@ class ConfigService:
             applied (str): "hook", "restart" or "unchanged".
             message (str): Human-readable failure reason, empty on success.
         '''
-        body = json.dumps(
+        return protocol.json_frame(
+            protocol.CONFIG_SET_RESULT, status,
             {"key": key, "value": value, "applied": applied, "message": message},
-            ensure_ascii=False,
-        ).encode("utf-8")
-        return protocol.frame(
-            protocol.CONFIG_SET_RESULT,
-            bytes((status,)) + struct.pack("!I", len(body)) + body,
         )
 
-    async def __reply_ok(self, writer, key: str, value: Any, applied: str, message: str) -> None:
+    async def __reply_ok(self, writer, key: str, value: Any, applied: str) -> None:
         '''Sends a successful CONFIG_SET_RESULT to the requesting client.'''
         await self.__server.send_to(
             writer,
-            self.__result_frame(protocol.CONFIG_STATUS_OK, key, value, applied, message),
+            self.__result_frame(protocol.CONFIG_STATUS_OK, key, value, applied, ""),
         )
 
     async def __reply_error(self, writer, key: str, value: Any, message: str) -> None:

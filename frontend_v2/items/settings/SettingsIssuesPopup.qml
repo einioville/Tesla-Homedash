@@ -4,12 +4,11 @@ import frontend_v2
 // The list behind the header's "Ongelmia havaittu": each detected problem with a
 // "Korjaa" button that takes the user to the setting that fixes it.
 //
-// A child of SettingsView like SpotifyDevicePopup, and drawn the same way (scrim
-// over the view's blurred content, an opaque card), but anchored to the TOP of the
+// A child of SettingsView like the other dialogs, anchored to the TOP of the
 // view rather than centred: it answers the header line directly above it. It
 // holds no state of its own beyond being open — the list is SettingsIssues' live
 // binding, so an issue fixed while the box is open leaves it at once.
-Item {
+ModalDialog {
     id: popup
 
     // SettingsIssues.issues.
@@ -22,149 +21,120 @@ Item {
     function open() { popup.shown = true }
     function close() { popup.shown = false }
 
-    anchors.fill: parent
     visible: shown
-    z: 100
 
     // A tap beside the card closes it: this box only informs, so dismissing it
     // costs nothing and needs no dedicated target.
-    MouseArea {
-        anchors.fill: parent
-        // A MouseArea with no wheel handler lets the wheel through, which
-        // scrolled the view behind the dialog. Swallow it; a list inside the
-        // card still scrolls, since it sits above this.
-        onWheel: (wheel) => wheel.accepted = true
-        onClicked: popup.close()
-    }
+    onScrimClicked: popup.close()
+    cardTopMargin: Theme.gridMargin + 48
+    cardWidth: 640
+    cardHeight: column.implicitHeight + 40
 
-    Rectangle {
-        anchors.fill: parent
-        color: Theme.dialogScrim
-    }
-
-    Rectangle {
-        id: card
-        anchors.horizontalCenter: parent.horizontalCenter
+    Column {
+        id: column
+        anchors.left: parent.left
+        anchors.right: parent.right
         anchors.top: parent.top
-        anchors.topMargin: Theme.gridMargin + 48
-        width: Math.min(parent.width - 2 * Theme.gridMargin, 640)
-        height: column.implicitHeight + 40
-        radius: Theme.tripCardRadius
-        color: Theme.spotifySurface
-        border.width: 1
-        border.color: Theme.spotifyRim
+        anchors.margins: 20
+        spacing: 14
 
-        // Taps on the card itself must not reach the close-on-tap area behind it.
-        MouseArea {
-            anchors.fill: parent
+        Text {
+            width: parent.width
+            text: qsTr("Havaitut ongelmat")
+            font.family: Theme.fontFamily
+            font.pixelSize: 19
+            font.bold: true
+            color: Theme.dataLabelValue
         }
 
-        Column {
-            id: column
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.top: parent.top
-            anchors.margins: 20
-            spacing: 14
+        // Shown when the last issue clears while the box is open, so it does
+        // not sit there empty.
+        Text {
+            width: parent.width
+            visible: popup.issues.length === 0
+            text: qsTr("Ei ongelmia.")
+            font.family: Theme.fontFamily
+            font.pixelSize: 14
+            color: Theme.dataLabelTitle
+        }
 
-            Text {
-                width: parent.width
-                text: qsTr("Havaitut ongelmat")
-                font.family: Theme.fontFamily
-                font.pixelSize: 19
-                font.bold: true
-                color: Theme.dataLabelValue
-            }
+        Repeater {
+            model: popup.issues
 
-            // Shown when the last issue clears while the box is open, so it does
-            // not sit there empty.
-            Text {
-                width: parent.width
-                visible: popup.issues.length === 0
-                text: qsTr("Ei ongelmia.")
-                font.family: Theme.fontFamily
-                font.pixelSize: 14
-                color: Theme.dataLabelTitle
-            }
+            Item {
+                id: entry
 
-            Repeater {
-                model: popup.issues
+                required property var modelData
+                required property int index
 
-                Item {
-                    id: entry
+                width: column.width
+                height: Math.max(texts.implicitHeight, fixButton.height) + 12
 
-                    required property var modelData
-                    required property int index
+                Rectangle {
+                    id: dot
+                    anchors.left: parent.left
+                    anchors.top: texts.top
+                    anchors.topMargin: 6
+                    width: 8
+                    height: 8
+                    radius: 4
+                    color: entry.modelData.level === "error" ? "#f87171" : "#ffb020"
+                }
 
-                    width: column.width
-                    height: Math.max(texts.implicitHeight, fixButton.height) + 12
+                Column {
+                    id: texts
+                    anchors.left: dot.right
+                    anchors.leftMargin: 10
+                    anchors.right: fixButton.left
+                    anchors.rightMargin: 12
+                    anchors.verticalCenter: parent.verticalCenter
+                    spacing: 2
 
-                    Rectangle {
-                        id: dot
-                        anchors.left: parent.left
-                        anchors.top: texts.top
-                        anchors.topMargin: 6
-                        width: 8
-                        height: 8
-                        radius: 4
-                        color: entry.modelData.level === "error" ? "#f87171" : "#ffb020"
+                    Text {
+                        width: parent.width
+                        text: entry.modelData.title
+                        font.family: Theme.fontFamily
+                        font.pixelSize: 15
+                        color: Theme.dataLabelValue
+                        wrapMode: Text.WordWrap
                     }
 
-                    Column {
-                        id: texts
-                        anchors.left: dot.right
-                        anchors.leftMargin: 10
-                        anchors.right: fixButton.left
-                        anchors.rightMargin: 12
-                        anchors.verticalCenter: parent.verticalCenter
-                        spacing: 2
-
-                        Text {
-                            width: parent.width
-                            text: entry.modelData.title
-                            font.family: Theme.fontFamily
-                            font.pixelSize: 15
-                            color: Theme.dataLabelValue
-                            wrapMode: Text.WordWrap
-                        }
-
-                        Text {
-                            width: parent.width
-                            visible: text.length > 0
-                            text: entry.modelData.detail !== undefined ? entry.modelData.detail : ""
-                            font.family: Theme.fontFamily
-                            font.pixelSize: 12
-                            color: Theme.dataLabelTitle
-                            wrapMode: Text.WordWrap
-                        }
-                    }
-
-                    DialogButton {
-                        id: fixButton
-                        anchors.right: parent.right
-                        anchors.verticalCenter: parent.verticalCenter
-                        label: qsTr("Korjaa")
-                        // No section: the fixing row is not in the schema now.
-                        visible: entry.modelData.section.length > 0
-                        onActivated: popup.fixRequested(entry.modelData)
-                    }
-
-                    Rectangle {
-                        visible: entry.index < popup.issues.length - 1
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.bottom: parent.bottom
-                        height: 1
-                        color: "#1affffff"
+                    Text {
+                        width: parent.width
+                        visible: text.length > 0
+                        text: entry.modelData.detail !== undefined ? entry.modelData.detail : ""
+                        font.family: Theme.fontFamily
+                        font.pixelSize: 12
+                        color: Theme.dataLabelTitle
+                        wrapMode: Text.WordWrap
                     }
                 }
-            }
 
-            DialogButton {
-                anchors.right: parent.right
-                label: qsTr("Sulje")
-                onActivated: popup.close()
+                DialogButton {
+                    id: fixButton
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    label: qsTr("Korjaa")
+                    // No section: the fixing row is not in the schema now.
+                    visible: entry.modelData.section.length > 0
+                    onActivated: popup.fixRequested(entry.modelData)
+                }
+
+                Rectangle {
+                    visible: entry.index < popup.issues.length - 1
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.bottom: parent.bottom
+                    height: 1
+                    color: "#1affffff"
+                }
             }
+        }
+
+        DialogButton {
+            anchors.right: parent.right
+            label: qsTr("Sulje")
+            onActivated: popup.close()
         }
     }
 }

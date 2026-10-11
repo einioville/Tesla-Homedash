@@ -35,9 +35,9 @@ Item {
     onIsCurrentChanged: if (isCurrent) ensureBreathing()
     signal clicked()
 
-    // --- Target state (derived from powerState) ------------------------------
-    // What the glow SHOULD become. These update instantly on powerState changes
-    // but are NOT shown until the next trough commits them into `render`.
+    // What the glow SHOULD become, derived from powerState. These update instantly
+    // on powerState changes but are NOT shown until the next trough commits them
+    // into `render`.
     readonly property bool targetPending:
         powerState !== "HvacPowerStateOn" && powerState !== "HvacPowerStateOff"
 
@@ -56,19 +56,19 @@ Item {
     // on/off states: each fade-in latches this when it starts, so pending pulses
     // peak at full 1.0 while a resolved/steady glow rests at 0.85. Read only
     // outside powerState's change handler (commit / animation / onCompleted), so
-    // the one-transition binding lag that the callLater above guards against
+    // the one-transition binding lag that the callLater below guards against
     // cannot affect it.
     readonly property real fullStrength: targetPending ? 1.0 : 0.85
 
-    // --- Private internal state ---------------------------------------------
-    // Held in a QtObject so it does not look like a public input. `render.*` is
-    // the CURRENTLY rendered glow; `breath` is the live shadow-opacity value.
+    // Private internal state, held in a QtObject so it does not look like a public
+    // input. `render.*` is the CURRENTLY rendered glow; `breath` is the live
+    // shadow-opacity value.
     QtObject {
         id: render
 
-        // Rendered glow colour + disc icon. Bound into GlowIcon below. Only the
-        // trough ScriptAction (commit) writes these, so the visible colour/icon
-        // never changes except while the glow is fully hidden.
+        // Rendered glow colour + disc icon, bound into GlowIcon below. Only
+        // commitTarget() writes these — at the trough, or once at cold start —
+        // so the visible colour/icon never changes mid-fade.
         property color glow: starter.targetGlow
         property url source: starter.targetSource
 
@@ -127,17 +127,15 @@ Item {
         glowStrength: render.breath
     }
 
-    // --- The breath ----------------------------------------------------------
-    // ONE run of this animation = exactly one breath: fade the glow out to the
-    // trough, hold hidden, commit the pending target colour + icon while hidden,
-    // then fade back in with the (possibly new) colour. It does NOT loop itself;
-    // onFinished re-arms it for the next breath only while there is still work
-    // to do (see the restart rule). That makes the loop fully imperative and
-    // keeps every colour/icon swap pinned to the trough.
+    // The breath. ONE run of this animation = exactly one breath: fade the glow
+    // out to the trough, hold hidden, commit the pending target colour + icon
+    // while hidden, then fade back in with the (possibly new) colour. It does NOT
+    // loop itself; onFinished re-arms it for the next breath only while there is
+    // still work to do (the re-arm rule, onBreathFinished). That makes the loop
+    // fully imperative and keeps every colour/icon swap pinned to the trough.
     SequentialAnimation {
         id: breathCycle
 
-        // Fade glow OUT to the trough (fully hidden).
         NumberAnimation {
             target: render
             property: "breath"
@@ -150,12 +148,9 @@ Item {
         // invisible window so no colour change is ever seen mid-fade.
         PauseAnimation { duration: 140 }
 
-        // Commit the target into the rendered state AT THE TROUGH. Whatever the
-        // latest powerState resolved to is what fades back in. Because breath is
-        // 0 here, swapping render.glow / render.source is imperceptible.
+        // Whatever the latest powerState resolved to is what fades back in.
         ScriptAction { script: starter.commitTarget() }
 
-        // Fade glow back IN with the freshly committed colour.
         NumberAnimation {
             target: render
             property: "breath"
@@ -164,12 +159,12 @@ Item {
             easing.type: Easing.InOutSine
         }
 
-        // After a full breath, decide whether to breathe again.
         onFinished: starter.onBreathFinished()
     }
 
     // Copy the current target (colour + icon) into the rendered state. Called
-    // only from the trough ScriptAction, so the visible swap is hidden.
+    // from the trough ScriptAction, where the swap is hidden, and once from
+    // Component.onCompleted to adopt the cold-start state.
     function commitTarget() {
         render.glow = starter.targetGlow
         render.source = starter.targetSource
@@ -186,8 +181,8 @@ Item {
     }
 
     // Re-arm rule, evaluated after every completed breath. Breathe again IFF the
-    // state is still pending OR the rendered colour has not yet caught up to the
-    // target. Consequences:
+    // view is current and the state is still pending OR the rendered colour has
+    // not yet caught up to the target. Consequences:
     //   * Pending: always true -> the glow breathes continuously.
     //   * A resolution (on/off): the trough in THIS breath already committed the
     //     resolved colour, so renderMatchesTarget() is now true and pending is

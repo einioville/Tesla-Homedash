@@ -108,8 +108,7 @@ class SpotPriceProvider:
         self.__base_url = str(cfg["baseUrl"])
         self.__vat_multiplier = 1.0 + float(cfg["vatPercent"]) / 100.0
         self.__margin_eur_per_kwh = float(cfg["marginCentsPerKwh"]) / 100.0
-        # UTC-hour-start ms -> raw spot €/kWh (no VAT/margin). Past hours are immutable, so a
-        # cache hit is never re-fetched; the all-in conversion is applied on read.
+        # UTC-hour-start ms -> raw spot €/kWh (no VAT/margin; see the module docstring).
         self.__raw_cache: dict[int, float] = {}
 
     def apply_config(self) -> None:

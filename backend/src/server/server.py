@@ -48,8 +48,6 @@ class Server:
         # Who each connection is, for the status view's client list.
         self.__peers: dict[asyncio.StreamWriter, dict] = {}
 
-    # ── Wiring ────────────────────────────────────────────────────────
-
     def register_handler(self, msg_type: int, handler: Handler) -> None:
         '''
         Registers a coroutine to invoke when a message with the given type
@@ -77,8 +75,6 @@ class Server:
         '''
         self.__services.append(service)
 
-    # ── Outgoing ──────────────────────────────────────────────────────
-
     @property
     def client_count(self) -> int:
         '''Number of currently connected frontends (the status view reports it).'''
@@ -101,8 +97,7 @@ class Server:
             packet (bytes): One or more length-prefixed messages already
                 built by the calling service via protocol.frame().
         '''
-        # CLAUDE.md invariant: snapshot the keys before iterating, since
-        # __safe_write may pop entries during disconnect handling.
+        # A copy: __safe_write pops a client that fails mid-broadcast.
         clients = list(self.__active_connections.keys())
         if not clients:
             return
@@ -113,16 +108,13 @@ class Server:
 
     async def send_to(self, writer: asyncio.StreamWriter, packet: bytes) -> None:
         '''
-        Sends a pre-framed packet to a single client.  Used by services'
-        stream_everything(client) implementations to deliver a snapshot
-        only to the new connection.
+        Sends a pre-framed packet to a single client: a new connection's
+        snapshot, or the reply to that client's request.
         Arguments:
             writer (StreamWriter): The connection to write to.
             packet (bytes): One or more length-prefixed messages.
         '''
         await self.__safe_write(writer, packet)
-
-    # ── Lifecycle ─────────────────────────────────────────────────────
 
     async def start(self) -> None:
         '''
@@ -135,8 +127,6 @@ class Server:
         )
         async with self.__server:
             await self.__server.serve_forever()
-
-    # ── Internals ─────────────────────────────────────────────────────
 
     async def __handle_connection(
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
@@ -173,8 +163,7 @@ class Server:
     ) -> None:
         # No inactivity timeout: clients are display-only and may idle
         # indefinitely.  Disconnects surface as IncompleteReadError /
-        # ConnectionError from readexactly().  See CLAUDE.md
-        # "TCP Server Invariants".
+        # ConnectionError from readexactly().
         while True:
             try:
                 msg_type, payload = await self.__recv_message(reader)
@@ -210,8 +199,7 @@ class Server:
         self, reader: asyncio.StreamReader
     ) -> tuple[int, bytes]:
         msg_len = struct.unpack("!I", await reader.readexactly(4))[0]
-        # CLAUDE.md invariant: enforce MAX_MSG_SIZE to prevent OOM from
-        # malformed or hostile length prefixes.
+        # A malformed or hostile length prefix must not allocate without bound.
         if msg_len == 0 or msg_len > protocol.MAX_MSG_SIZE:
             raise ValueError(f"Invalid message size: {msg_len}")
 

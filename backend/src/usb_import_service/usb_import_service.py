@@ -25,10 +25,10 @@ import json
 import logging
 import os
 import shutil
-import struct
 import threading
 
-from ..utils import protocol
+from ..utils import process, protocol
+from ..utils.config_parser import app_config_dir
 
 logger = logging.getLogger("usb_import_service")
 
@@ -54,7 +54,6 @@ _LSBLK_COLUMNS = "NAME,PATH,TYPE,TRAN,HOTPLUG,LABEL,SIZE,FSTYPE,MOUNTPOINT,MODEL
 # (a vfat fsck-on-mount), and anything beyond this means it is not answering.
 _COMMAND_TIMEOUT_SECONDS = 30.0
 
-# How often copy progress is sent while files are copied.
 _PROGRESS_INTERVAL_SECONDS = 0.25
 
 # Left free on the target filesystem after a copy. The screensaver folder shares
@@ -64,13 +63,10 @@ _FREE_SPACE_MARGIN_BYTES = 200 * 1024 * 1024
 
 def screensaver_dir() -> str:
     '''
-    The screensaver's photo folder: $XDG_CONFIG_HOME (or ~/.config) /
-    Tesla-Homedash / screensaver — the same path the frontend's
-    ScreensaverPhotos resolves, beside backend_config.json.
+    The screensaver's photo folder: app_config_dir() / screensaver — the same
+    path the frontend's ScreensaverPhotos resolves, beside backend_config.json.
     '''
-    base = os.environ.get("XDG_CONFIG_HOME") or os.path.join(
-        os.path.expanduser("~"), ".config")
-    return os.path.join(base, "Tesla-Homedash", "screensaver")
+    return os.path.join(app_config_dir(), "screensaver")
 
 
 def usb_volumes(document: dict) -> list:
@@ -222,12 +218,11 @@ class UsbImportService:
     photos and copies them into the screensaver folder.
     Arguments:
         server (Server): TCP server used to reply to the client running the flow.
-        target_dir (str): The screensaver folder; defaults to screensaver_dir().
     '''
 
-    def __init__(self, server, target_dir: str | None = None):
+    def __init__(self, server):
         self.__server = server
-        self.__target = target_dir or screensaver_dir()
+        self.__target = screensaver_dir()
         # Serialises the flow's steps; the copy itself runs outside it, in its
         # own task, so a CLOSE can reach it.
         self.__lock = asyncio.Lock()
@@ -258,7 +253,7 @@ class UsbImportService:
         request = self.__decode(payload, "USB_IMPORT_LIST")
         if request is None:
             return
-        flow_id = self.__flow_id_of(request)
+        flow_id = protocol.request_epoch(request, "flowId")
         if self.__copying():
             await self.__server.send_to(writer, self.__frame(dict(
                 self.__fresh_state(), flowId=flow_id, phase="error",
@@ -508,19 +503,12 @@ class UsbImportService:
             argv (str): The command and its arguments.
         '''
         try:
-            process = await asyncio.create_subprocess_exec(
-                *argv, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+            code, out, err = await process.run(argv, _COMMAND_TIMEOUT_SECONDS)
+        except asyncio.TimeoutError:
+            return -1, "", f"{argv[0]} timed out"
         except OSError as e:
             return -1, "", str(e)
-        try:
-            out, err = await asyncio.wait_for(
-                process.communicate(), timeout=_COMMAND_TIMEOUT_SECONDS)
-        except asyncio.TimeoutError:
-            process.kill()
-            await process.wait()
-            return -1, "", f"{argv[0]} timed out"
-        return (process.returncode, out.decode("utf-8", "replace"),
-                err.decode("utf-8", "replace").strip())
+        return code, out, err.strip()
 
     # ── State ─────────────────────────────────────────────────────
 
@@ -552,9 +540,7 @@ class UsbImportService:
         Arguments:
             state (dict): The state document, flowId included.
         '''
-        body = json.dumps(state).encode("utf-8")
-        return protocol.frame(protocol.USB_IMPORT_STATE,
-                              bytes((1,)) + struct.pack("!I", len(body)) + body)
+        return protocol.json_frame(protocol.USB_IMPORT_STATE, protocol.CONFIG_STATUS_OK, state)
 
     def __copying(self) -> bool:
         '''True while a copy task is running.'''
@@ -567,19 +553,7 @@ class UsbImportService:
             request (dict): The parsed request.
             writer (StreamWriter): The client that sent it.
         '''
-        return writer is self.__writer and self.__flow_id_of(request) == self.__flow_id
-
-    @staticmethod
-    def __flow_id_of(request: dict) -> int:
-        '''
-        Reads the frontend's flow epoch; anything missing or malformed reads as 0.
-        Arguments:
-            request (dict): The parsed request.
-        '''
-        value = request.get("flowId")
-        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-            return 0
-        return value
+        return writer is self.__writer and protocol.request_epoch(request, "flowId") == self.__flow_id
 
     @staticmethod
     def __decode(payload: bytes, label: str):
@@ -589,16 +563,8 @@ class UsbImportService:
             payload (bytes): The raw handler payload.
             label (str): Packet name, for the warning line.
         '''
-        if len(payload) < 4:
-            logger.warning("%s: payload too short (%d bytes)", label, len(payload))
-            return None
-        length = int.from_bytes(payload[:4], "big")
-        if len(payload) < 4 + length:
-            logger.warning("%s: truncated body", label)
-            return None
         try:
-            body = json.loads(payload[4:4 + length].decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError) as e:
-            logger.warning("%s: malformed JSON (%s)", label, e)
+            return protocol.parse_json_body(payload)
+        except ValueError as e:
+            logger.warning("%s: %s", label, e)
             return None
-        return body if isinstance(body, dict) else None

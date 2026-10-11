@@ -1,11 +1,11 @@
 import QtQuick
 import frontend_v2
 
-// PROTOTYPE — the hourly chart in its card: `hoursVisible` hours across, scrollable through
+// The hourly chart in its card: `hoursVisible` hours across, scrollable through
 // all of `hours`. The title names the hours on screen ("SEURAAVAT 24 TUNTIA" at the start,
 // their span once scrolled) unless `heading` overrides it, and "↺ Nyt" glides back to now.
 // Used by the Weather view and the dashboard's weather panel.
-WeatherProtoCard {
+WeatherCard {
     id: card
 
     property var hours: []
@@ -59,7 +59,7 @@ WeatherProtoCard {
         }
     }
 
-    WeatherProtoChart {
+    WeatherChart {
         id: chart
         anchors.fill: parent
         anchors.leftMargin: 10

@@ -34,8 +34,8 @@ ScreensaverPhotos::ScreensaverPhotos(QObject *parent) : QObject(parent) {
                                .arg(m_path));
         }
     }
-    // The folder used to be configurable; a deployment that still sets the old
-    // variable would otherwise lose its photos without a word.
+    // TESLA_HOMEDASH_SCREENSAVER_DIR is not read; a deployment that sets it
+    // would otherwise lose its photos without a word.
     if (dotenv::isSet("TESLA_HOMEDASH_SCREENSAVER_DIR")) {
         logger.warning(QStringLiteral("TESLA_HOMEDASH_SCREENSAVER_DIR is no longer read; "
                                       "copy the photos to %1")

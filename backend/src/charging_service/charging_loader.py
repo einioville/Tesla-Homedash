@@ -12,10 +12,14 @@ on Gear).
 '''
 import logging
 import math
+from functools import partial
 
 import numpy as np
 
-from .charging_session import CHARGER_ENERGY_ID, ChargingSession, to_flux_time
+from ..influxdb_service.influxdb_handler import to_flux_time
+from ..influxdb_service.series import positive_increment
+from ..utils.timeline import collapse_transitions, segment
+from .charging_session import CHARGER_ENERGY_ID, ChargingSession
 from .spot_price import price_hourly_energy
 
 logger = logging.getLogger("charging_service.charging_loader")
@@ -43,93 +47,9 @@ def _is_charging(state: str) -> bool:
     return "charging" in state.lower()
 
 
-def collapse_transitions(history: list) -> list:
-    '''
-    Collapses consecutive identical DetailedChargeState readings into transitions.
-    Logged fields are written on every telemetry event (not only on change), so the
-    raw history repeats the held value; only the points where it changes are real
-    transitions. Pure logic (no I/O) — the testable core of detection.
-    Arguments:
-        history (list): [(timestamp_ms, state_str), ...] ascending by time.
-    Returns:
-        list: The same shape, with runs of identical state reduced to their first point.
-    '''
-    collapsed = []
-    previous = None
-    for timestamp_ms, state in history:
-        if state != previous:
-            collapsed.append((timestamp_ms, state))
-            previous = state
-    return collapsed
-
-
-def segment_sessions(
-    transitions: list, held_before, start_ms: int, end_ms: int, threshold_ms: int
-) -> list:
-    '''
-    Turns a collapsed DetailedChargeState timeline into charging-session windows. Walks
-    the timeline as contiguous [from, to) intervals per held state, treating any
-    charging state as active. A non-charging interval shorter than threshold_ms is
-    absorbed into the surrounding session (a momentary pause mid-charge); a longer one
-    (or the window end) closes the session. Pure logic (no I/O) — the testable core,
-    structurally identical to trip_service.segment_trips with the charging predicate in
-    place of the Park predicate.
-    Arguments:
-        transitions (list): Collapsed [(timestamp_ms, state_str), ...].
-        held_before (str | None): The state held just before start_ms, or None if
-            nothing was logged before the window. A charging held state captures a
-            session already under way at the window boundary.
-        start_ms (int): Window start, epoch-ms UTC.
-        end_ms (int): Window end, epoch-ms UTC.
-        threshold_ms (int): Non-charging gap duration at/above which a pause ends a
-            session.
-    Returns:
-        list: [(session_start_ms, session_end_ms, in_progress), ...].
-    '''
-    if not transitions:
-        return []
-
-    # State governing the timeline from the window start. If a value was held before
-    # the window, use it; otherwise assume a non-charging sentinel (don't fabricate a
-    # session we can't bound).
-    start_state = held_before if held_before is not None else ""
-    sequence = [(start_ms, start_state)]
-    for timestamp_ms, state in transitions:
-        if timestamp_ms > start_ms:
-            sequence.append((timestamp_ms, state))
-    # Re-collapse in case the synthetic start state equals the first transition.
-    sequence = collapse_transitions(sequence)
-
-    windows = []
-    session_start = None
-    last_charge_end = None
-
-    for index, (segment_start, state) in enumerate(sequence):
-        segment_end = sequence[index + 1][0] if index + 1 < len(sequence) else end_ms
-        is_charging = _is_charging(state)
-
-        if is_charging:
-            if session_start is None:
-                session_start = segment_start
-            last_charge_end = segment_end
-        elif session_start is not None:
-            # A non-charging interval while a session is open.
-            gap_duration = segment_end - segment_start
-            if gap_duration >= threshold_ms:
-                windows.append((session_start, last_charge_end, False))
-                session_start = None
-                last_charge_end = None
-            # Shorter pause: leave the session open; the next charging segment extends
-            # last_charge_end across this absorbed pause.
-
-    if session_start is not None:
-        # No long-enough closing pause was seen inside the window. If the last segment
-        # was charging reaching the window end, the car is still charging (in progress);
-        # otherwise close at the last observed charging.
-        in_progress = last_charge_end == end_ms
-        windows.append((session_start, last_charge_end, in_progress))
-
-    return windows
+# A session is a run of charging; with nothing logged before the window, the ""
+# sentinel is not charging.
+segment_sessions = partial(segment, is_active=_is_charging, idle_state="")
 
 
 def _window_energy(charger, window_start_ms: int, window_end_ms: int) -> float:
@@ -141,11 +61,10 @@ def _window_energy(charger, window_start_ms: int, window_end_ms: int) -> float:
     steps is the energy actually delivered in the window — robust to the accumulator
     CARRYING a non-zero value into the window (a physical charge whose start Tesla did not
     yet report as "charging", so it falls outside the detected session) or RESETTING
-    inside it. The earlier in-window MAX over-counted both cases by the carried/earlier
-    peak (e.g. a 16.6 kWh session that had only delivered 5.6 kWh in its window). NaN when
+    inside it; an in-window max over-counts both by the carried/earlier peak. NaN when
     the series is missing or holds fewer than two samples in the window (nothing to
-    difference — e.g. a session at another charger), matching the old NaN so the
-    min-energy filter still drops those. The charging analogue of _window_distance.
+    difference — e.g. a session at another charger), so the min-energy filter drops it.
+    The charging analogue of trip_loader._window_distance.
     Arguments:
         charger (tuple | None): (count, timestamps_ms, values) from
             read_charger_data_property(ChargeAdded, ...), ascending by time, or None.
@@ -159,10 +78,7 @@ def _window_energy(charger, window_start_ms: int, window_end_ms: int) -> float:
         return float("nan")
     low = int(np.searchsorted(timestamps, window_start_ms, side="left"))
     high = int(np.searchsorted(timestamps, window_end_ms, side="right"))
-    segment = values[low:high]
-    if len(segment) < 2:
-        return float("nan")
-    return float(np.clip(np.diff(segment), 0.0, None).sum())
+    return positive_increment(values[low:high])
 
 
 class ChargingLoader:
@@ -265,10 +181,8 @@ class ChargingLoader:
         sessions = []
         for window_start, window_end, in_progress in windows:
             charger_kwh = _window_energy(charger, window_start, window_end)
-            # Drop sub-threshold and no-charger-data sessions: the losses view is about
-            # THIS charger, so a session with no comparable Zappi energy (charged
-            # elsewhere / DC) or a trivial top-up is not listed. NaN < threshold is
-            # False, so the explicit isnan check is what excludes no-charger sessions.
+            # NaN < threshold is False, so the explicit isnan check is what excludes
+            # no-charger sessions.
             if math.isnan(charger_kwh) or charger_kwh < self.__min_energy_kwh:
                 logger.debug(
                     "Discarding session (charger=%s kWh < %.2f): start=%s",
@@ -281,9 +195,6 @@ class ChargingLoader:
                 spot_provider=self.__spot_provider, flat_tariff=self.__flat_tariff,
             )
             session.seed_charger_kwh(charger_kwh)
-            # Seed the window's ChargeAdded slice from the bulk read too, so the session's
-            # cost path buckets energy by hour without a second query (mirrors the scalar
-            # seed above; both come from the one read this method already did).
             self.__seed_series(session, charger, window_start, window_end)
             sessions.append(session)
 
@@ -317,8 +228,7 @@ class ChargingLoader:
         Computes one session's loss breakdown for the detail panel. The frontend already
         knows the session's [start_ms, end_ms] from a prior list_sessions reply, so a
         ChargingSession is constructed directly over that window and asked for its
-        summary — no re-detection. Every metric degrades to NaN when its source series
-        is missing, so a partial-data session still yields a record.
+        summary — no re-detection.
         Arguments:
             start_ms (int): The session's start (its natural key), epoch-ms UTC.
             end_ms (int): The session's end, epoch-ms UTC.
@@ -339,8 +249,8 @@ class ChargingLoader:
         Reads a logged charger power series (e.g. GridPower / ChargePower) raw over a
         window, for the Charging view's past-hour graphs — a thin pass-through to the
         InfluxDBHandler's myenergi_data read, kept here so the charger-history request
-        handler has one charging-data entry point (the loader owns all myenergi_data
-        access). Raises ValueError on a malformed id (the read's _SAFE_ID guard) — the
+        handler has one charging-data entry point (charging_service owns the
+        myenergi_data reads). Raises ValueError on a malformed id (the read's _SAFE_ID guard) — the
         handler replies status=0.
         Arguments:
             data_property_id (str): The charger property id (InfluxDB "id" tag).
@@ -356,9 +266,9 @@ class ChargingLoader:
     async def month_summary(self, start_ms: int, end_ms: int) -> dict:
         '''
         Aggregates the month-to-date charging stats for the Charging view. Sums the
-        myenergi-detected sessions in [start_ms, end_ms] (via list_sessions + each
-        session's summary()), so charger vs car energy stay apples-to-apples over the same
-        session set. Distance and driving energy are the tesla lifetime counters' month
+        sessions list_sessions keeps in [start_ms, end_ms] (those with energy at this
+        Zappi) via each session's summary(), so charger vs car energy stay
+        apples-to-apples over the same session set. Distance and driving energy are the tesla lifetime counters' month
         deltas (Odometer / LifetimeEnergyUsed, the same first-of-month baseline
         DrivenThisMonth uses); the home grid import is the per-hour integral of positive
         GridPower, summed. Both cost fields are computed here (the loader owns the spot
@@ -390,9 +300,8 @@ class ChargingLoader:
                 battery_sum += battery_kwh
                 battery_count += 1
             charge_time_s += summary["duration_s"]
-            # Month charging cost = Σ per-session spot-priced cost (each session already
-            # priced its energy per hour). A NaN session cost (unpriceable) is skipped so
-            # one gap doesn't void the month, matching how car_kwh handles missing battery.
+            # A NaN session cost (unpriceable) is skipped so one gap doesn't void the
+            # month, matching how car_kwh handles missing battery.
             session_cost = summary["cost_eur"]
             if not math.isnan(session_cost):
                 cost_sum += session_cost
@@ -432,7 +341,7 @@ class ChargingLoader:
 
         # Whole-home grid import + its cost, priced per UTC hour. One hourly read yields
         # both the total (Σ hours) and the cost (Σ hour_kwh × that hour's spot price, per-
-        # hour flat-tariff fallback) — no separate month integral.
+        # hour flat-tariff fallback).
         hourly_home = await self.__influx.read_grid_import_kwh_hourly(start_ms, end_ms)
         if hourly_home:
             home_grid_kwh = float(sum(hourly_home.values()))

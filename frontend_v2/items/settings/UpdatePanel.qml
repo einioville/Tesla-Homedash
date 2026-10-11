@@ -5,16 +5,17 @@ import frontend_v2
 // selected channel offers, and the one button that moves between them.
 //
 // Rendered from the subsection's `status: "appUpdate"` key, the same hook the
-// backend probe and the maintenance dashboard use. Everything it shows is the
-// backend's UPDATE_STATE document, read defensively out of an opaque map — a
-// deployment with no git reports `available: false` and this card explains that
-// rather than offering a button that could not work.
+// backend probe and the screen-power status use; no subsection names it while
+// the card is out of the schema (#56). Everything it shows is the backend's
+// UPDATE_STATE document, read defensively out of an opaque map — a deployment
+// with no git reports `available: false` and this card explains that rather
+// than offering a button that could not work.
 //
-// The CHANNEL SELECTOR lives here rather than as a settings row below, which is
-// why `updateChannel` is a `hidden` schema entry. It decides what the verdict
-// underneath it says, so it has to come first; and a two-way choice on a 10"
-// touch panel is a pair of segments you hit with a fingertip, not a dropdown.
-// The value is still an ordinary persisted local setting.
+// The CHANNEL SELECTOR lives here rather than as a settings row below. It decides
+// what the verdict underneath it says, so it has to come first; and a two-way
+// choice on a 10" touch panel is a pair of segments you hit with a fingertip, not
+// a dropdown. Its value is `updateChannel`, which no schema defines at present:
+// it reads as "development", and a write goes to the backend and is refused.
 Item {
     id: panel
 
@@ -28,7 +29,7 @@ Item {
     // Calling an invokable registers no property dependency, so a binding built
     // on one never re-evaluates: the card would freeze on whatever state existed
     // when the Loader constructed it, while the sibling bindings that do read
-    // `Updater.state` kept refreshing around it — a check time updating above a
+    // `Updater.state` keep refreshing around it — a check time updating above a
     // stale version.
     readonly property var target: {
         const channels = Updater.state.channels

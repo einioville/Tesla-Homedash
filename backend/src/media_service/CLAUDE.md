@@ -15,7 +15,9 @@
   playback overwrites `_is_playing`). The second one is load-bearing: a Spotify left paused keeps
   its claim until its Connect session times out, often much later, and without it the radio would
   start by itself in the middle of the night.
-- **`base_media_player.py`**: the abstract control/stream interface both players implement.
+- **`base_media_player.py`**: the transport controls both players override (no-ops by default) and
+  the senders every media packet goes through — `_send`, `_send_text`, `_send_image` — so a new
+  field or player frames nothing by hand.
 - **`spotify_player.py`** (`SpotifyPlayer`) polls the Spotify Web API via spotipy on an APScheduler
   interval (10 s idle / 2 s active). `_update_state` is **serialised by `self._state_lock`**: it
   runs both on the timer and inline after every control command, and `claim_media_control` re-enters
@@ -93,9 +95,7 @@ and the new code is never redeemed) and runs in an executor, since spotipy is bl
 > `SPOTIFY_AUTH_URL` + `SPOTIFY_AUTH_ERROR`: without a listener the code cannot be caught, without a
 > browser the page cannot be reached, and a dialog waiting forever for a redirect nobody can produce
 > is worse than a message. The target supports this natively — README §Pi notes the dashboard runs
-> *on top of* the full Raspberry Pi OS desktop, not as a kiosk, and the pre-existing
-> `spotify_setup.py` already told the user to run it "from the Pi's desktop (it needs to open a
-> browser window)".
+> *on top of* the full Raspberry Pi OS desktop, not as a kiosk.
 >
 > **The grant EXPIRES — 6 months, absolute.** Verified against
 > `developer.spotify.com/documentation/web-api/tutorials/refreshing-tokens`: *"Refresh tokens issued
@@ -165,29 +165,31 @@ Both are fixes for real hazards found while building this:
   *issuing* manager's scope onto the cached token and then refuses the cache unless the *reading*
   manager's scope is a subset, so a re-auth issued with a narrower scope silently kills playback with
   no error anywhere.
-- Stock `SpotifyOAuth` falls back to an **interactive** handshake when the cache is unusable: for a
-  `127.0.0.1` redirect it starts a local HTTP server and blocks forever *inside the player's
-  executor thread*, after which APScheduler refuses every later poll. Exactly the failure shape
+- Stock `SpotifyOAuth` falls back to an **interactive** handshake when the cache is unusable — a
+  local HTTP server for a `127.0.0.1` redirect with `open_browser` on, a stdin prompt with it off —
+  waiting for a human *inside the player's executor thread*, after which APScheduler refuses every
+  later poll. Exactly the failure shape
   `../weather_service/CLAUDE.md` records for the weather service. The subclass raises instead,
   turning a silent hang into a logged error.
 - **A successful exchange could leave nothing on disk and still report success.** spotipy's
   `CacheFileHandler` swallows every `OSError` from the token write and **never creates parent
   directories**, so a `spotifyCachePath` whose directory is missing loses the grant silently: a tick
   in the Options view, `authorized=false` in the status broadcast a line later, and the single-use
-  code already spent. `build_oauth` now `makedirs` the parent (warn-only — it runs on every client
-  connect via `build_status()`, so it must never crash a status read), and `handle_code` **verifies
-  the cache afterwards** rather than assuming, replying with the path when it is empty.
-- **The CSRF state check was a no-op.** The frontend round-tripped the backend's own nonce and the
-  backend compared it with itself, because spotipy's `parse_response_code` discards the state
-  Spotify echoes. `handle_code` now uses **`parse_auth_response_url`**, which returns `(state, code)`,
-  and the comparison is **mandatory** — a missing state is a failed check, not a skipped one.
+  code already spent. `build_oauth` `makedirs` the parent (warn-only — it runs on every client
+  connect via `build_status()`, so it must never crash a status read), and `__exchange_and_reply`
+  **verifies the cache afterwards** rather than assuming, replying with the path when it is empty.
+- **The CSRF state is checked against the redirect itself.** The loopback listener reads `state`
+  and `code` from the callback's own query string, and `__exchange_and_reply` compares the state
+  with the nonce this flow issued. The comparison is **mandatory** — a missing state is a failed
+  check, not a skipped one. (spotipy's `parse_response_code` would discard the state Spotify
+  echoes, which is why it is not used.)
 
 ## `spotify_device_service.py` — device identification
 
 Serves `0xA5`–`0xA9` so `spotifyDeviceId` can be discovered from the dashboard. It exists because a
 wrong value **fails silently**: `SpotifyPlayer` claims control only when `_current_device_id ==
 _target_device_id`, so a stale id makes every transport control a no-op with nothing in the log —
-and until now the only fix was SSHing in to run `setup/spotify_setup.py`. The flow is "play
+and the only other fix is SSHing in to run `setup/spotify_setup.py`. The flow is "play
 something on the device you want, then confirm what the backend sees": the user starts playback, the
 service polls `current_playback()` every 2 s and streams back the **device** (name, type, volume,
 `is_restricted`) beside the **track** (name, artists, album, cover URL), so the device is confirmed
@@ -203,7 +205,7 @@ reported once rather than polled against. Load-bearing details, most of them def
   `spotifyDeviceId` had to become a real `SETTINGS_SCHEMA` entry: the schema **is** the write
   allow-list. It carries a `spotify_device_id` validator, because a `string` with no validator
   accepts `""` — and an empty target reintroduces exactly the silent no-op this feature removes.
-- **`SpotifyPlayer.apply_config()` now re-reads `spotifyDeviceId`** and spawns an immediate
+- **`SpotifyPlayer.apply_config()` re-reads `spotifyDeviceId`** and spawns an immediate
   `_update_state()` so the claim happens while the user is still looking at the screen that caused
   it. The task is **retained with a done-callback**: the loop holds only a weak reference, so a
   bare `create_task` can be collected mid-flight and its exception never retrieved.

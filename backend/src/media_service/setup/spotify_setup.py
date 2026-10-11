@@ -1,15 +1,18 @@
 '''
 Guided one-off Spotify setup helper for Tesla-Homedash.
 
-Walks the user through the two manual Spotify steps that the running backend
-expects to already be done:
+Walks the user through the two Spotify steps the backend needs, from a
+terminal:
   1. Completing the Spotify OAuth handshake so spotipy has a refresh token
-     cached at the path `config.json` points to (`spotifyCachePath`).
+     cached at the path `config.json` points to (`spotifyCachePath`), and
+     writing the grant record beside it.
   2. Identifying the Spotify Connect device ID that should be set as
      `spotifyDeviceId` in `config.json`.
 
-The script does NOT edit `config.json` — it prints the device ID and the user
-pastes it in by hand. Run from the `backend/` directory:
+The Options view's "Tunnistaudu uudelleen" and "Tunnista laite" rows do the
+same on a running dashboard.  This script does NOT edit `config.json` — it
+prints the device ID and the user pastes it in by hand. Run from the
+`backend/` directory:
 
     uv run python -m src.media_service.setup.spotify_setup
 '''
@@ -22,12 +25,6 @@ from spotipy.oauth2 import SpotifyOAuth
 
 from ...utils.config_parser import Config, default_config_path, get_env
 from ..spotify_oauth import SPOTIFY_AUTH_SCOPE, write_grant_record
-
-# Re-exported so this script keeps its old name for the value, while the one
-# authoritative definition lives beside the player that depends on it. This is an
-# ISSUER, so it asks for the wider SPOTIFY_AUTH_SCOPE the Options view's re-auth
-# asks for; a scope NARROWER than the reader's would silently invalidate the grant.
-SCOPE = SPOTIFY_AUTH_SCOPE
 
 MAX_ATTEMPTS = 3
 
@@ -61,7 +58,10 @@ def _run_oauth(config: Config, client_id: str, client_secret: str) -> SpotifyOAu
         client_secret=client_secret,
         redirect_uri=config.spotify_redirect_uri,
         cache_path=config.spotify_cache_path,
-        scope=SCOPE,
+        # An ISSUER asks for the wider SPOTIFY_AUTH_SCOPE, like the Options view's
+        # re-auth; a scope NARROWER than the reader's would silently invalidate
+        # the grant.
+        scope=SPOTIFY_AUTH_SCOPE,
         open_browser=False,
     )
 

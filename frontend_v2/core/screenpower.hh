@@ -34,8 +34,8 @@ class ServerClient;
  */
 class ScreenPower : public QObject {
     Q_OBJECT
-    // Whether the timeout is armed at all. Bound from Theme in Main.qml, so the
-    // Options view toggles it live.
+    // Whether the timeout is armed at all. Pushed from Main.qml by a Binding, so
+    // the Options view toggles it live.
     Q_PROPERTY(bool enabled READ enabled WRITE setEnabled NOTIFY enabledChanged)
     // Inactivity before the panel powers down. Floored at 30 s so a mistyped
     // value cannot make the screen unusable.

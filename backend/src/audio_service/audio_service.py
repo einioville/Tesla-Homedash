@@ -5,10 +5,10 @@ Owned by the backend rather than the UI because these are system calls, and
 because the audio hardware belongs to the machine the backend runs on — the same
 machine that runs libVLC for the radio and, usually, spotifyd.
 
-Both values are ordinary `config.json` keys applied through the Options view's
-existing hook machinery, so the whole feature costs no protocol code and no
-frontend change.  Persisting them is also what makes the dashboard come back at
-the volume it was left at after a power cut.
+Both values are ordinary `config.json` keys applied through ConfigService's hook,
+options provider and guard, so there is no audio protocol code.  Persisting them
+is also what makes the dashboard come back at the volume it was left at after a
+power cut.
 
 The equalizer (equalizer.py) sits in the same service because it changes what
 both of those mean while it runs: the default output becomes its own virtual
@@ -34,9 +34,9 @@ class AudioService:
     Applies the configured system volume and output device, and supplies the
     Options view's device list.
 
-    Always constructed: detection is two cheap subprocess probes and needs no
-    credentials, and a deployment with no controllable audio stack must be able
-    to SAY so rather than silently accept writes that do nothing.
+    Always constructed: detection is at most three cheap subprocess probes and
+    needs no credentials, and a deployment with no controllable audio stack must
+    be able to SAY so rather than silently accept writes that do nothing.
     Arguments:
         config (Config): Shared configuration.  The audio block is snapshotted
             here and re-read only in apply_config(), like every other service.
@@ -75,13 +75,12 @@ class AudioService:
         '''
         self.__config_service = config_service
 
-    # ── Lifecycle ─────────────────────────────────────────────────
-
     async def run(self) -> None:
         '''
         Detects the host's audio stack once, pushes the configured settings so a
-        reboot restores them, then refreshes the device list on a timer.  Runs
-        forever, so gathering it unconditionally is safe.
+        reboot restores them (adopting the host's volume when none is stored),
+        then refreshes the device list on a timer.  Runs forever, so gathering it
+        unconditionally is safe.
         '''
         self.__backend = await detect_backend()
         await self.__refresh_devices()
@@ -117,8 +116,6 @@ class AudioService:
     def get_run_task(self):
         '''Returns the run task for start_services to gather.'''
         return asyncio.create_task(self.run())
-
-    # ── Config ────────────────────────────────────────────────────
 
     async def apply_config(self) -> None:
         '''
@@ -218,8 +215,6 @@ class AudioService:
         if self.__eq_state == "unavailable":
             raise ValueError("Taajuuskorjain vaatii PipeWire-äänijärjestelmän")
 
-    # ── Internals ─────────────────────────────────────────────────
-
     async def __apply(self, device: str, volume, force: bool = False) -> None:
         '''
         Pushes device then volume at the host.
@@ -237,12 +232,11 @@ class AudioService:
         '''
         changed = force or device != self.__output_device
         self.__output_device = device
-        equalizer = self.__equalizer
-        if equalizer is not None and equalizer.running:
+        if self.__eq_running():
             # The chain is the default output and stays so; the choice moves
             # where the chain plays instead.
             if changed:
-                await equalizer.set_target(self.__equalizer_target())
+                await self.__equalizer.set_target(self.__equalizer_target())
         elif device and changed:
             await self.__backend.set_default_device(device)
             await self.__refresh_devices()

@@ -1,7 +1,6 @@
 #include "spotifyauth.hh"
 
-#include <QJsonDocument>
-#include <QtEndian>
+#include <QJsonObject>
 
 #include "logger.hh"
 #include "protocol.hh"
@@ -9,29 +8,6 @@
 
 namespace {
 const Logger logger = Logger::get("spotify.auth");
-
-// Reads a status(1B) + len(4B) + UTF-8 JSON body, the CONFIG_*/SPOTIFY_AUTH_*
-// shape. Leaves *ok false on any truncation, so a malformed frame is refused
-// rather than half-parsed.
-QJsonObject readStatusJson(const QByteArray &payload, quint8 *status, bool *ok) {
-    *ok = false;
-    if (payload.size() < 5) {
-        return {};
-    }
-    *status = static_cast<quint8>(payload.at(0));
-    const quint32 length = qFromBigEndian<quint32>(payload.constData() + 1);
-    if (static_cast<qint64>(payload.size()) < 5 + static_cast<qint64>(length)) {
-        return {};
-    }
-    QJsonParseError error{};
-    const QJsonDocument doc =
-        QJsonDocument::fromJson(payload.mid(5, static_cast<int>(length)), &error);
-    if (error.error != QJsonParseError::NoError || !doc.isObject()) {
-        return {};
-    }
-    *ok = true;
-    return doc.object();
-}
 }  // namespace
 
 SpotifyAuth::SpotifyAuth(QObject *parent) : QObject(parent) {}
@@ -40,7 +16,7 @@ void SpotifyAuth::attachServer(ServerClient *client) {
     m_server = client;
     connect(client, &ServerClient::packetReceived, this, &SpotifyAuth::onPacket);
     // The backend snapshots SPOTIFY_AUTH_STATUS to every new client, so the
-    // authorized/reason pair simply arrives — nothing to request here.
+    // grant status simply arrives — nothing to request here.
 }
 
 void SpotifyAuth::begin() {
@@ -73,8 +49,7 @@ void SpotifyAuth::updateAlert() {
 }
 
 void SpotifyAuth::cancel() {
-    // Fences every reply still in flight. The backend is told nothing: its pending
-    // flow expires on its own, and a code is worthless spent or unspent.
+    // Fences every reply still in flight.
     m_flowActive = false;
     setPhase(QStringLiteral("idle"));
 }
@@ -97,14 +72,14 @@ void SpotifyAuth::onPacket(quint8 type, const QByteArray &payload) {
         return;
     }
 
-    quint8 status = protocol::SPOTIFY_AUTH_ERROR;
-    bool ok = false;
-    const QJsonObject body = readStatusJson(payload, &status, &ok);
-    if (!ok) {
+    const auto reply = protocol::readJsonReply(payload);
+    if (!reply) {
         logger.warning(QStringLiteral("Malformed Spotify auth packet 0x%1")
                            .arg(type, 2, 16, QLatin1Char('0')));
         return;
     }
+    const quint8 status = reply->status;
+    const QJsonObject &body = reply->body;
 
     switch (type) {
     case protocol::SPOTIFY_AUTH_STATUS: {
@@ -112,8 +87,6 @@ void SpotifyAuth::onPacket(quint8 type, const QByteArray &payload) {
         // of the grant, sent on every connect, and the card must always show it.
         m_authorized = body.value(QStringLiteral("authorized")).toBool();
         m_reason = body.value(QStringLiteral("reason")).toString();
-        m_scope = body.value(QStringLiteral("scope")).toString();
-        m_cachePath = body.value(QStringLiteral("cachePath")).toString();
         m_email = body.value(QStringLiteral("email")).toString();
         m_displayName = body.value(QStringLiteral("displayName")).toString();
         // Epoch seconds on the wire (null when unknown) -> ms for a QML Date.
@@ -133,8 +106,6 @@ void SpotifyAuth::onPacket(quint8 type, const QByteArray &payload) {
         break;
     }
     case protocol::SPOTIFY_AUTH_URL: {
-        // A reply that arrives after the user cancelled must not reopen the dialog
-        // for a flow nobody is running any more.
         if (!m_flowActive) {
             return;
         }
@@ -143,8 +114,6 @@ void SpotifyAuth::onPacket(quint8 type, const QByteArray &payload) {
                      body.value(QStringLiteral("message")).toString());
             return;
         }
-        // The backend has opened the page in the host browser and is listening
-        // for the redirect; there is nothing to do here but wait for the RESULT.
         logger.info(QStringLiteral("Spotify consent page opened in the host browser; "
                                    "awaiting the callback"));
         setPhase(QStringLiteral("consent"));

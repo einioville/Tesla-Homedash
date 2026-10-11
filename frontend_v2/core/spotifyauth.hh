@@ -18,9 +18,9 @@ class ServerClient;
  * ever crosses this link — only "started" and "finished".
  *
  * That split is not merely tidy: RFC 8252 §8.12 says a native app MUST NOT use an
- * embedded user-agent for authorization, and Spotify enforces it — the embedded
- * WebEngineView this class used to drive could never get past the login page's
- * reCAPTCHA gate, even with WebGL and compositing both working.
+ * embedded user-agent for authorization, and Spotify enforces it — an embedded
+ * WebEngineView never gets past the login page's reCAPTCHA gate, even with WebGL
+ * and compositing both working.
  *
  * `phase` is a plain string state machine so QML can switch on it without any
  * enum registration:
@@ -39,8 +39,6 @@ class SpotifyAuth : public QObject {
     // Backend-reported grant state, refreshed on connect and after every exchange.
     Q_PROPERTY(bool authorized READ authorized NOTIFY statusChanged)
     Q_PROPERTY(QString reason READ reason NOTIFY statusChanged)
-    Q_PROPERTY(QString scope READ scope NOTIFY statusChanged)
-    Q_PROPERTY(QString cachePath READ cachePath NOTIFY statusChanged)
     // The account and dates from the backend's grant record, written at each
     // exchange this app makes — Spotify itself reports neither date. Epoch ms,
     // 0 when unknown (a grant from before the record existed). email is "" for a
@@ -65,8 +63,6 @@ public:
     QString message() const { return m_message; }
     bool authorized() const { return m_authorized; }
     QString reason() const { return m_reason; }
-    QString scope() const { return m_scope; }
-    QString cachePath() const { return m_cachePath; }
     QString email() const { return m_email; }
     QString displayName() const { return m_displayName; }
     double authorizedAt() const { return m_authorizedAt; }
@@ -102,8 +98,6 @@ private:
     QString m_phase = QStringLiteral("idle");
     QString m_message;
     QString m_reason;
-    QString m_scope;
-    QString m_cachePath;
     QString m_email;
     QString m_displayName;
     double m_authorizedAt = 0;
@@ -113,8 +107,8 @@ private:
     bool m_alertDismissed = false;
     bool m_alertVisible = false;
     // True only between begin() and the flow ending. Without it a reply that
-    // lands after cancel() reopens the popup — and a SPOTIFY_AUTH_URL doing that
-    // constructs a whole Chromium for a flow nobody is running any more.
+    // lands after cancel() reopens the dialog for a flow nobody is running any
+    // more.
     bool m_flowActive = false;
 };
 

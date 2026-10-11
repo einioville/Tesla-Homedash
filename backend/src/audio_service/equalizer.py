@@ -73,6 +73,16 @@ def filter_name(key: str) -> str:
     return "bass" if key == BASS_KEY else key
 
 
+def _gain(gains: dict, key: str) -> float:
+    '''
+    One gain in dB, 0 when absent.
+    Arguments:
+        gains (dict): Gain key -> dB.
+        key (str): One of GAIN_KEYS.
+    '''
+    return float(gains.get(key) or 0)
+
+
 def is_flat(gains: dict) -> bool:
     '''
     Whether a set of gains leaves the sound untouched, in which case the chain
@@ -80,7 +90,7 @@ def is_flat(gains: dict) -> bool:
     Arguments:
         gains (dict): Gain key -> dB.
     '''
-    return all(float(gains.get(key) or 0) == 0 for key in GAIN_KEYS)
+    return all(_gain(gains, key) == 0 for key in GAIN_KEYS)
 
 
 class PipeWireEqualizer:
@@ -226,7 +236,7 @@ class PipeWireEqualizer:
         '''
         if not self.running:
             return False
-        params = " ".join(f'"{filter_name(key)}:Gain" {float(gains.get(key) or 0):.1f}'
+        params = " ".join(f'"{filter_name(key)}:Gain" {_gain(gains, key):.1f}'
                           for key in GAIN_KEYS)
         rc, _ = await run_command(
             ["pw-cli", "set-param", str(self.__sink_id), "Props", f"{{ params = [ {params} ] }}"]
@@ -357,17 +367,11 @@ def _chain_config(gains: dict) -> str:
         return (f'{{ type = builtin name = {name} label = {label} '
                 f'control = {{ "Freq" = {freq:.1f} "Q" = {q:.2f} "Gain" = {gain:.1f} }} }}')
 
-    def gain(key: str) -> float:
-        '''
-        One gain from the dict, 0 when absent.
-        Arguments:
-            key (str): One of GAIN_KEYS.
-        '''
-        return float(gains.get(key) or 0)
-
-    nodes = [node("bass", "bq_lowshelf", _BASS_FREQ, _BASS_Q, gain(BASS_KEY))]
-    nodes += [node(key, "bq_peaking", freq, _BAND_Q, gain(key)) for key, freq in BANDS]
-    names = ["bass"] + [key for key, _ in BANDS]
+    bass = filter_name(BASS_KEY)
+    nodes = [node(bass, "bq_lowshelf", _BASS_FREQ, _BASS_Q, _gain(gains, BASS_KEY))]
+    nodes += [node(filter_name(key), "bq_peaking", freq, _BAND_Q, _gain(gains, key))
+              for key, freq in BANDS]
+    names = [bass] + [filter_name(key) for key, _ in BANDS]
     links = [f'{{ output = "{a}:Out" input = "{b}:In" }}' for a, b in zip(names, names[1:])]
     nl = "\n                    "
     return f'''# Written by Tesla-Homedash's audio service on every start; edits are lost.

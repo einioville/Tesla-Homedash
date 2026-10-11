@@ -12,7 +12,7 @@ behind several of these files are documented in `../../core/CLAUDE.md`:
 | `SystemServiceCard.qml`, `SystemLogPopup.qml` | `System` |
 | `DebugLogDetails.qml`, `DebugLogPopup.qml` | `Settings` (the backend's `logging.*`) |
 | `LogClearPopup.qml` | `Logs` |
-| `SpotifyAuthDetails.qml`, `SpotifyAuthPopup.qml`, `SpotifyAuthAlert.qml`, `DialogButton.qml` | `SpotifyAuth` |
+| `SpotifyAuthDetails.qml`, `SpotifyAuthPopup.qml`, `SpotifyAuthAlert.qml` | `SpotifyAuth` |
 | `SpotifyDeviceDetails.qml`, `SpotifyDevicePopup.qml` | `SpotifyDevice` |
 | `UpdatePanel.qml` (unused while the *Päivitys* card is out of the schema, #56), `UpdateBanner.qml` | `Updater` |
 | `ScreenPowerStatus.qml` | `Display` |
@@ -26,7 +26,7 @@ behind several of these files are documented in `../../core/CLAUDE.md`:
 
 Master/detail, three levels deep: `views/SettingsView.qml` is a sidebar + pane
 split: `items/settings/SettingsSidebar.qml` lists the sections (one per schema group, its row
-the icon and title only — a second line naming the subsections was cut mid-word at the
+the icon and title only — a second line naming the subsections would be cut mid-word at the
 sidebar's width, and the cards name them anyway) and `SettingsPane.qml` renders the selected section as a stack
 of **one card per subsection** (issue #30) — the same card the sidebar itself carries. The pane
 is transparent; the cards are the containers, so nothing is nested inside a further border.
@@ -38,15 +38,16 @@ Load-bearing:
 
 - **Rows survive a write.** Every write replaces `Settings.groups` (at once for a local key, on
   the schema broadcast for a backend one), and a Repeater handed a new array recreates every
-  delegate — which is why nothing in a row could animate past a write: a switch reappeared already
-  moved and nested rows popped in. So `SettingsPane` builds the cards from **`layout`**, replaced
-  only when the section's **shape** changes (`shapeOf()`: the sections with each entry's `value` and
-  the local `modified` flag dropped, as JSON), and each row reads its current entry by key from
-  **`liveEntries`**. A value write leaves the shape alone, so the delegates stay and their bindings
-  carry the value in; a section switch, a schema with other entries, a changed option list or apply
-  tier rebuilds as before. Every editor re-syncs on `onSettingChanged`, which is what lets a row
-  take a new value in place. Measured offscreen: the toggled row is the same object afterwards.
-- **Selection is a group ID, and it is sticky.** The section list grows from 3 entries to 8
+  delegate — and a recreated row cannot animate past a write: a switch would reappear already
+  moved and nested rows pop in. So `SettingsPane` builds the cards from **`layout`**, replaced
+  only when the section's **shape** changes (`shapeOf()`: the sections with each entry's `value`,
+  the local `modified` flag and `runtime` dropped, as JSON), and each row reads its current entry
+  by key from **`liveEntries`**. A value write leaves the shape alone, so the delegates stay and
+  their bindings carry the value in; a section switch, a schema with other entries, a changed
+  option list or apply tier rebuilds the cards. Every editor re-syncs on `onSettingChanged`, which
+  is what lets a row take a new value in place. Measured offscreen: the toggled row is the same
+  object afterwards.
+- **Selection is a group ID, and it is sticky.** The section list grows from 5 entries to 7
   when the backend's schema arrives and shrinks again if the connection drops, so an index
   would silently select a different section. `currentSectionId` holds what the user *chose*
   and is never overwritten by a list change; `currentGroup` resolves it on read, falling back
@@ -54,8 +55,8 @@ Load-bearing:
   reconnect instead of the user being bounced to the first one.
 - **Rows carry the card's only vertical padding.** A row centres its label block and its editor in
   at least 56px with at least 12px above and below; the card body adds nothing around the rows. A
-  card margin on top of that made the first and last rows lopsided — more space toward the card
-  edge than toward the divider. Only the intro (the card's `help` line and `status` widget), which
+  card margin on top of that would make the first and last rows lopsided — more space toward the
+  card edge than toward the divider. Only the intro (the card's `help` line and `status` widget), which
   has no padding of its own, is padded, and at the bottom too only when no row follows it.
 - **Subsection order across the two halves is the local group's `sectionOrder`.** Local
   subsections are folded in before the backend's, so without it a backend card can never lead its
@@ -71,7 +72,7 @@ Load-bearing:
   resource by `SettingsSidebar.iconFor()`. The backend names icons without knowing anything
   about frontend assets; an unknown name falls back to the gear. Both schema builders copy
   *every* group-level key rather than an allow-list, so the next group field needs no code
-  change (the icon was the first, and an allow-list is exactly what dropped it initially).
+  change (an allow-list would silently drop it).
 
 ## Schema keys the delegates understand
 
@@ -85,9 +86,8 @@ allow-list), **`details`** (a row-level live block under the label — see *Row 
 **`relevantWhen`** (`{key, equals|notEquals}` or `{condition}`, or a list of such rules that must
 ALL hold — it nests, hides or fades the row, see *Dependent rows* below), **`secret`** (a
 `string` shown masked by `SettingText` except while it is being edited, and logged as `<hidden>` by
-`Settings::setValue`; the saved file still holds it in clear, like `.env`. No setting carries it right
-now — the MML map key, its only consumer, moved to `.env` — but it stays as the guard the next
-secret needs), **`onSelect`** (`{value: action}` on an `enum`: choosing that value runs the action
+`Settings::setValue`; the saved file still holds it in clear, like `.env`. No setting carries it —
+the MML map key is `.env`-only — but it stays as the guard the next secret needs), **`onSelect`** (`{value: action}` on an `enum`: choosing that value runs the action
 INSTEAD of writing it — a dialog that asks something first and writes the value itself. The field
 shows the current value again until that write returns, so a cancelled dialog leaves nothing to undo,
 and it runs even when the value is already chosen. DEBUG in *Lokitaso* is its consumer),
@@ -97,7 +97,7 @@ with its value without being a setting — DEBUG's end time and the level it ret
 drops it with `value`, or a write that sets it would rebuild the card) and **`warnBelow`
 / `warnAbove` + `warnMessage`** (issue
 #34: `SettingRow` shows an inline caution while the value crosses the threshold; advisory only,
-`min`/`max` remain the hard bounds — the myenergi poll interval is the first consumer).
+`min`/`max` remain the hard bounds — the myenergi poll interval is its consumer).
 
 ## Dependent rows (`relevantWhen`)
 
@@ -149,19 +149,17 @@ motion and the reusable pieces are documented in `../util/CLAUDE.md`.
 
 **Numeric settings default to `SettingNumber` — a `[−] [typed value] [+]` stepper — and sliders are
 OPT-IN** via the schema's `editor: "slider"`. A slider only works when the exact number does not
-matter; most settings here are the opposite. Dispatching on `type` alone gave `backendPort`
-(1–65535) a slider whose 320px track is ~205 ports per pixel, and 13 of the 18 numeric settings were
-similarly undraggable. Only genuine coarse dials carry the hint — `screensaverStackCount` and the
-map's `mapDefaultZoom` (check
-`config/settings.json` for the current set). **Rule of thumb: if the user knows the number they want, it is not a slider.** The slider is **one
+matter; most settings here are the opposite — as a slider, `backendPort` (1–65535) would be ~205
+ports per pixel of a 320px track. Only genuine coarse dials carry the hint — `screensaverStackCount`,
+the map's `mapDefaultZoom` and the backend's `audio.volumePercent` (check `config/settings.json`
+and `SETTINGS_SCHEMA` for the current set). **Rule of thumb: if the user knows the number they want, it is not a slider.** The slider is **one
 line** — track, then the readout at its right, sized by `TextMetrics` for the widest text it can
 show so the track keeps its length mid-drag — because an editor must centre on the label like the
-others: a readout stacked above the track pushed the track ~8px below the label's centre line.
+others: a readout stacked above the track would push the track ~8px below the label's centre line.
 `SettingNumber`'s ± buttons hold-to-repeat (`../util/HoldRepeatArea.qml`), and it accepts typing
 for big jumps. **A hold steps a pending value that only the field shows and commits it once, on
 release** — each write is a disk write (a backend one a `config.json` save, apply hooks and a schema
-broadcast), so writing per step made one hold dozens of them; it also stopped every hold after one
-step back when a write still rebuilt the delegate. **A mouse wheel steps it the same way**
+broadcast), so writing per step would make one hold dozens of them. **A mouse wheel steps it the same way**
 (`../util/WheelStepArea.qml`): one step per notch into the pending value, one commit once the wheel
 has been still for 400 ms. `SettingSlider` takes the wheel too, along its step grid. The plain
 `field` editor has no steps, so it takes no wheel and the wheel scrolls the pane. `editor` is the
@@ -191,10 +189,11 @@ and its warp-mode `mapWarpDeadzone` / `mapWarpLead` (→ fractions of the map's 
 actions in the schema is what lets the *Ylläpito* section — **restart the dashboard**,
 **restart the backend**, **reboot the host** (`HOST_REBOOT`, #40) — be ordinary sidebar rows
 instead of a widget bolted onto the view.
-Entries carry `actionLabel` and optionally `requiresConnection` (which greys the backend
-restart while disconnected). Both need a **second tap to confirm** (armed for 4 s, then it
-lapses) — a modal would need a Cancel button and a way to dismiss it, which a fullscreen
-keyboard-less panel does not have.
+Entries carry `actionLabel` and optionally `requiresConnection` (which greys an action the
+backend runs — the backend restart, the reboot, the Spotify and USB-import flows — while
+disconnected). An action needs a **second tap to confirm** (armed for 4 s, then it lapses) unless
+it carries `confirm: false` — a modal would need a Cancel button and a way to dismiss it, which a
+fullscreen keyboard-less panel does not have.
 
 Three write-rate / semantics rules matter:
 - the **slider commits on release**, not per frame (otherwise a drag rewrites the settings
@@ -222,8 +221,8 @@ The row-level sibling of the subsection `status` hook below: **`details: "<id>"`
 `SettingRow` load a component under the label, resolved against its own small table
 (`spotifyAuth` → `SpotifyAuthDetails`, `spotifyDevice` → `SpotifyDeviceDetails`,
 `screensaverPhotos` → `ScreensaverPhotosDetails`, `debugLog` → `DebugLogDetails`, which is handed
-the row's setting: "Palautuu normaaliksi klo 14:52 (vielä 30 min)" from `runtime.until`, in the
-warning text colour while the log is on). It is for facts
+the row's setting: "Palautuu tasolle INFO klo 14:52 (vielä 30 min)" from `runtime.until` and
+`runtime.returnTo`, in the warning text colour while the log is on). It is for facts
 that belong to one row without being its value — these actions carry no `help`, and their
 details are the whole explanation. *Kuvakansio*'s is a single live line styled as the `help` it
 stands in for ("N kuvaa löydetty", from `Photos.count`). The two Spotify ones render through
@@ -234,7 +233,7 @@ which is kept apart from red on purpose.
 - **`SpotifyAuthDetails`** — account (e-mail, else display name), *Tunnistettu*, *Voimassa asti*.
   Red only when the backend says the grant does not work; amber within 30 days of `validUntil`, past
   it while Spotify still accepts the grant (the 180-day estimate is deliberately early), and when
-  the dates are unknown — a grant issued before the backend's grant record existed. Re-evaluates
+  the dates are unknown — a grant with no grant record. Re-evaluates
   hourly, so amber arrives on a panel left on this view.
 - **`SpotifyDeviceDetails`** — name (type) and id of the configured device. Amber when Spotify does
   not list it: Spotify lists only devices that are up, so *switched off* and *wrong id* look the
@@ -264,9 +263,8 @@ entry's `origin`. They are two separate restarts with separate banner buttons, s
 ## Issues and the fix spotlight
 
 The header shows **"Ongelmia havaittu" + *Tarkista*** only while `SettingsIssues` reports
-something (red dot if any issue is an error, amber for warnings only). It replaced the old
-"Yhdistetty" indicator; a lost backend is itself an issue, which is what keeps a screen showing only
-the local sections from reading as a bug.
+something (red dot if any issue is an error, amber for warnings only). A lost backend is itself an
+issue, which is what keeps a screen showing only the local sections from reading as a bug.
 
 - **`SettingsIssues.qml`** is a plain binding over the singletons, so an issue appears and clears by
   itself. Each names the **setting key that fixes it**; its section is looked up in
@@ -280,8 +278,8 @@ the local sections from reading as a bug.
   entry.
   The view refreshes `SpotifyDevice.configuredStatus` whenever it becomes current, since the device
   checks read it.
-- **`SettingsIssuesPopup.qml`** is the list, drawn like `SpotifyDevicePopup` (scrim over the blurred
-  view, opaque card) but anchored under the header. A tap beside the card closes it.
+- **`SettingsIssuesPopup.qml`** is the list, a `ModalDialog` anchored under the header. A tap beside
+  the card closes it.
 - **`SettingSpotlight.qml`** is where *Korjaa* ends: the view selects the fix's section and the view
   blurs its content (the same layer the dialogs use), while this draws a **crisp copy** of the row —
   a `ShaderEffectSource` over an opaque plate recreating the card behind it, ringed in the accent —
@@ -327,8 +325,7 @@ below INFO and is never cleared (`backend/src/system_service/CLAUDE.md`).
 A vertical `ElasticFlickable`: **`SystemOverviewCard`** on top, then the backend host's last ten
 minutes as a 2×2 grid of `SystemGraphCard`s (CPU per core, memory, disk, network) and a full-width CPU
 temperature card, then **a `SystemServiceCard` per backend service**. Graphs from `SystemHistory`,
-cards from `System` (`../../core/CLAUDE.md`), both retained only while the section is visible. The
-old status card in Ylläpito is retired — this section shows it all.
+cards from `System` (`../../core/CLAUDE.md`), both retained only while the section is visible.
 
 - **The overview** answers *is the system healthy* in one line (*Järjestelmä kunnossa* / *Ongelmia
   havaittu* / *Vikoja havaittu*, with a dot), lists the issues behind it, errors first, and gives
@@ -350,9 +347,10 @@ old status card in Ylläpito is retired — this section shows it all.
   would rebuild every card.
 - **Temperature**'s headline gives the window's peak. A host with no sensor (`temp_available: false`,
   WSL2) shows *Tällä laitteella ei ole lämpötila-anturia* in place of the graph.
-- **Every dialog swallows the mouse wheel** on its scrim (`onWheel` accepting it): a MouseArea with no
-  wheel handler lets the wheel through, which scrolled the page behind an open dialog. A list inside
-  the card still scrolls, since it sits above the scrim.
+- **Every dialog is a `ModalDialog`** — the opaque card over a scrim that takes every press and
+  wheel turn beside it (a MouseArea with no wheel handler lets the wheel through to the page behind;
+  a list inside the card still scrolls, since it sits above the scrim). A new dialog is built on
+  `ModalDialog`, not on another scrim and card.
 
 - **Disk is graphed as I/O** (read / write rates) with the free space as the card's headline: space
   changes too slowly over ten minutes to be a line, and disk-full is still the failure worth seeing.
@@ -373,8 +371,8 @@ its glass readout (hover with a mouse, one finger on touch), the pulsing live ma
 line, the draw-in, and pinch / left-drag zoom with *Palauta*. `SystemGraphCard` wraps it the way
 `ChargingGraphCard` does — the translucent card, the title overlaid at the top left — and feeds it
 like the Charging view's live graphs: the first data `reloadFull()`s, later updates
-`advanceLive()` (keeping a zoom the user made). What `HistoryGraph` gained for this, all inert at
-their defaults so every other graph is unchanged:
+`advanceLive()` (keeping a zoom the user made). What `HistoryGraph` offers for this, all inert at
+their defaults so no other graph is affected:
 - **`extraSeries`** — further lines over the same axes (`{points, color, label, dashed}`), as extra
   `LineSeries` added to the GraphsView at runtime (an `Instantiator`; the view's own children can
   only be series). They join the y-fit, draw in with the main line, get a dot each when inspecting,

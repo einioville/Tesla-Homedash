@@ -168,9 +168,9 @@ Item {
 
     // Warp mode must OWN map.center, but the Map's own `center:` binding tracks
     // the car exactly — which IS lock behaviour. Without dropping it here, warp
-    // would look completely inert until some unrelated assignment (historically
-    // the user's first pan) happened to break it. Assigning the current value
-    // imperatively is what drops a QML binding.
+    // would stay inert until some unrelated assignment (the user's first pan,
+    // say) happened to break it. Assigning the current value imperatively is
+    // what drops a QML binding.
     function claimCenterForWarp() {
         if (!root.warpFollow || !map.mapReady)
             return
@@ -299,11 +299,10 @@ Item {
 
         // Imagery comes in via the custom tile host (osm.mapping.host) as the
         // MapType.CustomMap entry. supportedMapTypes loads asynchronously and its
-        // length/order depend on which OSM providers are live (the built-in
-        // "satellite" is currently reported disabled), so a fixed index is
-        // fragile — select CustomMap by style instead. (The old
-        // supportedMapTypes[7] binding went undefined when satellite dropped out,
-        // which is what logged "Unable to assign [undefined] to QGeoMapType".)
+        // length/order depend on which OSM providers are live, so a fixed index is
+        // fragile — one that falls off the list assigns undefined and logs
+        // "Unable to assign [undefined] to QGeoMapType". Select CustomMap by style
+        // instead.
         function selectCustomMapType() {
             for (var i = 0; i < supportedMapTypes.length; i++) {
                 if (supportedMapTypes[i].style === MapType.CustomMap) {
@@ -325,7 +324,7 @@ Item {
             minimumPointCount: 1
             maximumPointCount: 1
             // No dead-zone: track the finger from the first pixel. The default
-            // ~10px threshold made the map sit still at the start of a drag (the
+            // ~10px threshold makes the map sit still at the start of a drag (the
             // finger moves but the map doesn't until the threshold is crossed),
             // which reads as a brief freeze.
             dragThreshold: 0
@@ -405,10 +404,10 @@ Item {
             // unset (updatePolish applies an identity matrix on that branch), so
             // this rotation does not follow the map's bearing. Subtracting the
             // bearing therefore keeps the arrow pointing at the true heading in
-            // both modes: it equals `heading` at bearing 0 (north-up, the
-            // original behaviour) and ~0 in heading-up, where the map itself has
-            // turned. A 360° difference renders identically, so no wrapping is
-            // needed around the sanitized [0,360) bearing.
+            // both modes: it equals `heading` in north-up (bearing ~0) and ~0 in
+            // heading-up, where the map itself has turned. A 360° difference
+            // renders identically, so no wrapping is needed around the sanitized
+            // [0,360) bearing.
             rotation: root.heading - map.bearing
 
             sourceItem: Image {

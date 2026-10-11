@@ -35,8 +35,8 @@ Rectangle {
     // Kept alive across switches, so the selected property + range persist (the
     // PropertySelector restores its pick by id when the list re-arrives). On
     // becoming current, refresh the property list and re-fetch / re-seed the graph
-    // for the preserved selection ("update the data on show"); on leaving, pause
-    // the live timer so a hidden view does no work.
+    // for the preserved selection; on leaving, pause the live timer so a hidden
+    // view does no work.
     onIsCurrentChanged: {
         if (isCurrent) {
             History.requestProperties()
@@ -112,8 +112,8 @@ Rectangle {
             // Pulsing "now" marker only when this view is showing a genuinely rolling window
             // (live toggle on, not a custom range) — and paused when the view isn't current.
             live: view.isCurrent && view.live && view.rangeCode !== 3
-            // Data props default to the History singleton; the graph no longer
-            // self-subscribes, so drive its reload/live-advance from here.
+            // The data props default to the History singleton, but the graph does
+            // not subscribe to its signals, so its reload/live-advance is driven here.
             Connections {
                 target: History
                 function onHistoryReady() { historyGraph.reloadFull() }

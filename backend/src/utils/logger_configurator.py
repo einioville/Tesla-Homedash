@@ -7,6 +7,8 @@ import threading
 
 from dotenv import load_dotenv
 
+from .atomic_write import write_atomic
+
 # ── Logger name constants ─────────────────────────────────────────────────────
 
 TESLA_SERVICE = "tesla_service"
@@ -89,11 +91,11 @@ def _resolve_level() -> tuple[int, str | None]:
 #
 # Beside stdout (the journal), every record at the loggers' level goes to a
 # size-capped file in the app's state directory, and every WARNING+ record to a
-# structured error log there.  stdout stays at the STARTUP level even while the
-# Options view's DEBUG log is on, so DEBUG detail lands only in the file: the
-# journal can no longer be flooded, and the Options view can clear what the app
-# wrote (system_service/log_files.py) — which journald, holding everything on
-# the host and deleting nothing selectively, could never offer.
+# structured error log there.  stdout follows the chosen level but never below
+# INFO unless the process was started at DEBUG, so the Options view's DEBUG detail
+# lands only in the file — which the Options view can clear
+# (system_service/log_files.py), unlike journald, which holds everything on the
+# host and deletes nothing selectively.
 
 _LOG_DIR_ENV = "TESLA_HOMEDASH_LOG_DIR"
 
@@ -210,11 +212,8 @@ class ErrorLog(logging.Handler):
 
     def __rewrite(self) -> None:
         '''Writes the in-memory entries back as the whole file, atomically.'''
-        temp = self.__path + ".tmp"
-        with open(temp, "w", encoding="utf-8") as fh:
-            for entry in self.__entries:
-                fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
-        os.replace(temp, self.__path)
+        write_atomic(self.__path, "".join(
+            json.dumps(entry, ensure_ascii=False) + "\n" for entry in self.__entries))
         self.__lines_on_disk = len(self.__entries)
 
     def entries(self, match=None) -> list[dict]:
@@ -297,24 +296,19 @@ def log_file_handler() -> logging.handlers.RotatingFileHandler | None:
     return _file_handler
 
 
-def configure_logging(level: int | None = None) -> None:
+def configure_logging() -> None:
     '''
-    Configures all service loggers with a shared StreamHandler and formatter.
+    Configures all service loggers with a shared StreamHandler and formatter, at
+    the level TESLA_HOMEDASH_LOG_LEVEL names (INFO when unset or invalid).
     Must be called once at application startup before any service is initialised.
-    Arguments:
-        level (int): Minimum log level for all service loggers.  When None (the
-            default) the level comes from TESLA_HOMEDASH_LOG_LEVEL, falling back
-            to INFO.
     '''
     global _base_level
-    invalid: str | None = None
-    if level is None:
-        # `.env` is normally loaded lazily by config_parser.get_env, whose first
-        # call happens *after* logging is configured — so load it here too.
-        # load_dotenv is idempotent and does not override real env vars, which is
-        # what lets systemd's Environment= win over a stale `.env` on the Pi.
-        load_dotenv()
-        level, invalid = _resolve_level()
+    # `.env` is normally loaded lazily by config_parser.get_env, whose first
+    # call happens *after* logging is configured — so load it here too.
+    # load_dotenv is idempotent and does not override real env vars, which is
+    # what lets systemd's Environment= win over a stale `.env` on the Pi.
+    load_dotenv()
+    level, invalid = _resolve_level()
 
     global _file_handler, _stdout_handler
     _base_level = level
@@ -342,8 +336,7 @@ def configure_logging(level: int | None = None) -> None:
     for name in _SERVICE_LOGGERS:
         logger = logging.getLogger(name)
         logger.setLevel(level)
-        # Guard against duplicate handlers when configure_logging() is called
-        # more than once (e.g. during tests).
+        # A second call must not stack a second stdout handler.
         if not logger.handlers:
             logger.addHandler(handler)
         # The file and the WARNING+ store. Added separately from the stdout
@@ -353,7 +346,6 @@ def configure_logging(level: int | None = None) -> None:
             logger.addHandler(_file_handler)
         if _error_log not in logger.handlers:
             logger.addHandler(_error_log)
-        # Do not propagate to the root logger — each service logger is self-contained.
         logger.propagate = False
 
     # spotipy logs its own diagnostics — notably "Couldn't write token to cache",

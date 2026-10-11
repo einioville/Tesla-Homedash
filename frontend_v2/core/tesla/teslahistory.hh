@@ -8,8 +8,6 @@
 
 class ServerClient;
 class TeslaData;
-class QDataStream;
-class QIODevice;
 class QTimer;
 
 /**
@@ -26,13 +24,14 @@ class QTimer;
  * A history reply echoes its property id; a reply whose id no longer matches the
  * one last requested is discarded, so quickly switching property/range can't draw
  * a stale series. Parsing runs on the GUI thread (the bound properties are not
- * thread-safe); malformed/truncated frames are dropped.
+ * thread-safe). A truncated property list is dropped, as is a history frame that
+ * ends inside its header; one that ends inside its points keeps the points before
+ * the cut.
  */
 class TeslaHistory : public QObject {
     Q_OBJECT
     Q_PROPERTY(QVariantList properties READ properties NOTIFY propertiesChanged)
     Q_PROPERTY(QVariantList points READ points NOTIFY historyChanged)
-    Q_PROPERTY(QString currentPropertyId READ currentPropertyId NOTIFY historyChanged)
     Q_PROPERTY(int pointCount READ pointCount NOTIFY historyChanged)
     Q_PROPERTY(double minX READ minX NOTIFY historyChanged)
     Q_PROPERTY(double maxX READ maxX NOTIFY historyChanged)
@@ -46,7 +45,6 @@ public:
 
     QVariantList properties() const { return m_properties; }
     QVariantList points() const { return m_points; }
-    QString currentPropertyId() const { return m_currentId; }
     int pointCount() const { return static_cast<int>(m_points.size()); }
     double minX() const { return m_minX; }
     double maxX() const { return m_maxX; }
@@ -62,8 +60,9 @@ public:
     Q_INVOKABLE void requestHistory(const QString &id, int rangeCode,
                                     double startMs, double endMs);
 
-    // Live mode: seed the rolling window from history, then advance it every
-    // second from live telemetry (read off the Tesla singleton by property id).
+    // Live mode: seed the rolling window from history, then advance it on a timer
+    // from live telemetry (read off the Tesla singleton by property id); the tick
+    // is 1 s on the 1 h window and slower on longer ones (liveTickIntervalForRange).
     // startLive takes a preset rangeCode for the window size; stopLive returns to
     // static; pauseLive halts the timer while the view is hidden (call startLive
     // again on re-show to re-seed and resume).
@@ -86,10 +85,8 @@ private:
     void setLoading(bool loading);
     void parseProperties(const QByteArray &payload);
     void parseHistory(const QByteArray &payload);
-    static bool readString(QDataStream &stream, QIODevice *device, QString &out);
 
     // Live helpers.
-    static QString qmlNameForId(const QString &id);  // id -> Tesla Q_PROPERTY name
     static qint64 windowMsForRange(int rangeCode);   // preset -> window width (ms)
     static int liveTickIntervalForRange(int rangeCode);  // preset -> live tick period (ms)
     void recomputeBounds(qint64 nowMs);              // roll window + recompute min/max

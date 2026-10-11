@@ -43,6 +43,7 @@ endif()
 qt_add_executable(appfrontend_v2
     main.cpp
     core/protocol.hh
+    core/seriesbounds.hh
     core/logger.hh
     core/logger.cpp
     core/serverclient.hh
@@ -91,8 +92,6 @@ qt_add_executable(appfrontend_v2
     core/media/mediaimageprovider.hh
     core/media/mediadata.hh
     core/media/mediadata.cpp
-    core/weather/weatherforecastmodel.hh
-    core/weather/weatherforecastmodel.cpp
     core/weather/weatherdata.hh
     core/weather/weatherdata.cpp
     core/notification/notificationhandler.hh
@@ -110,6 +109,7 @@ qt_add_qml_module(appfrontend_v2
         Main.qml
         app/ViewController.qml
         app/Theme.qml
+        app/Format.js
         views/DashboardView.qml
         views/HistoryView.qml
         views/MediaView.qml
@@ -117,7 +117,7 @@ qt_add_qml_module(appfrontend_v2
         views/TripsView.qml
         views/ChargingView.qml
         views/SettingsView.qml
-        views/WeatherPrototypeView.qml
+        views/WeatherView.qml
         items/settings/SettingRow.qml
         items/settings/SettingRules.qml
         items/settings/SettingSwitch.qml
@@ -155,6 +155,7 @@ qt_add_qml_module(appfrontend_v2
         items/settings/SpotifyGlowBorder.qml
         items/settings/SpotifyButton.qml
         items/settings/DialogButton.qml
+        items/settings/ModalDialog.qml
         items/settings/SpotifyAuthAlert.qml
         items/trip/TripMap.qml
         items/trip/TripComboBox.qml
@@ -163,7 +164,6 @@ qt_add_qml_module(appfrontend_v2
         items/trip/TripMarker.qml
         items/trip/TripStatCard.qml
         items/trip/TripStatsGrid.qml
-        items/trip/TripPropertySelector.qml
         items/trip/TripGraphCard.qml
         items/charging/ChargingGraphCard.qml
         items/charging/ChargingStatsGrid.qml
@@ -203,47 +203,31 @@ qt_add_qml_module(appfrontend_v2
         items/media/MediaCover.qml
         items/media/MediaTransport.qml
         items/media/MediaSeekBar.qml
-        items/weather/WeatherForecastCard.qml
-        items/weather/CurrentWeatherCard.qml
         items/weather/MainWeather.qml
-        items/weather/prototype/WeatherProtoUtil.js
-        items/weather/prototype/WeatherProtoWindArrow.qml
-        items/weather/prototype/WeatherProtoRadarMap.qml
-        items/weather/prototype/WeatherProtoRadarControls.qml
-        items/weather/prototype/WeatherProtoSunArc.qml
-        items/weather/prototype/WeatherProtoMoon.qml
-        items/weather/prototype/WeatherProtoCard.qml
-        items/weather/prototype/WeatherProtoChart.qml
-        items/weather/prototype/WeatherProtoHourlyCard.qml
-        items/weather/prototype/WeatherProtoDashboard.qml
+        items/weather/WeatherUtil.js
+        items/weather/WeatherWindArrow.qml
+        items/weather/WeatherRadarMap.qml
+        items/weather/WeatherRadarControls.qml
+        items/weather/WeatherSunArc.qml
+        items/weather/WeatherMoon.qml
+        items/weather/WeatherCard.qml
+        items/weather/WeatherChart.qml
+        items/weather/WeatherHourlyCard.qml
+        items/weather/WeatherDashboard.qml
 )
 
-# Qt for iOS sets MACOSX_BUNDLE_GUI_IDENTIFIER automatically since Qt 6.1.
-# If you are developing for iOS or macOS you should consider setting an
-# explicit, fixed bundle identifier manually though.
-set_target_properties(appfrontend_v2 PROPERTIES
-#    MACOSX_BUNDLE_GUI_IDENTIFIER com.example.appfrontend_v2
-    MACOSX_BUNDLE_BUNDLE_VERSION ${PROJECT_VERSION}
-    MACOSX_BUNDLE_SHORT_VERSION_STRING ${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}
-    MACOSX_BUNDLE TRUE
-    WIN32_EXECUTABLE TRUE
-)
+set_target_properties(appfrontend_v2 PROPERTIES WIN32_EXECUTABLE TRUE)
 
 # Includes resolve as "core/..." from main.cpp and as siblings within core/.
 target_include_directories(appfrontend_v2 PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
-# Bake the source directory so AppConfig can locate the repo-root .env even when
-# Qt Creator builds the exe outside the source tree (shadow build) — the cwd/exe
-# walk-up alone never reaches it. Used only to find .env; real environment
-# variables still take precedence, so this absolute dev path is harmless when the
-# directory no longer exists on a deployment target.
 # Stamp the commit this binary was BUILT from. The Options view's update card
 # otherwise has to report the repository's HEAD as "the running version", which
 # stops being true the moment an update checks out a new commit: between the
 # checkout and the app restarting, the repo is at the new version and this
 # process is still the old one. Resolved at configure time, and the build script
-# configures on every run, so it tracks. Empty when git is unavailable, which the
-# card renders as "unknown" rather than as a mismatch.
+# configures on every run, so it tracks. Empty when git is unavailable, which
+# counts as unknown rather than as a mismatch (AppUpdate::restartPending).
 set(FRONTEND_V2_BUILD_COMMIT "")
 find_package(Git QUIET)
 if(Git_FOUND)
@@ -255,6 +239,11 @@ if(Git_FOUND)
         ERROR_QUIET)
 endif()
 
+# Bake the source directory so dotenv can locate the repo-root .env even when
+# Qt Creator builds the exe outside the source tree (shadow build) — the cwd/exe
+# walk-up alone never reaches it. Used only to find .env; real environment
+# variables still take precedence, so this absolute dev path is harmless where
+# the directory does not exist.
 target_compile_definitions(appfrontend_v2 PRIVATE
     FRONTEND_V2_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 
@@ -274,11 +263,12 @@ target_link_libraries(appfrontend_v2
 )
 
 # Static resources (font + icons) exposed at :/resources/... — the same paths
-# the Widgets frontend used, so QML references qrc:/resources/icons/... and the
+# the Widgets frontend uses, so QML references qrc:/resources/icons/... and the
 # application font (main.cpp) loads identically. Kept out of the QML module so
 # the prefix stays /resources rather than /qt/qml/frontend_v2.
-# PROTOTYPE (prototype/weather-view): FMI's SmartSymbol icon set (MIT, see its LICENCE.md),
-# file names are the SmartSymbol values.
+#
+# FMI's SmartSymbol icon set (MIT, see its LICENCE.md); the file names are the
+# SmartSymbol values.
 file(GLOB SMARTSYMBOL_ICONS RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
     resources/icons/weather/smartsymbol/*.svg)
 qt_add_resources(appfrontend_v2 "smartsymbol_icons"
@@ -324,9 +314,6 @@ qt_add_resources(appfrontend_v2 "app_resources"
         resources/icons/trip.svg
         resources/icons/yellowshadow.png
         resources/icons/weather/clouds.svg
-        resources/icons/weather/rain.svg
-        resources/icons/weather/thermometer.svg
-        resources/icons/weather/wind.svg
         resources/Luna/stationary.png
         resources/Luna/eating_1.png
         resources/Luna/eating_2.png
@@ -362,7 +349,6 @@ if(Python3_FOUND)
 endif()
 
 install(TARGETS appfrontend_v2
-    BUNDLE DESTINATION .
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )

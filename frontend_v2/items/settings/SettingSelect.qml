@@ -1,5 +1,4 @@
 import QtQuick
-import QtQuick.Controls
 import frontend_v2
 
 // Enum editor. Reuses TripComboBox so the dark field/popup/delegate styling — and

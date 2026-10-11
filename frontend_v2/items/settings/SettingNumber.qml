@@ -7,9 +7,9 @@ import frontend_v2
 // A slider only works when the exact number does not matter — you are feeling for
 // a point on a range. Most numeric settings here are the opposite: a port, a
 // tariff in €/kWh, a poll interval in seconds are values you know and need to hit
-// exactly. Rendering those as sliders made them unusable (backendPort spans 65534
-// steps, so one pixel of a 320px track is ~205 ports). So sliders are now opt-in
-// via the schema's `editor: "slider"`, and this is what everything else gets.
+// exactly, and as sliders they are unusable (backendPort spans 65534 steps, so
+// one pixel of a 320px track is ~205 ports). So sliders are opt-in via the
+// schema's `editor: "slider"`, and this is what everything else gets.
 //
 // The field accepts typing for a big jump; the ± buttons (with hold-to-repeat)
 // handle nudging without a keyboard, which is what the 10" touch panel needs.
@@ -146,7 +146,6 @@ Item {
         anchors.fill: parent
         spacing: 6
 
-        // --- minus -------------------------------------------------------
         Rectangle {
             id: minusButton
             visible: control.hasSteppers
@@ -179,7 +178,6 @@ Item {
             }
         }
 
-        // --- value -------------------------------------------------------
         Rectangle {
             // Whatever is left after the two 40px buttons and the two gaps.
             width: control.hasSteppers
@@ -261,7 +259,6 @@ Item {
             }
         }
 
-        // --- plus --------------------------------------------------------
         Rectangle {
             id: plusButton
             visible: control.hasSteppers

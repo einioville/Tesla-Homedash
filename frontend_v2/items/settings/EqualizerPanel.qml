@@ -153,12 +153,9 @@ Item {
         return Math.max(minGain, Math.min(maxGain, Math.round(gain)))
     }
 
-    function formatGain(gain) {
-        if (gain > 0)
-            return "+" + gain + " dB"
-        if (gain < 0)
-            return "−" + (-gain) + " dB"
-        return "0 dB"
+    // A typographic minus, as the scale's labels have.
+    function signedGain(gain) {
+        return gain > 0 ? "+" + gain : gain < 0 ? "−" + (-gain) : "0"
     }
 
     // --- Geometry -----------------------------------------------------------
@@ -272,83 +269,39 @@ Item {
             width: parent.width
             height: 40
 
-            Row {
+            SettingDetails {
                 anchors.left: parent.left
                 anchors.right: resetButton.left
                 anchors.rightMargin: 12
                 anchors.verticalCenter: parent.verticalCenter
-                spacing: 8
-
-                readonly property string level: panel.eqState === "on" ? "ok"
-                                              : panel.eqState === "unavailable" ? "warn"
-                                              : panel.eqState === "failed" ? "error" : "unknown"
-
-                Rectangle {
-                    anchors.verticalCenter: parent.verticalCenter
-                    width: 8
-                    height: 8
-                    radius: 4
-                    color: parent.level === "ok" ? "#4ade80"
-                         : parent.level === "warn" ? "#ffb020"
-                         : parent.level === "error" ? "#f87171" : Theme.dataLabelTitle
-                }
-
-                Text {
-                    anchors.verticalCenter: parent.verticalCenter
-                    width: parent.width - 16
-                    elide: Text.ElideRight
-                    font.family: Theme.fontFamily
-                    font.pixelSize: 12
-                    color: parent.level === "warn" ? "#ffd48a"
-                         : parent.level === "error" ? "#f87171"
-                         : parent.level === "ok" ? Theme.dataLabelValue : Theme.dataLabelTitle
-                    text: {
-                        switch (panel.eqState) {
-                        case "on": return qsTr("Käytössä")
-                        case "off": return qsTr("Ei käytössä – kaikki säädöt ovat nollassa")
-                        case "unavailable": return qsTr("Ei saatavilla: vaatii PipeWire-äänijärjestelmän")
-                        case "failed": return qsTr("Ei käynnistynyt – säädä jotain kaistaa yrittääksesi uudelleen")
-                        default: return qsTr("Tarkistetaan…")
-                        }
+                topPadding: 0
+                level: panel.eqState === "on" ? "ok"
+                     : panel.eqState === "unavailable" ? "warn"
+                     : panel.eqState === "failed" ? "error" : "unknown"
+                statusText: {
+                    switch (panel.eqState) {
+                    case "on": return qsTr("Käytössä")
+                    case "off": return qsTr("Ei käytössä – kaikki säädöt ovat nollassa")
+                    case "unavailable": return qsTr("Ei saatavilla: vaatii PipeWire-äänijärjestelmän")
+                    case "failed": return qsTr("Ei käynnistynyt – säädä jotain kaistaa yrittääksesi uudelleen")
+                    default: return qsTr("Tarkistetaan…")
                     }
                 }
             }
 
-            // The settings' secondary button (SettingAction's look). No arming:
-            // like the graphs' Palauta, it only puts a view back.
-            Rectangle {
+            // No arming: like the graphs' Palauta, it only puts a view back.
+            DialogButton {
                 id: resetButton
                 anchors.right: parent.right
                 anchors.verticalCenter: parent.verticalCenter
-                width: Math.max(96, resetLabel.implicitWidth + 32)
-                height: 34
-                radius: 8
-                color: resetTap.pressed ? Theme.tripComboPressed : Theme.tripComboBg
-                border.width: 1
-                border.color: Theme.tripCardBorder
+                width: Math.max(96, implicitWidth)
+                label: qsTr("Nollaa")
                 opacity: panel.flat || !panel.available ? 0 : 1
                 visible: opacity > 0
+                onActivated: panel.reset()
 
                 Behavior on opacity {
                     NumberAnimation { duration: 150 }
-                }
-                Behavior on color {
-                    ColorAnimation { duration: Theme.pressDuration }
-                }
-
-                Text {
-                    id: resetLabel
-                    anchors.centerIn: parent
-                    text: qsTr("Nollaa")
-                    font.family: Theme.fontFamily
-                    font.pixelSize: 14
-                    color: Theme.dataLabelValue
-                }
-
-                MouseArea {
-                    id: resetTap
-                    anchors.fill: parent
-                    onClicked: panel.reset()
                 }
             }
         }
@@ -382,8 +335,7 @@ Item {
                         width: panel.gutter - 10
                         y: panel.yOf(parent.modelData) - height / 2
                         horizontalAlignment: Text.AlignRight
-                        text: parent.modelData > 0 ? "+" + parent.modelData
-                              : parent.modelData < 0 ? "−" + (-parent.modelData) : "0"
+                        text: panel.signedGain(parent.modelData)
                         font.family: Theme.fontFamily
                         font.pixelSize: 11
                         color: Theme.dataLabelTitle
@@ -561,7 +513,7 @@ Item {
                     Text {
                         width: parent.width
                         horizontalAlignment: Text.AlignHCenter
-                        text: panel.formatGain(panel.gains[parent.index] ?? 0)
+                        text: panel.signedGain(panel.gains[parent.index] ?? 0) + " dB"
                         font.family: Theme.fontFamily
                         font.pixelSize: 13
                         color: (panel.gains[parent.index] ?? 0) !== 0 ? Theme.accent : Theme.dataLabelTitle

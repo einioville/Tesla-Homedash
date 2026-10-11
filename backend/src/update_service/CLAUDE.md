@@ -55,9 +55,10 @@ Load-bearing details, most of them measured:
   code still faults in correctly afterwards. (`cp` and shell redirection DO fail with ETXTBSY,
   because they truncate; the linker is the exception.) A rename dance would only add a
   half-moved-binary failure mode.
-- **The artifact is verified before anything is told to restart**: exists, executable, newer than
-  the run, not implausibly smaller than before. A build killed mid-link can leave a truncated file,
-  and restarting a keyboard-less panel into a stub leaves no dashboard at all.
+- **The artifact is verified before anything is told to restart**: exists, executable, not
+  implausibly small (an absolute floor, below). Deliberately not a freshness check — a build with
+  nothing to relink legitimately leaves the same file. A build killed mid-link can leave a
+  truncated file, and restarting a keyboard-less panel into a stub leaves no dashboard at all.
 - **Anything that fails AFTER the checkout rolls the tree back** (`checkout --detach <previous>` +
   `uv sync --locked`). A new source tree beside an old virtualenv is the one genuinely
   unrecoverable state this feature can produce: the backend's unit re-syncs on every start, so the
@@ -86,10 +87,11 @@ Load-bearing details, most of them measured:
   tens of minutes on a Pi — a lazily-imported submodule of a replaced package failing in that
   window ends a process with no supervisor, and systemd would restart it mid-build, destroying
   the run's own rollback. Syncing last shrinks that window to seconds.
-- **The job is claimed synchronously.** `self.__job` is built in the handler before the task is
-  created, because `Server` dispatches every packet as its own task and `handle_apply` awaits
-  ~10 git queries before the run exists — two applies would otherwise both pass a guard that
-  only looked at `__job`. A refusal likewise **never overwrites a live job**: it replaces the
+- **The job is claimed synchronously.** `handle_apply` sets `__starting` before its first await,
+  because `Server` dispatches every packet as its own task and the validation awaits ~10 git
+  queries before the run exists — two applies would otherwise both pass a guard that only looked
+  at `__job`. `self.__job` is then built before the task is created, so one fence holds until the
+  other takes over. A refusal likewise **never overwrites a live job**: it replaces the
   whole document, which would erase the running progress, re-arm the restart button and hand the
   step loop an empty `steps` list to index.
 - **The run task closes the job out in a `finally`.** Every gate in the service reads

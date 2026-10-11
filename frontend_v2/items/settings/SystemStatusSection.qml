@@ -1,5 +1,6 @@
 import QtQuick
 import frontend_v2
+import "../../app/Format.js" as Format
 
 // Järjestelmän tila: an overview — is the system healthy, what is wrong, how
 // long it has been up — then the backend host's last ten minutes as graphs (CPU
@@ -57,15 +58,6 @@ Item {
                                     "#d55181", "#008300", "#9085e9", "#e66767"]
 
     readonly property var units: ["B", "kB", "MB", "GB", "TB"]
-
-    function fmtBytes(value) {
-        if (value === undefined || value === null || isNaN(value))
-            return "—"
-        let v = value
-        let i = 0
-        while (v >= 1024 && i < units.length - 1) { v /= 1024; ++i }
-        return (i === 0 ? v.toFixed(0) : v.toFixed(1)) + " " + units[i]
-    }
 
     function fmtPct(value) {
         return value.toFixed(0) + " %"
@@ -207,8 +199,8 @@ Item {
                         const used = section.column("memUsed")
                         if (used.length === 0)
                             return ""
-                        return section.fmtBytes(used[used.length - 1]) + " / "
-                               + section.fmtBytes(section.memTotal)
+                        return Format.bytes(used[used.length - 1]) + " / "
+                               + Format.bytes(section.memTotal)
                     }
                 }
 
@@ -232,7 +224,7 @@ Item {
                     // The graph is the disk's I/O; its space, which changes too slowly to
                     // graph, is the headline.
                     summary: section.disk.used_pct !== undefined && section.disk.used_pct !== null
-                             ? section.fmtBytes(section.disk.free_b) + " " + qsTr("vapaana")
+                             ? Format.bytes(section.disk.free_b) + " " + qsTr("vapaana")
                              : ""
                 }
 

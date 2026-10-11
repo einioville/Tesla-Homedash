@@ -1,8 +1,6 @@
 #include "appupdate.hh"
 
-#include <QJsonDocument>
 #include <QJsonObject>
-#include <QtEndian>
 
 #include "logger.hh"
 #include "protocol.hh"
@@ -10,39 +8,6 @@
 
 namespace {
 const Logger logger = Logger::get("app.update");
-
-// Reads a status(1B) + len(4B) + UTF-8 JSON body — the CONFIG_* / SPOTIFY_* /
-// SYSTEM_STATUS shape. Leaves *ok false on any truncation so a malformed frame
-// is refused rather than half-parsed.
-QJsonObject readStatusJson(const QByteArray &payload, quint8 *status, bool *ok) {
-    *ok = false;
-    if (payload.size() < 5) {
-        return {};
-    }
-    *status = static_cast<quint8>(payload.at(0));
-    const quint32 length = qFromBigEndian<quint32>(payload.constData() + 1);
-    if (static_cast<qint64>(payload.size()) < 5 + static_cast<qint64>(length)) {
-        return {};
-    }
-    QJsonParseError error{};
-    const QJsonDocument doc =
-        QJsonDocument::fromJson(payload.mid(5, static_cast<int>(length)), &error);
-    if (error.error != QJsonParseError::NoError || !doc.isObject()) {
-        return {};
-    }
-    *ok = true;
-    return doc.object();
-}
-
-// Frames a JSON request body as len(4B) + UTF-8, the CONFIG_SET payload shape.
-QByteArray jsonRequestBody(const QJsonObject &object) {
-    const QByteArray json = QJsonDocument(object).toJson(QJsonDocument::Compact);
-    QByteArray body;
-    body.resize(4);
-    qToBigEndian<quint32>(static_cast<quint32>(json.size()), body.data());
-    body.append(json);
-    return body;
-}
 }  // namespace
 
 AppUpdate::AppUpdate(QObject *parent) : QObject(parent) {}
@@ -104,8 +69,6 @@ void AppUpdate::setActive(bool active) {
     m_active = active;
     emit activeChanged();
     if (m_active) {
-        // Opening the card IS the check. The backend rate-limits the network
-        // half, so tapping between sections costs nothing beyond a local read.
         check(true);
     }
 }
@@ -118,7 +81,7 @@ void AppUpdate::check(bool fetch) {
     request.insert(QStringLiteral("fetch"), fetch);
     setChecking(true);
     m_server->sendPacket(
-        protocol::frame(protocol::UPDATE_GET_STATE, jsonRequestBody(request)));
+        protocol::frame(protocol::UPDATE_GET_STATE, protocol::jsonRequestBody(request)));
 }
 
 void AppUpdate::apply(const QString &channel, const QString &commit) {
@@ -130,7 +93,8 @@ void AppUpdate::apply(const QString &channel, const QString &commit) {
     request.insert(QStringLiteral("commit"), commit);
     logger.info(QStringLiteral("Requesting update to %1 (%2)")
                     .arg(commit.left(7), channel));
-    m_server->sendPacket(protocol::frame(protocol::UPDATE_APPLY, jsonRequestBody(request)));
+    m_server->sendPacket(
+        protocol::frame(protocol::UPDATE_APPLY, protocol::jsonRequestBody(request)));
 }
 
 void AppUpdate::cancel() {
@@ -153,19 +117,17 @@ void AppUpdate::onPacket(quint8 type, const QByteArray &payload) {
     if (type != protocol::UPDATE_STATE) {
         return;
     }
-    quint8 status = protocol::SPOTIFY_AUTH_ERROR;
-    bool ok = false;
-    const QJsonObject document = readStatusJson(payload, &status, &ok);
-    if (!ok) {
+    const auto reply = protocol::readJsonReply(payload);
+    if (!reply) {
         logger.warning(QStringLiteral("Malformed UPDATE_STATE"));
         return;
     }
-    if (status != protocol::CONFIG_STATUS_OK) {
+    if (reply->status != protocol::CONFIG_STATUS_OK) {
         logger.warning(QStringLiteral("Backend could not report the update state"));
         setChecking(false);
         return;
     }
-    applyDocument(document.toVariantMap());
+    applyDocument(reply->body.toVariantMap());
 }
 
 void AppUpdate::applyDocument(const QVariantMap &document) {
@@ -176,9 +138,7 @@ void AppUpdate::applyDocument(const QVariantMap &document) {
 
     // The backend has written a new binary and is about to restart itself; this
     // process is still running the file it replaced, and only a restart picks
-    // the new one up. Fenced because the job keeps being broadcast after this
-    // flag is set — the restart step's own progress lines arrive behind it — and
-    // re-emitting would fire the restart repeatedly.
+    // the new one up. Fenced by m_restartedForJobStart.
     const QVariantMap job = m_state.value(QStringLiteral("job")).toMap();
     if (job.isEmpty() || !job.value(QStringLiteral("restartFrontend")).toBool()) {
         return;

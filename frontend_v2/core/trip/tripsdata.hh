@@ -24,7 +24,8 @@ class ServerClient;
  * A TRIP_DETAIL reply echoes its trip id (== start_ms); a reply whose id no longer
  * matches the trip last requested is discarded, so quickly switching trips can't
  * draw a stale route. Parsing runs on the GUI thread (the bound properties are not
- * thread-safe); malformed/truncated frames are dropped.
+ * thread-safe). A frame that ends inside its header is dropped; one that ends
+ * inside its records keeps the records before the cut.
  */
 class TripsData : public QObject {
     Q_OBJECT
@@ -59,7 +60,6 @@ class TripsData : public QObject {
     Q_PROPERTY(double seriesMaxX READ seriesMaxX NOTIFY seriesChanged)
     Q_PROPERTY(double seriesMinY READ seriesMinY NOTIFY seriesChanged)
     Q_PROPERTY(double seriesMaxY READ seriesMaxY NOTIFY seriesChanged)
-    Q_PROPERTY(QString seriesPropertyId READ seriesPropertyId NOTIFY seriesChanged)
     Q_PROPERTY(bool seriesLoading READ seriesLoading NOTIFY seriesLoadingChanged)
 
 public:
@@ -85,7 +85,6 @@ public:
     double seriesMaxX() const { return m_seriesMaxX; }
     double seriesMinY() const { return m_seriesMinY; }
     double seriesMaxY() const { return m_seriesMaxY; }
-    QString seriesPropertyId() const { return m_seriesPropertyId; }
     bool seriesLoading() const { return m_seriesLoading; }
 
     // Ask the backend for the trips whose driving falls within [startMs, endMs]
@@ -187,7 +186,6 @@ private:
     double m_seriesMaxX = 0.0;
     double m_seriesMinY = 0.0;
     double m_seriesMaxY = 0.0;
-    QString m_seriesPropertyId;   // property id of the applied series (for the graph unit)
     qint64 m_seriesTripId = 0;
     qint64 m_seriesEndMs = 0;
     QString m_seriesReqPropertyId;   // property id last requested (stale-drop + retry)

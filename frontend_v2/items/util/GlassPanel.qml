@@ -2,13 +2,15 @@ import QtQuick
 import QtQuick.Effects
 import frontend_v2
 
-// Reusable "liquid glass" surface — used by the notification pill and the dock.
+// Reusable "liquid glass" surface — used by the notification pill, the dock, the
+// graph's inspect readout (HistoryGraph, without the frost) and the weather radar's
+// controls.
 // It captures the region of `backdropSource` directly behind itself, blurs and
 // rounds it, then overlays a dark translucent tint, a bright white rim and a
 // specular highlight so white content reads clearly. The chrome below is declared
 // first, so any children a consumer adds are painted on top of it — no content
 // alias (a `default property alias` here would reparent this item's OWN chrome
-// into the slot, the GradientCard pitfall).
+// into the slot).
 //
 // The capture needs this panel's top-left in `backdropSource`'s coordinates;
 // since the dashboard backdrop fills the window at (0,0), that is just the
@@ -34,7 +36,6 @@ Item {
     // MultiEffect's brightness is added to every channel, so the default darkening turns an
     // already dark backdrop (the weather radar) black; such a panel passes its own.
     property real frostBrightness: Theme.notificationFrostBrightness
-    property real frostSaturation: Theme.notificationFrostSaturation
 
     readonly property bool frostActive: frostedBackdrop && backdropSource !== null
 
@@ -68,7 +69,7 @@ Item {
         blur: 1.0
         blurMax: 64
         brightness: panel.frostBrightness
-        saturation: panel.frostSaturation
+        saturation: Theme.notificationFrostSaturation
         maskEnabled: true
         maskSource: frostMask
     }
@@ -107,6 +108,4 @@ Item {
             GradientStop { position: 1.0; color: "transparent" }
         }
     }
-
-    // Consumer content (declared after this item's chrome) is painted on top.
 }

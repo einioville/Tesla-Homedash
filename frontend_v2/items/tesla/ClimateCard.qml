@@ -57,12 +57,9 @@ GradientCard {
         }
 
         // Reserves the central band (rows 1-2, cols 1-3) for the HVAC power
-        // button. The button itself is centred on the whole card below (see
-        // ClimateStarter), not placed in this cell, so its horizontal position
-        // no longer depends on the grid's asymmetric column widths (col 0
-        // carries the SteeringWidget; col 4 is empty). Keeping this cell with
-        // the original size hints preserves the band's geometry and avoids
-        // colliding with the SteeringWidget at row 2 / col 0.
+        // button, which is centred on the whole card below (ClimateStarter)
+        // rather than placed in this cell. The cell's size hints hold the band's
+        // geometry and keep it clear of the SteeringWidget at row 2 / col 0.
         Item {
             id: starterCell
             Layout.row: 1; Layout.column: 1; Layout.rowSpan: 2; Layout.columnSpan: 3
@@ -108,8 +105,6 @@ GradientCard {
                     source: "qrc:/resources/icons/arrow_left.svg"
                     glow: Theme.glowMinus
                 }
-                // Held, it keeps stepping, and stops at the backend's 15.0 °C
-                // floor rather than sending presses it would only log and drop.
                 HoldRepeatArea {
                     anchors.fill: parent
                     interval: 150
@@ -164,8 +159,8 @@ GradientCard {
     // while col 4 is empty, so an AlignCenter there drifts the button sideways.
     // horizontalCenter pins it to the true card centre (directly under the
     // "Ilmastointi" label) at any width; the vertical position is read straight
-    // from the reserved starterCell band, so it matches the old placement and
-    // stays put on resize with no magic offset.
+    // from the reserved starterCell band, so it stays put on resize with no
+    // magic offset.
     ClimateStarter {
         id: starter
         z: 1

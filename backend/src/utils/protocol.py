@@ -1,17 +1,15 @@
 '''
-Shared binary protocol constants used by the TCP server and the media layer.
-Keeping these in a single module prevents silent divergence between the
-backend's outgoing byte values and the ones the frontend expects.  All
-values are single bytes unless noted otherwise.  See CLAUDE.md
-"Binary Protocol Reference" for the authoritative specification.
+The binary protocol's constants and framing helpers — the single source of
+truth for the backend; frontend_v2/core/protocol.hh mirrors it.  All values
+are single bytes unless noted otherwise.  The message table is in
+utils/CLAUDE.md.
 '''
 
+import json
 import struct
 
 
 # Frontend-to-backend and backend-to-frontend Tesla-data framing
-MSG_JSON = 0x01
-MSG_LIST = 0x02
 MSG_TERMINATE = 0x03
 MSG_STREAM = 0x04
 
@@ -69,6 +67,14 @@ TESLA_GET_GRAPH_PROPERTIES = 0x70  # F->B: request the graphable-property list (
 TESLA_GRAPH_PROPERTIES = 0x71      # B->F: count(2B) + per property id/unit/category/line_mode (each len(2B)+UTF-8) + zero_based(1B); line_mode = "step"|"linear" graph render hint, zero_based = pin the y-axis bottom to 0
 TESLA_GET_HISTORY = 0x72           # F->B: range_code(1B) + id(len(2B)+UTF-8) + start_ms(8B) + end_ms(8B)
 TESLA_HISTORY = 0x73               # B->F: id(len(2B)+UTF-8) + status(1B) + count(4B) + count*(ts_ms(8B)+value(8B double))
+
+# range_code values of TESLA_GET_HISTORY / CHARGER_GET_HISTORY. A custom range uses
+# the request's start_ms/end_ms; the presets end at "now".
+HISTORY_RANGE_1H = 0
+HISTORY_RANGE_1D = 1
+HISTORY_RANGE_1M = 2
+HISTORY_RANGE_CUSTOM = 3
+HISTORY_RANGE_1W = 4
 
 # Trip request/response (the Trips view, issue #6). Contiguous with the History
 # codes above and, like them, a request/response pair: the backend replies to the
@@ -174,8 +180,8 @@ CHARGING_MONTH = 0x85      # B->F: status(1B) + 13*double(8B): charger_kwh, car_
 
 # Charger (myenergi) telemetry history — the Charging view's past-hour power graphs.
 # Request/response, replied to the requesting client only. Same shape as TESLA_HISTORY,
-# but read from the "myenergi_data" measurement (GridPower / ChargePower), which is now
-# logged every poll so the series is gap-free.
+# but read from the "myenergi_data" measurement (GridPower / ChargePower), which is
+# logged every poll, so the series is gap-free.
 CHARGER_GET_HISTORY = 0x86  # F->B: range_code(1B) + id(len(2B)+UTF-8) + start_ms(8B) + end_ms(8B)
 CHARGER_HISTORY = 0x87      # B->F: id(len(2B)+UTF-8) + status(1B) + count(4B) + count*(ts_ms(8B)+value(8B double))
 
@@ -198,22 +204,23 @@ SPOT_PRICE_STREAM = 0x88    # B->F: status(1B) + hour_start_ms(8B) + spot_eur_pe
 # rather than a packed layout: the schema is variable-shaped and these packets are
 # rare (a settings screen, not a stream), so self-describing beats compact here.
 #
-# CONFIG_SCHEMA's JSON is {"groups": [{"id", "label", "settings": [...]}]} where each
-# setting carries key/type/label/default/value plus per-type bounds (min/max/step,
-# options) and an "apply" tier — see config_service.SETTINGS_SCHEMA. Keys are dotted
-# paths into config.json ("myenergi.pollIntervalSeconds").
+# CONFIG_SCHEMA's JSON is {"path", "startedAt", "groups": [{"id", "label", "icon",
+# "sections": [{"id", "label", "settings": [...]}]}]} where each setting carries
+# key/type/label/default/value plus per-type bounds (min/max/step, options) and an
+# "apply" tier — see config_service.SETTINGS_SCHEMA. Keys are dotted paths into
+# config.json ("myenergi.pollIntervalSeconds").
 #
-# The "apply" tier tells the frontend what a write actually did:
-#   live    — services read the value on demand; the in-memory Config mutation is enough
-#   hook    — a service hook ran (rescheduled a poll job, forced a refresh)
-#   restart — written to config.json, but only picked up on the next process start
+# CONFIG_SET_RESULT's "applied" tells the frontend what a write actually did:
+#   hook      — a service hook ran (rescheduled a poll job, forced a refresh)
+#   restart   — written to config.json, but only picked up on the next process start
+#   unchanged — the value already matched; nothing was written
 CONFIG_GET_SCHEMA = 0x90    # F->B: (empty) — request the editable-settings schema + values
 CONFIG_SCHEMA = 0x91        # B->F: status(1B) + len(4B) + UTF-8 JSON
 CONFIG_SET = 0x92           # F->B: len(4B) + UTF-8 JSON {"key": <dotted>, "value": <json>}
 CONFIG_SET_RESULT = 0x93    # B->F: status(1B) + len(4B) + UTF-8 JSON
-                            #       {"key", "value", "applied": live|hook|restart, "message"}
-CONFIG_RESTART = 0x94       # F->B: (empty) — exit the process so systemd restarts it
-                            #       (needs Restart=always in the unit; see README)
+                            #       {"key", "value", "applied": hook|restart|unchanged, "message"}
+CONFIG_RESTART = 0x94       # F->B: (empty) — exit with code 42 so systemd's
+                            #       Restart=on-failure brings the process back (README)
 HOST_REBOOT = 0x95          # F->B: (empty) — reboot the whole host (issue #40). Nothing
                             #       is replied when it starts; a refusal (a veto, or no
                             #       privilege on the host) comes back as CONFIG_SET_RESULT
@@ -225,11 +232,8 @@ CONFIG_STATUS_OK = 1
 
 # ── Spotify re-authorisation (the Options view's "refresh token" action) ────
 # Request/response like CONFIG_*: the backend replies to the requesting client
-# only. The frontend never holds the client secret — it only shows the page the
-# backend hands it and posts back the authorisation code it intercepted.
-# Only the short-lived AUTHORIZATION CODE ever crosses the wire — never a token.
-# The code is useless without SPOTIFY_CLIENT_SECRET, which stays in the backend's
-# .env, and Spotify invalidates it on first use (and after ~10 minutes).
+# only. The frontend only starts a flow and hears how it ended: the client secret,
+# the authorization code and every token stay in the backend.
 #
 # The backend opens the authorize URL in the host's real browser and catches the
 # redirect on its own loopback listener at the redirect URI's host/port, so the
@@ -245,9 +249,8 @@ SPOTIFY_AUTH_GET_URL = 0xA1   # F->B: (empty) — start a flow, replacing any pe
 SPOTIFY_AUTH_URL = 0xA2       # B->F: status(1B) + len(4B) + UTF-8 JSON
                               #   ok:    {"url", "redirectUri", "state"}
                               #   error: {"message"}
-# 0xA3 is retired. It carried the redirect URL back from the embedded WebView;
-# the consent page now opens in the host's real browser and the backend catches
-# the redirect on its own loopback listener, so nothing produces one.
+# 0xA3 is retired: the backend catches the redirect on its own loopback listener,
+# so nothing sends one.
 SPOTIFY_AUTH_RESULT = 0xA4    # B->F: status(1B) + len(4B) + UTF-8 JSON, requester only
                               #   {"ok", "message", "scope", "expiresAt"}
 
@@ -263,8 +266,7 @@ SPOTIFY_AUTH_OK = 1
 #
 # The problem this solves: spotifyDeviceId decides which Spotify Connect device
 # this backend claims playback from, and a wrong value makes every transport
-# control silently do nothing. Until now the only fix was SSHing in and running
-# media_service/setup/spotify_setup.py. The scan asks the user to start playing
+# control silently do nothing. The scan asks the user to start playing
 # on the device they want, polls Spotify for what is playing anywhere, and shows
 # the device + track so the choice can be confirmed before it is written.
 #
@@ -333,9 +335,9 @@ DISPLAY_POWER_STATE = 0xC1    # B->F: available(1B) + on(1B) + fault(1B) — ava
 # DISPLAY_POWER_STATE fault codes: why the panel is not doing what was asked.
 DISPLAY_FAULT_NONE = 0
 DISPLAY_FAULT_REFUSED = 1      # wlopm exited non-zero (a VNC server holding the output)
-DISPLAY_FAULT_OUTPUT_LOST = 2  # wlopm --on "worked" but the output is gone or still off
-                               # (the labwc 0.20 / wlroots 0.20 wedge); sticky, and
-                               # power-off is refused until the backend restarts
+DISPLAY_FAULT_OUTPUT_LOST = 2  # wlopm --on exited 0 but the output is gone from the
+                               # compositor (the labwc 0.20 / wlroots 0.20 wedge); sticky,
+                               # and power-off is refused until the backend restarts
 
 # ── App update (the Options view's "Päivitys" card) ─────────────────────────
 # Updates the checkout this backend and the dashboard are running FROM, in place:
@@ -397,3 +399,61 @@ def frame(msg_type: int, payload: bytes = b"") -> bytes:
     '''
     body = bytes((msg_type,)) + payload
     return struct.pack("!I", len(body)) + body
+
+
+def json_frame(msg_type: int, status: int, document, compact: bool = False) -> bytes:
+    '''
+    Frames status(1B) + len(4B) + UTF-8 JSON, the reply shape of every
+    JSON-bodied code (CONFIG_*, SPOTIFY_*, SYSTEM_*, UPDATE_STATE, ...).
+    Non-ASCII text goes out as raw UTF-8, never \\u-escaped.  Raises
+    TypeError/ValueError when the document is not JSON-serializable.
+    Arguments:
+        msg_type (int): Single-byte message type from the constants above.
+        status (int): The leading status byte (CONFIG_STATUS_* and friends).
+        document: Any JSON-serializable value, normally a dict.
+        compact (bool): Drop the separator spaces, for a document sent often.
+    '''
+    separators = (",", ":") if compact else None
+    body = json.dumps(document, ensure_ascii=False, separators=separators).encode("utf-8")
+    return frame(msg_type, bytes((status,)) + struct.pack("!I", len(body)) + body)
+
+
+def request_epoch(request: dict, key: str) -> int:
+    '''
+    Reads the flow epoch a request carries (the scan's scanId, the USB import's
+    flowId).  Anything missing or malformed reads as 0 — the epoch is a fence
+    against late packets, not a credential, and a frame that cannot carry one
+    must not crash a handler.  (bool is a subclass of int, so it is rejected
+    explicitly.)
+    Arguments:
+        request (dict): The parsed request document.
+        key (str): The epoch's field name.
+    '''
+    value = request.get(key)
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        return 0
+    return value
+
+
+def parse_json_body(payload: bytes) -> dict:
+    '''
+    Unpacks a len(4B) + UTF-8 JSON object request body.  Bytes past the
+    declared length are ignored.  Raises ValueError with a Finnish message the
+    Options view shows verbatim: "Vaillinainen pyyntö" (truncated),
+    "Virheellinen JSON" (undecodable) or "Virheellinen pyyntö" (not an object).
+    Arguments:
+        payload (bytes): The raw payload after the message-type byte.
+    '''
+    if len(payload) < 4:
+        raise ValueError("Vaillinainen pyyntö")
+    (length,) = struct.unpack("!I", payload[:4])
+    body = payload[4:4 + length]
+    if len(body) != length:
+        raise ValueError("Vaillinainen pyyntö")
+    try:
+        request = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as e:
+        raise ValueError("Virheellinen JSON") from e
+    if not isinstance(request, dict):
+        raise ValueError("Virheellinen pyyntö")
+    return request

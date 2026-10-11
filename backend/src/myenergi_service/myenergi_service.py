@@ -1,6 +1,7 @@
 '''
 MyEnergiService — polls a myenergi Zappi charger, streams its live state to the
-frontends, and logs the session-energy accumulator to InfluxDB.
+frontends, and logs grid power, charge power and the session-energy accumulator to
+InfluxDB.
 
 Structurally this mirrors WeatherService: run() performs an initial poll then schedules
 a periodic one on APScheduler and returns; the ongoing work lives in the job, whose
@@ -10,8 +11,8 @@ stream_everything so its charger UI populates immediately.
 
 One cadence (config-driven), whether or not the car is charging: session energy comes
 from the Zappi's own accumulator, so polling faster during a session would only refresh
-the live display sooner. All myenergi cloud access is through pymyenergi; all InfluxDB access is through the
-injected InfluxDBHandler.
+the live display sooner. All myenergi cloud access is through pymyenergi; all InfluxDB
+access is through the injected InfluxDBHandler.
 '''
 import asyncio
 import json
@@ -55,10 +56,11 @@ _MODE_MAP = {
     "Stopped": protocol.CHARGER_MODE_STOPPED,
 }
 
-# InfluxDB ids the charger logs under the "myenergi_data" measurement. ChargeAdded is
-# the one the loss calc requires (charging_service reads it back by this exact id);
-# ChargePower is logged for a charger history graph; GridPower is the household grid
-# exchange logged alongside them.
+# InfluxDB ids the charger logs under the "myenergi_data" measurement, read back by
+# these exact ids: ChargeAdded by the charging-session loss calc (charging_service),
+# GridPower (the household grid exchange) by the home-consumption integral
+# (InfluxDBHandler.read_grid_import_kwh_hourly), and both powers by the Charging
+# view's graphs.
 _CHARGE_ADDED_ID = "ChargeAdded"
 _CHARGE_POWER_ID = "ChargePower"
 _GRID_POWER_ID = "GridPower"
@@ -167,11 +169,11 @@ class MyEnergiService:
 
     def health(self) -> dict:
         '''
-        Reports charger-poll health.  Needs no new state: the consecutive-failure
-        count already drives the backoff, and the interval in force is already
-        tracked for the same reason.  The session-detection settings that share
-        the `myenergi` block are the Charging view's, added to the same card by
-        start_services, which builds it whether or not this service exists.
+        Reports charger-poll health from the state the backoff already keeps
+        (the consecutive-failure count and the interval in force).  The
+        session-detection settings that share the `myenergi` block are the
+        Charging view's, added to the same card by start_services, which builds
+        it whether or not this service exists.
         '''
         if self.__consecutive_failures >= 3:
             state = "error"
@@ -235,10 +237,10 @@ class MyEnergiService:
 
     async def __poll(self) -> None:
         '''
-        One poll cycle: refresh the Zappi, broadcast its live state, log the session
-        energy while charging, and adjust the poll cadence. Every failure is caught and
-        logged — a poll must never propagate (APScheduler would otherwise mark the job
-        errored) and must never break the live broadcast.
+        One poll cycle: refresh the Zappi, broadcast its live state, log its readings,
+        and adjust the poll cadence. Every failure is caught and logged — a poll must
+        never propagate (APScheduler would otherwise mark the job errored) and must
+        never break the live broadcast.
         '''
         if not await self.__ensure_zappi():
             return
@@ -321,12 +323,10 @@ class MyEnergiService:
         '''
         when = datetime.now(timezone.utc)
         serial = str(getattr(self.__zappi, "serial_number", "") or self.__zappi_serial or "")
-        # GridPower + ChargePower every poll (gap-free for the graphs / home integral).
         points = [
             self.__point(serial, _GRID_POWER_ID, float(grid_power or 0.0), when),
             self.__point(serial, _CHARGE_POWER_ID, float(power or 0.0), when),
         ]
-        # ChargeAdded (accumulator) only while a session is active.
         if charge_added is not None:
             is_charging = _STATUS_MAP.get(status) == protocol.CHARGER_STATUS_CHARGING
             if is_charging or charge_added > 0:
@@ -360,7 +360,8 @@ class MyEnergiService:
         state that __apply_interval folds in.
 
         zappiSerial is deliberately NOT re-read: the Zappi is resolved once when
-        the service connects, so changing it is a restart-tier setting.
+        the service connects, so a change to that config.json-only key takes a
+        restart.
         '''
         interval = int(self.__config.myenergi_config["pollIntervalSeconds"])
         if interval == self.__interval:
@@ -373,12 +374,10 @@ class MyEnergiService:
         '''
         Sets the poll cadence to the desired interval by rescheduling the job, a no-op
         when it already matches. The base cadence is the configured interval; consecutive
-        failures stretch it by a capped
-        exponential backoff (2**failures, bounded by _BACKOFF_MAX_INTERVAL_S) so a
-        sustained cloud throttle (429) or outage is not hammered — and because each failure
-        also forces pymyenergi to re-query the director next poll, backing off is what
-        actually lets a throttle clear. The first successful poll resets the failure count,
-        snapping the cadence straight back to the configured interval.
+        failures stretch it by a capped exponential backoff (2**failures, bounded by
+        _BACKOFF_FACTOR_CAP and _BACKOFF_MAX_INTERVAL_S; why is at those constants). The
+        first successful poll resets the failure count, snapping the cadence straight back
+        to the configured interval.
         '''
         base = self.__interval
         if self.__consecutive_failures:

@@ -1,12 +1,11 @@
 import QtQuick
 import QtQuick.Layouts
-import QtQuick.Controls
 import frontend_v2
 
-// Time-range picker: 1h / 1d / 1vk / 1kk presets plus a custom range that reveals
-// two date+time pickers, and a Live toggle. Emits rangeChanged(code, startMs, endMs)
-// (preset ms bounds are 0, ignored by the backend) and liveToggled(on). Live is
-// forced off for the custom range.
+// Time-range picker: 1h / 1pv / 1vk / 1kk presets plus a custom range (Oma) that
+// reveals two date+time pickers, and a Live toggle. Emits rangeChanged(code, startMs,
+// endMs) (preset ms bounds are 0, ignored by the backend) and liveToggled(on). Live
+// is forced off for the custom range.
 RowLayout {
     id: root
     spacing: 8

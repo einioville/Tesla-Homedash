@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Layouts
 import frontend_v2
+import "../../app/Format.js" as Format
 
 // Compact live charger status strip for the Charging view: current state + session
 // energy + live charge/grid power, from the CHARGER_STREAM broadcast. Minimalistic
@@ -9,7 +10,6 @@ import frontend_v2
 Item {
     id: root
 
-    function has(v) { return v !== undefined && v !== null && !isNaN(v) }
     function statusText(s) {
         switch (s) {
             case 2: return qsTr("Lataa")
@@ -18,10 +18,10 @@ Item {
             default: return "—"
         }
     }
-    function power(w) { return has(w) ? Math.round(w) + " W" : "—" }
-    function energy(kwh) { return has(kwh) ? kwh.toFixed(2) + " kWh" : "—" }
+    function power(w) { return Format.has(w) ? Math.round(w) + " W" : "—" }
+    function energy(kwh) { return Format.has(kwh) ? kwh.toFixed(2) + " kWh" : "—" }
     // All-in €/kWh -> c/kWh; "—" until a live spot price arrives (or when disabled).
-    function price(eur) { return (Charging.hasSpotPrice && has(eur)) ? (eur * 100).toFixed(2) + " c/kWh" : "—" }
+    function price(eur) { return (Charging.hasSpotPrice && Format.has(eur)) ? (eur * 100).toFixed(2) + " c/kWh" : "—" }
 
     // One title-over-value stat in the row.
     component LiveStat: Column {

@@ -24,8 +24,8 @@ ComboBox {
 
     font.family: Theme.fontFamily
     font.pixelSize: 16
-    // Tall enough for two lines: the trip/week labels are long and were being cut off,
-    // so both the field and the popup rows wrap onto a second line.
+    // Tall enough for two lines: the trip/week labels are long, so both the field and
+    // the popup rows wrap onto a second line.
     implicitHeight: 52
 
     background: Rectangle {
@@ -39,7 +39,7 @@ ComboBox {
         leftPadding: 12
         // The control's Basic-style rightPadding already reserves the indicator's width
         // (the template places the contentItem inside it), so pad only the 12px gap —
-        // adding indicator.width here too double-counted it and cut the collapsed
+        // adding indicator.width here too would double-count it and cut the collapsed
         // label off ~30px early.
         rightPadding: 12
         text: control.displayText
@@ -61,17 +61,17 @@ ComboBox {
         id: entryDelegate
         width: ListView.view ? ListView.view.width : control.width
         height: 52
-        // The Basic style's default padding (12) left the row text only 28px of height —
-        // one line — so elide+wrap cut the label instead of wrapping it (issue #19). Zero
+        // The Basic style's default padding (12) leaves the row text only 28px of height —
+        // one line — so elide+wrap cuts the label instead of wrapping it (issue #19). Zero
         // padding hands the Text the full 52px, enough for two lines.
         padding: 0
         required property int index
         required property var modelData
-        // Hover / keyboard highlight (NOT the white default) — this is the fix.
+        // Hover / keyboard highlight in a muted theme colour, NOT the white default.
         highlighted: control.highlightedIndex === index
         // Always-opaque, always-present background: hovering only recolours an existing
-        // node. Toggling transparent<->opaque added/removed a node, and that re-batch is
-        // what flipped map tiles white underneath (issue #9, QTBUG-67169).
+        // node. Toggling transparent<->opaque adds/removes a node, and that re-batch
+        // flips map tiles white underneath (issue #9, QTBUG-67169).
         background: Rectangle {
             radius: 6
             color: entryDelegate.highlighted ? Theme.tripComboHover : Theme.tripComboRowBg

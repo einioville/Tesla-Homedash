@@ -7,11 +7,11 @@
  * dotenv — shared access to the repo-root `.env` the frontend borrows from the
  * backend, with real environment variables taking precedence.
  *
- * Extracted from AppConfig because Settings needs the same lookup: a local
- * setting may declare an `"env"` key in its schema, making the environment
- * supply that setting's DEFAULT (so an existing deployment's .env keeps working
- * until the user overrides it in the Options view). Both readers must agree on
- * where .env is and how it parses, so the logic lives in one place.
+ * Shared by AppConfig and Settings: a local setting may declare an `"env"` key
+ * in its schema, making the environment supply that setting's DEFAULT (so an
+ * existing deployment's .env keeps working until the user overrides it in the
+ * Options view). Both readers must agree on where .env is and how it parses, so
+ * the logic lives in one place.
  *
  * The file is located and parsed lazily on first use and cached for the process
  * lifetime — it is read at startup and never changes underneath a running app.

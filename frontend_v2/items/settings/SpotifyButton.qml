@@ -7,10 +7,10 @@ import frontend_v2
 // scale rather than only changing colour, and on a touch panel the dip is the
 // clearer of the two signals because a fingertip covers the colour.
 //
-// Deliberately NOT a restyle of DialogButton.qml. That one belongs to the
-// re-authorization dialog, which sits over the dashboard rather than over this
-// Spotify-branded card, and quietly restyling a screen nobody asked about is how
-// two dialogs end up drifting for reasons no one can reconstruct later.
+// Deliberately NOT a restyle of DialogButton.qml. That one is shared by every
+// other dialog — the re-authorization prompts over the dashboard among them —
+// none of which sits on this Spotify-branded card, and restyling it here would
+// change all of them.
 Rectangle {
     id: control
 

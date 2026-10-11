@@ -12,10 +12,8 @@ class Settings;
 /**
  * AppConfig — minimal runtime configuration read at construction from the
  * environment, falling back to the repo-root .env (the same file the backend
- * uses; located by walking up from the working/executable directory). Real
- * environment variables take precedence over .env. The env-var names mirror the
- * production frontend so existing deployments carry over. Also the single place
- * that reads frontend configuration.
+ * uses; located by dotenv). Real environment variables take precedence over
+ * .env.
  *
  *   TESLA_HOMEDASH_BACKEND_HOST  (string)  default "127.0.0.1"
  *   TESLA_HOMEDASH_BACKEND_PORT  (uint16)  default 6969
@@ -33,17 +31,18 @@ class Settings;
  *                                .env only, never the committed QML or the Options
  *                                view.
  *   TESLA_HOMEDASH_SCREENSAVER_TIMEOUT_MIN (int)     minutes of inactivity before
- *                                the screensaver appears (default 30). Read by
- *                                main() and pushed to the IdleWatcher. Also an
+ *                                the screensaver appears (default 30). main()
+ *                                seeds the IdleWatcher with it. Also an
  *                                Options-view setting, which takes precedence.
  *
  * Registered with the QML engine as the singleton `App` (see main.cpp), which
- * is how items/tesla/TeslaMap.qml reads mapTilesUrl / mapAttribution.
+ * is how items/tesla/TeslaMap.qml and items/trip/TripMap.qml read mapTilesUrl /
+ * mapAttribution.
  */
 class AppConfig : public QObject {
     Q_OBJECT
-    // The basemap tile URL + on-screen attribution for the Map's custom tile
-    // host. Both are decided once at construction (CONSTANT — no NOTIFY needed).
+    // The basemap tile URL + on-screen attribution for the maps' custom tile
+    // host. Both are decided once at construction.
     Q_PROPERTY(QString mapTilesUrl READ mapTilesUrl CONSTANT)
     Q_PROPERTY(QString mapAttribution READ mapAttribution CONSTANT)
 

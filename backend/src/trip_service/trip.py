@@ -9,78 +9,29 @@ computes the per-trip metrics on demand, caching the result.
 '''
 import logging
 import math
-from datetime import datetime, timezone
+
+from ..influxdb_service.influxdb_handler import to_flux_time
+from ..influxdb_service.series import delta, first, last, series_values
 
 logger = logging.getLogger("trip_service.trip")
 
 
-def to_flux_time(timestamp_ms: int) -> str:
-    '''
-    Converts an epoch-ms instant to the RFC3339 string Flux expects, matching the
-    idiom the History path uses (datetime.fromtimestamp(...).isoformat() with the
-    "+00:00" suffix normalised to "Z"). InfluxDBHandler reads take Flux range
-    strings, not raw ms.
-    Arguments:
-        timestamp_ms (int): Milliseconds since the Unix epoch (UTC).
-    '''
-    return (
-        datetime.fromtimestamp(timestamp_ms / 1000, tz=timezone.utc)
-        .isoformat()
-        .replace("+00:00", "Z")
-    )
-
-
-def _series_values(result):
-    '''
-    Extracts the values array from a read_tesla_data_property result tuple
-    (count, timestamps_ms, values), or None if the result is empty/missing.
-    Arguments:
-        result (tuple | None): The (count, timestamps, values) triple or None.
-    '''
-    if result is None:
-        return None
-    count, _timestamps, values = result
-    if count == 0 or len(values) == 0:
-        return None
-    return values
-
-
-def _delta(result) -> float:
-    '''Last minus first value of a series (e.g. odometer/energy delta), or NaN.'''
-    values = _series_values(result)
-    if values is None:
-        return float("nan")
-    return float(values[-1] - values[0])
-
-
 def _delta_scaled(result, scale: float) -> float:
-    '''_delta multiplied by a scale factor (e.g. kWh -> Wh), preserving NaN.'''
-    delta = _delta(result)
-    return delta * scale if not math.isnan(delta) else float("nan")
+    '''delta() multiplied by a scale factor (e.g. kWh -> Wh), preserving NaN.'''
+    value = delta(result)
+    return value * scale if not math.isnan(value) else float("nan")
 
 
 def _mean(result) -> float:
     '''Mean of a series, or NaN if empty/missing.'''
-    values = _series_values(result)
+    values = series_values(result)
     return float(values.mean()) if values is not None else float("nan")
 
 
 def _max(result) -> float:
     '''Maximum of a series, or NaN if empty/missing.'''
-    values = _series_values(result)
+    values = series_values(result)
     return float(values.max()) if values is not None else float("nan")
-
-
-def _first(result) -> float:
-    '''First value of a series, or NaN if empty/missing.'''
-    values = _series_values(result)
-    return float(values[0]) if values is not None else float("nan")
-
-
-def _last(result) -> float:
-    '''Last value of a series, or NaN if empty/missing.'''
-    values = _series_values(result)
-    return float(values[-1]) if values is not None else float("nan")
 
 
 class Trip:
@@ -108,11 +59,6 @@ class Trip:
         self.__distance_km: float | None = None
 
     @property
-    def trip_id(self) -> int:
-        '''Stable natural key for the trip (== start_ms).'''
-        return self.__start_ms
-
-    @property
     def start_ms(self) -> int:
         return self.__start_ms
 
@@ -120,16 +66,11 @@ class Trip:
     def end_ms(self) -> int:
         return self.__end_ms
 
-    @property
-    def in_progress(self) -> bool:
-        return self.__in_progress
-
     def seed_distance_km(self, value: float) -> None:
         '''
         Seeds the cached distance from a value computed elsewhere (TripLoader reads the
         whole span's Odometer once and computes each window's delta in-memory), so
-        distance_km()/summary() don't re-read Odometer per trip. Idempotent-safe: a
-        later distance_km() returns this without a query.
+        distance_km()/summary() don't re-read Odometer per trip.
         Arguments:
             value (float): The trip's distance in km (may be NaN on a data gap).
         '''
@@ -140,16 +81,15 @@ class Trip:
         Computes (and caches) just the trip's distance in km: the Odometer delta over
         the window (Odometer is stored already converted to km). Split out from
         summary() so the trip-list path — which only needs the distance for its
-        sub-threshold filter and the TRIP_LIST record — can avoid the six other
-        InfluxDB reads summary() performs (7 sequential reads per candidate window is
-        slow for a busy week). summary() reuses this value. NaN on a data gap.
+        sub-threshold filter and the TRIP_LIST record — skips the other InfluxDB reads
+        summary() performs. summary() reuses this value. NaN on a data gap.
         '''
         if self.__distance_km is not None:
             return self.__distance_km
         start_iso = to_flux_time(self.__start_ms)
         end_iso = to_flux_time(self.__end_ms)
         odometer = await self.__influx.read_tesla_data_property("Odometer", start_iso, end_iso)
-        self.__distance_km = _delta(odometer)
+        self.__distance_km = delta(odometer)
         return self.__distance_km
 
     async def summary(self) -> dict:
@@ -166,8 +106,6 @@ class Trip:
         start_iso = to_flux_time(self.__start_ms)
         end_iso = to_flux_time(self.__end_ms)
 
-        # Distance comes from the shared distance_km() (Odometer delta), so the list
-        # path and summary don't each re-read Odometer.
         distance_km = await self.distance_km()
 
         # During a trip the car is active, so these logged fields have records inside
@@ -177,18 +115,9 @@ class Trip:
             "LifetimeEnergyUsed", start_iso, end_iso
         )
         battery = await self.__influx.read_tesla_data_property("BatteryLevel", start_iso, end_iso)
-        # Optional regen field — only present once LifetimeEnergyGainedRegen is added
-        # to config (an enhancement); until then this reads None -> NaN.
-        regen = await self.__influx.read_tesla_data_property(
-            "LifetimeEnergyGainedRegen", start_iso, end_iso
-        )
-
-        start_point = await self.__influx.read_location_endpoint(start_iso, end_iso, last=False)
-        end_point = await self.__influx.read_location_endpoint(start_iso, end_iso, last=True)
 
         duration_s = (self.__end_ms - self.__start_ms) / 1000.0
         energy_wh = _delta_scaled(energy_used, 1000.0)
-        regen_wh = _delta_scaled(regen, 1000.0)
         wh_per_km = (
             energy_wh / distance_km
             if (not math.isnan(energy_wh) and not math.isnan(distance_km) and distance_km > 0)
@@ -199,19 +128,14 @@ class Trip:
             "trip_id": self.__start_ms,
             "start_ms": self.__start_ms,
             "end_ms": self.__end_ms,
-            "start_lat": start_point[0] if start_point else float("nan"),
-            "start_lon": start_point[1] if start_point else float("nan"),
-            "end_lat": end_point[0] if end_point else float("nan"),
-            "end_lon": end_point[1] if end_point else float("nan"),
             "distance_km": distance_km,
             "duration_s": duration_s,
             "avg_speed": _mean(speed),
             "max_speed": _max(speed),
             "energy_wh": energy_wh,
-            "regen_wh": regen_wh,
             "wh_per_km": wh_per_km,
-            "start_soc": _first(battery),
-            "end_soc": _last(battery),
+            "start_soc": first(battery),
+            "end_soc": last(battery),
             "in_progress": self.__in_progress,
         }
         logger.debug(

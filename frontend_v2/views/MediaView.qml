@@ -26,9 +26,9 @@ Item {
                 backgroundColor.b * 0.12, 1.0)
 
     // Smooth, opaque vertical gradient — top border straight down. Two stops only,
-    // so the colour interpolates continuously (no visible "level" boundaries like
-    // the old corner radial had). Opaque, so this view fully hides the others
-    // behind it (see ViewController).
+    // so the colour interpolates continuously (a corner radial shows visible
+    // "level" boundaries). Opaque, so this view fully hides the others behind it
+    // (see ViewController).
     Rectangle {
         anchors.fill: parent
         gradient: Gradient {

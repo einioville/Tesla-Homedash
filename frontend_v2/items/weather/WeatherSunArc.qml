@@ -1,9 +1,9 @@
 import QtQuick
 import QtQuick.Shapes
 import frontend_v2
-import "WeatherProtoUtil.js" as U
+import "WeatherUtil.js" as U
 
-// PROTOTYPE — the day as an arc from sunrise to sunset, with the sun where it is now.
+// The day as an arc from sunrise to sunset, with the sun where it is now.
 Item {
     id: root
 

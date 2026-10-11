@@ -18,7 +18,7 @@ import QtQuick
 //                    click forces a meal now — a mouse-only dev/test hook the deployed
 //                    touchscreen never triggers.
 //
-// Every behaviour now has real art. To add or replace a pose's frames:
+// To add or replace a pose's frames:
 //   1. add the frame PNGs under resources/Luna/ and list them in CMakeLists' resources,
 //   2. point that behaviour's `frames` (and its `nativeW`/`nativeH`) at the new art.
 // For a brand-new behaviour, also add its `behaviours` entry and — if it should be
@@ -76,8 +76,7 @@ Item {
     // behaviour's BOUNDING BOX (`nativeW`/`nativeH` = its largest frame's art px,
     // per axis) — it drives placement, movement maths and the tap hitbox, while the
     // frames draw inside it anchored to her rear + the floor. `y` plants the box on
-    // the floor line. The optional per-behaviour `heightScale` remains a fine-tune
-    // for a pose that reads too big/small without re-exporting its art.
+    // the floor line.
     readonly property int _refArtHeight: 150
     readonly property var _pose: behaviours[behaviour] || behaviours["idle"]
     readonly property real _baseHeight: (parent ? parent.height : 0) * heightFraction
@@ -162,24 +161,23 @@ Item {
             nativeW: 219, nativeH: 130                      // bbox of 219x130 / 211x100 / 216x100
         },
         // Random pool: the occasional ~5 min nap; tapping her wakes her (see _wake).
-        // One held frame today — frameInterval is a pre-set slow "breathing" cadence
-        // that stays dormant until a second frame is added to _sleepFrames.
+        // frameInterval is a slow "breathing" cadence, dormant while _sleepFrames
+        // holds one frame (see there).
         "sleeping": { frames: _sleepFrames,       frameInterval: 1100, moves: false, weight: 0.4, minMs: 270000, maxMs: 330000, nativeW: 184, nativeH: 90 },   // 184x90
         // Scheduled (not pooled): fires at `eatingHours` each day, ~5 min fixed. Head
         // mostly IN the bowl (the two dip frames trading off), lifting now and then to
         // chew — the same shape as the sniff bob, one notch slower.
         "eating": {
             frames: _eatFrames, frameInterval: 600,
-            frameHold: [1040, 600, 1040, 600],              // [up, dip, up, dip] ms (2x slower)
+            frameHold: [1040, 600, 1040, 600],              // [up, dip, up, dip] ms
             frameStep: function (i) {
                 if (i === 0 || i === 2)                     // head up → back into the bowl
                     return i + 1
                 return Math.random() < 0.2 ? i - 1          // ...occasionally lift to chew
                                            : (i === 1 ? 3 : 1)   // ...else dip <-> dip
             },
-            // The head-up frames were drawn ~1.37x larger than the dips; these bring all
-            // four onto one scale. If she reads too big/small OVERALL while eating, add
-            // a `heightScale` rather than editing these four.
+            // Brings the four frames onto one scale (see _eatFrames); resize the pose
+            // as a whole with a `heightScale`, not by editing these four.
             frameScale: [0.88, 1.21, 0.88, 1.21],
             moves: false, weight: 0.0, minMs: 300000, maxMs: 300000,
             nativeW: 218, nativeH: 158                      // scaled bbox: 217x158/218x109/209x158/194x109
@@ -485,7 +483,7 @@ Item {
     // Start (or restart, on unfreeze) her activity: if a meal is due right now she
     // eats, otherwise she makes a fresh decision. Keying off _checkMealtime's RETURN
     // (not the behaviour name) is what lets a freeze that happened MID-meal recover —
-    // a stale "eating" pose left by the freeze no longer blocks a fresh decision.
+    // a stale "eating" pose left by the freeze does not block a fresh decision.
     function _resume() {
         if (!running)
             return

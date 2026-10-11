@@ -2,8 +2,17 @@
 #define FRONTEND_V2_PROTOCOL_HH
 
 #include <QByteArray>
+#include <QDataStream>
+#include <QIODevice>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QList>
+#include <QPointF>
+#include <QString>
 #include <QtEndian>
 #include <QtGlobal>
+
+#include <optional>
 
 /**
  * Binary protocol constants + outbound framing — the frontend mirror of
@@ -11,14 +20,12 @@
  * are the contract between the asyncio backend and this client. All multi-byte
  * integers on the wire are big-endian.
  *
- * Inbound frames are reassembled and stripped in ServerClient; frame() here is
- * the single place OUTBOUND packets are built (commands in later stages).
+ * Inbound frames are reassembled and stripped in ServerClient; outbound ones
+ * are built with frame() below.
  */
 namespace protocol {
 
 // Tesla-data framing (both directions)
-inline constexpr quint8 MSG_JSON = 0x01;       // reserved/legacy — unused by this client
-inline constexpr quint8 MSG_LIST = 0x02;       // reserved/legacy — unused by this client
 inline constexpr quint8 MSG_TERMINATE = 0x03;
 inline constexpr quint8 MSG_STREAM = 0x04;
 
@@ -39,7 +46,7 @@ inline constexpr quint8 MEDIA_STREAM_TYPE = 0x1E;
 inline constexpr quint8 MEDIA_TYPE_RADIO = 0x01;
 inline constexpr quint8 MEDIA_TYPE_SPOTIFY = 0x02;
 
-// Weather forecast frame + sub-field IDs
+// Weather forecast frame + sub-field IDs: the frozen frontend's, ignored here.
 inline constexpr quint8 WEATHER_FORECAST = 0x30;
 inline constexpr quint8 FORECAST_TEMPERATURE = 0x31;
 inline constexpr quint8 FORECAST_WIND_SPEED = 0x32;
@@ -55,15 +62,14 @@ inline constexpr quint8 TESLA_MINUS_TARGET_TEMP = 0x61;
 inline constexpr quint8 TESLA_PLUS_TARGET_TEMP = 0x62;
 
 // The Options view's telemetry-field table (issue #29). JSON bodies; status bytes
-// are CONFIG_STATUS_*. Keep in lockstep with protocol.py.
+// are CONFIG_STATUS_*.
 inline constexpr quint8 TESLA_GET_PROPERTY_TABLE = 0x63;    // F->B: (empty)
 inline constexpr quint8 TESLA_PROPERTY_TABLE = 0x64;        // B->F: status(1B) + len(4B) + JSON {properties}
 inline constexpr quint8 TESLA_SET_PROPERTY = 0x65;          // F->B: len(4B) + JSON {id, field, value}
 inline constexpr quint8 TESLA_SET_PROPERTY_RESULT = 0x66;   // B->F: status(1B) + len(4B) + JSON {ok, id, field, value, message}
 
-// History request/response (the History view). A request/response pair: the
-// backend replies to this client only (not a broadcast). Keep in lockstep with
-// protocol.py.
+// History request/response (the History view): the backend replies to this
+// client only (not a broadcast).
 inline constexpr quint8 TESLA_GET_GRAPH_PROPERTIES = 0x70;  // F->B: request graphable-property list (empty)
 inline constexpr quint8 TESLA_GRAPH_PROPERTIES = 0x71;      // B->F: count(2B) + per property id/unit/category/line_mode (len(2B)+UTF-8) + zero_based(1B)
 inline constexpr quint8 TESLA_GET_HISTORY = 0x72;           // F->B: range_code(1B) + id(len(2B)+UTF-8) + start_ms(8B) + end_ms(8B)
@@ -72,7 +78,7 @@ inline constexpr quint8 TESLA_HISTORY = 0x73;               // B->F: id(len(2B)+
 // Trip request/response (the Trips view). Contiguous with the History codes and,
 // like them, a request/response pair — the backend replies to this client only.
 // A trip's natural key is its start_ms, echoed in TRIP_DETAIL so a stale reply
-// (after switching trip) can be discarded. Keep in lockstep with protocol.py.
+// (after switching trip) can be discarded.
 inline constexpr quint8 TRIP_GET_LIST = 0x74;    // F->B: start_ms(8B) + end_ms(8B)
 inline constexpr quint8 TRIP_LIST = 0x75;        // B->F: req_start_ms(8B) + req_end_ms(8B) + count(2B) + count*(start_ms(8B) + end_ms(8B) + distance_km(8B double))
 inline constexpr quint8 TRIP_GET_DETAIL = 0x76;  // F->B: start_ms(8B) + end_ms(8B)
@@ -90,7 +96,7 @@ inline constexpr quint8 TRIP_SERIES = 0x7D;       // B->F: trip_id(8B) + id(len(
 
 // MyEnergi (Zappi) charger live stream (backend -> frontend broadcast). A sequence of
 // (sub_id(1B) + value) pairs; each fixed-width sub_id implies its value width. The one
-// variable-width sub_id, CHARGER_RAW_JSON, is length-prefixed (4B). Mirror of protocol.py.
+// variable-width sub_id, CHARGER_RAW_JSON, is length-prefixed (4B).
 inline constexpr quint8 CHARGER_STREAM = 0x50;
 inline constexpr quint8 CHARGER_STATUS = 0x51;            // uint8 (CHARGER_STATUS_*)
 inline constexpr quint8 CHARGER_PLUG_STATUS = 0x52;       // uint8 (CHARGER_PLUG_*)
@@ -125,7 +131,7 @@ inline constexpr quint8 CHARGER_MODE_ECO_PLUS = 3;
 inline constexpr quint8 CHARGER_MODE_STOPPED = 4;
 
 // Charging-losses / month request/response + charger telemetry history (the Charging
-// view). All replied to this client only. Keep in lockstep with protocol.py.
+// view). All replied to this client only.
 inline constexpr quint8 CHARGING_GET_LIST = 0x80;    // F->B: start_ms(8B) + end_ms(8B)
 inline constexpr quint8 CHARGING_LIST = 0x81;        // B->F: req_start(8B)+req_end(8B)+count(2B)+count*(start(8B)+end(8B)+charger_kwh(8B))
 inline constexpr quint8 CHARGING_GET_SUMMARY = 0x82; // F->B: start_ms(8B) + end_ms(8B)
@@ -135,14 +141,14 @@ inline constexpr quint8 CHARGING_MONTH = 0x85;       // B->F: status(1B) + 13*do
 inline constexpr quint8 CHARGER_GET_HISTORY = 0x86;  // F->B: range_code(1B)+id(len(2B)+UTF-8)+start(8B)+end(8B)
 inline constexpr quint8 CHARGER_HISTORY = 0x87;      // B->F: id(len(2B)+UTF-8)+status(1B)+count(4B)+count*(ts(8B)+value(8B double))
 
-// Live Nord Pool spot price broadcast (the Charging view's current-price tile). Mirror of
-// protocol.py: status 0 => no price (fields NaN), else 1. spot is raw wholesale €/kWh,
+// Live Nord Pool spot price broadcast (the Charging view's current-price tile).
+// Status 0 => no price (fields NaN), else 1. spot is raw wholesale €/kWh,
 // allIn the VAT+margin estimate; hourStartMs is the UTC start of the priced hour.
 inline constexpr quint8 SPOT_PRICE_STREAM = 0x88;    // B->F: status(1B)+hour_start_ms(8B)+spot(8B double)+all_in(8B double)
 
-// Runtime configuration (the Options view). Mirror of protocol.py: a request/response
-// pair plus one command. Both JSON bodies are len(4B) + UTF-8 (the CHARGER_RAW_JSON
-// idiom) because the schema is variable-shaped and these packets are rare. A successful
+// Runtime configuration (the Options view): a request/response pair plus two
+// commands. Both JSON bodies are len(4B) + UTF-8 (the CHARGER_RAW_JSON idiom)
+// because the schema is variable-shaped and these packets are rare. A successful
 // CONFIG_SET replies CONFIG_SET_RESULT to this client AND broadcasts a fresh
 // CONFIG_SCHEMA to every client, so a second frontend refreshes its values.
 inline constexpr quint8 CONFIG_GET_SCHEMA = 0x90;  // F->B: (empty)
@@ -156,7 +162,7 @@ inline constexpr quint8 HOST_REBOOT = 0x95;        // F->B: (empty) — reboot t
 inline constexpr quint8 CONFIG_STATUS_ERROR = 0;
 inline constexpr quint8 CONFIG_STATUS_OK = 1;
 
-// History request range codes (mirror the backend _RANGE_* and the QML RangeSelector)
+// History request range codes (also used as literals by the QML RangeSelector)
 inline constexpr quint8 HISTORY_RANGE_1H = 0;
 inline constexpr quint8 HISTORY_RANGE_1D = 1;
 inline constexpr quint8 HISTORY_RANGE_1M = 2;
@@ -226,8 +232,8 @@ inline constexpr quint8 LOG_CLEAR_RESULT = 0xB7;    // B->F: status(1B) + len(4B
 // switching, because system calls belong to the backend.
 inline constexpr quint8 DISPLAY_SET_POWER = 0xC0;
 inline constexpr quint8 DISPLAY_POWER_STATE = 0xC1;
-// DISPLAY_POWER_STATE's third byte. Optional on the wire: an older backend sends
-// two bytes, which reads as NONE.
+// DISPLAY_POWER_STATE's third byte. Optional on the wire: a two-byte payload
+// reads as NONE.
 inline constexpr quint8 DISPLAY_FAULT_NONE = 0;
 inline constexpr quint8 DISPLAY_FAULT_REFUSED = 1;
 inline constexpr quint8 DISPLAY_FAULT_OUTPUT_LOST = 2;
@@ -280,6 +286,127 @@ inline QByteArray frame(quint8 msgType, const QByteArray &payload = QByteArray()
     out.append(static_cast<char>(msgType));
     out.append(payload);
     return out;
+}
+
+/**
+ * The body of a JSON request: len(4B) + compact UTF-8 JSON, which protocol.py
+ * parse_json_body() reads.
+ */
+inline QByteArray jsonRequestBody(const QJsonObject &object) {
+    const QByteArray json = QJsonDocument(object).toJson(QJsonDocument::Compact);
+    QByteArray body(4, Qt::Uninitialized);
+    qToBigEndian<quint32>(static_cast<quint32>(json.size()), body.data());
+    body.append(json);
+    return body;
+}
+
+/** A JSON reply as protocol.py json_frame() builds it: status(1B) + len(4B) + UTF-8 JSON. */
+struct JsonReply {
+    quint8 status = 0;
+    QJsonObject body;
+};
+
+/**
+ * Reads a JSON reply, or nothing when the payload is shorter than its header,
+ * its declared length runs past the payload, or the body is not a JSON object.
+ * Bytes past the declared length are ignored.
+ */
+inline std::optional<JsonReply> readJsonReply(const QByteArray &payload) {
+    if (payload.size() < 5) {
+        return std::nullopt;
+    }
+    const quint32 length = qFromBigEndian<quint32>(payload.constData() + 1);
+    // 64-bit so a huge declared length cannot wrap.
+    if (static_cast<qint64>(payload.size()) < 5 + static_cast<qint64>(length)) {
+        return std::nullopt;
+    }
+    QJsonParseError error{};
+    const QJsonDocument doc =
+        QJsonDocument::fromJson(payload.mid(5, static_cast<qsizetype>(length)), &error);
+    if (error.error != QJsonParseError::NoError || !doc.isObject()) {
+        return std::nullopt;
+    }
+    return JsonReply{static_cast<quint8>(payload.at(0)), doc.object()};
+}
+
+/**
+ * Writes a len(2B) + UTF-8 string, the shape of every property id on the wire.
+ * (`stream << QByteArray` would write a 4-byte length instead.)
+ */
+inline void writeString(QDataStream &stream, const QString &text) {
+    const QByteArray raw = text.toUtf8();
+    stream << static_cast<quint16>(raw.size());
+    stream.writeRawData(raw.constData(), static_cast<int>(raw.size()));
+}
+
+/** Reads a len(2B) + UTF-8 string; false when the payload ends first. */
+inline bool readString(QDataStream &stream, QString &out) {
+    QIODevice *device = stream.device();
+    if (device->bytesAvailable() < 2) {
+        return false;
+    }
+    quint16 length;
+    stream >> length;
+    if (device->bytesAvailable() < length) {
+        return false;
+    }
+    QByteArray raw(length, Qt::Uninitialized);
+    stream.readRawData(raw.data(), length);
+    out = QString::fromUtf8(raw);
+    return true;
+}
+
+/**
+ * The TESLA_GET_HISTORY / CHARGER_GET_HISTORY body: range(1B) + id + start_ms(8B) +
+ * end_ms(8B). The bounds count only for HISTORY_RANGE_CUSTOM.
+ */
+inline QByteArray historyRequestBody(quint8 rangeCode, const QString &id, qint64 startMs,
+                                     qint64 endMs) {
+    QByteArray payload;
+    QDataStream stream(&payload, QIODevice::WriteOnly);
+    stream.setByteOrder(QDataStream::BigEndian);
+    stream << rangeCode;
+    writeString(stream, id);
+    stream << startMs << endMs;
+    return payload;
+}
+
+/**
+ * The series block of TESLA_HISTORY, CHARGER_HISTORY and TRIP_SERIES
+ * (start_services.py _pack_series): status(1B) + count(4B) + count x (ts_ms i64,
+ * value f64). Status 0 means no data and carries no points.
+ */
+struct Series {
+    quint8 status = 0;
+    QList<QPointF> points;
+    // The payload ended before `count` points; the ones before that are kept.
+    bool truncated = false;
+};
+
+/** Reads a series block, or nothing when the payload ends inside its header. */
+inline std::optional<Series> readSeries(QDataStream &stream) {
+    QIODevice *device = stream.device();
+    if (device->bytesAvailable() < 5) {
+        return std::nullopt;
+    }
+    Series series;
+    quint32 count;
+    stream >> series.status >> count;
+    if (series.status != 1) {
+        return series;
+    }
+    series.points.reserve(static_cast<qsizetype>(qMin<qint64>(count, device->bytesAvailable() / 16)));
+    for (quint32 i = 0; i < count; ++i) {
+        if (device->bytesAvailable() < 16) {
+            series.truncated = true;
+            break;
+        }
+        qint64 timestamp;
+        double value;
+        stream >> timestamp >> value;
+        series.points.append(QPointF(static_cast<double>(timestamp), value));
+    }
+    return series;
 }
 
 }  // namespace protocol

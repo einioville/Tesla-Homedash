@@ -1,5 +1,7 @@
 '''
-In-place application updates, driven from the Options view's "Päivitys" card.
+In-place application updates, the backend half of the Options view's "Päivitys"
+card.  That card is out of the view's schema pending the release-only rework
+(#56); this service is still registered and serves the protocol.
 
 The dashboard runs from a git checkout, so "update the app" is a git operation
 plus everything that has to follow it: re-sync the backend's dependencies,
@@ -27,9 +29,9 @@ an error to be special-cased.
 
 **The trapdoor rule.**  A target that does not itself contain this service is
 REFUSED, however the verdict reads.  Move a keyboard-less panel onto a commit
-with no updater and the only way back is SSH; the one release tag this project
-has today (v1.0.0) is exactly such a commit.  Downgrading between two versions
-that both carry the feature is fine, and is the case the feature is for.
+with no updater and the only way back is SSH; the v1.0.0 release tag is exactly
+such a commit.  Downgrading between two versions that both carry the feature is
+fine, and is the case the feature is for.
 
 **Safety.**  A run is refused unless the working tree is clean of *tracked*
 changes.  config.json and .env are gitignored, so they are never at risk; a
@@ -38,9 +40,8 @@ silently discarded that would be unforgivable on a machine whose only recovery
 path is a 10" touchscreen.  The requested commit is also fenced: the frontend
 posts back the exact 40-hex sha it was shown, and a target that has moved since
 (a fetch in between) is rejected rather than silently applied.  And anything that
-fails AFTER the checkout rolls the tree back to where it started, because the
-alternative — a new source tree with an old virtualenv — is a device that never
-comes back from its next restart.
+fails AFTER the checkout rolls the tree back to where it started (__fail says
+why).
 
 **Nothing user-supplied ever reaches a shell.**  Every command is an argv list,
 the channel must be one of the two literals above, and the commit must match
@@ -57,7 +58,6 @@ picture from its on-connect snapshot instead of having missed the packets.
 
 import asyncio
 import contextlib
-import json
 import logging
 import os
 import re
@@ -67,7 +67,7 @@ import time
 from collections import deque
 from pathlib import Path
 
-from ..utils import protocol
+from ..utils import process, protocol
 
 logger = logging.getLogger("update_service")
 
@@ -88,9 +88,8 @@ RELEASE_TAG_GLOB = "v*"
 # would be a ref this service resolves, and a ref is a string the frontend chose.
 _FULL_SHA = re.compile(r"\A[0-9a-f]{40}\Z")
 
-# Paths a candidate target must contain before this service will move onto it.
-# See "the trapdoor rule" above: without these, the panel that performed the
-# update no longer exists on the version it produced.
+# Paths a candidate target must contain before this service will move onto it:
+# "the trapdoor rule" in the module docstring.
 _REQUIRED_PATHS = (
     "backend/src/update_service/update_service.py",
     "frontend_v2/items/settings/UpdatePanel.qml",
@@ -209,11 +208,11 @@ _FRONTEND_EXE = Path("frontend_v2") / "build" / "appfrontend_v2"
 _BUILD_SCRIPT = Path("scripts") / "build-frontend.sh"
 _BUILD_CACHE = Path("frontend_v2") / "build" / "CMakeCache.txt"
 
-# Qt kit directory names, newest-first by version once sorted. The Pi's ARM kit
-# is gcc_arm64, not gcc_64 — the build script's own glob missed that.
+# Qt kit directory names looked for under ~/Qt/<version>/: gcc_64 on x86,
+# gcc_arm64 on the Pi — the same pair the build script globs.
 _QT_KIT_DIRS = ("gcc_64", "gcc_arm64")
 
-# The steps of a run, in order.
+# The step ids of a run; _STEPS below gives their order.
 _STEP_FETCH = "fetch"
 _STEP_CHECKOUT = "checkout"
 _STEP_DEPS = "deps"
@@ -224,8 +223,9 @@ _STEP_RESTART = "restart"
 # `uv sync` rewrites backend/.venv — the virtualenv this very interpreter is
 # running from — and the build that follows it takes tens of minutes on a Pi. Any
 # lazily-imported submodule of a package the sync replaced would then fail in a
-# process with no supervisor (CLAUDE.md §5.2: an unhandled failure ends it), and
-# systemd would restart the backend mid-build, destroying the run's own rollback.
+# process with no supervisor (backend/CLAUDE.md, "Service orchestration": an
+# unhandled failure ends it), and systemd would restart the backend mid-build,
+# destroying the run's own rollback.
 # Syncing last shrinks that window from the whole build to the seconds before the
 # restart, and means a failed build rolls back without ever having touched the
 # virtualenv.
@@ -275,14 +275,11 @@ class UpdateService:
         config_service (ConfigService): Consulted for its restart trigger, so the
             updater does not grow a second way to exit the process, and given a
             veto so the Options view's own restart button cannot kill a run.
-        repo_path (str | None): Override for the checkout to update. Normally
-            None, and the repository containing this file is used.
     '''
 
-    def __init__(self, server, config_service, repo_path: str | None = None):
+    def __init__(self, server, config_service):
         self.__server = server
         self.__config_service = config_service
-        self.__requested_root = Path(repo_path).expanduser() if repo_path else None
 
         # Resolved on the first probe in run(); until then the card reports that
         # it is still working it out rather than claiming the feature is missing.
@@ -302,10 +299,8 @@ class UpdateService:
         # open pays the full fetch timeout again.
         self.__last_fetch_attempt: float | None = None
         self.__last_fetch_ms: int | None = None
-        # Claimed synchronously by handle_apply before its first await, because
-        # self.__job is not set until __run_job is actually scheduled and the
-        # server dispatches every packet as its own task — so two applies would
-        # otherwise both pass the "already running" guard.
+        # Set by handle_apply before its first await, while self.__job does not
+        # exist yet; handle_apply says why.
         self.__starting = False
         self.__last_broadcast = 0.0
         # Serialises state rebuilds so two clients opening the card at once do
@@ -313,9 +308,8 @@ class UpdateService:
         self.__lock = asyncio.Lock()
 
         # A restart during a checkout or a dependency sync is how a device gets
-        # left half-updated, and the button that would do it sits three rows
-        # below this card. ConfigService asks every registered veto before it
-        # arms the exit.
+        # left half-updated. ConfigService asks every registered veto before it
+        # arms the exit or starts a host reboot.
         config_service.register_restart_veto("update", self.__veto_restart)
 
     @property
@@ -475,17 +469,10 @@ class UpdateService:
         '''
         UPDATE_CANCEL handler: stops the run at the end of the current step.
 
-        Refused during the checkout, which takes seconds and whose interruption
-        is exactly the half-written state everything else here exists to avoid.
-        During the dependency sync or the build a cancel is honoured and then
-        rolled back like any other failure, so "cancel" means "put it back", not
-        "abandon it wherever it got to".
-
-        The step's process is killed by PROCESS GROUP, not by pid.  The build
-        step is a shell that spawns cmake, which spawns ninja, which spawns a
-        compiler per file — measured: terminating the shell alone leaves that
-        whole tree running, and its inherited stdout pipe never closes, so the
-        reader waits on it forever.
+        Refused outside _CANCELLABLE_STEPS (the checkout, the restart).  During
+        the dependency sync or the build a cancel kills the step's process group
+        (see __run_step_process) and is then rolled back like any other failure,
+        so "cancel" means "put it back", not "abandon it wherever it got to".
         Arguments:
             _payload (bytes): Unused; the command carries no body.
             _writer (StreamWriter): Unused.
@@ -561,7 +548,7 @@ class UpdateService:
             logger.warning("git not found; the app-update card will be inert")
             return
 
-        start = self.__requested_root or Path(__file__).resolve().parent
+        start = Path(__file__).resolve().parent
         code, out, err = await self.__git(
             "rev-parse", "--path-format=absolute", "--show-toplevel", cwd=start
         )
@@ -644,9 +631,9 @@ class UpdateService:
         Queries the repository and assembles the whole state document: what is
         checked out now, what each channel would move to, the verdict for each,
         and whether the host has what a run would need.  Both channels are
-        reported every time — resolving them costs two extra rev-parses, and it
-        means switching the channel in the card is instant instead of another
-        round trip.
+        reported every time — the second costs only a few more local git queries,
+        and it means switching the channel in the card is instant instead of
+        another round trip.
         '''
         current = await self.__describe_commit("HEAD")
         _c, branch_out, _e = await self.__git("rev-parse", "--abbrev-ref", "HEAD")
@@ -689,8 +676,7 @@ class UpdateService:
         Every one of these is a failure that would otherwise land minutes into a
         run, after the tree had already been moved.  The Qt kit is the sharpest:
         a `systemd --user` unit inherits none of the user's shell environment, so
-        QTDIR is unset there, and the build script's own kit glob only looked for
-        an x86 "gcc_64" directory — the Pi's kit is "gcc_arm64".
+        QTDIR is unset there.
         '''
         uv = self.__uv_path()
         script = self.__repo / _BUILD_SCRIPT
@@ -733,9 +719,9 @@ class UpdateService:
 
     def __qt_prefix(self) -> Path | None:
         '''
-        Resolves the Qt kit to build against, in decreasing order of confidence:
-        QTDIR, then the newest ~/Qt/*/gcc_64 or gcc_arm64, then whatever the
-        existing build directory was configured with.
+        Resolves the Qt kit to build against: QTDIR, then the newest
+        ~/Qt/*/gcc_64 or gcc_arm64, then whatever the existing build directory
+        was configured with.
 
         That last source is the most reliable one on a device that has built
         before — it is by definition a prefix that worked here — and it is why a
@@ -846,13 +832,9 @@ class UpdateService:
 
     async def __eligibility(self, commit: str) -> dict:
         '''
-        Decides whether this service is willing to move onto a commit at all.
-
-        A target that does not contain the updater is a ONE-WAY TRAPDOOR: the
-        panel that performed the update does not exist on the version it
-        produced, and on a keyboard-less device the only way back is SSH.  This
-        project's single release tag is exactly such a commit today, which is
-        precisely why the check is here rather than left as a warning.
+        Decides whether this service is willing to move onto a commit at all: a
+        target missing any of _REQUIRED_PATHS is refused outright rather than
+        warned about (the trapdoor rule, module docstring).
         Arguments:
             commit (str): The resolved target commit.
         '''
@@ -1004,7 +986,7 @@ class UpdateService:
         after the checkout rolls the tree back first.
 
         The whole body is wrapped so the job is ALWAYS closed out.  An exception
-        escaping this coroutine would leave `running: True` forever, and every
+        escaping this coroutine would leave `finished: False` forever, and every
         gate in the service reads that flag: no later update could start, the
         card would freeze on stale data, and the restart veto would refuse the
         one recovery a keyboard-less panel still has.
@@ -1233,18 +1215,11 @@ class UpdateService:
         verifies that what came out is runnable.
 
         The Qt kit is passed explicitly rather than left to the script's own
-        detection, because a `systemd --user` unit inherits none of the user's
-        shell environment — QTDIR is simply not set there — and passing it as an
-        argument puts the chosen kit in the streamed log, where it is visible
-        when a build fails.
+        detection, so the build uses the kit the preflight reported — which
+        __qt_prefix may take from the existing CMakeCache.txt, a source the
+        script does not read — and the choice appears in the streamed log.
 
-        The verification is the other half.  ld unlinks its output before writing
-        it, so a build killed mid-link leaves either nothing or a truncated file
-        at that path; the running dashboard is unaffected (it holds the old
-        inode), but restarting it into a stub would leave a keyboard-less device
-        with no dashboard at all.  So the artifact must exist, be executable, be
-        newer than this run, and not be implausibly small before the restart step
-        is allowed to signal anything.
+        __verify_artifact must pass before the restart step may signal anything.
         '''
         script = self.__repo / _BUILD_SCRIPT
         if not script.exists():
@@ -1271,16 +1246,13 @@ class UpdateService:
         '''
         Checks that the build left a runnable binary behind.
 
-        Deliberately NOT a freshness check, and deliberately an absolute floor
-        rather than a ratio against the previous binary.  A build that exits 0
-        having found nothing to relink is a success — a commit touching only
-        backend files legitimately produces the same file — and the first in-app
-        update replaces the build script's default DEBUG binary with a RELEASE
-        one several times smaller, which any ratio test would reject as damage.
-        What is worth testing is the shape of an interrupted link: ld unlinks its
-        output before writing it, so a killed build leaves either nothing or a
-        stub, and restarting a keyboard-less panel into a stub leaves no
-        dashboard at all.
+        Deliberately NOT a freshness check: a build that exits 0 having found
+        nothing to relink is a success — a commit touching only backend files
+        legitimately produces the same file.  The size test is an absolute floor
+        (_MIN_ARTIFACT_BYTES says why not a ratio).  What is worth testing is the
+        shape of an interrupted link: a killed build leaves either nothing or a
+        stub (ld unlinks its output first, see _FRONTEND_EXE), and restarting a
+        keyboard-less panel into a stub leaves no dashboard at all.
         Arguments:
             exe (Path): The expected frontend executable.
         '''
@@ -1301,11 +1273,11 @@ class UpdateService:
         backend.
 
         The order is forced by the link between them.  The dashboard is still
-        running the binary that was just replaced — it holds the old inode, which
-        ld unlinked rather than overwrote — and only a restart picks the new one
-        up.  But the only way to tell it so is over the socket, which dies with
-        the backend.  So the frontend is told first, given a moment to act, and
-        the backend follows it out; both service units bring their process back.
+        running the binary that was just replaced (it holds the old inode, see
+        _FRONTEND_EXE), and only a restart picks the new one up.  But the only
+        way to tell it so is over the socket, which dies with the backend.  So
+        the frontend is told first, given a moment to act, and the backend
+        follows it out; both service units bring their process back.
         '''
         assert self.__job is not None
         self.__job["restartFrontend"] = True
@@ -1465,8 +1437,8 @@ class UpdateService:
         http.connectTimeout, and the low-speed knobs do not cover the connect
         phase — measured, a fetch at a black-holed address sits there until
         something else kills it.  Same shape, same remedy as the FMI fetch in
-        weather_service.  The kill is by process group because git forks
-        git-remote-https, which inherits the pipe and outlives a plain kill.
+        weather_service.  new_session=True makes process.run kill the whole
+        process group on timeout, since git forks git-remote-https.
         Arguments:
             *args (str): Arguments after "git".
             cwd (Path | None): Working directory; the repository root by default.
@@ -1474,28 +1446,16 @@ class UpdateService:
         '''
         directory = cwd or self.__root
         try:
-            process = await asyncio.create_subprocess_exec(
-                "git", *args,
+            return await process.run(
+                ("git", *args), timeout,
                 cwd=str(directory) if directory else None,
                 env=self.__child_env(_GIT_ENV),
-                stdin=asyncio.subprocess.DEVNULL,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                start_new_session=True,
+                new_session=True,
             )
+        except asyncio.TimeoutError:
+            return -1, "", f"git {' '.join(args)} timed out"
         except OSError as e:
             return -1, "", str(e)
-
-        try:
-            out, err = await asyncio.wait_for(process.communicate(), timeout=timeout)
-        except asyncio.TimeoutError:
-            with contextlib.suppress(ProcessLookupError, PermissionError):
-                os.killpg(os.getpgid(process.pid), signal.SIGKILL)
-            await process.wait()
-            return -1, "", f"git {' '.join(args)} timed out"
-
-        code = process.returncode if process.returncode is not None else -1
-        return code, out.decode("utf-8", "replace"), err.decode("utf-8", "replace")
 
     # ── Job bookkeeping + framing ─────────────────────────────────
 
@@ -1512,9 +1472,8 @@ class UpdateService:
         self.__job["steps"][index]["state"] = state
         self.__job["stepIndex"] = index
         self.__job["stepId"] = step_id
-        # Cancelling a checkout is how a half-written index happens, so the
-        # frontend is told when the button is meaningless rather than being left
-        # to send taps the backend silently drops.
+        # Tells the frontend when the button is meaningless rather than leaving
+        # it to send taps the backend silently drops.
         self.__job["cancellable"] = (state == "running"
                                      and step_id in _CANCELLABLE_STEPS)
 
@@ -1569,28 +1528,10 @@ class UpdateService:
             logger.warning("Update refusal suppressed (run in flight): %s", message)
             return
         logger.warning("Update refused: %s", message)
-        now = int(time.time() * 1000)
-        self.__job_seq += 1
-        self.__job = {
-            "id": self.__job_seq,
-            "running": False,
-            "finished": True,
-            "ok": False,
-            "cancellable": False,
-            "stepId": "",
-            "stepIndex": 0,
-            "channel": "",
-            "targetLabel": "",
-            "targetCommit": "",
-            "previousCommit": "",
-            "verdict": "",
-            "startedMs": now,
-            "finishedMs": now,
-            "message": message,
-            "restartFrontend": False,
-            "steps": [],
-            "log": [],
-        }
+        job = self.__new_job("", {}, "")
+        job.update(running=False, finished=True, ok=False, finishedMs=job["startedMs"],
+                   message=message, steps=[])
+        self.__job = job
         self.__log.clear()
         await self.__broadcast(force=True)
 
@@ -1618,9 +1559,7 @@ class UpdateService:
         else:
             document["job"] = None
 
-        body = json.dumps(document, ensure_ascii=False).encode("utf-8")
-        payload = bytes((protocol.CONFIG_STATUS_OK,)) + len(body).to_bytes(4, "big") + body
-        return protocol.frame(protocol.UPDATE_STATE, payload)
+        return protocol.json_frame(protocol.UPDATE_STATE, protocol.CONFIG_STATUS_OK, document)
 
     @staticmethod
     def __decode_json(payload: bytes, label: str) -> dict | None:
@@ -1630,16 +1569,8 @@ class UpdateService:
             payload (bytes): The raw handler payload.
             label (str): Packet name, for the warning line.
         '''
-        if len(payload) < 4:
-            logger.warning("%s: payload too short (%d bytes)", label, len(payload))
-            return None
-        length = int.from_bytes(payload[:4], "big")
-        if len(payload) < 4 + length:
-            logger.warning("%s: truncated body", label)
-            return None
         try:
-            body = json.loads(payload[4:4 + length].decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError) as e:
-            logger.warning("%s: malformed JSON (%s)", label, e)
+            return protocol.parse_json_body(payload)
+        except ValueError as e:
+            logger.warning("%s: %s", label, e)
             return None
-        return body if isinstance(body, dict) else None

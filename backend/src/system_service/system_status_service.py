@@ -1,25 +1,20 @@
 '''
 The Järjestelmän tila service cards: how each backend service is doing.
 
-Request/response rather than a broadcast, deliberately.  The Options view is open
-a fraction of the time the dashboard is running, and polling every service for
-every connected client every few seconds to feed a screen nobody is looking at
-would be pure waste.  Nothing here runs until someone asks.  (The host's graphs
-are system_history.py's, sampled continuously.)
+Request/response, and deliberately not register_service'd: the Options view is
+open a fraction of the time, and polling every service for every connected client
+to feed a screen nobody is looking at would be pure waste.  Nothing here runs
+until someone asks.  (The host's graphs are system_history.py's, sampled
+continuously.)
 
-Per-service health comes from duck-typed `health()` methods — the same pattern as
-`stream_everything()` and `apply_config()` — so each service answers for itself
-from state it already keeps, and this module knows nothing about any of them.
-Beside the verdict a probe may return its settings in effect (`config`, label /
-value pairs) and a list (`items`, the connected clients); each row also gets the
-warning and error counts of the loggers its probe claims, from the persistent
-ErrorLog, whose entries SYSTEM_GET_LOG lists per card.  The document also carries
-the host's uptime and the backend's own, for the overview above the graphs.
+Each card is a service's duck-typed `health()` probe (register_probe() has the
+contract), plus the warning and error counts of the loggers it claims, from the
+persistent ErrorLog.  The document also carries the host's uptime and the
+backend's own, for the overview above the graphs.
 '''
 
 import asyncio
 import inspect
-import json
 import logging
 import time
 from typing import Any, Callable
@@ -39,9 +34,6 @@ class SystemStatusService:
     '''
     Serves SYSTEM_GET_STATUS by polling every registered service probe, and
     SYSTEM_GET_LOG from the persistent warning/error store.
-
-    Deliberately NOT registered with Server.register_service: a status page
-    nobody has opened is not worth polling for every connecting client.
     Arguments:
         server (Server): TCP server, used only to reply to the requesting client.
         error_log (ErrorLog): The persistent WARNING+ store from
@@ -63,8 +55,6 @@ class SystemStatusService:
         # warning is ever invisible.
         self.__catch_all: str | None = None
 
-    # ── Wiring ────────────────────────────────────────────────────
-
     def register_probe(self, probe_id: str, label: str, probe: Callable[[], Any],
                        loggers: tuple[str, ...] = (), catch_all: bool = False) -> None:
         '''
@@ -74,7 +64,9 @@ class SystemStatusService:
             label (str): Finnish row label for the status view.
             probe (Callable): Returns a dict with "state" ("ok"/"warn"/"error"/
                 "off") and optionally "detail", "config" ([[label, value]], the
-                settings in effect, as display strings) and "items"; may be async.
+                settings in effect: a value is a display string or a {time} /
+                {bytes} / {duration} object the frontend formats) and "items";
+                may be async.
             loggers (tuple[str, ...]): Logger names (prefixes, matched at a dot)
                 whose warnings and errors this card counts and lists.
             catch_all (bool): This card also takes every logger no other probe
@@ -83,8 +75,6 @@ class SystemStatusService:
         self.__probes[probe_id] = (label, probe, tuple(loggers))
         if catch_all:
             self.__catch_all = probe_id
-
-    # ── Protocol handler ──────────────────────────────────────────
 
     async def handle_get_status(self, _payload: bytes, writer) -> None:
         '''
@@ -103,9 +93,8 @@ class SystemStatusService:
             document = {}
             status = protocol.CONFIG_STATUS_ERROR
 
-        body = json.dumps(document, ensure_ascii=False).encode("utf-8")
-        payload = bytes((status,)) + len(body).to_bytes(4, "big") + body
-        await self.__server.send_to(writer, protocol.frame(protocol.SYSTEM_STATUS, payload))
+        await self.__server.send_to(
+            writer, protocol.json_frame(protocol.SYSTEM_STATUS, status, document))
 
     async def handle_get_log(self, payload: bytes, writer) -> None:
         '''
@@ -116,9 +105,8 @@ class SystemStatusService:
             writer (StreamWriter): The requesting client.
         '''
         try:
-            length = int.from_bytes(payload[:4], "big")
-            service = str(json.loads(payload[4:4 + length].decode("utf-8")).get("service", ""))
-        except (ValueError, UnicodeDecodeError, AttributeError):
+            service = str(protocol.parse_json_body(payload).get("service", ""))
+        except ValueError:
             service = ""
         probe = self.__probes.get(service)
         if probe is None:
@@ -129,11 +117,8 @@ class SystemStatusService:
             document = {"service": service, "label": probe[0],
                         "entries": entries[:_LOG_LIST_LIMIT]}
             status = protocol.CONFIG_STATUS_OK
-        body = json.dumps(document, ensure_ascii=False).encode("utf-8")
-        reply = bytes((status,)) + len(body).to_bytes(4, "big") + body
-        await self.__server.send_to(writer, protocol.frame(protocol.SYSTEM_LOG, reply))
-
-    # ── Internals ─────────────────────────────────────────────────
+        await self.__server.send_to(
+            writer, protocol.json_frame(protocol.SYSTEM_LOG, status, document))
 
     @staticmethod
     def __claims(prefixes: tuple[str, ...], name: str) -> bool:

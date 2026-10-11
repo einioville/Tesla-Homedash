@@ -80,12 +80,11 @@ class RadioPlayer(BaseMediaPlayer):
         reloads whatever station is current.)
 
         Written straight through Config, not ConfigService: this is state the radio
-        owns, not a setting — it is in no schema, has no hook to run, and is valid
-        by construction, being always a radioMediaIds key.  Saved at once rather
-        than debounced: each skip already waits on a stream fetch, so writes cannot
-        outpace a finger, and a debounce window is a window in which a power cut
-        loses the station.  A failed save is logged and the station still changes;
-        the value stays in memory and rides along with the next successful save.
+        owns, not a setting (in no schema, always a radioMediaIds key).  Saved at
+        once rather than debounced, so a power cut cannot lose the station
+        (media_service/CLAUDE.md).  A failed save is logged and the station still
+        changes; the value stays in memory and rides along with the next
+        successful save.
         '''
         if self.__config.media_config.get("lastRadioStation") == self.__channel:
             return
@@ -238,10 +237,10 @@ class RadioPlayer(BaseMediaPlayer):
         '''
         Whether VLC is currently producing audio.
 
-        Needed by the Spotify device scan, which silences the radio while the
-        user picks a device and restores it afterwards: resuming must not START
-        audio that was not playing to begin with, and only VLC knows which it
-        was.  Stays synchronous — it reads a libVLC flag and awaits nothing.
+        Read before the radio is stopped for a Spotify device scan or a Spotify
+        claim: resuming afterwards must not START audio that was not playing to
+        begin with, and only VLC knows which it was.  Synchronous — it reads a
+        libVLC flag and awaits nothing.
         '''
         return bool(self.__vlc_player.is_playing())
 
@@ -249,7 +248,6 @@ class RadioPlayer(BaseMediaPlayer):
         self.__vlc_player.pause()
 
     async def play(self) -> None:
-        # If no media is loaded, do a full load first
         if not self.__vlc_player.get_media():
             await self.load_player()
         self.__vlc_player.play()
@@ -281,36 +279,15 @@ class RadioPlayer(BaseMediaPlayer):
         await self.load_player()
         self.__vlc_player.play()
 
-    async def __download_image(self) -> bytes | None:
-        if not self.__image_url:
-            return None
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(self.__image_url) as response:
-                    if response.status != 200:
-                        return None
-                    return await response.read()
-        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-            logger.debug("Failed to download radio channel image: %s: %s", type(e).__name__, e)
-            return None
-
     async def __stream_channel_image(self, client=None) -> None:
-        image_data = await self.__download_image()
-        if image_data is None:
-            return
-        packet = protocol.frame(protocol.MEDIA_STREAM_IMAGE, image_data)
-        await self._media_manager.stream_data(data=packet, player=self, client=client)
+        await self._send_image(self.__image_url, client)
 
     async def __stream_channel_name(self, client=None) -> None:
-        payload = self.__channel.encode("utf-8")
-        body = struct.pack("!H", len(payload)) + payload
-        packet = protocol.frame(protocol.MEDIA_STREAM_NAME, body)
-        await self._media_manager.stream_data(data=packet, player=self, client=client)
+        await self._send_text(protocol.MEDIA_STREAM_NAME, self.__channel, client)
 
     async def __stream_play_state(self, client=None) -> None:
-        payload = struct.pack("!B", self.__vlc_player.is_playing())
-        packet = protocol.frame(protocol.MEDIA_IS_PLAYING, payload)
-        await self._media_manager.stream_data(data=packet, player=self, client=client)
+        await self._send(protocol.MEDIA_IS_PLAYING,
+                         struct.pack("!B", self.__vlc_player.is_playing()), client)
 
     async def stream_everything(self, client=None) -> None:
         await self.__stream_channel_name(client=client)

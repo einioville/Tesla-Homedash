@@ -6,7 +6,7 @@ import frontend_v2
 // Each subsection is its own card — the same card the sidebar carries
 // (Theme.tripCardBg / tripCardRadius / tripCardBorder) — stacked in a Flickable,
 // so a general section such as Yleinen reads as "Näytönsäästäjä", "Sijainti ja
-// aika", "Lisäasetukset" rather than one undifferentiated list of rows.
+// aika", "Luna" rather than one undifferentiated list of rows.
 //
 // The pane itself is transparent: the cards are the containers, and nesting them
 // inside a further card would just draw a border around borders.
@@ -401,7 +401,7 @@ Item {
                         // --- Card body -----------------------------------
                         // No vertical padding of its own. Every row already centres
                         // its content with at least 12px above and below, so a card
-                        // margin on top of that made the first and last rows
+                        // margin on top of that would make the first and last rows
                         // lopsided — more space toward the card edge than toward the
                         // divider. Only the intro block pads itself.
                         Item {
@@ -521,8 +521,8 @@ Item {
                                         // divider to the next nested entry, and is
                                         // inset by the row's 12px padding at BOTH ends
                                         // of its block — flush at the top with only the
-                                        // bottom inset, it sat above the text it marks
-                                        // and made a lone nested row look low.
+                                        // bottom inset, it would sit above the text it
+                                        // marks and make a lone nested row look low.
                                         Repeater {
                                             model: entry.depth
 
@@ -546,9 +546,9 @@ Item {
                                             x: entry.depth * Theme.settingChildIndent
                                             width: parent.width - x
                                             feedback: pane.rowFeedback
-                                            // Wider than the old two-column layout
-                                            // allowed; a slider this size is comfortable
-                                            // to drag with a fingertip.
+                                            // Wider than SettingRow's default: a slider
+                                            // this size is comfortable to drag with a
+                                            // fingertip.
                                             editorWidth: 320
                                             // The current entry, by key: the
                                             // delegate outlives writes, its
@@ -594,7 +594,8 @@ Item {
     // The screens a group may name with `view`.
     Component { id: systemSectionComponent; SystemStatusSection {} }
 
-    // Shown before the first schema arrives (and if one never does).
+    // Shown while there is no section at all: the bundled schema failed to load
+    // and no backend schema has arrived.
     Text {
         anchors.centerIn: parent
         visible: pane.sections.length === 0 && pane.viewId === ""

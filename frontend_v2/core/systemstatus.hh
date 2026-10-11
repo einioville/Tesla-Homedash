@@ -9,11 +9,11 @@
 class ServerClient;
 
 /**
- * SystemStatus — the maintenance dashboard's data source.
+ * SystemStatus — the data source of the Järjestelmän tila service cards.
  *
- * Pull, not push. The backend samples /proc only when asked (SYSTEM_GET_STATUS),
- * and this object only asks while something on screen has retained it — the
- * status card and the Järjestelmän tila section, from their own visibility. A
+ * Pull, not push. The backend runs its service probes only when asked
+ * (SYSTEM_GET_STATUS), and this object only asks while something on screen has
+ * retained it — the Järjestelmän tila section, from its own visibility. A
  * settings screen nobody has opened costs nothing.
  *
  * Everything is reported as an opaque QVariantMap straight from the backend's
@@ -35,7 +35,6 @@ class SystemStatus : public QObject {
     // The open warning/error list of one service card (SYSTEM_GET_LOG).
     Q_PROPERTY(bool logOpen READ logOpen NOTIFY logChanged)
     Q_PROPERTY(bool logLoading READ logLoading NOTIFY logChanged)
-    Q_PROPERTY(QString logService READ logService NOTIFY logChanged)
     Q_PROPERTY(QString logLabel READ logLabel NOTIFY logChanged)
     // [{t, level, logger, message}], newest first.
     Q_PROPERTY(QVariantList logEntries READ logEntries NOTIFY logChanged)
@@ -49,20 +48,19 @@ public:
 
     bool logOpen() const { return m_logOpen; }
     bool logLoading() const { return m_logLoading; }
-    QString logService() const { return m_logService; }
     QString logLabel() const { return m_logLabel; }
     QVariantList logEntries() const { return m_logEntries; }
 
     void attachServer(ServerClient *client);
 
-    // Polling is reference-counted rather than a flag: two screens show this
-    // data (the Ylläpito card and Järjestelmän tila), and on a section switch
-    // one is built before the other is destroyed — a flag would be cleared by
-    // the one leaving. Each consumer retains while visible and releases once.
+    // Polling is reference-counted rather than a flag: a screen being built and
+    // one being torn down overlap (a section switch, a rebuilt Loader), and a
+    // flag set by the newcomer would be cleared by the one leaving. Each
+    // consumer retains while visible and releases once.
     Q_INVOKABLE void retain();
     Q_INVOKABLE void release();
 
-    // Asks for a fresh sample now, regardless of the poll timer.
+    // Asks for a fresh status document now, regardless of the poll timer.
     Q_INVOKABLE void refresh();
 
     // Opens one card's list and fetches its entries; closeLog() dismisses it.

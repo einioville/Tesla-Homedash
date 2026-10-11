@@ -11,7 +11,6 @@
 #include <QStandardPaths>
 #include <QUrl>
 #include <QStringList>
-#include <QtEndian>
 #include <QtGlobal>
 #include <utility>
 
@@ -52,31 +51,6 @@ QString legacyStoragePath() {
 // a clean exit(0) would leave a keyboard-less Pi staring at the desktop. Matches
 // the backend's config_service.RESTART_EXIT_CODE, which does the same thing.
 constexpr int kRestartExitCode = 42;
-
-// Reads a length-prefixed UTF-8 JSON body: status(1B) + len(4B) + bytes. Returns
-// an empty document (and leaves *ok false) on any truncation, which is how a
-// malformed frame is refused rather than half-parsed.
-QJsonDocument readStatusJsonBody(const QByteArray &payload, quint8 *status, bool *ok) {
-    *ok = false;
-    if (payload.size() < 5) {
-        return {};
-    }
-    *status = static_cast<quint8>(payload.at(0));
-    const quint32 length = qFromBigEndian<quint32>(payload.constData() + 1);
-    // 64-bit-safe size check: the cast keeps a huge length from wrapping.
-    if (static_cast<qint64>(payload.size()) < 5 + static_cast<qint64>(length)) {
-        return {};
-    }
-    QJsonParseError error{};
-    const QJsonDocument doc =
-        QJsonDocument::fromJson(payload.mid(5, static_cast<int>(length)), &error);
-    if (error.error != QJsonParseError::NoError) {
-        logger.warning(QStringLiteral("Malformed settings JSON: %1").arg(error.errorString()));
-        return {};
-    }
-    *ok = true;
-    return doc;
-}
 
 // Environment variables are always strings; convert one to the type its schema
 // entry declares so coerceLocal can validate it like any other value.
@@ -138,16 +112,6 @@ QVariantList orderSections(const QVariantList &sections, const QStringList &orde
         }
     }
     return out;
-}
-
-// Frames a JSON request body as len(4B) + UTF-8, the CONFIG_* payload shape.
-QByteArray jsonRequestBody(const QJsonObject &object) {
-    const QByteArray json = QJsonDocument(object).toJson(QJsonDocument::Compact);
-    QByteArray body;
-    body.resize(4);
-    qToBigEndian<quint32>(static_cast<quint32>(json.size()), body.data());
-    body.append(json);
-    return body;
 }
 }  // namespace
 
@@ -259,8 +223,8 @@ void Settings::loadLocalSchema() {
         }
 
         // Carry every group-level key except "sections" (rebuilt above) rather
-        // than naming them one by one — the sidebar icon was the first extra
-        // field, and the next one should not need a code change. A group with no
+        // than naming them one by one (icon, view, sectionOrder, …), so a new
+        // group-level field needs no code change here. A group with no
         // subsections at all is kept: it is the placeholder that fixes a
         // backend-only section's position, label and icon.
         QVariantMap groupMap = group.toVariantMap();
@@ -397,9 +361,8 @@ QVariant Settings::coerceLocal(const QJsonObject &setting, const QVariant &value
             return {};
         }
         const QString text = value.toString().trimmed();
-        // A nullable string may be cleared back to "not configured" — for the
-        // screensaver folder that is the difference between "no photos" and a
-        // directory literally named "".
+        // A nullable string may be cleared back to "not configured" rather than
+        // stored as a literal "".
         if (text.isEmpty() && !setting.value(QStringLiteral("nullable")).toBool()) {
             *error = QStringLiteral("arvo ei voi olla tyhjä");
             return {};
@@ -519,16 +482,13 @@ QVariantList Settings::decorateSections(const QVariantList &sections, bool local
         const QVariantList entries = section.value(QStringLiteral("settings")).toList();
         for (const QVariant &entryValue : entries) {
             QVariantMap entry = entryValue.toMap();
-            // A "hidden" entry is stored, coerced, persisted and readable through
+            // A "hidden" entry is stored, validated and readable through
             // values/valueOf exactly like any other — it is only kept out of the
-            // RENDERED list, because its editor lives inside the subsection's
-            // status widget rather than in a row of its own. The update channel
-            // is the case this exists for: it decides what that card reports, so
-            // it has to sit above the verdict rather than in a row underneath it,
-            // and a two-way choice on a touch panel is a segmented control, not a
-            // dropdown. Filtered HERE, at the rendering boundary, so the
-            // empty-subsection drop below still counts correctly and everything
-            // that persists a value (which walks m_localSchema) is untouched.
+            // RENDERED list: a value only a flow sets (the backend's
+            // logging.debugMinutes and Spotify device keys). Filtered HERE, at
+            // the rendering boundary, so the empty-subsection drop below still
+            // counts correctly and everything that persists a value (which walks
+            // m_localSchema) is untouched.
             if (entry.value(QStringLiteral("hidden")).toBool()) {
                 continue;
             }
@@ -582,8 +542,8 @@ void Settings::rebuildGroups() {
         sections = orderSections(
             sections, group.value(QStringLiteral("sectionOrder")).toStringList());
         // Empty means a placeholder that exists only to fix this group's
-        // position and name (media / tesla hold no local settings of their own),
-        // and its backend half has not arrived — hide it rather than show an
+        // position and name (electricity / tesla hold no local settings of their
+        // own), and its backend half has not arrived — hide it rather than show an
         // empty section. A group naming a `view` is the exception: it renders a
         // screen of its own instead of settings cards (Järjestelmän tila).
         if (sections.isEmpty() && group.value(QStringLiteral("view")).toString().isEmpty()) {
@@ -658,24 +618,8 @@ void Settings::setValue(const QString &key, const QVariant &value) {
     request.insert(QStringLiteral("key"), key);
     request.insert(QStringLiteral("value"), QJsonValue::fromVariant(value));
     logger.info(QStringLiteral("CONFIG_SET %1 = %2").arg(key, value.toString()));
-    m_server->sendPacket(protocol::frame(protocol::CONFIG_SET, jsonRequestBody(request)));
-}
-
-void Settings::resetToDefault(const QString &key) {
-    const auto schemaIt = m_localSchema.constFind(key);
-    if (schemaIt == m_localSchema.constEnd()) {
-        logger.warning(QStringLiteral("resetToDefault on non-local key %1").arg(key));
-        return;
-    }
-    m_values.insert(key, schemaIt.value().value(QStringLiteral("default")).toVariant());
-    m_overridden.remove(key);
-    saveLocalValues();
-    rebuildGroups();
-    // resetToDefault bypasses setLocal, and resetting backendPort to its default
-    // is itself a revert that must clear the banner.
-    refreshAppRestartPending();
-    logger.info(QStringLiteral("Setting %1 reset to default").arg(key));
-    emit writeSucceeded(key, schemaIt.value().value(QStringLiteral("apply")).toString());
+    m_server->sendPacket(
+        protocol::frame(protocol::CONFIG_SET, protocol::jsonRequestBody(request)));
 }
 
 void Settings::restartApp() {
@@ -709,11 +653,10 @@ void Settings::requestBackendRestart() {
     }
     logger.info(QStringLiteral("Requesting backend restart"));
     m_server->sendPacket(protocol::frame(protocol::CONFIG_RESTART));
-    // A current backend stamps every schema with startedAt, so the banner clears
-    // by itself when the RESTARTED process's schema arrives — strictly more
-    // honest than clearing here, which would hide the change if the restart never
-    // happened. Only an older backend that sends no stamp needs the optimistic
-    // clear this used to do unconditionally.
+    // The backend stamps every schema with startedAt, so the banner clears by
+    // itself when the RESTARTED process's schema arrives — more honest than
+    // clearing here, which would hide the change if the restart never happened.
+    // Only a schema with no stamp falls back to clearing optimistically.
     if (m_backendStartedAt == 0 && !m_backendRestartBaseline.isEmpty()) {
         m_backendRestartBaseline.clear();
         refreshBackendRestartPending();
@@ -759,16 +702,15 @@ void Settings::onPacket(quint8 type, const QByteArray &payload) {
 }
 
 void Settings::parseBackendSchema(const QByteArray &payload) {
-    quint8 status = protocol::CONFIG_STATUS_ERROR;
-    bool ok = false;
-    const QJsonDocument doc = readStatusJsonBody(payload, &status, &ok);
-    if (!ok || status != protocol::CONFIG_STATUS_OK || !doc.isObject()) {
+    const auto reply = protocol::readJsonReply(payload);
+    if (!reply || reply->status != protocol::CONFIG_STATUS_OK) {
         logger.warning(QStringLiteral("CONFIG_SCHEMA unusable; keeping previous"));
         return;
     }
+    const QJsonObject &schema = reply->body;
 
     QVariantList groups;
-    const QJsonArray array = doc.object().value(QStringLiteral("groups")).toArray();
+    const QJsonArray array = schema.value(QStringLiteral("groups")).toArray();
     for (const QJsonValue &group : array) {
         groups.append(group.toObject().toVariantMap());
     }
@@ -780,7 +722,7 @@ void Settings::parseBackendSchema(const QByteArray &payload) {
     // otherwise a still-pending change would go quiet the moment the socket
     // flapped.
     const qint64 startedAt =
-        static_cast<qint64>(doc.object().value(QStringLiteral("startedAt")).toDouble());
+        static_cast<qint64>(schema.value(QStringLiteral("startedAt")).toDouble());
     if (startedAt != 0 && startedAt != m_backendStartedAt) {
         m_backendStartedAt = startedAt;
         m_backendRestartBaseline.clear();
@@ -788,10 +730,9 @@ void Settings::parseBackendSchema(const QByteArray &payload) {
     rebuildBackendValueIndex();
     refreshBackendRestartPending();
 
-    // Optional: an older backend sends no path. Only overwrite when one is
-    // present, so a malformed or partial document cannot blank a path the view
-    // is already showing.
-    const QString path = doc.object().value(QStringLiteral("path")).toString();
+    // Optional in the document. Only overwrite when one is present, so a
+    // malformed or partial document cannot blank a path already known.
+    const QString path = schema.value(QStringLiteral("path")).toString();
     if (!path.isEmpty()) {
         m_backendStoragePath = path;
     }
@@ -804,19 +745,17 @@ void Settings::parseBackendSchema(const QByteArray &payload) {
 }
 
 void Settings::parseSetResult(const QByteArray &payload) {
-    quint8 status = protocol::CONFIG_STATUS_ERROR;
-    bool ok = false;
-    const QJsonDocument doc = readStatusJsonBody(payload, &status, &ok);
-    if (!ok || !doc.isObject()) {
+    const auto reply = protocol::readJsonReply(payload);
+    if (!reply) {
         logger.warning(QStringLiteral("Malformed CONFIG_SET_RESULT"));
         return;
     }
-    const QJsonObject result = doc.object();
+    const QJsonObject &result = reply->body;
     const QString key = result.value(QStringLiteral("key")).toString();
     const QString message = result.value(QStringLiteral("message")).toString();
     const QString applied = result.value(QStringLiteral("applied")).toString();
 
-    if (status != protocol::CONFIG_STATUS_OK) {
+    if (reply->status != protocol::CONFIG_STATUS_OK) {
         logger.warning(QStringLiteral("Backend rejected %1: %2").arg(key, message));
         emit writeFailed(key, message);
         return;
