@@ -418,7 +418,9 @@ Item {
             boundsBehavior: Flickable.StopAtBounds
 
             readonly property real itemW: width / daysCard.perPage
-            readonly property int first: Math.round(contentX / itemW)
+            // From originX, not 0: a ListView's content need not start at 0 (it sat at -853 here,
+            // with contentX equal to it at the first day), which left every dot unlit.
+            readonly property int first: itemW > 0 ? Math.round((contentX - originX) / itemW) : 0
 
             delegate: Item {
                 id: dayCol
