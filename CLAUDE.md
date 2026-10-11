@@ -106,7 +106,7 @@ backend/                          # ★ orchestration, service contracts, .env +
       logger_configurator.py      # Shared stdout logging setup
 
 frontend_v2/                      # ★ Qt Quick/QML frontend — the live target (Main.qml, main.cpp)
-  app/                            # Theme.qml (design tokens + settings façade), ViewController.qml
+  app/                            # Theme.qml (design tokens + settings façade), ViewController.qml, Format.js
   config/                         # settings.json (bundled Options-view schema), notifications.json
   core/                           # ★ C++: ServerClient, protocol.hh, Logger, AppConfig, Settings + QML singletons
     tesla/ media/ weather/ charging/ trip/ notification/   # per-domain data models
@@ -166,12 +166,13 @@ frozen `frontend/` has its own commands in `frontend/CLAUDE.md`.
 
 ### 3.3 Validation
 
-No automated test suite exists yet. Validate manually:
+There is no test suite beyond two standalone backend scripts (`backend/tests/test_spot_price.py`,
+`test_trip_loader.py`; run one with `uv run python tests/<file>` from `backend/`). Validate manually:
 - **Backend**: `python -m compileall backend/src`, then start the stack and confirm
   telemetry / media / weather / HVAC flows in the logs.
 - **Frontend**: rebuild, launch, connect to the backend, exercise the affected widgets.
 - **Protocol changes**: test both directions — backend logs + frontend `qt`/`*.data` logs.
-- New tests, when added, go under `backend/tests/test_*.py` and `frontend/tests/` (CTest).
+- New tests, when added, go under `backend/tests/test_*.py` and `frontend_v2/tests/` (Qt Test, CTest).
 
 See the **Agent validation policy** (§7.3) for what the agent does vs. defers to the user.
 
@@ -349,10 +350,10 @@ example in `backend/CLAUDE.md`.
 
 ### 7.3 Agent validation policy
 **The agent builds the frontend** — compile errors should surface in the session that caused them, not
-on the user's next manual build. Use `scripts\build-frontend.ps1` (§8) after frontend changes; it is
-incremental and sccache-backed, so a rebuild after a small edit is cheap. Report build failures with
+on the user's next manual build. Use the platform's build script (§8) after frontend changes; it is
+incremental and compiler-cached, so a rebuild after a small edit is cheap. Report build failures with
 the compiler output. Running the built binary is still the user's call (it needs the 1280×800 display
-and a live backend), so report what to look for at runtime rather than launching `gui.exe`.
+and a live backend), so report what to look for at runtime rather than launching it.
 **Ignore clangd "file not found" / "unknown type" diagnostics on Qt headers** in the editor — the real
 CMake build resolves them. For the backend: don't start long-running services; `python -m compileall
 backend/src` is the syntax check and the user runs the live stack.
@@ -362,7 +363,7 @@ first line of defence, catching syntax breakage without a full build:
 - `backend/src/**.py` → `python -m compileall backend/src`
 - `**.qml` → `qmllint` (newest installed Qt kit; `TESLA_HOMEDASH_QMLLINT` overrides the path)
 
-The QML check is deliberately gated to `[syntax]` warnings and `Error:` lines. qmllint reports ~750
+The QML check is deliberately gated to `[syntax]` warnings and `Error:` lines. qmllint reports hundreds of
 style diagnostics across `frontend_v2` (mostly `unqualified` access and `missing-property`) but **zero**
 syntax warnings — blocking on that backlog would fire on untouched code, so the hook matches
 `compileall`'s contract: catch syntax, leave style alone. A machine with no Qt kit skips the QML check
@@ -455,8 +456,41 @@ trips on a *Matkat* card of their own, and service-card values that wrap instead
 Media › *Taajuuskorjain*: a five-band equalizer and a bass shelf on a PipeWire filter-chain the
 audio service runs only while the curve is not flat, drawn as knobs on a curve by `EqualizerPanel`
 — plus, on `prototype/weather-view`, the Weather view (*Sää*) on live FMI data: the backend's
-`WEATHER_VIEW` document (`weather_service/weather_view.py`) and a pannable, zoomable radar map.
+`WEATHER_VIEW` document (`weather_service/weather_view.py`) and a pannable, zoomable radar map — plus
+the pre-release cleanup: the shared helpers listed in §7.8 in place of their copies, the dead code
+and stale comments gone, and the rules in §7.8 that keep them out.
 When you land a change that touches documented behaviour, update this line.
+
+### 7.8 Keeping the code clean
+Four kinds of debris do not belong in this codebase; review your own diff for them before committing.
+
+- **Comments say why, not what.** Keep a comment only if a first-time reader would lose information
+  without it: the reason for a non-obvious choice (and the alternative rejected), an invariant, a
+  unit or valid range, a protocol, timing or hardware constraint, a workaround with its ticket
+  (QTBUG-…, labwc#…, #N). Don't restate the next line, narrate steps, or put section banners in a
+  short file. A rationale lives once, at the definition; elsewhere a pointer at most.
+- **Describe the present.** No "now", "no longer", "used to", "originally", "was previously", "until
+  now" or "in later stages", in comments or in any `CLAUDE.md`; history is in git. A change fixes the
+  comments and the nearest `CLAUDE.md` it makes wrong in the same commit, and a pointer to a section,
+  function or file that no longer exists is a bug.
+- **No dead code.** Delete what nothing uses — functions, parameters, flags, `Q_PROPERTY`s and
+  `Q_INVOKABLE`s no QML reads, `Theme` tokens, whole files — instead of keeping it for later; git has
+  it. Commented-out code is never committed. Don't add a parameter, option or extension point that
+  no caller needs yet.
+- **Reuse before you copy.** Check for a helper before writing a second copy of anything:
+  - Wire format: `utils/protocol.py` (`frame`, `json_frame`, `parse_json_body`, `request_epoch`) and
+    its mirror `frontend_v2/core/protocol.hh` (`frame`, `jsonRequestBody`, `readJsonReply`,
+    `readString` / `writeString`, `readSeries`, `historyRequestBody`).
+  - Backend: `utils/process.run` for any command run to completion, `utils/atomic_write.write_atomic`
+    for any whole-file rewrite, `utils/timeline` for trip/charging segmentation,
+    `influxdb_service/series.py` and `influxdb_handler.to_flux_time` for history reads,
+    `BaseMediaPlayer._send*` for media packets.
+  - Frontend: `core/seriesbounds.hh` for graph bounds, `TeslaData::qmlName` for a registry id's
+    property name, `app/Format.js` for displayed values ("—" for a missing one),
+    `items/settings/ModalDialog.qml` for a dialog, and the motion pieces in `items/util/`.
+
+  Two copies that behave differently are merged only once you know which behaviour is right — ask
+  when it is not obvious.
 
 ## 8. Session workflow — main checkout by default, worktree only for parallelism
 
