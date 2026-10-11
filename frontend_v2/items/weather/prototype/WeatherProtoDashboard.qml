@@ -191,11 +191,17 @@ Item {
                     value: U.visibility(root.now.visibility)
                     sub: U.cloudText(root.now.cloudOktas)
                 }
+                // Snow from November to March, UV index for the rest of the year.
                 Metric {
                     Layout.fillWidth: true
-                    label: qsTr("Lumi")
-                    value: root.now.snowDepth === null || root.now.snowDepth < 0
-                           ? qsTr("Ei lunta") : Math.round(root.now.snowDepth) + " cm"
+                    readonly property bool snowSeason: [10, 11, 0, 1, 2].indexOf(root.clock.getMonth()) >= 0
+                    label: snowSeason ? qsTr("Lumi") : qsTr("UV-indeksi")
+                    value: snowSeason
+                           ? (root.now.snowDepth === null || root.now.snowDepth < 0
+                              ? qsTr("Ei lunta") : Math.round(root.now.snowDepth) + " cm")
+                           : (root.now.uvIndex === null || root.now.uvIndex === undefined
+                              ? "–" : Math.round(root.now.uvIndex).toString())
+                    sub: snowSeason ? "" : qsTr("arvio säteilystä")
                 }
             }
 
