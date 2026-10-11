@@ -464,15 +464,33 @@ Item {
         scale: place ? place.s : 1
         transformOrigin: Item.TopLeft
 
-        function bolt(ctx, x, y, s) {
-            var pts = [[1.5, -8], [-4.5, 1], [-0.5, 1], [-2, 8], [4.5, -1.5], [0.5, -1.5]]
+        function cross(ctx, x, y, r) {
             ctx.beginPath()
-            ctx.moveTo(x + pts[0][0] * s, y + pts[0][1] * s)
-            for (var i = 1; i < pts.length; i++)
-                ctx.lineTo(x + pts[i][0] * s, y + pts[i][1] * s)
-            ctx.closePath()
-            ctx.fill()
+            ctx.moveTo(x - r, y - r)
+            ctx.lineTo(x + r, y + r)
+            ctx.moveTo(x + r, y - r)
+            ctx.lineTo(x - r, y + r)
             ctx.stroke()
+        }
+
+        // Yellow crosses outlined in black, so one shows on the radar's own yellow and red too.
+        // All of a group's outlines go down before its crosses, or each cross in a cluster
+        // would cut the one under it.
+        function crosses(ctx, list, r, width) {
+            ctx.lineCap = "round"
+            ctx.strokeStyle = "black"
+            ctx.lineWidth = width + 3
+            for (var i = 0; i < list.length; i++) {
+                ctx.globalAlpha = list[i].a
+                cross(ctx, list[i].x, list[i].y, r)
+            }
+            ctx.strokeStyle = "#ffd21f"
+            ctx.lineWidth = width
+            for (var j = 0; j < list.length; j++) {
+                ctx.globalAlpha = list[j].a
+                cross(ctx, list[j].x, list[j].y, r)
+            }
+            ctx.globalAlpha = 1
         }
 
         onPaint: {
@@ -488,37 +506,23 @@ Item {
             var trail = root.frameCount * step
             // A failed refresh leaves the last list in place; drop what has left the loop.
             var loopStart = root.frameTimes[0].getTime() - step
-            ctx.lineJoin = "round"
-            ctx.lineWidth = 1
-            ctx.strokeStyle = "rgba(0, 0, 0, 0.7)"
 
-            // Earlier strikes of the loop first, so this frame's draw on top of them.
+            // This frame's strikes full size, the loop's earlier ones smaller and fading with
+            // age, drawn first so this frame's land on top of them.
+            var earlier = []
             var fresh = []
-            ctx.fillStyle = "#ffbf3d"
             for (var i = 0; i < root.strikes.length; i++) {
                 var s = root.strikes[i]
                 if (s.t > end || s.t <= loopStart)
                     continue
                 var p = root.toPixel(s, v)
-                if (s.t > f - step) {
-                    fresh.push(p)
-                    continue
-                }
-                ctx.globalAlpha = Math.max(0.2, 0.85 - 0.65 * (f - s.t) / trail)
-                bolt(ctx, p.x, p.y, 0.75)
+                if (s.t > f - step)
+                    fresh.push({ x: p.x, y: p.y, a: 1 })
+                else
+                    earlier.push({ x: p.x, y: p.y, a: Math.max(0.3, 0.9 - 0.6 * (f - s.t) / trail) })
             }
-            ctx.globalAlpha = 1
-            for (var j = 0; j < fresh.length; j++) {
-                var glow = ctx.createRadialGradient(fresh[j].x, fresh[j].y, 0, fresh[j].x, fresh[j].y, 14)
-                glow.addColorStop(0, "rgba(255, 240, 150, 0.45)")
-                glow.addColorStop(1, "rgba(255, 240, 150, 0)")
-                ctx.fillStyle = glow
-                ctx.beginPath()
-                ctx.arc(fresh[j].x, fresh[j].y, 14, 0, 2 * Math.PI)
-                ctx.fill()
-                ctx.fillStyle = "#fff6b0"
-                bolt(ctx, fresh[j].x, fresh[j].y, 1.15)
-            }
+            crosses(ctx, earlier, 3.5, 2)
+            crosses(ctx, fresh, 5, 2.5)
         }
     }
 

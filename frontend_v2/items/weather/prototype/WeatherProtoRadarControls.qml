@@ -109,18 +109,27 @@ GlassPanel {
             visible: bar.radar !== null && bar.radar.strikes.length > 0
             anchors.verticalCenter: parent.verticalCenter
             spacing: 4
+            // The map's strike mark: a yellow cross outlined in black.
             Shape {
-                width: 10
-                height: 16
+                width: 14
+                height: 14
                 anchors.verticalCenter: parent.verticalCenter
                 preferredRendererType: Shape.CurveRenderer
                 ShapePath {
-                    fillColor: "#fff6b0"
-                    strokeColor: "transparent"
-                    PathPolyline {
-                        path: [Qt.point(6.5, 0), Qt.point(0.5, 9), Qt.point(4.5, 9), Qt.point(3, 16),
-                               Qt.point(9.5, 6.5), Qt.point(5.5, 6.5), Qt.point(6.5, 0)]
-                    }
+                    strokeColor: "black"
+                    strokeWidth: 5.5
+                    fillColor: "transparent"
+                    capStyle: ShapePath.RoundCap
+                    PathMultiline { paths: [[Qt.point(2.5, 2.5), Qt.point(11.5, 11.5)],
+                                            [Qt.point(11.5, 2.5), Qt.point(2.5, 11.5)]] }
+                }
+                ShapePath {
+                    strokeColor: "#ffd21f"
+                    strokeWidth: 2.5
+                    fillColor: "transparent"
+                    capStyle: ShapePath.RoundCap
+                    PathMultiline { paths: [[Qt.point(2.5, 2.5), Qt.point(11.5, 11.5)],
+                                            [Qt.point(11.5, 2.5), Qt.point(2.5, 11.5)]] }
                 }
             }
             Text {
