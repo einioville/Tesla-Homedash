@@ -40,6 +40,8 @@ Window {
     readonly property var viewModel: [
         { name: qsTr("Dashboard"), icon: "qrc:/resources/icons/home.svg", component: dashboardComponent },
         { name: qsTr("Kartta"), icon: "qrc:/resources/icons/location.svg", component: mapComponent },
+        // PROTOTYPE (prototype/weather-view): the Weather view.
+        { name: qsTr("Sää"), icon: "qrc:/resources/icons/weather/clouds.svg", component: weatherComponent },
         { name: qsTr("Musiikki"), icon: "qrc:/resources/icons/music.svg", component: mediaComponent },
         { name: qsTr("Historia"), icon: "qrc:/resources/icons/chart_line.svg", component: historyComponent },
         { name: qsTr("Matkat"), icon: "qrc:/resources/icons/trip.svg", component: tripsComponent },
@@ -66,6 +68,7 @@ Window {
 
     Component { id: dashboardComponent; DashboardView {} }
     Component { id: mapComponent; MapView {} }
+    Component { id: weatherComponent; WeatherPrototypeView {} }
     Component { id: mediaComponent; MediaView {} }
     Component { id: historyComponent; HistoryView {} }
     Component { id: tripsComponent; TripsView {} }
