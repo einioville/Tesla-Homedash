@@ -232,12 +232,11 @@ class AudioService:
         '''
         changed = force or device != self.__output_device
         self.__output_device = device
-        equalizer = self.__equalizer
-        if equalizer is not None and equalizer.running:
+        if self.__eq_running():
             # The chain is the default output and stays so; the choice moves
             # where the chain plays instead.
             if changed:
-                await equalizer.set_target(self.__equalizer_target())
+                await self.__equalizer.set_target(self.__equalizer_target())
         elif device and changed:
             await self.__backend.set_default_device(device)
             await self.__refresh_devices()
