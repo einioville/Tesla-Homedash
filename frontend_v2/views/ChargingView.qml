@@ -5,7 +5,7 @@ import frontend_v2
 // Charging view ("Lataus"): the myenergi charger.
 //   • left column (60% width): two stacked past-hour power graphs (grid + charge power);
 //   • right column (40% width): a live status strip on top, then the month-to-date stats
-//     grid (2×5 of the computed month metrics).
+//     grid (2×5 of the computed month metrics plus a full-width footer).
 // Matches the Trips view's minimalistic translucent-grey card style. State is preserved
 // across view switches (kept alive, no reload on re-show); the live graph buffering +
 // month refresh are gated on isCurrent so a hidden view does no per-frame work.

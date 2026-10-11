@@ -2,9 +2,9 @@ import QtQuick
 import QtQuick.Layouts
 import frontend_v2
 
-// Current-hour banner — the QML port of CurrentWeatherCard. A horizontal strip:
-// big temperature on the left, then wind / precipitation / cloud cover pushed
-// to the right and separated by vertical white rules. Binds Weather.current.
+// Current-hour banner. A horizontal strip: big temperature on the left, then
+// wind / precipitation / cloud cover pushed to the right and separated by
+// vertical white rules. Binds Weather.current.
 Rectangle {
     id: banner
 

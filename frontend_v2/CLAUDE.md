@@ -23,8 +23,8 @@ resources/      # fonts, icons, styles, Luna
 
 | Working on | Read |
 |---|---|
-| A `core/` singleton — `Settings`, `Probe`, `Display`, `System`, `SystemHistory`, `Logs`, `SpotifyAuth`, `SpotifyDevice`, `Updater` | `core/CLAUDE.md` |
-| The Options view's QML — layout, schema keys, delegates, status widgets, folder picker | `items/settings/CLAUDE.md` |
+| A `core/` singleton — `Settings`, `Probe`, `Photos`, `UsbImport`, `Display`, `System`, `SystemHistory`, `Logs`, `TeslaFields`, `SpotifyAuth`, `SpotifyDevice`, `Updater` | `core/CLAUDE.md` |
+| The Options view's QML — layout, schema keys, delegates, status widgets, the USB photo import | `items/settings/CLAUDE.md` |
 | The map — `items/tesla/TeslaMap.qml` (full-screen in `views/MapView.qml`; `items/trip/TripMap.qml` shares its gesture handlers) | `items/tesla/CLAUDE.md` |
 | A graph — every one is `items/history/HistoryGraph.qml`; its multi-line additions (`extraSeries`, fixed range, `wheelZoom`) | `items/settings/CLAUDE.md`, *Järjestelmän tila* |
 | `items/util/ScreenSaver.qml` | `items/util/CLAUDE.md` |
@@ -44,18 +44,22 @@ All optional; defaults match the embedded target.
   fixed-size lock; windowed mode locks to the configured size. **In `frontend_v2` this is the
   `fullscreen` SETTING's env default**, not a variable `AppConfig` reads — so a saved override in
   the Options view beats it, per the usual `schema default < env/.env < saved override` precedence.
-  It did nothing at all until the setting existed: `Main.qml` was a hard-locked 1280×800 window and
-  `scripts/build-frontend.sh --fullscreen` exported the variable to a binary that ignored it.
+  `scripts/build-frontend.sh --run --fullscreen` sets it to `1`.
 - `TESLA_HOMEDASH_LOG_LEVEL` — `debug`/`info`/`warning`/`error`/`critical` (default `info`;
   invalid → `info` + a startup warning).
 - `TESLA_HOMEDASH_LOG_DIR` — where `frontend.log` goes, beside the backend's files (default
   `<GenericStateLocation>/Tesla-Homedash/logs`, i.e. `~/.local/state/…`; the backend's rule).
 - `TESLA_HOMEDASH_SETTINGS_FILE` — override the path of the frontend's writable settings
   file (default `<QStandardPaths::GenericConfigLocation>/Tesla-Homedash/frontend_config.json`
-  — i.e. beside the backend's `backend_config.json`). A file at the pre-move
-  `AppConfigLocation/settings.json` is copied over once on first run.
-- `TESLA_HOMEDASH_SCREENSAVER_DIR` — no longer read: the screensaver's photos live in a fixed
-  folder (`core/CLAUDE.md`, under `Photos`), and a startup warning names it if this is still set.
+  — i.e. beside the backend's `backend_config.json`). With no override, while that file does not
+  exist yet, a legacy `AppConfigLocation/settings.json` (`~/.config/appfrontend_v2/`) is copied
+  (not moved) to it (`Settings::migrateLegacyStorage`).
+- `TESLA_HOMEDASH_NOTIFICATIONS_CONFIG` — path to a notification-rules file used instead of the
+  bundled `config/notifications.json`, read once at startup by `NotificationHandler::loadConfig`.
+  Process environment only (not `.env`). A file that cannot be opened falls back to the bundled
+  rules with a warning; one that is not a JSON object disables notifications with a warning.
+- `TESLA_HOMEDASH_SCREENSAVER_DIR` — not read: the screensaver's photos live in a fixed folder
+  (`core/CLAUDE.md`, under `Photos`), and a startup warning names that folder if this is set.
 - `TESLA_HOMEDASH_MAP_API_KEY` — the MML open-data key, read by `AppConfig` straight from the
   environment / `.env` (a deployment secret, not an Options-view setting). With it the map uses
   MML's 0.5 m orthophoto; without it, the keyless EOX Sentinel-2 imagery plus a startup warning.
@@ -67,15 +71,16 @@ written to the writable file above via `QSaveFile`. A schema entry may name an `
 making that environment variable supply the setting's **default** — so the precedence is
 `schema default < env/.env < saved user override`, and an existing deployment's `.env` keeps
 working until the user changes the setting on-device. `TESLA_HOMEDASH_BACKEND_HOST`, `_PORT`
-and `_SCREENSAVER_TIMEOUT_MIN` are wired this way; `AppConfig` reads the resolved values from
-`Settings` rather than the environment directly.
+and `_SCREENSAVER_TIMEOUT_MIN` are wired this way. `AppConfig`, which consumes those three at
+startup, applies the same precedence itself: the saved override from `Settings::savedValue()`,
+else the environment / `.env` (`core/dotenv`), else its own default.
 
 ## `app/Theme.qml` — the settings façade
 
 Tokens that are user-tunable are bound (`readonly property bool
 lunaEnabled: Settings.values.lunaEnabled`) instead of being literals; everything else stays a
-`readonly` literal that qmlcachegen AOT-compiles. A property initialiser is a *binding*, so all ~236
-existing `Theme.x` call sites across 38 files keep working unchanged and gain live updates for free.
+`readonly` literal that qmlcachegen AOT-compiles. A property initialiser is a *binding*, so every
+`Theme.x` call site gets live updates with no change of its own.
 **Add a tunable = one schema entry + one Theme binding**, no call-site edits.
 
 ## Fullscreen
@@ -123,8 +128,8 @@ module installed. The only locale is `fi_FI`, which drops the language-switch ke
   siblings within one parent only — and a scrim's tap-swallowing `MouseArea` is equally powerless
   against it. The reveal handler sits above the views too, so the dock can be swiped up at any
   moment. On the 1280×800 target it occupies **y 684–780**: a tall modal must be anchored and sized
-  to end above that band, or its buttons land under the dock (`items/settings/CLAUDE.md`, folder
-  browser, is the measured case).
+  to end above that band, or its buttons land under the dock (`items/settings/CLAUDE.md`, *USB
+  photo import*, is a case).
 - **App-level layers in `Main.qml`:** notifications z:200, the Spotify re-auth prompt z:250 and its
   progress dialog z:260, the update banner z:270, the keyboard's outside-press catcher z:280 and the
   keyboard itself z:290, the screensaver z:300. Something that must be seen
@@ -143,8 +148,7 @@ module installed. The only locale is `fi_FI`, which drops the language-switch ke
 `core/notification/notificationhandler.{hh,cpp}` (`Notifications`) turns the rules in
 `config/notifications.json` into `notify(id, message)`; `items/util/NotificationLayer.qml` shows
 every one, each held for `Theme.notificationDurationMs`, so the file holds rules only. The Options
-view has no notification settings for now — they are due back in a notifications section of their
-own (#51).
+view has no notification settings; a notifications section of their own is #51.
 
 ## Logging (`core/logger.{hh,cpp}`)
 

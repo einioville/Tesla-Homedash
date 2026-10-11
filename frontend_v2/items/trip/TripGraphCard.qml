@@ -4,9 +4,7 @@ import frontend_v2
 // The Trips-view detail graph card: the shared HistoryGraph fed from the Trips
 // singleton's per-trip series, in a minimalistic translucent-grey card. It is a pure
 // renderer — TripsView requests the series (Trips.requestSeries) on trip selection; the
-// graph redraws whenever a series arrives.
-//
-// For now the graph plots ONLY VehicleSpeed (the default graph look — axes + margins).
+// graph redraws whenever a series arrives. It plots VehicleSpeed only.
 Item {
     id: root
 
@@ -52,7 +50,7 @@ Item {
         }
     }
 
-    // Static graph title (the dropdown is disabled while the graph is speed-only).
+    // Static graph title: the card plots speed only.
     Text {
         anchors.left: parent.left
         anchors.top: parent.top

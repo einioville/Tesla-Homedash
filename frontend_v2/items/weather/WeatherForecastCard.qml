@@ -2,9 +2,9 @@ import QtQuick
 import QtQuick.Layouts
 import frontend_v2
 
-// One forecast hour — the QML port of WeatherForecastCard. Translucent panel
-// with the hour on top, then temperature / wind / precipitation / cloud cover
-// rows separated by thin white rules, each with a white-tinted glyph.
+// One forecast hour: a translucent panel with the hour on top, then temperature /
+// wind / precipitation / cloud cover rows separated by thin white rules, each with
+// a white-tinted glyph.
 Rectangle {
     id: cardRoot
 

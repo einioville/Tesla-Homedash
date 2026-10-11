@@ -5,7 +5,7 @@ import frontend_v2
 
 // Trips-view map: a free-pan/zoom OSM map (no car-follow) that draws the selected
 // trip's GPS path as a colour-graded polyline. The route comes from the Trips
-// singleton ({ latitude, longitude, speed } per fix); the map fits its viewport to
+// singleton ({ latitude, longitude, speed, ts } per fix); the map fits its viewport to
 // the route when one arrives.
 //
 // The line is drawn on a Canvas overlaid on the map (a sibling on top, like the
@@ -33,13 +33,13 @@ Item {
     property real lineWidth: Theme.tripRouteWidth
     property real defaultZoom: 12
 
-    // Plain-JS snapshot of Trips.route ([{ lat, lon, speed }, ...]), taken once per
+    // Plain-JS snapshot of Trips.route ([{ lat, lon, speed, ts }, ...]), taken once per
     // route change. Decimation reads THIS, not the Trips.route QVariantList, so a
     // pinch-zoom (which re-decimates on every zoom delta) never re-marshals each
     // QVariantMap out of the singleton.
     property var rawRoute: []
 
-    // The decimated survivor list [{ lat, lon, speed }, ...], rebuilt on zoom / route
+    // The decimated survivor list (entries of rawRoute), rebuilt on zoom / route
     // change; the paint step then projects only the on-screen survivors.
     property var decimated: []
 

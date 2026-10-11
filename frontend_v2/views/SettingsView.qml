@@ -11,9 +11,9 @@ import frontend_v2
 // flow through the same code. Adding a tunable anywhere adds a row here with no
 // QML change.
 //
-// Selection is held as a group ID, not an index: the section list grows from
-// three entries to eight when the backend's schema arrives, and shrinks again if
-// the backend disappears, so an index would quietly select a different section.
+// Selection is held as a group ID, not an index: the section list grows when the
+// backend's schema arrives (Sähkö and Tesla are backend-only), and shrinks again
+// if the backend disappears, so an index would quietly select a different section.
 //
 // State is preserved across view switches (ViewController keeps views alive), so
 // the section you were on is still selected when you come back. No per-frame work
@@ -25,7 +25,7 @@ Rectangle {
     color: Theme.tripBackground
 
     // The section the user last CHOSE. Deliberately kept even while that section
-    // is absent from the list: the backend's five sections disappear when the
+    // is absent from the list: the backend-only sections disappear when the
     // connection drops and come back when it returns, and overwriting this on
     // every list change would bounce the user to the first section and leave them
     // there after a reconnect. Only a tap changes it.
@@ -113,10 +113,10 @@ Rectangle {
     Connections {
         target: Settings
 
-        // Actions Settings does not handle itself belong to a view. The Spotify
-        // re-authorization is one: the backend owns the exchange, but the consent
-        // page is a UI concern and lives here. Device identification is the same
-        // shape — the backend does the scanning, this side only shows it.
+        // Actions Settings does not handle itself belong to a view. Each starts a
+        // flow whose work the backend does (Spotify re-authorization, device
+        // identification, the USB import) and this side only shows, or opens one
+        // of this view's dialogs.
         function onActionRequested(key) {
             if (key === "spotifyReauth")
                 SpotifyAuth.begin()

@@ -35,8 +35,6 @@ Window {
     // Single source of truth for the views: the dock reads name/icon, the
     // ViewController reads component. Add a view by adding one entry here plus
     // its inline Component below.
-    // The legacy dashboard is the only view for now (the data-layer demo views
-    // were dropped). New views slot in here as the design evolves.
     readonly property var viewModel: [
         { name: qsTr("Dashboard"), icon: "qrc:/resources/icons/home.svg", component: dashboardComponent },
         { name: qsTr("Kartta"), icon: "qrc:/resources/icons/location.svg", component: mapComponent },
@@ -261,8 +259,7 @@ Window {
 
     // Idle screensaver: after the inactivity timeout (or F10 for testing) it fades
     // in a black photo pile and dismisses on tap, revealing the last-used view.
-    // Sits above every other layer (dock z:default, notifications z:200,
-    // Spotify prompt/dialog z:250/260).
+    // Sits above every other layer (the z-order list is in frontend_v2/CLAUDE.md).
     ScreenSaver {
         id: screenSaver
         anchors.fill: parent

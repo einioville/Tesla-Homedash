@@ -1,12 +1,11 @@
 import QtQuick
 import frontend_v2
 
-// The production dashboard, recreated from the Widgets frontend's MainWindow:
-// a 10×16 grid (10px margins, 10px gaps) holding the map, two telemetry lists,
-// the media card, the weather panel and the climate panel. Cell geometry is
-// computed exactly as the original QGridLayout did, so the six cards land in
-// the same positions on the fixed 1280×800 surface. The dock floats over the
-// cards (a frosted overlay), so the grid is NOT inset for it.
+// The dashboard: a 10×16 grid (10px margins, 10px gaps) holding the map, two
+// telemetry lists, the media card, the weather panel and the climate panel. Cell
+// geometry is computed as the Widgets frontend's MainWindow QGridLayout does it,
+// so the six cards sit in the same positions on the fixed 1280×800 surface. The
+// dock floats over the cards (a frosted overlay), so the grid is NOT inset for it.
 Rectangle {
     id: view
 
