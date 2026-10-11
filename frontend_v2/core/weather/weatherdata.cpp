@@ -6,10 +6,7 @@
 
 #include <QDataStream>
 #include <QIODevice>
-#include <QJsonDocument>
 #include <QJsonObject>
-#include <QJsonParseError>
-#include <QtEndian>
 #include <QVector>
 #include <algorithm>
 
@@ -130,26 +127,14 @@ void WeatherData::onPacket(quint8 type, const QByteArray &payload) {
 }
 
 void WeatherData::onViewPacket(const QByteArray &payload) {
-    // status(1B) + len(4B) + UTF-8 JSON. A bad frame keeps the last good document, as the
-    // backend keeps its last good frame through a failed fetch.
-    if (payload.size() < 5) {
-        logger.warning(QStringLiteral("Weather view frame too short | size=%1").arg(payload.size()));
+    // A bad frame keeps the last good document, as the backend keeps its last good frame
+    // through a failed fetch.
+    const auto reply = protocol::readJsonReply(payload);
+    if (!reply) {
+        logger.warning(QStringLiteral("Malformed WEATHER_VIEW"));
         return;
     }
-    const quint32 length = qFromBigEndian<quint32>(payload.constData() + 1);
-    if (static_cast<qint64>(length) > payload.size() - 5) {
-        logger.warning(QStringLiteral("Weather view frame truncated | declared=%1 size=%2")
-                           .arg(length)
-                           .arg(payload.size()));
-        return;
-    }
-    QJsonParseError error;
-    const QJsonDocument doc = QJsonDocument::fromJson(payload.mid(5, length), &error);
-    if (error.error != QJsonParseError::NoError || !doc.isObject()) {
-        logger.warning(QStringLiteral("Weather view JSON unreadable | %1").arg(error.errorString()));
-        return;
-    }
-    m_view = doc.object().toVariantMap();
+    m_view = reply->body.toVariantMap();
     emit viewChanged();
     logger.debug(QStringLiteral("Weather view updated | hours=%1")
                      .arg(m_view.value(QStringLiteral("hourly")).toList().size()));

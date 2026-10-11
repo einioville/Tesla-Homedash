@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import math
 import struct
@@ -320,10 +319,8 @@ class WeatherService:
         # describes the new place, and this one must not land after it.
         if place != self.__place:
             return
-        body = json.dumps(document, ensure_ascii=False).encode("utf-8")
-        self.__last_view = protocol.frame(
-            protocol.WEATHER_VIEW,
-            bytes((protocol.CONFIG_STATUS_OK,)) + struct.pack("!I", len(body)) + body,
+        self.__last_view = protocol.json_frame(
+            protocol.WEATHER_VIEW, protocol.CONFIG_STATUS_OK, document
         )
         self.__view_updated_ms = int(datetime.now().timestamp() * 1000)
         logger.info(
