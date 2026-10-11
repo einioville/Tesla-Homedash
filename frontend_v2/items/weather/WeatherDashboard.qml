@@ -2,7 +2,7 @@ import QtQuick
 import QtQuick.Layouts
 import QtQuick.Shapes
 import frontend_v2
-import "WeatherProtoUtil.js" as U
+import "WeatherUtil.js" as U
 
 // PROTOTYPE — variant A, "Kojelauta": everything at once in the app's card grid.
 //   row 1: now (merged station observations), sun and moon under it | the radar loop, big
@@ -63,7 +63,7 @@ Item {
         }
     }
 
-    component Card: WeatherProtoCard {}
+    component Card: WeatherCard {}
 
     component Metric: Column {
         property string label
@@ -78,7 +78,7 @@ Item {
         Text { text: parent.label; color: "#8f9aa6"; font.family: Theme.fontFamily; font.pixelSize: 12 }
         Row {
             spacing: 6
-            WeatherProtoWindArrow {
+            WeatherWindArrow {
                 visible: parent.parent.arrow >= 0
                 direction: parent.parent.arrow
                 size: 15
@@ -213,7 +213,7 @@ Item {
         x: root.margin; y: nowCard.y + nowCard.height + root.gap
         width: (nowCard.width - root.gap) / 2; height: radarCard.height - nowCard.height - root.gap
         title: qsTr("AURINKO")
-        WeatherProtoSunArc {
+        WeatherSunArc {
             anchors.fill: parent
             anchors.margins: 14
             anchors.topMargin: 40
@@ -231,7 +231,7 @@ Item {
             anchors.horizontalCenter: parent.horizontalCenter
             y: 40
             spacing: 4
-            WeatherProtoMoon {
+            WeatherMoon {
                 anchors.horizontalCenter: parent.horizontalCenter
                 width: 72; height: 72
                 illuminated: root.wx.astro.moonPhase
@@ -268,7 +268,7 @@ Item {
         // Drawn by the corner overlay below instead, where the map cannot cover its arcs.
         border.color: "transparent"
 
-        WeatherProtoRadarMap {
+        WeatherRadarMap {
             id: radar
             anchors.fill: parent
             latitude: root.wx.meta.lat
@@ -288,7 +288,7 @@ Item {
             style: Text.Outline
             styleColor: "#80000000"
         }
-        WeatherProtoRadarControls {
+        WeatherRadarControls {
             anchors.horizontalCenter: parent.horizontalCenter
             anchors.bottom: parent.bottom
             anchors.bottomMargin: 12
@@ -364,7 +364,7 @@ Item {
         }
     }
 
-    WeatherProtoHourlyCard {
+    WeatherHourlyCard {
         id: chartCard
         x: root.margin; y: radarCard.y + radarCard.height + root.gap
         width: root.innerW * 840 / 1250; height: root.height - root.margin - y

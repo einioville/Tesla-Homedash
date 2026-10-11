@@ -33,7 +33,7 @@ Rectangle {
     Loader {
         anchors.fill: parent
         active: Weather.hasView
-        sourceComponent: WeatherProtoDashboard {
+        sourceComponent: WeatherDashboard {
             wx: view.wx
             active: view.isCurrent
             demoLightning: view.demoLightning

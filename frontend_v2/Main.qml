@@ -66,7 +66,7 @@ Window {
 
     Component { id: dashboardComponent; DashboardView {} }
     Component { id: mapComponent; MapView {} }
-    Component { id: weatherComponent; WeatherPrototypeView {} }
+    Component { id: weatherComponent; WeatherView {} }
     Component { id: mediaComponent; MediaView {} }
     Component { id: historyComponent; HistoryView {} }
     Component { id: tripsComponent; TripsView {} }

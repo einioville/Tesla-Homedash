@@ -1,7 +1,7 @@
 import QtQuick
 import QtQuick.Shapes
 import frontend_v2
-import "WeatherProtoUtil.js" as U
+import "WeatherUtil.js" as U
 
 // PROTOTYPE — every forecast hour on one horizontally scrollable chart, `hoursVisible` of
 // them across the width: the temperature curve, rain bars with their amount on top, and a

@@ -117,7 +117,7 @@ qt_add_qml_module(appfrontend_v2
         views/TripsView.qml
         views/ChargingView.qml
         views/SettingsView.qml
-        views/WeatherPrototypeView.qml
+        views/WeatherView.qml
         items/settings/SettingRow.qml
         items/settings/SettingRules.qml
         items/settings/SettingSwitch.qml
@@ -204,16 +204,16 @@ qt_add_qml_module(appfrontend_v2
         items/media/MediaTransport.qml
         items/media/MediaSeekBar.qml
         items/weather/MainWeather.qml
-        items/weather/prototype/WeatherProtoUtil.js
-        items/weather/prototype/WeatherProtoWindArrow.qml
-        items/weather/prototype/WeatherProtoRadarMap.qml
-        items/weather/prototype/WeatherProtoRadarControls.qml
-        items/weather/prototype/WeatherProtoSunArc.qml
-        items/weather/prototype/WeatherProtoMoon.qml
-        items/weather/prototype/WeatherProtoCard.qml
-        items/weather/prototype/WeatherProtoChart.qml
-        items/weather/prototype/WeatherProtoHourlyCard.qml
-        items/weather/prototype/WeatherProtoDashboard.qml
+        items/weather/WeatherUtil.js
+        items/weather/WeatherWindArrow.qml
+        items/weather/WeatherRadarMap.qml
+        items/weather/WeatherRadarControls.qml
+        items/weather/WeatherSunArc.qml
+        items/weather/WeatherMoon.qml
+        items/weather/WeatherCard.qml
+        items/weather/WeatherChart.qml
+        items/weather/WeatherHourlyCard.qml
+        items/weather/WeatherDashboard.qml
 )
 
 set_target_properties(appfrontend_v2 PROPERTIES WIN32_EXECUTABLE TRUE)
