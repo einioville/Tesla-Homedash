@@ -213,6 +213,7 @@ qt_add_qml_module(appfrontend_v2
         items/weather/prototype/WeatherProtoRadarControls.qml
         items/weather/prototype/WeatherProtoSunArc.qml
         items/weather/prototype/WeatherProtoMoon.qml
+        items/weather/prototype/WeatherProtoCard.qml
         items/weather/prototype/WeatherProtoChart.qml
         items/weather/prototype/WeatherProtoDashboard.qml
 )

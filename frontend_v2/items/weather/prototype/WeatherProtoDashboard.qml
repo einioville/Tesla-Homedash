@@ -7,8 +7,20 @@ import "WeatherProtoUtil.js" as U
 //   row 1: now (merged station observations), sun and moon under it | the radar loop, big
 //   row 2: the hourly chart, 24 h wide and scrollable through the whole forecast | the
 //          coming days, three at a time and scrollable; a tapped day scrolls the chart
+//
+// The grid fills the view in the proportions it was designed in at 1280×800 — columns
+// 420 : 830 (row 2: 840 : 410), rows 550 : 220, the now card 340 of row 1 — with the
+// dashboard's fixed margin and gaps, so the cards grow with the window and lay their
+// contents out in whatever size they get.
 Item {
     id: root
+
+    readonly property real gap: 10
+    readonly property real margin: Theme.gridMargin
+    readonly property real innerW: width - 2 * margin - gap
+    readonly property real innerH: height - 2 * margin - gap
+    readonly property real leftW: innerW * 420 / 1250
+    readonly property real topH: innerH * 550 / 770
 
     property var wx: ({})
     property bool active: true
@@ -50,34 +62,7 @@ Item {
         }
     }
 
-    component Card: Rectangle {
-        property string title
-        property string note
-        color: "#12ffffff"
-        border.color: "#24ffffff"
-        border.width: 1
-        radius: 14
-        Text {
-            x: 14
-            y: 10
-            text: parent.title
-            color: "#8f9aa6"
-            font.family: Theme.fontFamily
-            font.pixelSize: 12
-            font.letterSpacing: 1.2
-            z: 2
-        }
-        Text {
-            anchors.right: parent.right
-            anchors.rightMargin: 14
-            y: 10
-            text: parent.note
-            color: "#6f7a86"
-            font.family: Theme.fontFamily
-            font.pixelSize: 12
-            z: 2
-        }
-    }
+    component Card: WeatherProtoCard {}
 
     component Metric: Column {
         property string label
@@ -102,7 +87,8 @@ Item {
     // ---- row 1 ---------------------------------------------------------------------------
     Card {
         id: nowCard
-        x: 10; y: 10; width: 420; height: 340
+        x: root.margin; y: root.margin
+        width: root.leftW; height: (root.topH - root.gap) * 340 / 540
         title: "NYT · " + (root.wx.meta.place || "").toUpperCase()
         note: root.now.time ? qsTr("havainto ") + root.now.time : ""
 
@@ -214,8 +200,8 @@ Item {
     // Sun and moon, side by side under the current weather.
     Card {
         id: sunCard
-        x: 10; y: nowCard.y + nowCard.height + 10
-        width: (nowCard.width - 10) / 2; height: radarCard.height - nowCard.height - 10
+        x: root.margin; y: nowCard.y + nowCard.height + root.gap
+        width: (nowCard.width - root.gap) / 2; height: radarCard.height - nowCard.height - root.gap
         title: qsTr("AURINKO")
         WeatherProtoSunArc {
             anchors.fill: parent
@@ -228,7 +214,7 @@ Item {
 
     Card {
         id: moonCard
-        x: sunCard.x + sunCard.width + 10; y: sunCard.y
+        x: sunCard.x + sunCard.width + root.gap; y: sunCard.y
         width: sunCard.width; height: sunCard.height
         title: qsTr("KUU")
         Column {
@@ -264,8 +250,8 @@ Item {
 
     Card {
         id: radarCard
-        x: nowCard.x + nowCard.width + 10; y: 10
-        width: 1270 - x; height: 550
+        x: nowCard.x + nowCard.width + root.gap; y: root.margin
+        width: root.width - root.margin - x; height: root.topH
         clip: true
         color: "black"
 
@@ -321,8 +307,8 @@ Item {
 
     Card {
         id: chartCard
-        x: 10; y: radarCard.y + radarCard.height + 10
-        width: 840; height: 790 - y
+        x: root.margin; y: radarCard.y + radarCard.height + root.gap
+        width: root.innerW * 840 / 1250; height: root.height - root.margin - y
         title: {
             var hs = root.wx.hourly || []
             if (root.selectedDay !== "") {
@@ -377,8 +363,8 @@ Item {
 
     Card {
         id: daysCard
-        x: chartCard.x + chartCard.width + 10; y: chartCard.y
-        width: 1270 - x; height: chartCard.height
+        x: chartCard.x + chartCard.width + root.gap; y: chartCard.y
+        width: root.width - root.margin - x; height: chartCard.height
         title: qsTr("SEURAAVAT PÄIVÄT")
 
         // From tomorrow (the chart's first 24 hours cover today) to the last day the
