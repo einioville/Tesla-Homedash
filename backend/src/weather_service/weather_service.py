@@ -172,8 +172,6 @@ class WeatherService:
         # connecting client so its weather UI populates immediately without
         # waiting for the next 15-minute cron tick.
         self.__last_forecast: bytes | None = None
-        # When the last forecast went out, for the status view.
-        self.__updated_ms: int | None = None
         # The Weather view's document (WEATHER_VIEW), refreshed every 10 minutes on its
         # own job; framed and cached like the forecast, for new clients.
         self.__view_builder = WeatherViewBuilder(self.__zone_info, _FMI_TIMEOUT)
@@ -317,7 +315,6 @@ class WeatherService:
         self.__last_forecast = protocol.frame(
             protocol.WEATHER_FORECAST, b"".join(stream_data)
         )
-        self.__updated_ms = int(datetime.now().timestamp() * 1000)
         await self.__server.broadcast(self.__last_forecast)
 
     async def __update_view(self) -> None:
