@@ -5,9 +5,9 @@ import frontend_v2
 // [−] [+] stepper). Lay it over the control; it takes the wheel only, so
 // presses, drags and taps go straight through to the control underneath.
 //
-// The same contract as HoldRepeatArea: `stepped(direction)` per step (+1 for
-// wheel away from the user, -1 toward), then `settled()` once the wheel has
-// been still for `settleDelay` ms. A caller that writes somewhere expensive
+// The same contract as HoldRepeatArea's stepped() / finished():
+// `stepped(direction)` per step (+1 for wheel away from the user, -1 toward),
+// then `settled()` once the wheel has been still for `settleDelay` ms. A caller that writes somewhere expensive
 // steps a pending value on `stepped` and commits once on `settled`, so a quick
 // spin of five notches is one write, not five.
 //

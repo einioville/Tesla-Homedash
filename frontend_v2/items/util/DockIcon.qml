@@ -17,7 +17,7 @@ Rectangle {
     implicitHeight: Theme.iconSize
     radius: Theme.iconRadius
     // Transparent tile: the dock's frosted glass is the background, so the button
-    // is just the white glyph (Theme.iconPlaceholder was a stand-in for the icon).
+    // is just the white glyph.
     color: "transparent"
 
     border.width: selected ? 3 : 0

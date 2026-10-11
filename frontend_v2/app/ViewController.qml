@@ -38,7 +38,7 @@ Item {
             onActiveChanged: if (active) keep = true
 
             // Paint and accept input only while current; hidden views stay loaded
-            // but frozen (see header). One view visible at a time → no z needed.
+            // but frozen (see header).
             visible: current
             enabled: current
 

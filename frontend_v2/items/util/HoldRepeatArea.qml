@@ -7,7 +7,7 @@ import QtQuick
 // A tap steps on RELEASE, like any button, so a press that turns into a drag
 // (the settings pane scrolling) steps nothing. A hold starts repeating after
 // `delay`, and the release that ends a hold adds no extra step — without that,
-// any tap held a little too long stepped twice.
+// any tap held a little too long would step twice.
 //
 // `canStep` stops it at a limit: the repeat halts and a tap does nothing, so a
 // held button never hammers against a bound. `finished()` fires once the press

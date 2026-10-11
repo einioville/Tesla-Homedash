@@ -11,7 +11,7 @@ singleton, `../../core/CLAUDE.md`). It is filled over scp or by the Options view
 folder, so photos copied in appear without a restart. With no photos the screensaver does not start
 (`hasPhotos`).
 
-Two measured facts about `FolderListModel` still shape it. **An empty `folder` at component
+Two measured facts about `FolderListModel` shape it. **An empty `folder` at component
 completion does NOT leave the model empty** — it falls back to *the application's working
 directory* and lists whatever images sit there — which is why the folder must never be bound to an
 empty value. And **`nameFilters` match case-sensitively by default**, so a lowercase-only list
@@ -49,7 +49,7 @@ onto the dashboard. The dock's auto-hide delay (`dockHideSec`) sits in the same 
 The press area behind every ± button (the climate card's target arrows, `SettingNumber`'s
 steppers), so they all behave the same (#48). A tap steps on **release**, so a press that becomes a
 drag steps nothing; a hold repeats after a 400 ms delay, and the release ending a hold adds no
-extra step (a naive `onClicked` + running `Timer` stepped twice on any slightly long tap).
+extra step (a naive `onClicked` + running `Timer` steps twice on any slightly long tap).
 `canStep` false stops the repeat and swallows the tap, so a held button stops at its limit instead
 of hammering it. `finished()` fires once per press however it ended, for callers that batch steps:
 **`SettingNumber` must**, because every settings write is a disk write (`../settings/CLAUDE.md`),
@@ -88,8 +88,9 @@ Four pieces exist so every future control moves and responds the same way. Their
   any scrolling page in place of a bare Flickable. (A ListView is its own Flickable: give it the
   same `boundsBehavior` and `rebound` to match.)
 - **`WheelStepArea.qml`** — mouse wheel → value steps, the wheel's counterpart to
-  `HoldRepeatArea` with the same contract: `stepped(direction)` per notch (120 units, touchpad
-  deltas added up), `settled()` once the wheel has been still for `settleDelay`. Lay it over the
-  whole control: `acceptedButtons: Qt.NoButton` lets presses and drags through, and it accepts
-  every wheel event it gets, so the page does not start scrolling when the value hits its limit. A
-  disabled control disables it too, and then the wheel scrolls the page as usual.
+  `HoldRepeatArea` with the same contract (`settled()` in place of `finished()`):
+  `stepped(direction)` per notch (120 units, touchpad deltas added up), `settled()` once the wheel
+  has been still for `settleDelay`. Lay it over the whole control: `acceptedButtons: Qt.NoButton`
+  lets presses and drags through, and it accepts every wheel event it gets, so the page does not
+  start scrolling when the value hits its limit. A disabled control disables it too, and then the
+  wheel scrolls the page as usual.

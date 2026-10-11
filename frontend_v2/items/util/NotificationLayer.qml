@@ -3,7 +3,7 @@ import QtQuick.Effects
 import frontend_v2
 
 // Smartphone-style notification overlay — a util feature alongside the dock.
-// Listens to the NotificationHandler singleton and slides each notification down
+// Listens to the Notifications singleton and slides each notification down
 // from the top centre in a frosted "liquid glass" pill (GlassPanel), holds it for
 // the grace period, then slides it back up. Several arriving in quick succession
 // are queued and shown one at a time. Backend is not involved.

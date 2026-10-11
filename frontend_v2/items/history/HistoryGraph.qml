@@ -16,14 +16,14 @@ import frontend_v2
 //  - The visible x-window [viewMinX, viewMaxX] can be panned/zoomed; the y-axis
 //    auto-fits the visible data (with a little padding) so nothing clips. The x-axis
 //    is time: tick marks + labels snap to nice clock boundaries and adapt to the window
-//    (times for hour-scale spans, dates for day-scale). Gridlines are off, only the line
-//    and the axis lines show.
+//    (times for hour-scale spans, dates for day-scale). Only faint horizontal gridlines
+//    show behind the line (gridLineColor); vertical ones are off.
 //
 // Interaction:
 //   Touch  — one finger moves the inspection line; two fingers pinch to zoom the
 //            x-window and slide to pan it.
 //   Mouse  — hover moves the inspection line; the wheel zooms the x-window around
-//            the cursor; right-drag pans it.
+//            the cursor (when wheelZoom); left-drag pans it.
 //   A "Palauta" button restores the full extent of the loaded range.
 Item {
     id: root
@@ -46,12 +46,11 @@ Item {
     // rather than being clipped.
     property bool zeroBased: false
 
-    // --- Gradient glow under the line (the modern look; tweak here) -----------
+    // --- Gradient glow under the line -----------------------------------------
     // A translucent area fill under the line that fades to transparent toward the plot
     // floor — the "glow" that makes the graph read as modern instead of a bare stroke.
     // Colour tracks the line (Theme.accent) by default; a host can override per graph.
-    // glowOpacity is the alpha directly under the line (the fade bottoms out at 0). These
-    // two are the knobs to iterate on the look.
+    // glowOpacity is the alpha directly under the line (the fade bottoms out at 0).
     property color glowColor: root.lineColor
     property real glowOpacity: 0.35
 
@@ -61,7 +60,7 @@ Item {
     // the first, these the rest — each { points: [{x, y}] ascending, color, label,
     // dashed }. Plain point-to-point lines with no glow or decimation: they are the
     // small rolling series. Inspecting puts a dot on each and lists them all in the
-    // readout. Empty for every single-line graph, which renders exactly as before.
+    // readout. Empty for every single-line graph.
     property var extraSeries: []
     // The main line's colour (the glow follows it unless set apart) and its name in
     // a multi-line readout.
@@ -83,20 +82,19 @@ Item {
                                          : v.toFixed(2) + (root.unit ? " " + root.unit : "")
     }
 
-    // --- Outer glow on the line itself (the bloom; tweak here) ----------------
-    // A soft blurred halo behind the crisp line. Kept OFF by default — it read as too blurry —
-    // but the machinery stays so it can be re-enabled and tuned. It is a blurred copy of the
-    // stepped path (via MultiEffect — the same glow tech as GlowIcon / GlassPanel), drawn
-    // behind the real line. lineGlowRadius is the blur reach in px, lineGlowStrength the overall
-    // opacity, lineGlowWidth the stroke fed into the blur (a wider source → a denser bloom).
-    // Flip lineGlowEnabled true to bring it back (a tighter look wants a smaller radius/width).
+    // --- Outer glow on the line itself (the bloom) ------------------------------
+    // A soft blurred halo behind the crisp line: a blurred copy of the stepped path (via
+    // MultiEffect — the same glow tech as GlowIcon / GlassPanel), drawn behind the real line.
+    // OFF by default, as it reads too blurry; a tighter look wants a smaller radius/width.
+    // lineGlowRadius is the blur reach in px, lineGlowStrength the overall opacity,
+    // lineGlowWidth the stroke fed into the blur (a wider source → a denser bloom).
     property bool lineGlowEnabled: false
     property real lineGlowRadius: 14
     property real lineGlowStrength: 0.85
     property real lineGlowWidth: 6
 
     // Horizontal gridline colour. ~25% white so the lines read over the plain dark card, not
-    // just where the brighter gradient sits behind them (10% was invisible on the dark areas).
+    // just where the brighter gradient sits behind them (10% is invisible on the dark areas).
     property color gridLineColor: "#40ffffff"
 
     // Draw-in animation: on every fresh load the line (and its fill glow) is DRAWN from left to
@@ -108,8 +106,9 @@ Item {
 
     // Live "now" marker: when true, a pulsing dot is drawn at the latest value (the rolling
     // right edge). Hosts set it for graphs whose newest point really is "now" — the History
-    // view in live mode and the rolling Charging past-hour graphs — and leave it false for
-    // static graphs (a past trip), where a pulsing "now" would be misleading.
+    // view in live mode, the rolling Charging past-hour graphs and the single-line
+    // Järjestelmän tila graphs — and leave it false for static graphs (a past trip), where a
+    // pulsing "now" would be misleading.
     property bool live: false
 
     // Cached stepped path in DATA coordinates, rebuilt when the data changes or the zoom
@@ -148,7 +147,7 @@ Item {
     //  bucketsPerPx — render density: M4 buckets per pixel of the VISIBLE plot, each keeping
     //    up to four points. 1.0 reproduces the line pixel-exactly; <= 0 disables decimation.
     //  sensitivity — multiplier on pan/zoom response. The 10" touch panel needs more
-    //    travel per gesture than a mouse does; 1.0 is the pre-setting behaviour.
+    //    travel per gesture than a mouse does; 1.0 is finger-exact (Theme.graphSensitivity).
     // Defaults come from Theme, which binds them to the Options view's settings —
     // the right values are hardware-dependent (the Pi wants a coarser density and a
     // longer settle than a desktop). An instance can still override them locally.
@@ -232,10 +231,10 @@ Item {
     readonly property var linePolyline:
         glowPolyline.length > 2 ? glowPolyline.slice(1, glowPolyline.length - 1) : []
 
-    // The built-in card background. Now the same minimalistic translucent-grey card the
-    // Trips / Charging graph cards draw, so all three graph surfaces share one look. The
-    // Trips / Charging views set this false and supply their own (identical) card; the
-    // History view keeps this built-in one.
+    // The built-in card background: the same minimalistic translucent-grey card the Trips,
+    // Charging and Järjestelmän tila graph cards draw, so every graph surface shares one look.
+    // Those cards set this false and supply their own (identical) card; the History view
+    // keeps this built-in one.
     property bool showBackground: true
 
     // Card padding: the gap between the card edge and the plot area, per side — the space
@@ -252,7 +251,7 @@ Item {
     property real plotMarginLeft: 16
     property real plotMarginRight: 16
 
-    // Data source (defaults to the History singleton; the Trips view overrides these).
+    // Data source (defaults to the History singleton; the other hosts override these).
     // pointsData is [{ x: epochMs, y: value }] ascending; the bounds fit the axes.
     property var pointsData: History.points
     property real dataMinX: History.minX
@@ -399,11 +398,11 @@ Item {
         marginRight: root.plotMarginRight
 
         // Transparent background so the card behind the graph shows through — the
-        // translucent-grey Rectangle (History's built-in one, or the Trip / Charging card). Without
+        // translucent-grey Rectangle (History's built-in one, or the host's card). Without
         // this the default theme paints an opaque rectangle over the card, which reads
-        // as "the card disappeared". Only the two background flags are overridden; axis
-        // line / label colours keep the default theme, so the graph looks unchanged
-        // apart from blending into its card. The LineSeries sets its own colour.
+        // as "the card disappeared". Beyond the two background flags only the grid is
+        // styled; axis line / label colours keep the default theme. The LineSeries sets
+        // its own colour.
         theme: GraphsTheme {
             backgroundVisible: false
             plotAreaBackgroundVisible: false
@@ -469,8 +468,8 @@ Item {
             // so a sampled value holds until the next instead of sloping toward it), while
             // "linear" connects readings point-to-point for accumulators / continuous
             // signals. Building the path ourselves avoids relying on any renderer line style.
-            // (A smooth spline was tried and reverted: it turned a genuinely flat/held
-            // value into a wobble, misrepresenting the data.)
+            // (A smooth spline is the wrong fit: it turns a genuinely flat/held value into a
+            // wobble, misrepresenting the data.)
         }
     }
 
@@ -567,7 +566,8 @@ Item {
     // A live window advanced one tick: redraw and follow "now" unless the user is
     // inspecting (then keep their window; the bounds still update so panning stays
     // clamped to the rolled data). Never resetView here — that would clobber the
-    // user's zoom every tick. Only the History view's live mode uses this.
+    // user's zoom every tick. Called by the rolling hosts: History's live mode, the
+    // Charging past-hour graphs and the Järjestelmän tila graphs.
     function advanceLive() {
         root.fullMinX = root.dataMinX
         root.fullMaxX = root.dataMaxX
@@ -974,8 +974,8 @@ Item {
         // Sensitivity exponentiates the gesture's own scale and multiplies the centroid's
         // travel, so 1.0 is exactly the finger-follows-the-data behaviour (the point under
         // the fingers stays under them) and higher values zoom further per pinch and pan
-        // further per stroke. Scaling only the zoom left the touchscreen's one pan at 1:1
-        // whatever the setting said.
+        // further per stroke. Scaling only the zoom would leave the touchscreen's one pan at
+        // 1:1 whatever the setting says.
         const newWidth = clampWidth(startWidth / Math.pow(p.activeScale, root.sensitivity))
         const curFrac = (clampToPlot(p.centroid.position.x) - a.x) / a.width
         const panFrac = p.startFrac + (curFrac - p.startFrac) * root.sensitivity
@@ -1034,9 +1034,9 @@ Item {
             R = lo
         }
         // Early-out: a visible set already under the bucket count renders exactly (no
-        // decimation), keeping the small Trips / Charging graphs pixel-identical to the
-        // pre-LOD behaviour. Decimation only engages for the heavy History 1W / 1M case —
-        // and not at all at the "max" resolution level (bucketsPerPx 0).
+        // decimation), so the small Trips / Charging graphs draw every point. Decimation
+        // only engages for the heavy History 1W / 1M case — and not at all at the "max"
+        // resolution level (bucketsPerPx 0).
         // The density is per VISIBLE pixel, so the count scales with how far this (build)
         // window reaches past the view: otherwise a wider renderMarginFrac would quietly
         // thin out what is on screen, and a smaller graph would get the same count as a
@@ -1206,7 +1206,7 @@ Item {
         }
         out.push(Qt.point(lo, heldY))
         // Step through points inside (lo, hi]: hold the previous value to the new
-        // time, then jump to the new value (a true step, no slope).
+        // time, then jump to the new value.
         for (; i < n && pts[i].x <= hi; ++i) {
             out.push(Qt.point(pts[i].x, heldY))
             out.push(Qt.point(pts[i].x, pts[i].y))

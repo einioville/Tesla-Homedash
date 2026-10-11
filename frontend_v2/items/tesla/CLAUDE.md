@@ -6,11 +6,12 @@
 knobs it deliberately mirrors — its *Eleherkkyys* (`mapGestureSensitivity` → `Theme.mapSensitivity`)
 uses the graph's levels through ONE table, `Theme.gestureSensitivityLevels`, so a level feels the
 same on both, and `mapFollowResumeSec` sits where `graphSettleDelay` does. Seven schema entries plus
-seven `Theme.map*` bindings; **no protocol change and no C++ change at all**, since everything is
-consumed by `items/tesla/TeslaMap.qml` (the dashboard card AND the full-screen `MapView`).
+seven `Theme.map*` bindings, with **no protocol or C++ side**: everything is consumed by
+`items/tesla/TeslaMap.qml` (the dashboard card AND the full-screen `MapView`).
 `Theme.mapSensitivity` also reaches `items/trip/TripMap.qml`, which carries the same
 pan/pinch/wheel handlers, and the Weather view's radar map, which carries them too and also returns
-home after `mapFollowResumeSec` (`items/weather/prototype/WeatherProtoRadarMap.qml`). The basemap is not a setting: `AppConfig` picks MML's orthophoto when
+home after `mapFollowResumeSec` (`items/weather/prototype/WeatherProtoRadarMap.qml`). The basemap
+is not a setting: `AppConfig` picks MML's orthophoto when
 `TESLA_HOMEDASH_MAP_API_KEY` is in the environment or `.env`, else EOX Sentinel-2
 (`frontend_v2/CLAUDE.md`). Two facts verified against the Qt 6.11.1 sources on disk, both
 load-bearing:
@@ -22,8 +23,8 @@ load-bearing:
 - **`MapQuickItem.rotation` is SCREEN-space and does NOT turn with the map.** With the item's own
   `zoomLevel` unset, `updatePolish()` takes its "rendering screen-aligned" branch and applies an
   identity matrix. So the car arrow is `rotation: heading - map.bearing`: that is plain `heading`
-  at bearing 0 (north-up — exactly the original behaviour) and ~0 in heading-up, where the map
-  has already turned under it. Binding it to `heading` alone would double-rotate the arrow.
+  in north-up (bearing ~0, below) and ~0 in heading-up, where the map has already turned under
+  it. Binding it to `heading` alone would double-rotate the arrow.
 - **North-up is `bearing: 0.001`, never 0 — that is what makes the map glide.**
   `QGeoTiledMapScene::updateSceneParameters` uses Linear tile filtering only when the zoom is
   > 0.05 off a whole level or the camera `isTiltedOrRotated()` (`bearing() > 0.0`); at a whole
@@ -35,12 +36,12 @@ Three details in the follow logic are load-bearing, and the first two are traps:
 - **The lead offset is CLAMPED below the dead-zone half-extent** (`× 0.8`). Warp parks the car
   behind centre, and the dead zone's *exit* is what triggers the next re-centre — so a lead
   larger than the zone would park the car already outside it and re-trigger on the very next
-  frame, forever. The levels genuinely allow that (*Katseluvara* *Erittäin suuri* is 30 %,
+  frame, forever. The levels genuinely allow that (*Katseluvara edessä* *Erittäin suuri* is 30 %,
   *Vapaa alue* *Erittäin pieni* 5 %), and a cross-setting bound is not expressible in the schema,
   so the clamp lives in QML.
 - **Warp has to TAKE map.center away from the Map's own `center:` binding.** That binding tracks
-  the car exactly — which *is* lock behaviour — so warp looks completely inert until some
-  unrelated assignment happens to break it (historically, the user's first pan).
+  the car exactly — which *is* lock behaviour — so left in place it keeps warp inert until some
+  unrelated assignment (the user's first pan, say) happens to break it.
   `claimCenterForWarp()` assigns the current value imperatively, which is what drops a QML
   binding; it runs on `mapReadyChanged`, on entering warp, and on becoming current, because the
   projection does not exist before `mapReady`. The lock `Binding` at the bottom of the file
@@ -50,7 +51,7 @@ Three details in the follow logic are load-bearing, and the first two are traps:
   computed in pixels at the old zoom would land wrong in geo terms; warp re-applies its own
   offset a moment later, the first time the car leaves the zone.
 
-`warpStep()` is driven off latitude/longitude changes (which the existing Behaviors smooth to
+`warpStep()` is driven off latitude/longitude changes (which the position Behaviors smooth to
 per-frame ticks) and NOT off heading — a bend would otherwise re-centre continuously, and a
 turning car is a moving one anyway. The `warpAnim.running` guard is what stops a 700 ms ease
 being restarted on each of the ~42 frames it spans, and a car more than one viewport away (a

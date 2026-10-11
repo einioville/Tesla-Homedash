@@ -13,13 +13,13 @@ import frontend_v2
 //
 //  - USER-TUNABLE tokens: bound to `Settings.values.<key>` instead of a literal.
 //    A property initialiser is a BINDING, so when the Options view writes the
-//    setting the token re-evaluates and every `Theme.x` call site updates live —
-//    no call-site churn, and the 200+ existing references keep working unchanged.
+//    setting the token re-evaluates and every `Theme.x` call site updates live
+//    with no change at the call site.
 //    Add one by adding a schema entry in config/settings.json and a binding here.
 QtObject {
     // --- Feature flags ----------------------------------------------------
     // Luna — the dog-memorial overlay on the dashboard. Toggled from the Options
-    // view (Yleinen > Lisäasetukset), off by default. She is gated by `visible`/`running`
+    // view (Yleinen > Luna), off by default. She is gated by `visible`/`running`
     // rather than a Loader, so she is constructed either way; flipping this only
     // stops her painting and animating.
     readonly property bool lunaEnabled: Settings.values.lunaEnabled
@@ -51,8 +51,8 @@ QtObject {
     // How long the dock stays up after the last touch on it.
     readonly property int dockHideMs: Settings.values.dockHideSec * 1000
 
-    // How long each notification pill is held. Fixed until the Options view
-    // grows a notifications section of its own.
+    // How long each notification pill is held. Not a setting: notification
+    // settings belong to a notifications section of their own (#51).
     readonly property int notificationDurationMs: 5000
 
     // Surfaces
@@ -125,12 +125,15 @@ QtObject {
     readonly property color weatherCardBorder: "#78ffffff"  // rgba(255, 255, 255, 120)
 
     // --- Spotify -----------------------------------------------------------
-    // Spotify's own surface and text ramp, used ONLY by the screen that talks
-    // about Spotify — the device-identification dialog — so it says whose
-    // device it is asking about without spelling it out again. These are their
-    // published tokens: --background-elevated-base is what their own modals sit
-    // on, --text-subdued is their secondary copy, and #727272 is the outline
-    // their secondary buttons carry.
+    // Spotify's own surface and text ramp. spotifySurface / spotifyRim are the
+    // default card of every dialog (items/settings/ModalDialog.qml) and
+    // spotifySubdued is the secondary copy in the device-identification and USB
+    // import dialogs. The green, the outline and the base are the
+    // device-identification dialog's alone, so it says whose device it is asking
+    // about without spelling it out again. These are their published tokens:
+    // --background-elevated-base is what their own modals sit on, --text-subdued
+    // is their secondary copy, and #727272 is the outline their secondary
+    // buttons carry.
     readonly property color spotifyGreen: "#1db954"
     readonly property color spotifySurface: "#242424"   // --background-elevated-base
     readonly property color spotifyBase: "#121212"      // --background-base
@@ -151,10 +154,11 @@ QtObject {
     readonly property color seatHeat: "#ff0000"
     readonly property color iconTint: "#ffffff"
 
-    // "Liquid glass" surface — shared by the notification pill and the dock
-    // (via items/util/GlassPanel.qml): squarer corners, a bright white rim and a
-    // DARK translucent tint (so white text/icons read clearly) over a frosted
-    // backdrop, plus a specular highlight line and a soft drop shadow.
+    // "Liquid glass" surface — shared by the notification pill, the dock and the
+    // graph readout (via items/util/GlassPanel.qml): squarer corners, a bright
+    // white rim and a DARK translucent tint (so white text/icons read clearly)
+    // over a frosted backdrop, plus a specular highlight line and a soft drop
+    // shadow.
     readonly property int notificationRadius: 12
     readonly property color notificationGlassTop: "#4d1a1a24"     // dark translucent sheen (top)
     readonly property color notificationGlassBottom: "#66121218"  // darker translucent base
@@ -188,8 +192,8 @@ QtObject {
     readonly property color tripComboPressed: "#992c2c2c"
     readonly property color tripComboPopupBg: "#f2242424"
     // Opaque non-hover row background (the popup bg sans alpha). Kept opaque so a hover
-    // only recolours the row's node instead of adding/removing one — the node churn is
-    // what triggered the white-map-tile re-batch artifact (issue #9).
+    // only recolours the row's node instead of adding/removing one — the node churn
+    // triggers the white-map-tile re-batch artifact (issue #9).
     readonly property color tripComboRowBg: "#242424"
     readonly property color tripComboHover: "#5c5c5c"
     // Start/end route markers: a map-red so they read as pins, distinct from the
@@ -204,8 +208,8 @@ QtObject {
     readonly property int tripCardRadius: 12
 
     // Scrim behind a modal. Lighter than a plain blackout because the blur does
-    // most of the separating; at the old 0xcc the frosted backdrop was invisible
-    // and the effect was pure cost.
+    // most of the separating; at 0xcc the frosted backdrop is invisible and the
+    // effect pure cost.
     readonly property color dialogScrim: "#99000000"
 
     // --- Screensaver ------------------------------------------------------
@@ -225,9 +229,10 @@ QtObject {
 
     // --- History / Trip graph tuning --------------------------------------
     // Viewport-decimation and zoom-debounce knobs shared by every HistoryGraph
-    // instance (History, Trips and Charging all reuse it). Exposed in the Options
-    // view because the right values depend on the target hardware: the Pi wants a
-    // coarser density and a longer settle than a desktop does.
+    // instance (History, Trips, Charging and Järjestelmän tila all reuse it).
+    // Exposed in the Options view because the right values depend on the target
+    // hardware: the Pi wants a coarser density and a longer settle than a desktop
+    // does.
     // Render density, in M4 buckets per pixel of the VISIBLE plot (each bucket keeps
     // up to four points). The Options view names levels and keeps these numbers
     // internal: "high" is one bucket per pixel, where M4 reproduces the line
@@ -236,10 +241,10 @@ QtObject {
         ({ low: 0.25, medium: 0.5, high: 1, xhigh: 2, max: 0 })[Settings.values.graphResolution] ?? 0.5
     // Multiplier on pan/zoom response — the 10" panel wants more than a desktop.
     // "normal" (1.0) is finger-exact: a drag moves the content 1:1 and a pinch
-    // scales it by exactly the pinch. The top reaches 4 because the old slider's 3.0
-    // felt slow on the Pi's panel — though back then it scaled only the pinch zoom,
-    // not the pan. ONE table for the graph and the map (mapSensitivity), so the same
-    // level name feels the same on both.
+    // scales it by exactly the pinch. The top reaches 4 because 3.0 felt slow on the
+    // Pi's panel (measured while it scaled only the pinch zoom, not the pan). ONE
+    // table for the graph and the map (mapSensitivity), so the same level name feels
+    // the same on both.
     readonly property var gestureSensitivityLevels: ({ low: 0.75, normal: 1, high: 1.5, xhigh: 2.5, max: 4 })
     readonly property real graphSensitivity:
         gestureSensitivityLevels[Settings.values.graphGestureSensitivity] ?? 1

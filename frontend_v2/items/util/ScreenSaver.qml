@@ -13,7 +13,7 @@ import frontend_v2
 // window.currentView, so the resident view is simply uncovered).
 //
 // Zero-cost when inactive: the advance timer only runs while active and the whole
-// overlay is not rendered once faded out (mirrors the project's freeze convention).
+// overlay is not rendered once faded out (as ViewController freezes hidden views).
 Item {
     id: root
 

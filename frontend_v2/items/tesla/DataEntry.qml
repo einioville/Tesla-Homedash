@@ -2,10 +2,9 @@ import QtQuick
 import frontend_v2
 
 // One labelled telemetry value — the QML port of SingleTeslaDataEntry. Three
-// grey chips fill the entry's width: title across the top (left), value at the
-// bottom-left and unit at the bottom-right edge. Font sizes are FIXED for the
-// locked 1280×800 layout (the window no longer resizes); the value keeps the
-// size the old dynamic width/8 produced at that resolution, title/unit half it.
+// transparent chips: title across the top (left), value at the bottom-left and
+// unit at the bottom-right edge. Font sizes are FIXED for the 1280×800 layout
+// (valueFontSize below).
 Item {
     id: entry
 
@@ -13,9 +12,9 @@ Item {
     property real value: 0
     property string unit: ""
 
-    // Fixed for the locked 1280×800 layout: the entry is 287.5px wide there (the
-    // 307.5px list card minus its 2×10px margins), so the old dynamic width/8 gave
-    // ~35.9pt — rounded to 36 here, with the small font half of it.
+    // Fixed for the 1280×800 layout: the entry is 287.5px wide there (the 307.5px
+    // list card minus its 2×10px margins), and width/8 (~35.9pt) rounds to 36; the
+    // small font is half of it.
     readonly property real valueFontSize: 36
     readonly property real smallFontSize: 18
 
@@ -23,7 +22,7 @@ Item {
     // are anchored, which would otherwise leave the Item with implicitHeight 0).
     implicitHeight: titleChip.height + 2 + valueChip.height
 
-    // Title — top row, left, spanning the full entry width.
+    // Title — top row, left, elided at the entry's width.
     Rectangle {
         id: titleChip
         anchors.left: parent.left
