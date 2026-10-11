@@ -10,6 +10,13 @@ needed). `__fetch_observation` walks observation slots newest→oldest and uses 
 with a valid air-temperature reading (avoiding the all-NaN padding slots fmiopendata returns).
 **Talks to:** FMI open data, `Server`.
 
+**The hour's rain needs its own query.** harmonie's default `PrecipitationAmount` is the rain
+**accumulated since the model run started** — it only ever grows — not the hour's, so the forecast
+is two queries run together: the default fields, and `parameters=Precipitation1h`, whose value
+replaces the default's under the same name ("Precipitation amount"). Sent as the accumulation, the
+cards showed a running total that rounding to whole mm mostly hid. If the second query fails, the
+hours go out with no rain rather than the accumulated amount.
+
 > **Load-bearing invariants — do not break:**
 > - **Never call `fmiopendata.wfs.download_stored_query`.** Its fetch helper is `requests.get(url)`
 >   with **no timeout** and no way to pass one. A stalled FMI response (connection accepted, partial
