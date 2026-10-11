@@ -80,9 +80,9 @@ function hour2(h) {
     return (h < 10 ? "0" : "") + h
 }
 
-// An ISO time's clock time laid on `now`'s date. The snapshot holds one day's sunrise and
-// sunset, so later days reuse them (a few minutes off per day until the live view gets
-// today's from the backend).
+// An ISO time's clock time laid on `now`'s date. The document holds the day it was fetched
+// on, so for the minutes after midnight, until the next refresh, the new day reuses the old
+// day's sunrise and sunset.
 function todayAt(iso, now) {
     var t = new Date(iso)
     var d = new Date(now.getTime())

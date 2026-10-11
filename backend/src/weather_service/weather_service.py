@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import math
 import struct
@@ -18,6 +19,7 @@ from fmiopendata.wfs import STORED_QUERY_URL
 from ..server.server import Server
 from ..utils import protocol
 from ..utils.config_parser import Config
+from .weather_view import WeatherViewBuilder
 
 logger = logging.getLogger("weather_service.weather_service")
 
@@ -46,6 +48,10 @@ _FETCH_DEADLINE_SECONDS = 45
 # misfire (the APScheduler default is 1 second).
 _JOB_MAX_INSTANCES = 2
 _MISFIRE_GRACE_SECONDS = 300
+
+# The Weather view's document is several requests in parallel, each under _FMI_TIMEOUT;
+# this bounds the whole build the way _FETCH_DEADLINE_SECONDS bounds one query.
+_VIEW_DEADLINE_SECONDS = 90
 
 
 class ForecastMeasurement:
@@ -166,6 +172,11 @@ class WeatherService:
         self.__last_forecast: bytes | None = None
         # When the last forecast went out, for the status view.
         self.__updated_ms: int | None = None
+        # The Weather view's document (WEATHER_VIEW), refreshed every 10 minutes on its
+        # own job; framed and cached like the forecast, for new clients.
+        self.__view_builder = WeatherViewBuilder(self.__zone_info, _FMI_TIMEOUT)
+        self.__last_view: bytes | None = None
+        self.__view_updated_ms: int | None = None
 
     def apply_config(self) -> None:
         '''
@@ -185,7 +196,9 @@ class WeatherService:
         # Drop the cached frame: it describes the OLD place, and replaying it to a
         # client that connects before the refetch lands would show the wrong city.
         self.__last_forecast = None
+        self.__last_view = None
         self.__loop.create_task(self.__update_forecast())
+        self.__loop.create_task(self.__update_view())
 
     async def run(self) -> None:
         '''
@@ -207,8 +220,17 @@ class WeatherService:
             misfire_grace_time=_MISFIRE_GRACE_SECONDS,
             coalesce=True,
         )
+        # The view's observations are 10-minute ones, published a few minutes after the
+        # slot, so its refresh runs every 10 minutes just after each lands.
+        self.__scheduler.add_job(
+            func=self.__update_view,
+            trigger=CronTrigger(hour="*", minute="4,14,24,34,44,54", timezone=self.__zone_info),
+            max_instances=_JOB_MAX_INSTANCES,
+            misfire_grace_time=_MISFIRE_GRACE_SECONDS,
+            coalesce=True,
+        )
         logger.info("Performing initial weather fetch")
-        await self.__update_forecast()
+        await asyncio.gather(self.__update_forecast(), self.__update_view())
 
     def health(self) -> dict:
         '''
@@ -216,13 +238,15 @@ class WeatherService:
         honest signal: this service once deadlocked on the Pi for sixteen days
         (CLAUDE.md 5.2.4) while looking perfectly alive from the outside.
         '''
-        config = [["Paikkakunta", self.__place], ["Päivitysväli", "15 min"],
+        config = [["Paikkakunta", self.__place], ["Päivitysväli", "10 min"],
                   ["Lähde", "Ilmatieteen laitos"]]
-        if self.__updated_ms is not None:
-            config.append(["Päivitetty", {"time": self.__updated_ms}])
+        if self.__view_updated_ms is not None:
+            config.append(["Päivitetty", {"time": self.__view_updated_ms}])
+        if self.__last_view is None:
+            return {"state": "warn", "detail": "Ei säätietoja", "config": config}
         if self.__last_forecast is None:
-            return {"state": "warn", "detail": "Ei ennustetta", "config": config}
-        return {"state": "ok", "detail": "Ennuste haettu", "config": config}
+            return {"state": "warn", "detail": "Ei tuntiennustetta", "config": config}
+        return {"state": "ok", "detail": "Säätiedot haettu", "config": config}
 
     def get_run_task(self) -> asyncio.Task:
         '''
@@ -294,6 +318,40 @@ class WeatherService:
         self.__updated_ms = int(datetime.now().timestamp() * 1000)
         await self.__server.broadcast(self.__last_forecast)
 
+    async def __update_view(self) -> None:
+        '''
+        Builds the Weather view's document and broadcasts it as a WEATHER_VIEW frame.
+        A cycle that yields no document keeps the previous frame, as the forecast does.
+        '''
+        place = self.__place
+        try:
+            document = await asyncio.wait_for(
+                self.__view_builder.build(place), _VIEW_DEADLINE_SECONDS
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "Weather view fetch timed out for place=%s (deadline %ds)",
+                place, _VIEW_DEADLINE_SECONDS,
+            )
+            return
+        if document is None:
+            return
+        # The place changed while this was in flight: the cycle the change started
+        # describes the new place, and this one must not land after it.
+        if place != self.__place:
+            return
+        body = json.dumps(document, ensure_ascii=False).encode("utf-8")
+        self.__last_view = protocol.frame(
+            protocol.WEATHER_VIEW,
+            bytes((protocol.CONFIG_STATUS_OK,)) + struct.pack("!I", len(body)) + body,
+        )
+        self.__view_updated_ms = int(datetime.now().timestamp() * 1000)
+        logger.info(
+            "Broadcasting weather view: %d hours, observed %s",
+            len(document["hourly"]), document["now"]["time"] or "-",
+        )
+        await self.__server.broadcast(self.__last_view)
+
     async def __download_stored_query(
         self, query_id: str, params: dict[str, str], label: str
     ):
@@ -359,6 +417,8 @@ class WeatherService:
         '''
         if self.__last_forecast is not None:
             await self.__server.send_to(client, self.__last_forecast)
+        if self.__last_view is not None:
+            await self.__server.send_to(client, self.__last_view)
 
     async def __fetch_observation(self, now_local: datetime) -> ForecastHour | None:
         '''

@@ -40,6 +40,12 @@ FORECAST_PRECIPITATION = 0x33
 FORECAST_TOTAL_CLOUD_COVER = 0x34
 FORECAST_TIME = 0x35
 
+# The Weather view's whole document (B->F, broadcast every 10 min and on connect):
+# status(1B, always OK) + len(4B) + UTF-8 JSON {meta, now, hourly, daily, astro, warnings}.
+# A message of its own, not a WEATHER_FORECAST sub-id: the forecast frame is bytes per
+# value and stays as it is for the frozen frontend.
+WEATHER_VIEW = 0x36
+
 # Tesla command bytes (frontend -> backend)
 TESLA_SWITCH_CLIMATE_STATE = 0x60
 TESLA_MINUS_TARGET_TEMP = 0x61

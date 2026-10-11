@@ -248,7 +248,8 @@ Item {
             }
             Text {
                 anchors.horizontalCenter: parent.horizontalCenter
-                text: "↑ " + root.wx.astro.moonrise + "   ↓ " + root.wx.astro.moonset
+                // A day can pass without the moon rising or setting.
+                text: "↑ " + (root.wx.astro.moonrise || "–") + "   ↓ " + (root.wx.astro.moonset || "–")
                 color: "#8f9aa6"; font.family: Theme.fontFamily; font.pixelSize: 12
             }
         }

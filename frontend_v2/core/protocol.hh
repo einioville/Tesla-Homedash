@@ -46,6 +46,8 @@ inline constexpr quint8 FORECAST_WIND_SPEED = 0x32;
 inline constexpr quint8 FORECAST_PRECIPITATION = 0x33;
 inline constexpr quint8 FORECAST_TOTAL_CLOUD_COVER = 0x34;
 inline constexpr quint8 FORECAST_TIME = 0x35;
+// The Weather view's document: status(1B) + len(4B) + UTF-8 JSON (protocol.py).
+inline constexpr quint8 WEATHER_VIEW = 0x36;
 
 // Tesla command bytes (frontend -> backend)
 inline constexpr quint8 TESLA_SWITCH_CLIMATE_STATE = 0x60;

@@ -1,11 +1,9 @@
 import QtQuick
 import frontend_v2
-import "../items/weather/prototype/WeatherProtoSnapshot.js" as Snap
 
-// PROTOTYPE — the Weather view ("Sää"): variant A of the prototype round (B "Aikajana" and
-// C "Tutka" were dropped), over one real FMI snapshot from
-// items/weather/prototype/fetch_snapshot.py. Only the radar loop and its lightning are live.
-// Throwaway: lives on prototype/weather-view only.
+// The Weather view ("Sää"), over the backend's WEATHER_VIEW document (`Weather.view`,
+// refreshed every 10 minutes); the radar loop and its lightning come straight from FMI.
+// Until the first document arrives there is nothing to lay out, so the dashboard waits.
 Rectangle {
     id: view
 
@@ -22,20 +20,33 @@ Rectangle {
     property int demoSymbol: 0
 
     readonly property var wx: {
-        var d = Snap.data
-        if (!demoWarning || !d.warnings.length)
+        var d = Weather.view
+        var warnings = d.warnings || []
+        if (!demoWarning || !warnings.length)
             return d
-        var pick = Math.max(0, d.warnings.findIndex(w => (w.event || "").toLowerCase().indexOf("liikenne") >= 0))
+        var pick = Math.max(0, warnings.findIndex(w => (w.event || "").toLowerCase().indexOf("liikenne") >= 0))
         return Object.assign({}, d, {
-            warnings: d.warnings.map((w, i) => i === pick ? Object.assign({}, w, { appliesHere: true }) : w)
+            warnings: warnings.map((w, i) => i === pick ? Object.assign({}, w, { appliesHere: true }) : w)
         })
     }
 
-    WeatherProtoDashboard {
+    Loader {
         anchors.fill: parent
-        wx: view.wx
-        active: view.isCurrent
-        demoLightning: view.demoLightning
-        demoSymbol: view.demoSymbol
+        active: Weather.hasView
+        sourceComponent: WeatherProtoDashboard {
+            wx: view.wx
+            active: view.isCurrent
+            demoLightning: view.demoLightning
+            demoSymbol: view.demoSymbol
+        }
+    }
+
+    Text {
+        anchors.centerIn: parent
+        visible: !Weather.hasView
+        text: qsTr("Säätietoja haetaan…")
+        color: "#8f9aa6"
+        font.family: Theme.fontFamily
+        font.pixelSize: 16
     }
 }
