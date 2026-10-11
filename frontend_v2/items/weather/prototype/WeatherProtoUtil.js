@@ -43,13 +43,6 @@ function visibility(m) {
     return m >= 1000 ? Math.round(m / 1000) + " km" : Math.round(m / 50) * 50 + " m"
 }
 
-function cloudText(oktas) {
-    if (oktas === null || oktas === undefined || oktas > 8)
-        return "–"
-    return ["selkeää", "melkein selkeää", "melkein selkeää", "puolipilvistä", "puolipilvistä",
-            "puolipilvistä", "melkein pilvistä", "melkein pilvistä", "pilvistä"][Math.round(oktas)]
-}
-
 function warnColor(c) {
     return ({ yellow: "#f5c518", orange: "#ff8c1a", red: "#e53935" })[c] || "#f5c518"
 }

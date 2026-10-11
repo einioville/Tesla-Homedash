@@ -22,15 +22,16 @@ _WEEKDAYS = ["ma", "ti", "ke", "to", "pe", "la", "su"]
 # own station seldom measures everything (Tampere resolves to Siilinkari, which has no
 # precipitation, snow, visibility or cloud), so up to five stations within 50 km are asked.
 _OBS_FIELDS = ["t2m", "ws_10min", "wg_10min", "wd_10min", "rh", "td", "p_sea", "vis",
-               "n_man", "wawa", "ri_10min", "r_1h", "snow_aws"]
+               "wawa", "ri_10min", "r_1h", "snow_aws"]
 
 # The edited forecast (what ilmatieteenlaitos.fi shows) runs about 230 hours ahead; asking
 # for more returns what there is.
 _FORECAST_HOURS = 300
 
-# Present weather (WMO 4680 "wawa") as a short Finnish text, by code range.
+# Present weather (WMO 4680 "wawa") as a short Finnish text, by code range. Codes 20-25
+# (precipitation in the past hour, none now) have no text: the 0 mm/h beside it says as much.
 _WAWA_TEXTS = [
-    ((4, 5), "auerta"), ((10, 10), "utua"), ((20, 25), "sade päättynyt"),
+    ((4, 5), "auerta"), ((10, 10), "utua"),
     ((30, 35), "sumua"), ((40, 42), "sadetta"), ((50, 53), "tihkua"),
     ((54, 56), "jäätävää tihkua"), ((57, 58), "tihkua ja sadetta"),
     ((60, 63), "vesisadetta"), ((64, 66), "jäätävää sadetta"), ((67, 68), "räntää"),
@@ -461,7 +462,7 @@ class WeatherViewBuilder:
             "wind": v.get("ws_10min", hour["wind"]), "gust": v.get("wg_10min", hour["gust"]),
             "windDir": v.get("wd_10min", hour["windDir"]), "humidity": v.get("rh", hour["humidity"]),
             "dewPoint": v.get("td"), "pressure": v.get("p_sea"), "visibility": v.get("vis"),
-            "cloudOktas": v.get("n_man"), "uvIndex": _uv_index(radiation, hour["sunElev"]),
+            "uvIndex": _uv_index(radiation, hour["sunElev"]),
             "precipRate": v.get("ri_10min"), "precip1h": v.get("r_1h"), "snowDepth": v.get("snow_aws"),
             "wawa": v.get("wawa"), "wawaText": _wawa_text(v.get("wawa")),
             "symbol": hour["symbol"], "text": hour["text"], "sources": observed.get("sources", {}),
