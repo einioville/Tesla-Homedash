@@ -455,10 +455,12 @@ uptime), the *Versio* card folded into *Palvelin* as a row, the charging rows on
 trips on a *Matkat* card of their own, and service-card values that wrap instead of eliding — plus
 Media › *Taajuuskorjain*: a five-band equalizer and a bass shelf on a PipeWire filter-chain the
 audio service runs only while the curve is not flat, drawn as knobs on a curve by `EqualizerPanel`
-— plus, on `prototype/weather-view`, the Weather view (*Sää*) on live FMI data: the backend's
-`WEATHER_VIEW` document (`weather_service/weather_view.py`) and a pannable, zoomable radar map — plus
-the pre-release cleanup: the shared helpers listed in §7.8 in place of their copies, the dead code
-and stale comments gone, and the rules in §7.8 that keep them out.
+— plus the Weather view (*Sää*) on live FMI data: the backend's `WEATHER_VIEW` document
+(`weather_service/weather_view.py`) and a pannable, zoomable radar map — plus the pre-release
+cleanup: the shared helpers listed in §7.8 in place of their copies, the dead code and stale
+comments gone, and the rules in §7.8 that keep them out; its second round took the equalizer and
+the Weather view through the same pass (the view's files out of `prototype/`, `frontend_v2`'s unread
+`WEATHER_FORECAST` path removed) and added the settings check of §7.9.
 When you land a change that touches documented behaviour, update this line.
 
 ### 7.8 Keeping the code clean
@@ -487,7 +489,8 @@ Four kinds of debris do not belong in this codebase; review your own diff for th
     `BaseMediaPlayer._send*` for media packets.
   - Frontend: `core/seriesbounds.hh` for graph bounds, `TeslaData::qmlName` for a registry id's
     property name, `app/Format.js` for displayed values ("—" for a missing one),
-    `items/settings/ModalDialog.qml` for a dialog, and the motion pieces in `items/util/`.
+    `items/settings/ModalDialog.qml` for a dialog, `SettingDetails.qml` for a status line with its
+    dot, `DialogButton.qml` for a button, and the motion pieces in `items/util/`.
 
   Two copies that behave differently are merged only once you know which behaviour is right — ask
   when it is not obvious.

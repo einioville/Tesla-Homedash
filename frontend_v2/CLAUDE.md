@@ -15,7 +15,7 @@ config/         # settings.json (bundled Options-view schema), notifications.jso
 core/           # C++: ServerClient, protocol.hh, Logger, AppConfig, dotenv, the QML singletons
   tesla/ media/ weather/ charging/ trip/ notification/   # per-domain data models
 items/          # QML components by domain (charging history luna media settings tesla trip util weather)
-views/          # one screen per dock entry: Dashboard Map Media History Trips Charging Settings
+views/          # one screen per dock entry: Dashboard Map Weather Media History Trips Charging Settings
 resources/      # fonts, icons, styles, Luna
 ```
 
