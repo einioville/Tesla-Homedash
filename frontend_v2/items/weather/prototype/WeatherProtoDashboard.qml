@@ -292,73 +292,32 @@ Item {
     function toggleDay(day) {
         if (selectedDay === day) {
             selectedDay = ""
-            chart.scrollToHour(0)
+            chartCard.scrollToHour(0)
             return
         }
         selectedDay = day
         var hs = wx.hourly || []
         for (var i = 0; i < hs.length; i++) {
             if (hs[i].day === day) {
-                chart.scrollToHour(i)
+                chartCard.scrollToHour(i)
                 return
             }
         }
     }
 
-    Card {
+    WeatherProtoHourlyCard {
         id: chartCard
         x: root.margin; y: radarCard.y + radarCard.height + root.gap
         width: root.innerW * 840 / 1250; height: root.height - root.margin - y
-        title: {
-            var hs = root.wx.hourly || []
-            if (root.selectedDay !== "") {
-                var d = (root.wx.daily || []).find(x => x.day === root.selectedDay)
-                return d ? (U.WEEKDAYS_LONG[d.wd] + " " + d.date).toUpperCase() : ""
-            }
-            if (chart.atStart || !hs.length)
-                return qsTr("SEURAAVAT 24 TUNTIA")
-            var a = hs[chart.firstVisible]
-            var b = hs[Math.min(hs.length - 1, chart.firstVisible + chart.hoursVisible - 1)]
-            return (a.wd + " " + a.date + " klo " + a.hour + " – " + b.wd + " " + b.date + " klo " + b.hour).toUpperCase()
+        hours: root.wx.hourly || []
+        heading: {
+            if (root.selectedDay === "")
+                return ""
+            var d = (root.wx.daily || []).find(x => x.day === root.selectedDay)
+            return d ? (U.WEEKDAYS_LONG[d.wd] + " " + d.date).toUpperCase() : ""
         }
-        note: chart.atStart ? qsTr("lämpötila · sade (mm/h)") : ""
-
-        Rectangle {
-            visible: !chart.atStart
-            z: 3
-            anchors.right: parent.right
-            anchors.rightMargin: 10
-            y: 5
-            width: backText.implicitWidth + 24; height: 24; radius: 12
-            color: "#26ffffff"
-            Text {
-                id: backText
-                anchors.centerIn: parent
-                text: qsTr("↺ Nyt")
-                color: "white"
-                font.family: Theme.fontFamily
-                font.pixelSize: 12
-            }
-            MouseArea {
-                anchors.fill: parent
-                onClicked: {
-                    root.selectedDay = ""
-                    chart.scrollToHour(0)
-                }
-            }
-        }
-
-        WeatherProtoChart {
-            id: chart
-            anchors.fill: parent
-            anchors.leftMargin: 10
-            anchors.rightMargin: 10
-            anchors.topMargin: 30
-            anchors.bottomMargin: 6
-            hours: root.wx.hourly || []
-            labelEvery: 2
-            onUserScrolled: root.selectedDay = ""
-        }
+        onBackToNow: root.selectedDay = ""
+        onUserScrolled: root.selectedDay = ""
     }
 
     Card {
