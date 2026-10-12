@@ -8,6 +8,8 @@ behind several of these files are documented in `../../core/CLAUDE.md`:
 | QML | Singleton (notes in `core/CLAUDE.md`) |
 |---|---|
 | `BackendProbeStatus.qml` | `Probe` |
+| `BackendLoginPrompt.qml`, `BackendLoginDetails.qml` | `Server` (`ServerClient`'s login) |
+| `PairedDisplaysPanel.qml` | `PairedDisplays` |
 | `SystemStatusSection.qml`, `SystemGraphCard.qml`, `SystemOverviewCard.qml` | `SystemHistory` (graphs), `System` (service cards) |
 | `SystemServiceCard.qml`, `SystemLogPopup.qml` | `System` |
 | `DebugLogDetails.qml`, `DebugLogPopup.qml` | `Settings` (the backend's `logging.*`) |
@@ -123,7 +125,9 @@ different part of them.
 - A `key` rule resolves through `Settings.valueOf()`, which reaches **both** halves, with
   `Settings.valuesRevision` read purely to make the binding live. A `condition` rule names a
   runtime fact no setting holds, resolved in `SettingRules.conditionHolds()` — `screensaverPhotos`
-  is `Photos.count > 0`, `equalizer` that the bass row's `runtime.state` is not `unavailable`. The screensaver card uses both: the switch is faded until the photo folder
+  is `Photos.count > 0`, `equalizer` that the bass row's `runtime.state` is not `unavailable`,
+  `backendLogin` that the backend has asked for the password (`Server.authState` `loginRequired` or
+  `noPassword`) — the *Kirjaudu* row is usable only then. The screensaver card uses both: the switch is faded until the photo folder
   holds photos (hiding it would hide the feature, and the fix is right below), and its three tuning
   rows are nested under the switch *and* fade without photos.
 - The row that FIXES a condition — *Kuvakansio*'s import button — must not carry the rule, or it
@@ -220,7 +224,7 @@ slide-in, well after focus moved.
 The row-level sibling of the subsection `status` hook below: **`details: "<id>"`** makes
 `SettingRow` load a component under the label, resolved against its own small table
 (`spotifyAuth` → `SpotifyAuthDetails`, `spotifyDevice` → `SpotifyDeviceDetails`,
-`screensaverPhotos` → `ScreensaverPhotosDetails`, `debugLog` → `DebugLogDetails`, which is handed
+`screensaverPhotos` → `ScreensaverPhotosDetails`, `backendLogin` → `BackendLoginDetails`, `debugLog` → `DebugLogDetails`, which is handed
 the row's setting: "Palautuu tasolle INFO klo 14:52 (vielä 30 min)" from `runtime.until` and
 `runtime.returnTo`, in the warning text colour while the log is on). It is for facts
 that belong to one row without being its value — these actions carry no `help`, and their
@@ -270,7 +274,9 @@ issue, which is what keeps a screen showing only the local sections from reading
   itself. Each names the **setting key that fixes it**; its section is looked up in
   `Settings.groups` rather than hardcoded, and an issue whose row is not in the schema right now
   offers no *Korjaa*. **While disconnected, only the connection is reported** — every other check
-  reads backend state that is stale until it returns. Today's checks: backend unreachable →
+  reads backend state that is stale until it returns — and a backend that wants the password counts
+  as not there, reported as that (no password on the backend, or this display not logged in →
+  `backendLogin`) rather than as unreachable. Today's checks: backend unreachable →
   `backendHost`; Spotify grant broken, or valid for ≤ 30 more days → `spotifyReauth`; no Spotify
   device chosen, or chosen but not listed → `spotifyIdentifyDevice` (only with a working grant).
   An empty screensaver folder is deliberately *not* an issue: the switch is unavailable without
@@ -297,7 +303,8 @@ issue, which is what keeps a screen showing only the local sections from reading
 
 The hook is a **subsection-level `status` key**: a subsection may name a runtime status widget,
 which `SettingsPane` renders in the card via a `Loader` above the rows, resolving the name against a
-small component table (`backendProbe`, `appUpdate`, `screenPower`, `teslaProperties`, `equalizer`;
+small component table (`backendProbe`, `appUpdate`, `screenPower`, `teslaProperties`, `equalizer`,
+`pairedDisplays`;
 `appUpdate` and `teslaProperties` are unused while their subsections are out of the schema). `active:` gates construction,
 which is what keeps the probe from firing for a card that did not ask
 for it. A subsection carrying a `status` but **no settings** is legitimate and is exempted from the
@@ -306,6 +313,26 @@ every fact about a section fits in a setting row: *is that address reachable* be
 and port **together**. The verdict follows the SAVED values (what startup will actually use),
 debounced 400 ms so editing host then port probes once against the final pair. Advisory only — the
 write is never blocked, since the backend legitimately may not be up yet.
+
+## The backend login — `BackendLoginPrompt.qml`, Yhteydet's *Kirjautuminen*, Näytöt
+
+The connection and its login are `ServerClient`'s (`../../core/CLAUDE.md`); these are its faces.
+- **`BackendLoginPrompt`** is app-level in `Main.qml` (z:265), like the Spotify prompt: no view gets
+  data until the display has logged in. A `ModalDialog` hung in the top half — the on-screen keyboard
+  takes the bottom — with a password field, *Kirjaudu*, the reason the last attempt failed, and
+  *Kirjaudutaan…* while the key is derived (seconds on a Pi). With no password on the backend it says
+  so instead of asking. Its ✕ dismisses it, leaving the dock and this view usable (the backend
+  address may be what is wrong); nothing typed survives a closed prompt.
+- **Yhteydet › *Kirjautuminen*** is a `backendLogin` action row (`confirm: false`: the prompt is the
+  confirmation) whose `backendLogin` details say whether this display is logged in, and why not. It
+  brings the prompt back (`Server.showLoginPrompt()`, routed by `SettingsView`), and is the issues
+  list's fix row for a missing login.
+- **Ylläpito › Näytöt** is a backend subsection: the `pairedDisplays` widget lists every display that
+  has logged in — connected or when last seen, address, when it logged in, *tämä näyttö* — with a
+  *Poista* that arms and then confirms within 4 s (`SettingAction`'s guard); then *Palvelimen
+  saavutettavuus* (`server.reachability`: *Lähiverkko* / *Vain päälaite*, restart-tier) and the
+  `auth.tokenLifetimeDays` dropdown (*Ei koskaan* / 7 / 30 / 90 / 365 days, counted from last use).
+  The local `sectionOrder` puts it straight after Yhteydet.
 
 ## Ylläpito › Lokit — `DebugLogPopup.qml`, `LogClearPopup.qml`
 

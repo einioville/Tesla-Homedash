@@ -256,6 +256,13 @@ Window {
         z: 260
     }
 
+    // The login to the backend (issue #64): app-level for the same reason — no view
+    // gets data until it is done. Above the Spotify prompt, which needs a session.
+    BackendLoginPrompt {
+        anchors.fill: parent
+        z: 265
+    }
+
     // Idle screensaver: after the inactivity timeout (or F10 for testing) it fades
     // in a black photo pile and dismisses on tap, revealing the last-used view.
     // Sits above every other layer (the z-order list is in frontend_v2/CLAUDE.md).

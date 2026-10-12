@@ -266,6 +266,33 @@ inline constexpr quint8 USB_IMPORT_START = 0xE2;  // F->B: len(4B) + JSON {"flow
 inline constexpr quint8 USB_IMPORT_CLOSE = 0xE3;  // F->B: len(4B) + JSON {"flowId"}
 inline constexpr quint8 USB_IMPORT_STATE = 0xE4;  // B->F: status(1B) + len(4B) + JSON, flow client only
 
+// ── Login (issue #64) ──────────────────────────────────────────────────────
+// The connection is TLS 1.3, and until the display has logged in ServerClient
+// handles every frame itself: the backend opens with AUTH_HELLO, this side
+// answers with its remembered token or a SCRAM-SHA-256-PLUS exchange, and only
+// an AUTH_RESULT with ok=true makes the session (and `connected`) live.
+// backend/src/auth_service/CLAUDE.md has the whole exchange.
+inline constexpr quint8 AUTH_HELLO = 0xF0;            // B->F: status(1B) + len(4B) + JSON {"passwordSet"}
+inline constexpr quint8 AUTH_TOKEN = 0xF1;            // F->B: len(4B) + JSON {"deviceId","token"}
+inline constexpr quint8 AUTH_SCRAM_START = 0xF2;      // F->B: len(4B) + JSON {"message"}
+inline constexpr quint8 AUTH_SCRAM_CHALLENGE = 0xF3;  // B->F: status(1B) + len(4B) + JSON {"message"}
+inline constexpr quint8 AUTH_SCRAM_PROOF = 0xF4;      // F->B: len(4B) + JSON {"message","name"}
+inline constexpr quint8 AUTH_RESULT = 0xF5;           // B->F: status(1B) + len(4B) + JSON {"ok","reason",
+                                                      //   "message","retryAfter"?,"serverFinal"?,
+                                                      //   "deviceId"?,"token"?,"name"?}
+inline constexpr quint8 AUTH_GET_DISPLAYS = 0xF6;     // F->B: (empty)
+inline constexpr quint8 AUTH_DISPLAYS = 0xF7;         // B->F: status(1B) + len(4B) + JSON {"displays"},
+                                                      //   to the requester and broadcast on a change
+inline constexpr quint8 AUTH_REVOKE = 0xF8;           // F->B: len(4B) + JSON {"id"}
+
+// AUTH_RESULT "reason" values (protocol.py AUTH_REASON_*).
+inline constexpr char AUTH_REASON_TOKEN[] = "token";
+inline constexpr char AUTH_REASON_PASSWORD[] = "password";
+inline constexpr char AUTH_REASON_NO_PASSWORD[] = "noPassword";
+inline constexpr char AUTH_REASON_THROTTLED[] = "throttled";
+inline constexpr char AUTH_REASON_BINDING[] = "binding";
+inline constexpr char AUTH_REASON_PROTOCOL[] = "protocol";
+
 // Receive-side defensive cap. NOTE the deliberate asymmetry: the backend caps a
 // single message at 1 MB (MAX_MSG_SIZE in protocol.py), but this client tolerates
 // up to 16 MB before treating the length prefix as corrupt and resetting the

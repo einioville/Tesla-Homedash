@@ -10,8 +10,9 @@ import frontend_v2
 // up in Settings.groups rather than hardcoded — "" when that row is not in the
 // schema right now (its half is absent), in which case no "Korjaa" is offered.
 //
-// While the backend is unreachable only that is reported: every other check
-// reads state the backend supplies, which is stale until it is back.
+// While there is no session — the backend unreachable, or this display not
+// logged in to it — only that is reported: every other check reads state the
+// backend supplies, which is stale until the session is back.
 QtObject {
     id: detector
 
@@ -44,6 +45,28 @@ QtObject {
 
     function detect() {
         const list = []
+        // Reached, but not logged in: the fix is the login, not the address.
+        if (!Server.connected && Server.authState === "noPassword") {
+            list.push({
+                id: "backendLogin",
+                level: "error",
+                title: qsTr("Palvelimelle ei ole asetettu salasanaa"),
+                detail: qsTr("Lisää TESLA_HOMEDASH_PASSWORD palvelimen .env-tiedostoon"),
+                key: "backendLogin"
+            })
+            return list
+        }
+        if (!Server.connected && Server.authState === "loginRequired") {
+            list.push({
+                id: "backendLogin",
+                level: "error",
+                title: qsTr("Kirjautuminen palvelimelle vaaditaan"),
+                detail: Server.authMessage.length > 0 ? Server.authMessage
+                                                      : qsTr("Tämä näyttö ei ole kirjautunut"),
+                key: "backendLogin"
+            })
+            return list
+        }
         if (!Server.connected) {
             list.push({
                 id: "backend",
