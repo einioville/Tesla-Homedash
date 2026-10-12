@@ -135,7 +135,7 @@ class WeatherService:
         Initialises the service.  The scheduler is not started here; call
         get_run_task() to start the service as an asyncio Task.
         Arguments:
-            server (Server): TCP server used to broadcast forecast data.
+            server (Server): TLS server used to broadcast forecast data.
             config (Config): Shared in-memory configuration.
         '''
         self.__loop = asyncio.get_running_loop()

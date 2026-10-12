@@ -29,6 +29,9 @@ request/response and have no run task.)
 Services plug into the server, and into each other, through duck-typed methods — the server never
 imports a service:
 
+- **`Server(ssl_context, authenticator)`** — `AuthService` is built first and supplies both: the TLS
+  context and the login every connection must pass before any handler or snapshot reaches it
+  (`src/auth_service/CLAUDE.md`). A service never sees a client that has not logged in.
 - **`server.register_handler(msg_type, handler)`** — called as `handler(payload, writer)`.
   Request/response handlers reply to that client only with `server.send_to(writer, …)`;
   fire-and-forget commands ignore the writer.
@@ -57,7 +60,11 @@ Required secrets/paths, loaded by `utils/config_parser.get_env`:
 - `INFLUX_TOKEN` — InfluxDB auth token
 - `SPOTIFY_CLIENT_ID`, `SPOTIFY_CLIENT_SECRET` — from your Spotify Developer App
 
-`start_services.main()` fails fast if any of these are missing. **Optional:** `MYENERGI_HUB_SERIAL`
+`start_services.main()` fails fast if any of these are missing. **`TESLA_HOMEDASH_PASSWORD`** — the
+password every display logs in with (`src/auth_service/CLAUDE.md`) — is deliberately not among them:
+without it the backend starts, says so on every display's login screen and in the *Kirjautuminen*
+status card, and admits nobody. Changing it, or removing it, forgets every display's login.
+**Optional:** `MYENERGI_HUB_SERIAL`
 / `MYENERGI_API_KEY` (myenergi cloud digest-auth creds) — absent → the charger service is skipped
 and the rest of the stack still runs. Also optional: `TESLA_HOMEDASH_LOG_LEVEL` —
 `debug`/`info`/`warning`/`error`/`critical`, **default `info`** (invalid → `info` + a warning),
@@ -130,6 +137,15 @@ Parsed once by `Config` and injected into every service. Keys:
   `resumeRadioAfterSpotify` (`src/media_service/CLAUDE.md`), both default off; and
   `lastRadioStation`, which is **state, not a setting** — `RadioPlayer` writes it on every station
   change, straight through `Config.save()`, and it is in no schema.
+- `server` (optional) — `reachability`: `"lan"` (the default) listens on every interface, `"local"`
+  on `127.0.0.1` only, for a dashboard whose one display is on the backend's own host
+  (`utils/config_parser.LISTEN_HOSTS`, read as `Config.listen_host`). Restart-tier: the address is
+  bound once. A display elsewhere on the network cannot reach a `"local"` backend at all — undoing
+  it takes the main display or `config.json`.
+- `auth` (optional) — `tokenLifetimeDays`: how many days a display's login survives without the
+  display connecting (0, the default, = never; the Ylläpito › Näytöt dropdown offers 0/7/30/90/365).
+  The logins themselves are in `paired_displays.json` beside `config.json`, and the TLS certificate
+  in `tls/` there — state, not settings (`src/auth_service/CLAUDE.md`).
 - `logging` (optional) — `level`: the Options view's *Lokitaso* for both halves (Ylläpito › Lokit;
   `debug`/`info`/`warning`/`error`/`critical`). Absent → `TESLA_HOMEDASH_LOG_LEVEL`'s, so the variable
   is now the setting's default. `debug` is temporary: after `debugMinutes` (0–480, hidden from the

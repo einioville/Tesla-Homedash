@@ -40,7 +40,7 @@ class SystemHistory:
     space change too rarely to be worth a column, so a reply carries them once,
     beside the samples.
     Arguments:
-        server (Server): TCP server, used only to reply to the requesting client.
+        server (Server): TLS server, used only to reply to the requesting client.
     '''
 
     def __init__(self, server):

@@ -76,6 +76,11 @@ def app_config_dir() -> str:
     return os.path.join(base, "Tesla-Homedash")
 
 
+# server.reachability -> the address the backend listens on: "lan" every interface,
+# "local" loopback only, for a dashboard whose only display is on the same host.
+LISTEN_HOSTS = {"lan": "0.0.0.0", "local": "127.0.0.1"}
+
+
 def default_config_path() -> str:
     '''
     Where the backend's config.json lives when CONFIG_PATH is not set:
@@ -205,6 +210,17 @@ class Config:
     _LOGGING_DEFAULTS = {
         "debugMinutes": 30,
         "levelBeforeDebug": "",
+    }
+
+    # Who can reach the backend (Ylläpito › Näytöt): a key of LISTEN_HOSTS.
+    _SERVER_DEFAULTS = {
+        "reachability": "lan",
+    }
+
+    # Display logins (Ylläpito › Näytöt).  0 = a login never expires; otherwise a
+    # display that has not connected for this many days must log in again.
+    _AUTH_DEFAULTS = {
+        "tokenLifetimeDays": 0,
     }
 
     def __init__(self, config_path: str):
@@ -385,6 +401,29 @@ class Config:
         if block.get("level") not in LEVEL_CHOICES:
             block["level"] = default_level_name()
         return block
+
+    @property
+    def server_config(self) -> dict:
+        '''
+        Server block merged over _SERVER_DEFAULTS:
+        - reachability: "lan" (every interface) or "local" (this host only).
+        '''
+        return {**self._SERVER_DEFAULTS, **self.__data.get("server", {})}
+
+    @property
+    def listen_host(self) -> str:
+        '''The address the server binds, from server.reachability; an unknown
+        value falls back to the local network, the default.'''
+        return LISTEN_HOSTS.get(self.server_config["reachability"], LISTEN_HOSTS["lan"])
+
+    @property
+    def auth_config(self) -> dict:
+        '''
+        Login block merged over _AUTH_DEFAULTS:
+        - tokenLifetimeDays: how many days a display's login survives without the
+          display connecting; 0 = forever.
+        '''
+        return {**self._AUTH_DEFAULTS, **self.__data.get("auth", {})}
 
     # ── Loading / validation ───────────────────────────────────────
 

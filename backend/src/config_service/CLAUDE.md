@@ -24,11 +24,12 @@ write allow-list and the frontend's UI description, so adding a tunable is one e
 >   Implemented on: `WeatherService`, `MyEnergiService`, `TripLoader`, `ChargingLoader`,
 >   `SpotPriceProvider`, `LogLevel` (the `logging` block, `../system_service/CLAUDE.md`), and
 >   `MediaManager.apply_config_spotify()` (which forwards to the Spotify player) /
->   `_media()` (the manager's own `media` block), and `AudioService`. `SpotPriceProvider` needs no cache flush — it caches *raw* prices and
+>   `_media()` (the manager's own `media` block), `AudioService`, and `AuthService` (`auth`, the login
+>   lifetime — `../auth_service/CLAUDE.md`). `SpotPriceProvider` needs no cache flush — it caches *raw* prices and
 >   applies VAT/margin on read.
 > - **`restart`** — the value builds something that cannot be rebuilt in place: `timeZone`
 >   (APScheduler cron jobs), `spotPrice.enabled` (whether `SpotPriceService` has a run task at
->   all). `myenergi.zappiSerial` (the Zappi resolved at connect) would be one too, but it is
+>   all), `server.reachability` (the address the server is bound to). `myenergi.zappiSerial` (the Zappi resolved at connect) would be one too, but it is
 >   `config.json`-only and not in the schema, like `spotPrice.baseUrl`.
 >
 > A `hook` setting whose hooks are all **unregistered** (no Zappi → no `MyEnergiService`) is
@@ -40,8 +41,9 @@ and **`CONFIG_SET` refuses its key**. `confirm: False` on one says its action op
 the confirmation (otherwise a first tap only arms the button). `hidden` keeps a value out of the rows
 while still validating its writes (`logging.debugMinutes`, set by a dialog); `onSelect`
 (`{value: action}`) names the action choosing that value runs instead of writing it — DEBUG in
-*Lokitaso* asks for how long first. A static `enum`'s value must be one of its `options` (a dynamic
-one's is checked against the resolved list). **`register_runtime(key, provider)`** merges the
+*Lokitaso* asks for how long first. A static `enum`'s value must be one of its `options`, type
+included — a static option may be a number (`auth.tokenLifetimeDays`' days), and `True` never passes
+for `1` (a dynamic one's is text, checked against the resolved list). **`register_runtime(key, provider)`** merges the
 provider's dict into that entry as `runtime` at schema-build time — facts that change with the value
 without being a setting, like DEBUG's end time and the level it returns to. A service whose state changes them must cause
 a schema broadcast; a write does, through its hook, and **`broadcast_schema()`** does without one (the

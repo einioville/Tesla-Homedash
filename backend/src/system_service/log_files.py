@@ -62,7 +62,7 @@ class LogFiles:
     Serves LOG_CLEAR and reports the log files' size and place for the Loki
     card.
     Arguments:
-        server (Server): TCP server, used only to reply to the requesting client.
+        server (Server): TLS server, used only to reply to the requesting client.
     '''
 
     def __init__(self, server):

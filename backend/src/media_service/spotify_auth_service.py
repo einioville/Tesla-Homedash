@@ -73,7 +73,7 @@ class SpotifyAuthService:
     no run task.
     Arguments:
         config (Config): Shared configuration (redirect URI, cache path).
-        server (Server): TCP server used for send_to and broadcast.
+        server (Server): TLS server used for send_to and broadcast.
         media_manager (MediaManager): Told after a successful exchange so the
             player reflects the new grant immediately, not at its next poll.
     '''

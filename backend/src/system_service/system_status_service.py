@@ -35,7 +35,7 @@ class SystemStatusService:
     Serves SYSTEM_GET_STATUS by polling every registered service probe, and
     SYSTEM_GET_LOG from the persistent warning/error store.
     Arguments:
-        server (Server): TCP server, used only to reply to the requesting client.
+        server (Server): TLS server, used only to reply to the requesting client.
         error_log (ErrorLog): The persistent WARNING+ store from
             logger_configurator, read for the per-card counts and lists.
     '''

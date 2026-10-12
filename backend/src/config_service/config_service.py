@@ -631,6 +631,44 @@ SETTINGS_SCHEMA: list[dict] = [
                     },
                 ],
             },
+            {
+                # The displays that have logged in, each with a revoke button,
+                # drawn by the frontend's pairedDisplays widget (issue #64).
+                "id": "displays",
+                "label": "Näytöt",
+                "status": "pairedDisplays",
+                "settings": [
+                    {
+                        # Bound once at start (Config.listen_host), so restart-tier.
+                        "key": "server.reachability",
+                        "type": "enum",
+                        "label": "Palvelimen saavutettavuus",
+                        "help": "Määritä palvelimen saavutettavuus",
+                        "options": [
+                            {"value": "lan", "label": "Lähiverkko"},
+                            {"value": "local", "label": "Vain päälaite"},
+                        ],
+                        "apply": "restart",
+                        "hooks": [],
+                    },
+                    {
+                        "key": "auth.tokenLifetimeDays",
+                        "type": "enum",
+                        "label": "Kirjautuminen vanhenee",
+                        "help": "Näytön on kirjauduttava uudelleen, kun se ei ole ollut "
+                                "yhteydessä näin pitkään aikaan.",
+                        "options": [
+                            {"value": 0, "label": "Ei koskaan"},
+                            {"value": 7, "label": "7 päivän jälkeen"},
+                            {"value": 30, "label": "30 päivän jälkeen"},
+                            {"value": 90, "label": "90 päivän jälkeen"},
+                            {"value": 365, "label": "Vuoden jälkeen"},
+                        ],
+                        "apply": "hook",
+                        "hooks": ["auth"],
+                    },
+                ],
+            },
         ],
     },
 ]
@@ -645,6 +683,8 @@ _MERGED_BLOCKS = {
     "audio": "audio_config",
     "media": "media_config",
     "logging": "logging_config",
+    "auth": "auth_config",
+    "server": "server_config",
 }
 
 
@@ -668,7 +708,7 @@ class ConfigService:
     schema without asking.
     Arguments:
         config (Config): Shared in-memory configuration; mutated and saved here.
-        server (Server): TCP server used for send_to / broadcast.
+        server (Server): TLS server used for send_to / broadcast.
     '''
 
     def __init__(self, config, server):
@@ -899,11 +939,16 @@ class ConfigService:
         if kind == "enum":
             # Dynamic options are not in the static schema, so their membership is
             # checked by the caller (which has the resolved list); static ones here.
+            # A static option may be a number (a count of days); the type must
+            # match too, so True cannot stand in for 1.
+            options = setting.get("options")
+            if isinstance(options, list):
+                if not any(type(value) is type(o["value"]) and value == o["value"]
+                           for o in options):
+                    raise ValueError(f"Tuntematon valinta: {value}")
+                return value
             if not isinstance(value, str):
                 raise ValueError("Odotettiin tekstiä")
-            options = setting.get("options")
-            if isinstance(options, list) and value not in [o["value"] for o in options]:
-                raise ValueError(f"Tuntematon valinta: {value}")
             return value
 
         raise ValueError(f"Tuntematon asetustyyppi: {kind}")

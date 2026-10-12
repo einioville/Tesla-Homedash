@@ -434,5 +434,11 @@
     "logging": {
         "level": "info",
         "debugMinutes": 30
+    },
+    "auth": {
+        "tokenLifetimeDays": 0
+    },
+    "server": {
+        "reachability": "lan"
     }
 }

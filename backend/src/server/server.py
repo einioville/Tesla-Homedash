@@ -1,5 +1,5 @@
 '''
-TCP server that fans dashboard data out to all connected frontends and
+TLS server that fans dashboard data out to all connected frontends and
 routes incoming command bytes to registered service handlers.
 
 The server is intentionally protocol-agnostic: it knows about message
@@ -7,7 +7,9 @@ length framing and a single integer message-type byte, but never about
 the meaning of any specific code.  Services register handlers keyed by
 those integers (see backend/src/utils/protocol.py for the authoritative
 list of codes) and snapshot their state into newly connected clients via
-register_service().
+register_service().  Before any of that a connection must log in: the
+authenticator runs the exchange over a handshake channel the server
+frames for it, and a connection it refuses is closed unseen.
 
 All wiring (register_handler / register_service) must complete before
 start() is called.
@@ -26,18 +28,64 @@ logger = logging.getLogger("server.server")
 
 Handler = Callable[[bytes, asyncio.StreamWriter], Awaitable[None]]
 
+# How long a new connection has to finish the TLS handshake, and then to log in.
+# Generous for the login: a Raspberry Pi display derives its SCRAM key in a few
+# seconds.  Once logged in there is no timeout at all (see __read_loop).
+_TLS_HANDSHAKE_TIMEOUT_S = 15
+_LOGIN_TIMEOUT_S = 30
+
+
+class _Handshake:
+    '''
+    The channel an authenticator talks over before a connection is admitted:
+    framed messages both ways, capped at MAX_PREAUTH_MSG_SIZE inbound.
+    Arguments:
+        server (Server): For its framing and safe writes.
+        reader (StreamReader): The connection's reader.
+        writer (StreamWriter): The connection's writer.
+        address (str): The client's IP address, for logs and throttling.
+    '''
+
+    def __init__(self, server, reader, writer, address: str):
+        self.__server = server
+        self.__reader = reader
+        self.__writer = writer
+        self.address = address
+
+    async def recv(self) -> tuple[int, bytes]:
+        '''The next message as (type, payload).'''
+        return await self.__server._recv_message(self.__reader, protocol.MAX_PREAUTH_MSG_SIZE)
+
+    async def send(self, packet: bytes) -> None:
+        '''
+        Writes framed packets and waits until they are flushed.
+        Arguments:
+            packet (bytes): Built with protocol.frame / json_frame.
+        '''
+        self.__writer.write(packet)
+        await self.__writer.drain()
+
 
 class Server:
     '''
-    asyncio TCP server on 0.0.0.0:6969.  Owns the active-connections map
+    asyncio TLS server on port 6969.  Owns the active-connections map
     and the message-type handler registry.  Services build framed packets
     (via protocol.frame) and call broadcast()/send_to() to deliver them.
+    Arguments:
+        ssl_context (SSLContext): The TLS context every connection uses.
+        authenticator: Duck-typed login gate — async authenticate(handshake)
+            returning an identity dict {"id", "name"} or None, and async
+            disconnected(identity).  AuthService is the one.
+        host (str): The address to listen on — 0.0.0.0 for the local network,
+            127.0.0.1 for this host only (Config.listen_host).
     '''
 
-    HOST = "0.0.0.0"
     PORT = 6969
 
-    def __init__(self) -> None:
+    def __init__(self, ssl_context, authenticator, host: str) -> None:
+        self.host = host
+        self.__ssl_context = ssl_context
+        self.__authenticator = authenticator
         # Each writer maps to the set of in-flight handler tasks spawned by
         # incoming commands from that client.  Tasks are tracked so they can
         # be cancelled if the client disconnects mid-handler.
@@ -45,7 +93,8 @@ class Server:
         self.__handlers: dict[int, Handler] = {}
         self.__services: list = []  # duck-typed: any object with async stream_everything(client)
         self.__server: asyncio.Server | None = None
-        # Who each connection is, for the status view's client list.
+        # Who each connection is: address, port, since_ms and the identity's id
+        # and name — the status view's client list, and how disconnect() finds one.
         self.__peers: dict[asyncio.StreamWriter, dict] = {}
 
     def register_handler(self, msg_type: int, handler: Handler) -> None:
@@ -82,10 +131,22 @@ class Server:
 
     def clients(self) -> list[dict]:
         '''
-        The connected frontends as {"address", "port", "since_ms"}, oldest
-        first, for the status view.
+        The connected frontends as {"address", "port", "since_ms", "id",
+        "name"}, oldest first, for the status view.
         '''
         return sorted(self.__peers.values(), key=lambda peer: peer["since_ms"])
+
+    async def disconnect(self, identity_id: str) -> None:
+        '''
+        Closes every connection logged in as this identity (a revoked login).
+        Their read loops then end and clean up as for any disconnect.
+        Arguments:
+            identity_id (str): The "id" the authenticator returned.
+        '''
+        for writer, peer in list(self.__peers.items()):
+            if peer.get("id") == identity_id:
+                logger.info("Closing the connection of %s (%s)", peer.get("name"), identity_id)
+                writer.close()
 
     async def broadcast(self, packet: bytes) -> None:
         '''
@@ -118,12 +179,15 @@ class Server:
 
     async def start(self) -> None:
         '''
-        Binds the TCP server and serves forever.  All handlers and services
-        must already be registered before this is awaited.
+        Binds the TLS server and serves forever.  All handlers and services
+        must already be registered before this is awaited.  A failed TLS
+        handshake (a plaintext client, a bare reachability probe) never reaches
+        __handle_connection, and asyncio logs it only in debug mode.
         '''
-        logger.info("TCP server starting on %s:%d", self.HOST, self.PORT)
+        logger.info("TLS server starting on %s:%d", self.host, self.PORT)
         self.__server = await asyncio.start_server(
-            self.__handle_connection, host=self.HOST, port=self.PORT
+            self.__handle_connection, host=self.host, port=self.PORT,
+            ssl=self.__ssl_context, ssl_handshake_timeout=_TLS_HANDSHAKE_TIMEOUT_S,
         )
         async with self.__server:
             await self.__server.serve_forever()
@@ -132,13 +196,22 @@ class Server:
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
     ) -> None:
         peer = writer.get_extra_info("peername")
-        self.__active_connections[writer] = set()
         # peername is (host, port) for IPv4 and (host, port, flow, scope) for IPv6.
         address, port = (peer[0], peer[1]) if isinstance(peer, tuple) and len(peer) >= 2 \
             else (str(peer), 0)
+
+        # The login, before the connection is in any map: nothing is broadcast
+        # to it and no handler can be reached until it has passed.
+        identity = await self.__login(reader, writer, address)
+        if identity is None:
+            await self.__close(writer)
+            return
+
+        self.__active_connections[writer] = set()
         self.__peers[writer] = {"address": address, "port": port,
-                                "since_ms": int(time.time() * 1000)}
-        logger.info("Client connected: %s", peer)
+                                "since_ms": int(time.time() * 1000),
+                                "id": identity["id"], "name": identity["name"]}
+        logger.info("Client connected: %s (%s)", peer, identity["name"])
 
         # Snapshot pass: deliver every service's full state to the new
         # client only.  Services are awaited sequentially so concurrent
@@ -156,7 +229,35 @@ class Server:
             await self.__read_loop(reader, writer)
         finally:
             await self.__cleanup_client(writer)
-            logger.info("Client disconnected: %s", peer)
+            logger.info("Client disconnected: %s (%s)", peer, identity["name"])
+            try:
+                await self.__authenticator.disconnected(identity)
+            except Exception as e:
+                logger.error("Login bookkeeping failed for %s: %s: %s",
+                             identity["name"], type(e).__name__, e)
+
+    async def __login(
+        self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter, address: str
+    ) -> dict | None:
+        '''
+        Runs the authenticator on a new connection within _LOGIN_TIMEOUT_S.
+        Returns the identity, or None for a connection that must be closed.
+        '''
+        try:
+            return await asyncio.wait_for(
+                self.__authenticator.authenticate(_Handshake(self, reader, writer, address)),
+                _LOGIN_TIMEOUT_S,
+            )
+        except asyncio.TimeoutError:
+            logger.info("Login timed out: %s", address)
+        except (asyncio.IncompleteReadError, ConnectionError, OSError) as e:
+            logger.debug("Connection ended during login: %s: %s: %s",
+                         address, type(e).__name__, e)
+        except ValueError as e:
+            logger.warning("Protocol error during login from %s, closing: %s", address, e)
+        except Exception as e:
+            logger.error("Login failed for %s: %s: %s", address, type(e).__name__, e)
+        return None
 
     async def __read_loop(
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
@@ -166,7 +267,7 @@ class Server:
         # ConnectionError from readexactly().
         while True:
             try:
-                msg_type, payload = await self.__recv_message(reader)
+                msg_type, payload = await self._recv_message(reader, protocol.MAX_MSG_SIZE)
             except (asyncio.IncompleteReadError, ConnectionError, OSError) as e:
                 logger.info("Client read ended: %s: %s", type(e).__name__, e)
                 return
@@ -195,12 +296,20 @@ class Server:
                 pending.add(task)
                 task.add_done_callback(pending.discard)
 
-    async def __recv_message(
-        self, reader: asyncio.StreamReader
+    async def _recv_message(
+        self, reader: asyncio.StreamReader, max_size: int
     ) -> tuple[int, bytes]:
+        '''
+        Reads one framed message as (type, payload).  Raises ValueError for a
+        length of 0 or over max_size.  Not private to the class: _Handshake
+        reads with it too.
+        Arguments:
+            reader (StreamReader): The connection's reader.
+            max_size (int): The largest message accepted.
+        '''
         msg_len = struct.unpack("!I", await reader.readexactly(4))[0]
         # A malformed or hostile length prefix must not allocate without bound.
-        if msg_len == 0 or msg_len > protocol.MAX_MSG_SIZE:
+        if msg_len == 0 or msg_len > max_size:
             raise ValueError(f"Invalid message size: {msg_len}")
 
         body = await reader.readexactly(msg_len)
@@ -238,6 +347,11 @@ class Server:
             for task in pending:
                 task.cancel()
             await asyncio.gather(*pending, return_exceptions=True)
+        await self.__close(writer)
+
+    @staticmethod
+    async def __close(writer: asyncio.StreamWriter) -> None:
+        '''Closes a connection, ignoring one that is already gone.'''
         try:
             writer.close()
             await writer.wait_closed()

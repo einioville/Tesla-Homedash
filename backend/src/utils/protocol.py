@@ -384,8 +384,43 @@ USB_IMPORT_STATE = 0xE4   # B->F: status(1B, always OK) + len(4B) + UTF-8 JSON
                           #   {flowId, phase, message, drives, device, found, count,
                           #    bytes, copied, skipped, total, unmounted}
 
+# ── Login (issue #64) ──────────────────────────────────────────────────────
+# The connection is TLS 1.3, and nothing else crosses it until the display has
+# logged in: the backend opens with AUTH_HELLO, the display answers with a
+# remembered token or a SCRAM-SHA-256-PLUS exchange (RFC 5802 / 7677 messages,
+# channel binding tls-server-end-point), and only an AUTH_RESULT with ok=true
+# is followed by the snapshot. auth_service/CLAUDE.md has the whole exchange.
+AUTH_HELLO = 0xF0              # B->F: status(1B, always OK) + len(4B) + UTF-8 JSON
+                               #   {"passwordSet": <bool>} — the first frame on a connection
+AUTH_TOKEN = 0xF1              # F->B: len(4B) + UTF-8 JSON {"deviceId", "token"}
+AUTH_SCRAM_START = 0xF2        # F->B: len(4B) + UTF-8 JSON {"message": client-first-message}
+AUTH_SCRAM_CHALLENGE = 0xF3    # B->F: status(1B, always OK) + len(4B) + UTF-8 JSON
+                               #   {"message": server-first-message}
+AUTH_SCRAM_PROOF = 0xF4        # F->B: len(4B) + UTF-8 JSON {"message": client-final-message,
+                               #   "name": <the display's name>}
+AUTH_RESULT = 0xF5             # B->F: status(1B) + len(4B) + UTF-8 JSON {"ok", "reason",
+                               #   "message", "retryAfter"?, and on a SCRAM success "serverFinal",
+                               #   "deviceId", "token", "name"}; status mirrors ok
+AUTH_GET_DISPLAYS = 0xF6       # F->B: (empty) — the Ylläpito › Näytöt list
+AUTH_DISPLAYS = 0xF7           # B->F: status(1B, always OK) + len(4B) + UTF-8 JSON
+                               #   {"displays": [{id, name, address, created, lastSeen,
+                               #   connected}]}; to the requester, and broadcast on any change
+AUTH_REVOKE = 0xF8             # F->B: len(4B) + UTF-8 JSON {"id"} — forget a display's login
+                               #   and close its connection
+
+# AUTH_RESULT reasons. The frontend decides from these whether to drop its
+# remembered token (token) or to keep asking for the password (the others).
+AUTH_REASON_TOKEN = "token"          # unknown, revoked, expired, or the password changed
+AUTH_REASON_PASSWORD = "password"    # the proof did not verify
+AUTH_REASON_NO_PASSWORD = "noPassword"
+AUTH_REASON_THROTTLED = "throttled"  # too many wrong passwords from this address
+AUTH_REASON_BINDING = "binding"      # the client saw another certificate than ours
+AUTH_REASON_PROTOCOL = "protocol"    # a malformed or out-of-order message
+
 # Maximum accepted size of a single incoming message (defensive cap)
 MAX_MSG_SIZE = 1024 * 1024  # 1 MB
+# Before login a client may send only small auth messages.
+MAX_PREAUTH_MSG_SIZE = 4096
 
 
 def frame(msg_type: int, payload: bytes = b"") -> bytes:
