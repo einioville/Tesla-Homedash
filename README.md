@@ -228,10 +228,14 @@ API_KEY=<your-teslemetry-access-token>
 INFLUX_TOKEN=<from-the-influxdb-step>
 SPOTIFY_CLIENT_ID=<from-the-spotify-developer-app>
 SPOTIFY_CLIENT_SECRET=<from-the-spotify-developer-app>
+TESLA_HOMEDASH_PASSWORD=<a-password-for-the-dashboards>
 ```
 
 - `API_KEY` is the Teslemetry access token from your [Teslemetry](https://teslemetry.com) account dashboard.
 - `SPOTIFY_CLIENT_ID` and `SPOTIFY_CLIENT_SECRET` come from the app you registered at the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard).
+- `TESLA_HOMEDASH_PASSWORD` is what each dashboard display logs in to the backend with — once per
+  display, see *Logging in* below. Without it the backend still starts, but no display can connect.
+  Changing it logs every display out.
 
 **4. Create `config.json`** from the template at the repo root (the real `config.json` is gitignored so it can carry your personal values):
 
@@ -315,6 +319,7 @@ view — a value saved there wins, so they matter on a fresh install and stop ma
 - `TESLA_HOMEDASH_FULLSCREEN` — set to `1` to open fullscreen on the touchscreen.
 - `TESLA_HOMEDASH_SCREENSAVER_TIMEOUT_MIN` — idle minutes before the screensaver (default `30`).
 - `TESLA_HOMEDASH_SETTINGS_FILE` — override where the dashboard's own settings are written (default `~/.config/Tesla-Homedash/frontend_config.json`).
+- `TESLA_HOMEDASH_CREDENTIALS_FILE` — override where the display keeps its backend login (default `~/.config/Tesla-Homedash/frontend_credentials.json`, readable by its owner only).
 - `TESLA_HOMEDASH_LOG_LEVEL` — `debug` / `info` / `warning` / `error` / `critical` (default `info`).
 - `TESLA_HOMEDASH_LOG_DIR` — where both halves keep their own log files (default `~/.local/state/Tesla-Homedash/logs`). The journal gets the same lines at the chosen level but never below INFO; the log level is chosen in **Asetukset › Ylläpito › Lokit** (DEBUG there is temporary and reaches these files only), and the same card clears them. `TESLA_HOMEDASH_LOG_LEVEL` is the level until one is chosen there.
 
@@ -324,7 +329,31 @@ Make sure the backend is already running (`cd backend && uv run python run.py`),
 TESLA_HOMEDASH_FULLSCREEN=1 ./frontend_v2/build/appfrontend_v2
 ```
 
-If everything is wired up correctly, the dashboard appears and starts streaming telemetry, weather, and media data from the backend.
+If everything is wired up correctly, the dashboard asks for the backend's password once (below),
+then starts streaming telemetry, weather, and media data from the backend.
+
+**3. Logging in:**
+
+The connection between the backend and a display is encrypted (TLS 1.3), and a display has to log
+in before it receives anything. On its first connect the dashboard shows **Kirjaudu palvelimelle**:
+type the `TESLA_HOMEDASH_PASSWORD` from the backend's `.env` with the on-screen keyboard. The login
+is remembered, so the password is asked again only if the login is removed or expires, the password
+changes, or the backend's certificate changes.
+
+- The backend creates its own certificate on first start, in `~/.config/Tesla-Homedash/tls/`. No
+  certificate authority is involved: a display trusts the certificate it saw when the password
+  login succeeded, and asks for the password again if a different one appears. Deleting that
+  folder therefore makes every display log in again.
+- **Asetukset › Ylläpito › Näytöt** lists every display that has logged in, connected or not; *Poista*
+  logs one out at once (this display included). *Palvelimen saavutettavuus* chooses who can reach the
+  backend at all: *Lähiverkko* (the default) for displays anywhere on the local network, *Vain
+  päälaite* for the Pi's own display only — the backend then listens on `127.0.0.1`, so the Pi's
+  display must use that address (the default). It takes a backend restart. *Kirjautuminen vanhenee* makes a login lapse after a
+  display has not connected for 7, 30, 90 or 365 days; the default is never.
+- The password itself never crosses the network: the login is a SCRAM-SHA-256 exchange bound to the
+  backend's certificate, so a machine in the middle can neither read it nor stand in for the backend.
+- The frontend needs OpenSSL 3 at run time for TLS (the Qt installer's builds load it dynamically);
+  Raspberry Pi OS ships it as `libssl3`.
 
 ### User services
 
