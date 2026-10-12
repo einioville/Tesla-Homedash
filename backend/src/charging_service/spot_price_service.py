@@ -52,7 +52,7 @@ class SpotPriceService:
     '''
     Fetches and broadcasts the live hourly spot price.
     Arguments:
-        server (Server): TCP server used to broadcast + snapshot the price frame.
+        server (Server): TLS server used to broadcast + snapshot the price frame.
         config (Config): Shared configuration (timezone for the scheduler).
         provider (SpotPriceProvider): The shared fetch/cache/convert core (also used by the
             on-demand charging cost path).

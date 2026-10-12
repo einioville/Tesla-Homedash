@@ -38,26 +38,12 @@ Rectangle {
         if (typeof value !== "object")
             return String(value)
         if (value.time !== undefined)
-            return formatTime(value.time)
+            return Format.moment(value.time)
         if (value.bytes !== undefined)
             return Format.bytes(value.bytes)
         if (value.duration !== undefined)
             return Format.duration(value.duration)
         return "—"
-    }
-
-    // Today as a clock time, another day with its date — a grant valid "until
-    // 14:02" means nothing without the day it is on.
-    function formatTime(ms) {
-        if (ms === null || ms === undefined)
-            return "—"
-        const date = new Date(ms)
-        const today = new Date()
-        if (date.toDateString() === today.toDateString())
-            return qsTr("klo %1").arg(Qt.formatTime(date, "hh:mm"))
-        if (date.getFullYear() === today.getFullYear())
-            return Qt.formatDateTime(date, "d.M. hh:mm")
-        return Qt.formatDate(date, "d.M.yyyy")
     }
 
     // This display's own connection in the server card's list.
@@ -227,14 +213,15 @@ Rectangle {
                 }
 
                 Text {
-                    text: client.modelData.address + ":" + client.modelData.port
+                    text: (client.modelData.name ? client.modelData.name + " · " : "")
+                          + client.modelData.address + ":" + client.modelData.port
                     font.family: Theme.fontFamily
                     font.pixelSize: 13
                     color: Theme.dataLabelValue
                 }
 
                 Text {
-                    text: qsTr("yhdistetty %1").arg(card.formatTime(client.modelData.since_ms))
+                    text: qsTr("yhdistetty %1").arg(Format.moment(client.modelData.since_ms))
                           + (card.isThisDisplay(client.modelData) ? " · " + qsTr("tämä näyttö") : "")
                     font.family: Theme.fontFamily
                     font.pixelSize: 13

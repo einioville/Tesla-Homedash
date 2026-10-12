@@ -48,6 +48,12 @@ qt_add_executable(appfrontend_v2
     core/logger.cpp
     core/serverclient.hh
     core/serverclient.cpp
+    core/scram.hh
+    core/scram.cpp
+    core/credentialstore.hh
+    core/credentialstore.cpp
+    core/paireddisplays.hh
+    core/paireddisplays.cpp
     core/appconfig.hh
     core/appconfig.cpp
     core/dotenv.hh
@@ -157,6 +163,9 @@ qt_add_qml_module(appfrontend_v2
         items/settings/DialogButton.qml
         items/settings/ModalDialog.qml
         items/settings/SpotifyAuthAlert.qml
+        items/settings/BackendLoginPrompt.qml
+        items/settings/BackendLoginDetails.qml
+        items/settings/PairedDisplaysPanel.qml
         items/trip/TripMap.qml
         items/trip/TripComboBox.qml
         items/trip/WeekSelector.qml

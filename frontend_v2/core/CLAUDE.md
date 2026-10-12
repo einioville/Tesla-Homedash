@@ -1,9 +1,9 @@
 # `frontend_v2/core/` — the C++ core and QML singletons
 
-`ServerClient` (socket + frame demux), `protocol.hh` (the mirror of `backend/src/utils/protocol.py`
-— change both together), `Logger`, `AppConfig`, `dotenv`, and the singletons below; per-domain data
-models live in the subdirectories. Several singletons back Options-view widgets whose QML notes are
-in `../items/settings/CLAUDE.md`.
+`ServerClient` (the TLS session, the login and the frame demux), `protocol.hh` (the mirror of
+`backend/src/utils/protocol.py` — change both together), `Logger`, `AppConfig`, `dotenv`, and the
+singletons below; per-domain data models live in the subdirectories. Several singletons back
+Options-view widgets whose QML notes are in `../items/settings/CLAUDE.md`.
 
 **Wire shapes have one reader and one writer each, in `protocol.hh`** — reuse them rather than
 parsing a header by hand: `jsonRequestBody()` / `readJsonReply()` (nothing for a short, truncated,
@@ -11,6 +11,49 @@ malformed or non-object reply), `writeString()` / `readString()` (len(2B) + UTF-
 `historyRequestBody()`, and `readSeries()` (the series block of `TESLA_HISTORY`, `CHARGER_HISTORY`
 and `TRIP_SERIES`). A graph's axis bounds come from `seriesbounds.hh`: `seriesBounds()` for a static
 series, `rollLiveWindow()` for a live one.
+
+## `ServerClient` — `serverclient.{hh,cpp}`, `scram.{hh,cpp}`, `credentialstore.{hh,cpp}`
+
+The one socket to the backend (QML `Server`), **TLS 1.3 with a login in front** (issue #64; the
+exchange is `backend/src/auth_service/CLAUDE.md`). Until the backend answers `AUTH_RESULT ok`, every
+frame is handled here and nothing is emitted — `connected` stays false, so no data model ever sees
+a session that has not logged in, and none of them changed for it. Load-bearing:
+
+- **The certificate is checked by hash, never by a CA.** `QueryPeer` takes it without validating
+  it (it is self-signed by design; Qt still emits `sslErrors` for that, and nothing listens). Its
+  SHA-256 is SCRAM's channel binding at a password login and, once that succeeds, the **pin**
+  stored beside the token. A connection whose certificate is not the pinned one sends no token:
+  the password is asked for again, and the SCRAM exchange proves the new certificate.
+- **The login prompt is a state, not a dialog this class opens.** `authState` (`offline`,
+  `authenticating`, `loginRequired`, `noPassword`, `authenticated`), `authMessage`, `loginBusy` and
+  `loginPromptVisible` drive `items/settings/BackendLoginPrompt.qml`; `login(password)`,
+  `dismissLoginPrompt()` and `showLoginPrompt()` are the whole API. **While a password is needed
+  there is no reconnect loop**: `requireLogin()` closes the socket and `login()` opens the next one.
+  With no password on the backend it keeps retrying every 10 s, since setting one restarts the
+  backend, and logs that only once.
+- **PBKDF2 runs on a `QtConcurrent` worker** (`scram::answer`, seconds on a Pi); the password is
+  moved into the worker and dropped there. `scram.cpp` mirrors the backend's `scram.py` — change
+  both together — and refuses a challenge under 100 000 rounds, so a man in the middle cannot ask
+  for a cheap key.
+- **A socket error aborts the socket.** A backend that ends the session cleanly (a revoked login, a
+  shutdown) sends a TLS close_notify, which arrives as `RemoteHostClosedError` while the socket
+  stays *connected* — nothing answers it, so `disconnected` never comes. `onError` aborts, and both
+  signals end in the one `connectionLost()`.
+- **`CredentialStore`** keeps `{deviceId, token, certSha256}` per `host:port` in
+  `frontend_credentials.json` beside `frontend_config.json`, 0600 from the first byte (the
+  permissions go on `QSaveFile`'s temp file before the write), `TESLA_HOMEDASH_CREDENTIALS_FILE`
+  overriding the path. Not in the settings file, which is not a secret, and not the OS keyring,
+  which is never unlocked on a kiosk that logs in by itself. A refused token (`token` reason:
+  revoked, expired, the password changed) is forgotten.
+
+## `PairedDisplays` — `paireddisplays.{hh,cpp}`
+
+The Ylläpito › Näytöt card's list (issue #64), rendered by `items/settings/PairedDisplaysPanel.qml`:
+every display that has logged in, with `revoke(id)`. Like `TeslaFields` it holds no copy it edits —
+the rows are the backend's `AUTH_DISPLAYS`, broadcast after a login, a revoke and a display
+connecting or leaving. Asked for when the card is built and again on reconnect once asked. This
+display is the row whose `id` is `Server.deviceId`; revoking it logs this display out, which is
+how to do that.
 
 ## `Settings` — `settings.{hh,cpp}`
 
@@ -86,7 +129,9 @@ fullscreen with no keyboard — which is also why no bare "quit" is offered.
 what a validation check may do. `Probe` opens a socket, waits 3 s, reports `reachable` /
 `unreachable` (with the socket's own error text — "Connection refused" and "Host not found" are
 different problems) and closes; a successful probe aborts the instant it connects, so the
-backend just sees a connection open and close.
+backend just sees a connection open and close. It stays plain TCP: reachability is the question,
+and a TCP connect to the TLS port answers it — the backend drops the unfinished handshake
+silently.
 
 ## `Photos` — `screensaverphotos.{hh,cpp}`
 

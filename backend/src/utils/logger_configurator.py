@@ -24,6 +24,7 @@ DISPLAY_SERVICE = "display_service"
 SYSTEM_SERVICE = "system_service"
 UPDATE_SERVICE = "update_service"
 USB_IMPORT_SERVICE = "usb_import_service"
+AUTH_SERVICE = "auth_service"
 SERVER = "server"
 START_SERVICES = "start_services"
 UTILS = "utils"
@@ -47,6 +48,7 @@ _SERVICE_LOGGERS = (
     SYSTEM_SERVICE,
     UPDATE_SERVICE,
     USB_IMPORT_SERVICE,
+    AUTH_SERVICE,
     SERVER,
     START_SERVICES,
     UTILS,

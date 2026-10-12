@@ -23,10 +23,10 @@ sources into one glanceable surface:
   Institute (FMI) open-data feed.
 - **HVAC** — start/stop climate and adjust the target (pre-conditioning) temperature.
 
-Architecture in one line: a **Python asyncio backend** streams data over a **custom binary TCP
-protocol** (port 6969) to a **Qt 6 frontend**. The backend can fan out to several frontends at
-once. Beyond the live dashboard there are History, Trips, Charging (myenergi Zappi + Nord Pool
-spot price) and Options (*Asetukset*) views.
+Architecture in one line: a **Python asyncio backend** streams data over a **custom binary
+protocol on TLS 1.3** (port 6969, password login first) to a **Qt 6 frontend**. The backend can fan
+out to several frontends at once. Beyond the live dashboard there are History, Trips, Charging
+(myenergi Zappi + Nord Pool spot price) and Options (*Asetukset*) views.
 
 There are two frontends. **`frontend_v2/`** (Qt Quick/QML over a C++20 core) is the live target and
 gets all feature work. **`frontend/`** (Qt Widgets) is the frozen predecessor — kept building,
@@ -45,7 +45,11 @@ backend/                          # ★ orchestration, service contracts, .env +
   src/
     start_services.py             # Entrypoint / composition root — builds EVERY service (tesla, media, weather, trips, charging + myenergi), registers handlers, gathers the event loop. NOT tesla-specific despite the neighbours.
     server/                       # ★
-      server.py                   # asyncio TCP server on 0.0.0.0:6969 — protocol-agnostic fan-out + handler routing
+      server.py                   # asyncio TLS server on :6969 (all interfaces, or loopback: server.reachability) — login gate, fan-out + handler routing
+    auth_service/                 # ★
+      auth_service.py             # AuthService — the login every connection passes (0xF0-0xF8), paired displays, Ylläpito › Näytöt
+      scram.py                    # SCRAM-SHA-256-PLUS, server half (RFC 5802/7677; mirror: frontend_v2/core/scram.cpp)
+      tls.py                      # The self-signed TLS 1.3 certificate, created on first start, pinned by the displays
     tesla_service/                # ★
       telemetry.py                # Teslemetry stream client (teslemetry_stream) → Vehicle.on_telemetry_event
       vehicle.py                  # Vehicle state, telemetry handler, HVAC REST commands, rate limiting, snapshots
@@ -166,8 +170,8 @@ frozen `frontend/` has its own commands in `frontend/CLAUDE.md`.
 
 ### 3.3 Validation
 
-There is no test suite beyond two standalone backend scripts (`backend/tests/test_spot_price.py`,
-`test_trip_loader.py`; run one with `uv run python tests/<file>` from `backend/`). Validate manually:
+There is no test suite beyond three standalone backend scripts (`backend/tests/test_spot_price.py`,
+`test_trip_loader.py`, `test_auth.py`; run one with `uv run python tests/<file>` from `backend/`). Validate manually:
 - **Backend**: `python -m compileall backend/src`, then start the stack and confirm
   telemetry / media / weather / HVAC flows in the logs.
 - **Frontend**: rebuild, launch, connect to the backend, exercise the affected widgets.
@@ -180,9 +184,10 @@ See the **Agent validation policy** (§7.3) for what the agent does vs. defers t
 
 | File | Read by | Documented in |
 |---|---|---|
-| `.env` (repo root, gitignored) — secrets (`VIN`, `API_KEY`, `INFLUX_TOKEN`, Spotify, myenergi), `CONFIG_PATH`, log level | backend `get_env`; `frontend_v2`'s `core/dotenv` for env-backed setting defaults | `backend/CLAUDE.md` |
+| `.env` (repo root, gitignored) — secrets (`VIN`, `API_KEY`, `INFLUX_TOKEN`, Spotify, myenergi, `TESLA_HOMEDASH_PASSWORD`), `CONFIG_PATH`, log level | backend `get_env`; `frontend_v2`'s `core/dotenv` for env-backed setting defaults | `backend/CLAUDE.md` |
 | The backend config — called `config.json` throughout these docs; by default `~/.config/Tesla-Homedash/backend_config.json`, or `CONFIG_PATH`. Template: `config_template.json`. **Written at runtime** by the Options view | backend `Config` | `backend/CLAUDE.md`, `backend/src/config_service/CLAUDE.md` |
 | `frontend_config.json` beside it — the frontend's saved setting overrides over the bundled schema `frontend_v2/config/settings.json` | `frontend_v2` `Settings` | `frontend_v2/CLAUDE.md` |
+| Login state, not settings: the backend's `paired_displays.json` (the password's verifier + the displays) and `tls/` (its certificate) beside `config.json`; each display's `frontend_credentials.json` (token + certificate pin, 0600) beside `frontend_config.json` | `AuthService`; `ServerClient`'s `CredentialStore` | `backend/src/auth_service/CLAUDE.md`, `frontend_v2/core/CLAUDE.md` |
 | `TESLA_HOMEDASH_*` environment variables | the frontend (`AppConfig`, setting defaults); `TESLA_HOMEDASH_LOG_LEVEL` and `_LOG_DIR` in both halves | `frontend_v2/CLAUDE.md` |
 | The app's own log files — `backend.log`, `backend-errors.jsonl` (the warning/error store) and `frontend.log`, in `~/.local/state/Tesla-Homedash/logs` or `TESLA_HOMEDASH_LOG_DIR`. Written beside the journal; the temporary DEBUG log goes only here | both halves' loggers; cleared from Ylläpito › Lokit | `backend/src/utils/CLAUDE.md`, `frontend_v2/CLAUDE.md` |
 
@@ -193,10 +198,11 @@ Teslemetry stream at `eu.teslemetry.com`.
 
 ### 5.1 Binary protocol
 
-Frontend and backend speak a custom binary protocol over TCP port **6969**. All multi-byte
-integers are **big-endian**. `utils/protocol.py` is the single source of truth for every
-constant and the `frame()` helper; services build packets with `protocol.frame(...)` and the
-server only ships bytes.
+Frontend and backend speak a custom binary protocol over **TLS 1.3** on port **6969**, and a
+display must log in (a SCRAM password login once, a remembered token after that) before anything
+else crosses it — `backend/src/auth_service/CLAUDE.md`. All multi-byte integers are
+**big-endian**. `utils/protocol.py` is the single source of truth for every constant and the
+`frame()` helper; services build packets with `protocol.frame(...)` and the server only ships bytes.
 
 **Packet framing**
 ```
@@ -277,9 +283,14 @@ Teslemetry state event (state != "online") → Vehicle.__update → VehicleOnlin
   → broadcast changed-only via MSG_STREAM   (no InfluxDB write — display-only)
 ```
 
-**New client connects (snapshot)**
+**New client connects (login, then snapshot)**
 ```
-Server.__handle_connection → for each registered service: service.stream_everything(writer)
+TLS 1.3 handshake → Server.__handle_connection → AuthService.authenticate → AUTH_HELLO
+  remembered:  AUTH_TOKEN → token hash + expiry checked
+  first time:  AUTH_SCRAM_START → CHALLENGE → PROOF (bound to the certificate) → new token
+  → AUTH_RESULT ok → ServerClient: pin/token stored, connected = true
+  (refused → AUTH_RESULT reason → connection closed → BackendLoginPrompt)
+→ for each registered service: service.stream_everything(writer)
   → protocol.frame(...) per packet → Server.send_to(writer, …)   (delivered to the new client only)
 ```
 
@@ -460,7 +471,9 @@ audio service runs only while the curve is not flat, drawn as knobs on a curve b
 cleanup: the shared helpers listed in §7.8 in place of their copies, the dead code and stale
 comments gone, and the rules in §7.8 that keep them out; its second round took the equalizer and
 the Weather view through the same pass (the view's files out of `prototype/`, `frontend_v2`'s unread
-`WEATHER_FORECAST` path removed) and added the settings check of §7.9.
+`WEATHER_FORECAST` path removed) and added the settings check of §7.9 — plus the encrypted
+connection (#64): TLS 1.3 on 6969 with a SCRAM password login, remembered per-display tokens and a
+pinned certificate, and Ylläpito › Näytöt to list and revoke displays.
 When you land a change that touches documented behaviour, update this line.
 
 ### 7.8 Keeping the code clean

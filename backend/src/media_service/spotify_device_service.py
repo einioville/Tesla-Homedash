@@ -66,7 +66,7 @@ class SpotifyDeviceService:
     so both are served on request rather than snapshotted to every new client.
     Arguments:
         config (Config): Shared configuration; read for the stored device name.
-        server (Server): TCP server used for send_to.
+        server (Server): TLS server used for send_to.
         media_manager (MediaManager): Route to the Spotify player's API calls and
             to stopping whatever else is playing.
         config_service (ConfigService): Performs the spotifyDeviceId (and

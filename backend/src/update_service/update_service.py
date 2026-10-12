@@ -271,7 +271,7 @@ class UpdateService:
     the last known state without asking — including a run already in progress.
 
     Arguments:
-        server (Server): TCP server used to broadcast and to reply.
+        server (Server): TLS server used to broadcast and to reply.
         config_service (ConfigService): Consulted for its restart trigger, so the
             updater does not grow a second way to exit the process, and given a
             veto so the Options view's own restart button cannot kill a run.

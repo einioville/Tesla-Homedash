@@ -109,7 +109,7 @@ class MyEnergiService:
         Initialises the service. The scheduler and cloud connection are not started
         here; call get_run_task() to start the service as an asyncio Task.
         Arguments:
-            server (Server): TCP server used to broadcast charger data.
+            server (Server): TLS server used to broadcast charger data.
             config (Config): Shared in-memory configuration (provides myenergi_config).
             influx_handler (InfluxDBHandler): Data-access layer for charger writes.
             hub_serial (str): myenergi hub serial — the digest-auth username.

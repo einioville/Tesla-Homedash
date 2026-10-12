@@ -23,6 +23,7 @@ resources/      # fonts, icons, styles, Luna
 
 | Working on | Read |
 |---|---|
+| The connection and the login — `ServerClient` (`Server`), `PairedDisplays` | `core/CLAUDE.md`; the exchange in `backend/src/auth_service/CLAUDE.md` |
 | A `core/` singleton — `Settings`, `Probe`, `Photos`, `UsbImport`, `Display`, `System`, `SystemHistory`, `Logs`, `TeslaFields`, `SpotifyAuth`, `SpotifyDevice`, `Updater` | `core/CLAUDE.md` |
 | The Options view's QML — layout, schema keys, delegates, status widgets, the USB photo import | `items/settings/CLAUDE.md` |
 | The map — `items/tesla/TeslaMap.qml` (full-screen in `views/MapView.qml`; `items/trip/TripMap.qml` shares its gesture handlers) | `items/tesla/CLAUDE.md` |
@@ -55,6 +56,9 @@ All optional; defaults match the embedded target.
   — i.e. beside the backend's `backend_config.json`). With no override, while that file does not
   exist yet, a legacy `AppConfigLocation/settings.json` (`~/.config/appfrontend_v2/`) is copied
   (not moved) to it (`Settings::migrateLegacyStorage`).
+- `TESLA_HOMEDASH_CREDENTIALS_FILE` — override the path of this display's backend login (default
+  `<GenericConfigLocation>/Tesla-Homedash/frontend_credentials.json`, 0600; `core/CLAUDE.md`,
+  *ServerClient*). Point it at a scratch file to test without touching the real login.
 - `TESLA_HOMEDASH_NOTIFICATIONS_CONFIG` — path to a notification-rules file used instead of the
   bundled `config/notifications.json`, read once at startup by `NotificationHandler::loadConfig`.
   Process environment only (not `.env`). A file that cannot be opened falls back to the bundled
@@ -132,7 +136,7 @@ module installed. The only locale is `fi_FI`, which drops the language-switch ke
   to end above that band, or its buttons land under the dock (`items/settings/CLAUDE.md`, *USB
   photo import*, is a case).
 - **App-level layers in `Main.qml`:** notifications z:200, the Spotify re-auth prompt z:250 and its
-  progress dialog z:260, the update banner z:270, the keyboard's outside-press catcher z:280 and the
+  progress dialog z:260, the backend login prompt z:265, the update banner z:270, the keyboard's outside-press catcher z:280 and the
   keyboard itself z:290, the screensaver z:300. Something that must be seen
   whichever view is current belongs here, not inside a view.
 

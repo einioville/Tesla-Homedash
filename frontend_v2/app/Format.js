@@ -39,3 +39,18 @@ function duration(seconds) {
         return h + " h " + m + " min"
     return m + " min"
 }
+
+// An epoch-ms moment: today as a clock time ("klo 14:02"), earlier this year with
+// its date ("3.10. 14:02"), older with the year ("3.10.2025") — a time without its
+// day means nothing on a panel left on for days.
+function moment(ms) {
+    if (!has(ms))
+        return "—"
+    const date = new Date(ms)
+    const today = new Date()
+    if (date.toDateString() === today.toDateString())
+        return "klo " + Qt.formatTime(date, "hh:mm")
+    if (date.getFullYear() === today.getFullYear())
+        return Qt.formatDateTime(date, "d.M. hh:mm")
+    return Qt.formatDate(date, "d.M.yyyy")
+}

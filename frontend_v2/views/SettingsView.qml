@@ -128,6 +128,8 @@ Rectangle {
                 debugPopup.open()
             else if (key === "logClear")
                 logClearPopup.open()
+            else if (key === "backendLogin")
+                Server.showLoginPrompt()
         }
 
         function onWriteFailed(key, message) {

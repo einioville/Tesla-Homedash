@@ -217,7 +217,7 @@ class UsbImportService:
     Serves the USB_IMPORT_* codes: lists USB drives, mounts one, counts its
     photos and copies them into the screensaver folder.
     Arguments:
-        server (Server): TCP server used to reply to the client running the flow.
+        server (Server): TLS server used to reply to the client running the flow.
     '''
 
     def __init__(self, server):

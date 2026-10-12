@@ -5,6 +5,7 @@ import struct
 from datetime import datetime, timezone
 
 from .audio_service.audio_service import AudioService
+from .auth_service.auth_service import AuthService
 from .charging_service.charging_loader import ChargingLoader
 from .config_service.config_service import ConfigService
 from .display_service.display_service import DisplayService
@@ -712,8 +713,13 @@ async def main():
     )
     logger.debug("InfluxDB handler initialized")
 
-    server = Server()
-    logger.debug("TCP server initialized")
+    # The login gate and the TLS certificate (issue #64). Built before the server,
+    # which needs both; it needs the server back for its broadcasts. No password
+    # in .env leaves the backend running but every display refused.
+    auth = AuthService(config=config, password=get_env("TESLA_HOMEDASH_PASSWORD"))
+    server = Server(ssl_context=auth.ssl_context, authenticator=auth, host=config.listen_host)
+    auth.attach_server(server)
+    logger.debug("TLS server initialized")
 
     mm = MediaManager(server=server, config=config)
     logger.debug("Media manager initialized")
@@ -897,6 +903,7 @@ async def main():
         ]}
 
     system_status.register_probe("trips", "Matkat", _trips_health, loggers=("trip_service",))
+    system_status.register_probe("auth", "Kirjautuminen", auth.health, loggers=("auth_service",))
     system_status.register_probe("audio", "Ääni", audio.health, loggers=("audio_service",))
     system_status.register_probe("display", "Näyttö", display.health, loggers=("display_service",))
     logger.debug("System status service initialized")
@@ -918,6 +925,7 @@ async def main():
     config_service.register_hook("spotify", mm.apply_config_spotify)
     config_service.register_hook("media", mm.apply_config_media)
     config_service.register_hook("audio", audio.apply_config)
+    config_service.register_hook("auth", auth.apply_config)
     # The audio stack owns its own enum choices and its own "this host cannot do
     # that" veto, so config_service needs to know nothing about audio.
     config_service.register_options("audio.outputDevice", audio.device_options)
@@ -992,6 +1000,8 @@ async def main():
     server.register_handler(protocol.USB_IMPORT_SCAN, usb_import.handle_scan)
     server.register_handler(protocol.USB_IMPORT_START, usb_import.handle_start)
     server.register_handler(protocol.USB_IMPORT_CLOSE, usb_import.handle_close)
+    server.register_handler(protocol.AUTH_GET_DISPLAYS, auth.handle_get_displays)
+    server.register_handler(protocol.AUTH_REVOKE, auth.handle_revoke)
     services = [vehicle, mm, weather, spot_price_service, config_service, display,
                 spotify_auth, updater]
     if myenergi is not None:

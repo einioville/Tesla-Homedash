@@ -543,6 +543,7 @@
             "id": "maintenance",
             "icon": "system",
             "label": "Ylläpito",
+            "sectionOrder": ["connection", "displays", "restart", "logs"],
             "sections": [
                 {
                     "id": "connection",
@@ -569,6 +570,16 @@
                             "step": 1,
                             "default": 6969,
                             "apply": "restart"
+                        },
+                        {
+                            "key": "backendLogin",
+                            "type": "action",
+                            "label": "Kirjautuminen",
+                            "details": "backendLogin",
+                            "actionLabel": "Kirjaudu",
+                            "relevantWhen": {"condition": "backendLogin"},
+                            "confirm": false,
+                            "apply": "live"
                         }
                     ]
                 },

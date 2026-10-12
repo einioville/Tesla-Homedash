@@ -168,6 +168,7 @@ Item {
                 case "spotifyDevice": return spotifyDeviceDetails
                 case "screensaverPhotos": return screensaverPhotosDetails
                 case "debugLog": return debugLogDetails
+                case "backendLogin": return backendLoginDetails
                 default: return null
                 }
             }
@@ -268,5 +269,9 @@ Item {
     Component {
         id: screensaverPhotosDetails
         ScreensaverPhotosDetails {}
+    }
+    Component {
+        id: backendLoginDetails
+        BackendLoginDetails {}
     }
 }

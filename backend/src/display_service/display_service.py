@@ -56,7 +56,7 @@ class DisplayService:
     Serves DISPLAY_SET_POWER and snapshots DISPLAY_POWER_STATE to new clients.
 
     Arguments:
-        server (Server): TCP server used to reply to and broadcast at clients.
+        server (Server): TLS server used to reply to and broadcast at clients.
     '''
 
     def __init__(self, server):

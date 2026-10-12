@@ -57,6 +57,9 @@ QtObject {
         switch (name) {
         case "screensaverPhotos": return Photos.count > 0
         case "equalizer": return equalizerState() !== "unavailable"
+        // Logging in is possible only once the backend has asked for the password.
+        case "backendLogin": return Server.authState === "loginRequired"
+                                    || Server.authState === "noPassword"
         default: return true
         }
     }

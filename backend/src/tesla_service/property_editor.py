@@ -49,7 +49,7 @@ class TeslaPropertyEditor:
     Arguments:
         config (Config): Shared configuration; `tesla data` is read and written here.
         vehicle (Vehicle): Owner of the live VehicleDataProperty objects.
-        server (Server): TCP server used to reply to and broadcast at clients.
+        server (Server): TLS server used to reply to and broadcast at clients.
     '''
 
     def __init__(self, config, vehicle, server):

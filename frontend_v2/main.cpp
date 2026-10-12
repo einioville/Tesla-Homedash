@@ -17,6 +17,7 @@
 #include "core/media/mediadata.hh"
 #include "core/media/mediaimageprovider.hh"
 #include "core/notification/notificationhandler.hh"
+#include "core/paireddisplays.hh"
 #include "core/serverclient.hh"
 #include "core/settings.hh"
 #include "core/spotifyauth.hh"
@@ -177,6 +178,9 @@ int main(int argc, char* argv[]) {
     // and how the History graph draws them, edited in the backend's config.json.
     TeslaFieldEditor teslaFields;
     teslaFields.attachServer(&serverClient);
+    // Ylläpito > Näytöt: the displays logged in to the backend, and revoking one.
+    PairedDisplays pairedDisplays;
+    pairedDisplays.attachServer(&serverClient);
     QObject::connect(&idleWatcher, &IdleWatcher::activity, &screenPower,
                      &ScreenPower::onActivity);
 
@@ -213,6 +217,7 @@ int main(int argc, char* argv[]) {
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "SpotifyDevice", &spotifyDevice);
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "Updater", &appUpdate);
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "TeslaFields", &teslaFields);
+    qmlRegisterSingletonInstance("frontend_v2", 1, 0, "PairedDisplays", &pairedDisplays);
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "Settings", &settings);
 
     QObject::connect(
