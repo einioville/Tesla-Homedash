@@ -8,14 +8,14 @@ file, so nothing here repeats it.
 ## Layout
 
 ```
-Main.qml        # the window: view host, dock, app-level overlays (see z-order below)
+Main.qml        # the window: view host, the menu's swipe-up strip, app-level overlays (see z-order below)
 main.cpp        # construction order matters — Settings before AppConfig (core/CLAUDE.md)
 app/            # Theme.qml (design tokens + the settings façade), ViewController.qml, Format.js
 config/         # settings.json (bundled Options-view schema), notifications.json
 core/           # C++: ServerClient, protocol.hh, Logger, AppConfig, dotenv, the QML singletons
   tesla/ media/ weather/ charging/ trip/ notification/   # per-domain data models
 items/          # QML components by domain (charging history luna media settings tesla trip util weather)
-views/          # one screen per dock entry: Dashboard Map Weather Media History Trips Charging Settings
+views/          # one screen per view: Dashboard Map Weather Media History Trips Charging Settings
 resources/      # fonts, icons, styles, Luna
 ```
 
@@ -29,7 +29,7 @@ resources/      # fonts, icons, styles, Luna
 | The map — `items/tesla/TeslaMap.qml` (full-screen in `views/MapView.qml`; `items/trip/TripMap.qml` shares its gesture handlers) | `items/tesla/CLAUDE.md` |
 | A graph — every one is `items/history/HistoryGraph.qml`; its multi-line additions (`extraSeries`, fixed range, `wheelZoom`) | `items/settings/CLAUDE.md`, *Järjestelmän tila* |
 | `items/util/ScreenSaver.qml` | `items/util/CLAUDE.md` |
-| A new control or anything that moves — reuse `ToggleSwitch`, `Reveal`, `ElasticFlickable`, `WheelStepArea`, `HoldRepeatArea` (timings are `Theme` *Motion* tokens) | `items/util/CLAUDE.md` |
+| A new control or anything that moves — reuse `ToggleSwitch`, `Reveal`, `ElasticFlickable`, `WheelStepArea`, `HoldRepeatArea`, `ReleaseVelocity` (timings are `Theme` *Motion* tokens) | `items/util/CLAUDE.md` |
 | The wire format of anything `ServerClient` parses | `backend/src/utils/CLAUDE.md` |
 | Anything that might already exist — the shared helpers to reuse instead of copying | root `CLAUDE.md` §7.8 |
 
@@ -126,15 +126,93 @@ module installed. The only locale is `fi_FI`, which drops the language-switch ke
   twice. Tapping the still-focused field reopens it.
 - The settings pane makes room and scrolls the focused field above it — `items/settings/CLAUDE.md`.
 
-## Overlays, z-order and the dock
+## View switching (`app/ViewController.qml`)
 
-- **A modal inside a view cannot cover the dock.** The dock lives in `Main.qml` and is declared
-  *after* the view host, so it floats over the whole view whatever `z` the modal sets — `z` orders
-  siblings within one parent only — and a scrim's tap-swallowing `MouseArea` is equally powerless
-  against it. The reveal handler sits above the views too, so the dock can be swiped up at any
-  moment. On the 1280×800 target it occupies **y 684–780**: a tall modal must be anchored and sized
-  to end above that band, or its buttons land under the dock (`items/settings/CLAUDE.md`, *USB
-  photo import*, is a case).
+The views stand round a cylinder whose rotation is one number, `center` (in views; positions wrap,
+so the dashboard's left neighbour is the last view). Every switch — edge swipe, menu pick, home
+return — is a `glide` of it: the current view backs away until its neighbours show tilted at
+the edges, the cylinder turns, and the new view comes forward. The phases overlap (`Theme`
+*Motion*: `viewBackDuration`, `viewTurnDuration`, `viewForwardDuration`, `viewPhaseOverlap`); the
+geometry and gesture constants sit at the top of the file. Under the screensaver (the host is
+invisible) a switch is instant and an open menu closes.
+
+- **A jump turns the short way round, past every view between** — the dashboard to Sää passes
+  the map, Asetukset to the dashboard is one step, the two ends being neighbours. Halfway round
+  either way is as short, so a tie turns forward to a later view and back to an earlier one. A view the turn passes that is not
+  built yet shows its icon (below). Each step past the first adds 40 % of `viewTurnDuration`, so a
+  four-step jump is not four turns long.
+- **Edge swipes turn under the finger.** A horizontal drag starting within `swipeEdge` of a side
+  edge backs the view away over its first `swipeBackDistance` and turns the cylinder one step per
+  `stepPx` — the on-screen distance between neighbours — so the next view follows the finger into
+  the centre. Let go past half a step (or flicked), it lands there; short of that, it turns back.
+  Drags anywhere else stay with the view, so the map, graphs, radar and sliders keep their own
+  horizontal drags.
+- **The swipe strips lie under the views.** A DragHandler on top accepts the press and starves the
+  item beneath (QTBUG-145896, as with the keyboard's outside-press catcher below); underneath, it
+  still gets the press as a pointer handler and takes the drag over once it turns horizontal.
+  Checked with touch and mouse: a tap or a vertical scroll that starts in a strip stays with the
+  view, and an edge swipe wins over the map's own DragHandler.
+- **The menu** is the cylinder held further back (`menuZoom`) with each view's name below it — the
+  only way to pick a view by name. A swipe up from the strip over the home
+  indicator (`Main.qml`, 360 × 72 px at the bottom centre) draws it out under the finger, the
+  indicator giving way to the names, and it opens if let go past 60 % of `menuPullDistance` (or
+  flicked). The strip is a DragHandler, so a tap in it reaches the view beneath.
+  Open, a horizontal drag spins it and the release stops it square on the view nearest the front —
+  unless it is a flick, which runs on (up to three views) first; a
+  tap opens the view tapped (the front one for a tap on the space round them), and a drag down
+  opens the front one. Left still for `menuAutoPickSec` (Yleinen › Navigointi, default 4 s; a press
+  or a spin starts the wait over), it opens the front one by itself. Its input is one `MouseArea` over the views, which only swallows input
+  while a turn plays.
+- **Moving, each view on screen is a layer** drawn through a perspective `Matrix4x4` built in
+  `poseAt` (z flattened to 0). Live views under a perspective matrix cannot be batched — a draw call
+  per item, for every view in sight — while a still layer renders once. `Rotation.distanceToPlane`
+  would do the perspective but is 6.11-only, and the Pi runs 6.10. Views out of sight are hidden,
+  because Qt Quick does not cull.
+- **One view is live** — its `isCurrent` on, so the map follows the car, the media ticker runs and
+  the live graphs feed: the current view, and in the menu the one settled at the front for
+  `menuLiveDelay` (400 ms), so a spin does not wake each view it passes. Coming live a view does
+  what it does on being opened — History, Charging and Trips fetch fresh data — and going off,
+  what it does on being left (Settings closes its dialogs and any Spotify device scan). A pick
+  makes the picked view live at once. The live view still renders through its layer, which
+  redraws whenever the view changes.
+- **Backed away (or warming), a view only shows.** No input reaches it, hover included — a graph would draw
+  its inspect line, a touch would start one. Presses are stopped by a gate round each view: press
+  delivery skips a clipping item, children and all, whose shape (`containmentMask`) contains no
+  point — the menu's `MouseArea` alone is not enough, since pointer handlers beneath an item that
+  accepted a press still see it. Hover delivery tests only an item's bounds, so a blocking
+  `HoverHandler` above the views stops it. `enabled: false` would block both, but restyle the
+  controls that follow it (sliders, text fields, History's LIVE button). Checked: the History
+  graph's hover and touch handlers stay off in the menu and come back after it.
+- **The frame** — rounded corners and a light edge — grows in over the first backing away, so a
+  full-screen view stays square. The corners are covered, not masked: a ring in the space's colour
+  (black) whose inner edge is the rounded frame, so the layer stays a plain texture and nothing
+  needs a shader.
+- **Release speeds come from `items/util/ReleaseVelocity.qml`** — the menu's spin, the edge swipe
+  and the pull alike — measured over only the last 100 ms of movement. A speed kept from the last
+  move event would spin a finger that stops on a view and then lifts on to the next one.
+- **Every view is built in the background after startup** (`prebuildNext`), so the menu and the
+  turns show real content from the first swipe. From 3 s after start, one view at a time is built
+  asynchronously (the current view keeps its frames), then drawn for a second beneath the current
+  one — every view root is opaque — so it renders once: the map fetches its tiles and the GPU
+  compiles the view's pipelines then, not on its first glimpse (all seven are done about 10 s
+  after start on the dev box). A view needed meanwhile finishes at once (`Loader.asynchronous` turned
+  off), and until a view is built it shows its icon. Building runs what a view does on
+  construction: Trips requests this week's trips (as opening it does) and the radar fetches its
+  frame list from FMI. Warming views stay frozen (`isCurrent` false) and behind the input
+  gate below.
+- **The target is built before the motion starts** — a swipe's at drag start, a home return's one
+  event-loop pass before the animation (`Qt.callLater`), a menu pick's before its glide — so a slow
+  view build delays the turn rather than skipping frames of it.
+
+## Overlays and z-order
+
+- **A modal inside a view cannot cover the menu's swipe-up strip.** The strip lives in `Main.qml`
+  and is declared *after* the view host, so it lies over the whole view whatever `z` the modal sets
+  — `z` orders siblings within one parent only — and takes any upward drag that starts in it
+  whenever the views are still (not mid-turn or in the menu, *View switching*). Taps go through, so
+  a button there still works, but a list scrolled from there opens the menu instead: a tall modal is
+  anchored and sized to end above the bottom 72 px (`ModalDialog`'s `cardTopMargin`;
+  `items/settings/CLAUDE.md`, *USB photo import*, is a case).
 - **App-level layers in `Main.qml`:** notifications z:200, the Spotify re-auth prompt z:250 and its
   progress dialog z:260, the backend login prompt z:265, the update banner z:270, the keyboard's outside-press catcher z:280 and the
   keyboard itself z:290, the screensaver z:300. Something that must be seen

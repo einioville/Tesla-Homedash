@@ -32,9 +32,9 @@ Window {
     title: qsTr("Tesla Homedash v2")
     color: Theme.appBackground
 
-    // Single source of truth for the views: the dock reads name/icon, the
-    // ViewController reads component. Add a view by adding one entry here plus
-    // its inline Component below.
+    // Single source of truth for the views, read by the ViewController: the
+    // component, and the name and icon its menu shows. Add a view by adding one
+    // entry here plus its inline Component below.
     readonly property var viewModel: [
         { name: qsTr("Dashboard"), icon: "qrc:/resources/icons/home.svg", component: dashboardComponent },
         { name: qsTr("Kartta"), icon: "qrc:/resources/icons/location.svg", component: mapComponent },
@@ -71,40 +71,6 @@ Window {
     Component { id: tripsComponent; TripsView {} }
     Component { id: chargingComponent; ChargingView {} }
     Component { id: settingsComponent; SettingsView {} }
-
-    // --- Dock reveal state ------------------------------------------------
-    // 0.0 = dock fully hidden (off-screen), 1.0 = dock fully shown.
-    // The dock is a frosted overlay and deliberately floats OVER the cards when
-    // revealed (the blur shows them behind it).
-    property real progress: 1.0
-    // Dock bottom sits twice the card padding off the window's bottom edge —
-    // i.e. as far from the edge as the cards are, doubled (2 × 10px = bottom at
-    // 780 on an 800-tall window).
-    readonly property real dockShownY: height - dock.height - 2 * Theme.gridMargin
-    readonly property real dockHiddenY: height + 8
-
-    function showDock() {
-        progress = 1.0
-        hideTimer.restart()
-    }
-
-    function hideDock() {
-        progress = 0.0
-        hideTimer.stop()
-    }
-
-    // Animates snap-on-release and auto-hide; suppressed while the finger drags.
-    Behavior on progress {
-        enabled: !revealDrag.active
-        NumberAnimation { duration: Theme.dockDuration; easing.type: Easing.OutCubic }
-    }
-
-    Timer {
-        id: hideTimer
-        interval: Theme.dockHideMs
-        repeat: false
-        onTriggered: window.hideDock()
-    }
 
     // Home return (Yleinen > Navigointi): an idle panel switches back to the
     // dashboard. Runs only while another view is showing and restarts on every
@@ -154,6 +120,7 @@ Window {
         anchors.fill: parent
         model: window.viewModel
         currentIndex: window.currentView
+        onChosen: (index) => window.currentView = index
         // Stop painting the live views while the screensaver covers them (saves
         // GPU on the Pi); the ViewController keeps them resident, so returning is
         // instant. If the map reloads tiles on return, drop this one line — the
@@ -169,64 +136,48 @@ Window {
         // is Theme.gridMargin tall, so centring an indicator of height `h` means a
         // bottom margin of (padding − h) / 2. Size lives in HomeIndicator.qml.
         anchors.bottomMargin: (Theme.gridMargin - height) / 2
-        opacity: 1.0 - window.progress
+        // It gives way to the views' names as the menu is drawn out.
+        opacity: 1 - viewHost.labelOpacity
     }
 
-    // Dock-reveal swipe zone — a SMALL strip centred over the home indicator,
+    // The menu's swipe-up zone — a SMALL strip centred over the home indicator,
     // deliberately NOT a full-width catcher, so it can't sit over the media card
     // (far left) or the climate card (far right) and their bottom controls. It is
     // also a DragHandler (not a MouseArea), so it only grabs once a vertical swipe
-    // crosses the threshold and a tap falls straight through. Swipe up from the
-    // centre-bottom (where the home indicator is) to reveal the dock.
+    // crosses the threshold and a tap falls straight through. Swiped up, it draws
+    // out the views' menu (ViewController).
     Item {
-        id: revealArea
+        id: menuSwipe
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottom: parent.bottom
         width: 360
         height: 72
+        enabled: viewHost.phase === "idle" || viewHost.phase === "pull"
 
-        property real pressProgress: 1.0
-        readonly property real travel: window.dockHiddenY - window.dockShownY
+        property real up: 0
+        readonly property ReleaseVelocity speed: ReleaseVelocity {}
 
         DragHandler {
-            id: revealDrag
             target: null
             xAxis.enabled: false
-            yAxis.enabled: true
 
             onActiveChanged: {
                 if (active) {
-                    revealArea.pressProgress = window.progress
-                    hideTimer.stop()
+                    menuSwipe.up = -activeTranslation.y
+                    menuSwipe.speed.start(menuSwipe.up)
                 } else {
-                    if (window.progress > 0.5)
-                        window.showDock()
-                    else
-                        window.hideDock()
+                    viewHost.endMenuPull(menuSwipe.speed.release(menuSwipe.up))
                 }
             }
             onActiveTranslationChanged: {
                 if (!active)
                     return
-                // Dragging up yields a negative y translation; reveal grows progress.
-                const delta = -activeTranslation.y / revealArea.travel
-                window.progress = Math.max(0.0, Math.min(1.0, revealArea.pressProgress + delta))
+                // Dragging up yields a negative y translation.
+                menuSwipe.up = -activeTranslation.y
+                menuSwipe.speed.move(menuSwipe.up)
+                viewHost.pullMenu(menuSwipe.up)
             }
         }
-    }
-
-    Dock {
-        id: dock
-        x: (window.width - width) / 2
-        y: window.dockHiddenY + (window.dockShownY - window.dockHiddenY) * window.progress
-        model: window.viewModel
-        currentIndex: window.currentView
-        // Frost the dashboard behind the dock; capture only while it's on screen.
-        backdropSource: viewHost
-        glassActive: window.progress > 0.01
-        onSelected: (index) => window.currentView = index
-        onInteracted: hideTimer.restart()
-        onScreensaverRequested: screenSaver.forceShow = true
     }
 
     // Smartphone-style notifications, above all other chrome (top-centre). The
@@ -390,6 +341,5 @@ Window {
         // keys, and a single locale drops the language-switch key.
         VirtualKeyboardSettings.locale = "fi_FI"
         VirtualKeyboardSettings.activeLocales = ["fi_FI"]
-        hideTimer.start()
     }
 }

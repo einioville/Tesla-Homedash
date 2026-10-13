@@ -7,8 +7,7 @@ import frontend_v2
 // so the countdown the level then starts already uses it; cancelling writes
 // nothing, so the dropdown never changed.
 //
-// A child of SettingsView like the other dialogs, anchored high: a popup inside a
-// view cannot cover the dock band.
+// A child of SettingsView like the other dialogs, anchored high (ModalDialog).
 ModalDialog {
     id: popup
 

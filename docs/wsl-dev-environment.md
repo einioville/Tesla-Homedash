@@ -615,7 +615,7 @@ cd ~/dev/Tesla-Homedash
 cmake -S frontend_v2 -B frontend_v2/build -G Ninja -DCMAKE_PREFIX_PATH="$QTDIR"
 cmake --build frontend_v2/build --target appfrontend_v2
 
-# 5. frontend run — window appears, dock shows 7 entries including Asetukset
+# 5. frontend run — window appears; a swipe up from the bottom centre opens the view menu
 ./frontend_v2/build/appfrontend_v2
 
 # 6. the round trip this branch is about:

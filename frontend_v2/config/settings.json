@@ -118,15 +118,15 @@
                             }
                         },
                         {
-                            "key": "dockHideSec",
+                            "key": "menuAutoPickSec",
                             "type": "int",
-                            "label": "Näkymävalikon piilotusviive",
-                            "help": "Kuinka nopeasti alareunan näkymävalikko piilotetaan kosketuksen jälkeen.",
+                            "label": "Valikon automaattinen valinta",
+                            "help": "Aika, jonka jälkeen avoin näkymävalikko avaa edessä olevan näkymän itsestään.",
                             "unit": "s",
                             "min": 1,
                             "max": 30,
                             "step": 1,
-                            "default": 3,
+                            "default": 4,
                             "apply": "live"
                         }
                     ]

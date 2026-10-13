@@ -117,9 +117,9 @@ frontend_v2/                      # ★ Qt Quick/QML frontend — the live targe
   items/                          # QML components by domain
     settings/                     # ★ the Options view
     tesla/                        # ★ Tesla cards + the map
-    util/                         # ★ dock, screensaver, shared widgets
+    util/                         # ★ screensaver, notifications, shared widgets and motion pieces
     charging/ history/ luna/ media/ trip/ weather/
-  views/                          # one screen per dock entry
+  views/                          # one screen per view on the switcher
   resources/                      # fonts, icons, styles, Luna
 
 frontend/                         # ★ frozen Qt Widgets frontend (file layout in its CLAUDE.md)
@@ -473,7 +473,10 @@ comments gone, and the rules in §7.8 that keep them out; its second round took 
 the Weather view through the same pass (the view's files out of `prototype/`, `frontend_v2`'s unread
 `WEATHER_FORECAST` path removed) and added the settings check of §7.9 — plus the encrypted
 connection (#64): TLS 1.3 on 6969 with a SCRAM password login, remembered per-display tokens and a
-pinned certificate, and Ylläpito › Näytöt to list and revoke displays.
+pinned certificate, and Ylläpito › Näytöt to list and revoke displays — plus the carousel view
+switch: every switch a 3D turn the short way round past the views between, edge swipes that turn
+them under the finger, and a swipe up from the bottom that opens them as a menu to spin and pick
+from (left still, it picks the front view itself), which replaces the dock (its screensaver tile and auto-hide setting gone with it).
 When you land a change that touches documented behaviour, update this line.
 
 ### 7.8 Keeping the code clean

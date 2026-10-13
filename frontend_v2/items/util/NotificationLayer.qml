@@ -2,8 +2,7 @@ import QtQuick
 import QtQuick.Effects
 import frontend_v2
 
-// Smartphone-style notification overlay — a util feature alongside the dock.
-// Listens to the Notifications singleton and slides each notification down
+// Smartphone-style notification overlay. Listens to the Notifications singleton and slides each notification down
 // from the top centre in a frosted "liquid glass" pill (GlassPanel), holds it for
 // the grace period, then slides it back up. Several arriving in quick succession
 // are queued and shown one at a time. Backend is not involved.
@@ -17,7 +16,6 @@ Item {
     property Item backdropSource: null
     property bool frostedBackdrop: true
 
-    // Mirror of the dock's bottom inset, applied to the top instead.
     readonly property int topInset: 18
     readonly property int slideMs: 320
     readonly property int graceMs: Theme.notificationDurationMs
@@ -77,10 +75,10 @@ Item {
     GlassPanel {
         id: pill
         anchors.horizontalCenter: parent.horizontalCenter
-        // Off-screen above when hidden; the dock's bottom padding, mirrored, when shown.
+        // Off-screen above when hidden.
         y: layer.showing ? layer.topInset : -(height + 24)
-        implicitWidth: pillLabel.implicitWidth + 2 * Theme.dockPadding
-        implicitHeight: pillLabel.implicitHeight + 2 * Theme.dockPadding
+        implicitWidth: pillLabel.implicitWidth + 2 * Theme.notificationPadding
+        implicitHeight: pillLabel.implicitHeight + 2 * Theme.notificationPadding
         radius: Theme.notificationRadius
 
         backdropSource: layer.backdropSource

@@ -183,8 +183,6 @@ qt_add_qml_module(appfrontend_v2
         items/history/HistoryGraph.qml
         items/history/GraphPrewarm.qml
         items/luna/Luna.qml
-        items/util/Dock.qml
-        items/util/DockIcon.qml
         items/util/HomeIndicator.qml
         items/util/TextButton.qml
         items/util/GradientCard.qml
@@ -192,6 +190,7 @@ qt_add_qml_module(appfrontend_v2
         items/util/GlowIcon.qml
         items/util/HoldRepeatArea.qml
         items/util/WheelStepArea.qml
+        items/util/ReleaseVelocity.qml
         items/util/ToggleSwitch.qml
         items/util/Reveal.qml
         items/util/ElasticFlickable.qml
@@ -313,7 +312,6 @@ qt_add_resources(appfrontend_v2 "app_resources"
         resources/icons/power_on.svg
         resources/icons/power_pending.svg
         resources/icons/redshadow.png
-        resources/icons/screensaver.png
         resources/icons/seat.svg
         resources/icons/settings.svg
         resources/icons/skip_backward.svg

@@ -48,8 +48,8 @@ QtObject {
     // than onto whichever view was last open.
     readonly property bool homeReturnEnabled: Settings.values.homeReturnEnabled
     readonly property int homeReturnMs: Settings.values.homeReturnMin * 60000
-    // How long the dock stays up after the last touch on it.
-    readonly property int dockHideMs: Settings.values.dockHideSec * 1000
+    // How long the view menu waits, left still, before opening the front view.
+    readonly property int menuAutoPickMs: Settings.values.menuAutoPickSec * 1000
 
     // How long each notification pill is held. Not a setting: notification
     // settings belong to a notifications section of their own (#51).
@@ -57,9 +57,7 @@ QtObject {
 
     // Surfaces
     readonly property color appBackground: "#0f1115"
-    readonly property color dockBorder: "#22ffffff"
     readonly property color accent: "#4aa8ff"
-    readonly property color iconPlaceholder: "#000000"
     readonly property color homeIndicator: "#ffffffff"
     readonly property color viewLabel: "#e8edf5"
 
@@ -67,15 +65,7 @@ QtObject {
     readonly property color dashboardBackground: "#121212"
     readonly property color tripBackground: "#121212"
 
-    // Metrics
-    readonly property int dockRadius: 28
-    readonly property int dockPadding: 16
-    readonly property int dockSpacing: 16
-    readonly property int iconSize: 64
-    readonly property int iconRadius: 14
-
     // Motion (ms)
-    readonly property int dockDuration: 260
     readonly property int pressDuration: 90
     // ToggleSwitch: the knob's leading edge reaches the far end first, then its
     // tail follows and it is a circle again.
@@ -92,6 +82,14 @@ QtObject {
     // ElasticFlickable: how long content dragged or flicked past an end takes to
     // come back.
     readonly property int reboundDuration: 320
+    // View switch (ViewController): the view backs away until its neighbours
+    // show, the carousel turns (viewTurnDuration for one step, 40 % of it for
+    // each step more), the new view comes forward. Each phase starts
+    // viewPhaseOverlap before the one before it ends.
+    readonly property int viewBackDuration: 150
+    readonly property int viewTurnDuration: 260
+    readonly property int viewForwardDuration: 190
+    readonly property int viewPhaseOverlap: 70
     // Opacity of a settings row whose `relevantWhen` fails for a reason other
     // than the setting it is nested under (that one hides it) — the row is
     // disabled too.
@@ -105,7 +103,7 @@ QtObject {
     readonly property string fontFamily: "Gotham Rounded Medium"
 
     // Padding the window reserves around the dashboard cards (the grid margin).
-    // Shared so the home indicator + dock can be placed relative to that edge.
+    // Shared so the home indicator can be placed relative to that edge.
     readonly property int gridMargin: 10
 
     // Card shell: rounded corners, the dark-blue→black radial gradient and the
@@ -154,12 +152,13 @@ QtObject {
     readonly property color seatHeat: "#ff0000"
     readonly property color iconTint: "#ffffff"
 
-    // "Liquid glass" surface — shared by the notification pill, the dock and the
-    // graph readout (via items/util/GlassPanel.qml): squarer corners, a bright
+    // "Liquid glass" surface — shared by the notification pill and the graph
+    // readout (via items/util/GlassPanel.qml): squarer corners, a bright
     // white rim and a DARK translucent tint (so white text/icons read clearly)
     // over a frosted backdrop, plus a specular highlight line and a soft drop
     // shadow.
     readonly property int notificationRadius: 12
+    readonly property int notificationPadding: 16
     readonly property color notificationGlassTop: "#4d1a1a24"     // dark translucent sheen (top)
     readonly property color notificationGlassBottom: "#66121218"  // darker translucent base
     readonly property color notificationBorder: "#ccffffff"       // bright white rim

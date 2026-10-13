@@ -3,8 +3,7 @@ import frontend_v2
 
 // Full-screen map view: the dashboard's TeslaMap blown up to fill the whole
 // surface. Corners are left square (roundedCorners: false) — the map IS the
-// view, so there's no surrounding card for rounded corners to blend into. The
-// dock floats over it as a frosted overlay, exactly as on the dashboard.
+// view, so there's no surrounding card for rounded corners to blend into.
 //
 // isCurrent is forwarded to the map so it freezes its follow animation + center
 // binding while this view is hidden: the ViewController keeps this view (and its
