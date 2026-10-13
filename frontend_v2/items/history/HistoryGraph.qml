@@ -790,7 +790,7 @@ Item {
         }
 
         // Inspect readout: time at the cursor + held value, in a "liquid glass" pill matching
-        // the dock and notification containers (GlassPanel + a floating drop shadow). The
+        // the notification pill (GlassPanel + a floating drop shadow). The
         // frosted-blur backdrop is intentionally off: the tooltip lives inside the graph, so a
         // real backdrop source would have to be an ancestor and would capture the panel itself.
         // Without it GlassPanel degrades to the glass chrome — dark translucent tint, bright

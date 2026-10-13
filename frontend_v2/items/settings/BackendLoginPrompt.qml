@@ -8,8 +8,8 @@ import frontend_v2
 // ServerClient raises it when the backend wants the password — the first
 // connect, a revoked or expired login, a certificate that is not the one pinned
 // at login — and while the backend has no password set, which it explains
-// instead of asking. The ✕ puts it away (the dock and the Options view stay
-// usable, e.g. to fix the backend address); Ylläpito › Yhteydet's Kirjaudu row
+// instead of asking. The ✕ puts it away (the views stay usable, e.g. the Options
+// view to fix the backend address); Ylläpito › Yhteydet's Kirjaudu row
 // and the issues list bring it back. A successful login is remembered, so this
 // is typed once per display.
 //

@@ -19,7 +19,7 @@ Item {
     Behavior on backgroundColor { enabled: view.isCurrent; ColorAnimation { duration: 400 } }
 
     // Bottom of the gradient: a heavily darkened variant of the same colour, so
-    // the fade settles into near-black at the dock edge.
+    // the fade settles into near-black at the bottom edge.
     readonly property color backgroundBottom:
         Qt.rgba(backgroundColor.r * 0.12,
                 backgroundColor.g * 0.12,

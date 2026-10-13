@@ -1,7 +1,6 @@
 # `items/util/` — shared components
 
-The dock's layering rules (it floats over every view; y 684–780 on the target) are in
-`frontend_v2/CLAUDE.md`.
+The view switch and the menu's swipe-up strip over every view are in `frontend_v2/CLAUDE.md`.
 
 ## `ScreenSaver.qml` and its photo folder
 
@@ -42,7 +41,8 @@ a placeholder 0 would put the window in effect for one tick and poke the panel a
 **Home return** (`homeReturnEnabled` / `homeReturnMin`, Yleinen > Navigointi) is a `Timer` in
 `Main.qml` that runs only while a view other than the dashboard is current and restarts on every
 `Idle.activity()`. It keeps counting under the screensaver, which is what makes the screensaver lift
-onto the dashboard. The dock's auto-hide delay (`dockHideSec`) sits in the same card.
+onto the dashboard. The view menu's auto-pick delay (`menuAutoPickSec`, `frontend_v2/CLAUDE.md`,
+*View switching*) sits in the same card.
 
 ## `HoldRepeatArea.qml` — tap to step, hold to repeat
 
@@ -58,7 +58,7 @@ and nothing reaches the car until climate is next toggled.
 
 ## Shared motion and controls — use these, don't re-draw them
 
-Four pieces exist so every future control moves and responds the same way. Their timings are
+Five pieces exist so every future control moves and responds the same way. Their timings are
 `Theme` tokens (*Motion*), so retuning one retunes every use.
 
 - **`ToggleSwitch.qml`** — the on/off switch. `checked` in, `toggled()` out; the caller writes the
@@ -94,3 +94,9 @@ Four pieces exist so every future control moves and responds the same way. Their
   lets presses and drags through, and it accepts every wheel event it gets, so the page does not
   start scrolling when the value hits its limit. A disabled control disables it too, and then the
   wheel scrolls the page as usual.
+- **`ReleaseVelocity.qml`** — the speed a drag is let go at, for deciding whether a release is a
+  flick: `start(position)` on press, `move(position)` per move, `release(position)` gives px/s.
+  It measures over only the last `window` (100) ms, so a finger that stops before lifting releases
+  at rest — the speed of the last move event would still read as a flick after a pause, and move
+  events arrive in bursts whose 1 ms gaps are spikes of thousands of px/s. The view switch's three
+  gestures use it (`../../CLAUDE.md`, *View switching*).

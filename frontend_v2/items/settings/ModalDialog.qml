@@ -8,8 +8,9 @@ import frontend_v2
 // behind. A list inside the card still scrolls, since it sits above the scrim.
 //
 // Children go into the card. A dialog sets `cardHeight`, and `cardTopMargin` to
-// hang the card under the header instead of centring it: a dialog inside a view
-// cannot cover the dock (y 684–780 on the target), so a tall one is top-anchored.
+// hang the card under the header instead of centring it: a tall one is
+// top-anchored, clear of the menu's swipe-up strip along the bottom edge
+// (Main.qml), where an upward drag in a list would open the menu instead.
 Item {
     id: dialog
 

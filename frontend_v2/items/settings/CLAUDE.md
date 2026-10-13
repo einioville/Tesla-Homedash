@@ -321,7 +321,7 @@ The connection and its login are `ServerClient`'s (`../../core/CLAUDE.md`); thes
   data until the display has logged in. A `ModalDialog` hung in the top half — the on-screen keyboard
   takes the bottom — with a password field, *Kirjaudu*, the reason the last attempt failed, and
   *Kirjaudutaan…* while the key is derived (seconds on a Pi). With no password on the backend it says
-  so instead of asking. Its ✕ dismisses it, leaving the dock and this view usable (the backend
+  so instead of asking. Its ✕ dismisses it, leaving the views usable (the backend
   address may be what is wrong); nothing typed survives a closed prompt.
 - **Yhteydet › *Kirjautuminen*** is a `backendLogin` action row (`confirm: false`: the prompt is the
   confirmation) whose `backendLogin` details say whether this display is logged in, and why not. It
@@ -449,8 +449,9 @@ The *Kuvakansio* row's *Tuo USB:ltä* opens it through `Settings.invokeAction` �
 `UsbImport.begin()`, the same route the Spotify dialogs take. There are three steps: the drive list,
 what the chosen drive's `tesla_homedash_screensaver` folder holds, then the copy. The backend does
 all of them (`core/CLAUDE.md`, under `UsbImport`). Load-bearing:
-- **Top-anchored and short.** A popup inside a view cannot cover the dock (y 684–780 on the target),
-  so the drive list scrolls past four entries rather than growing the card into that band.
+- **Top-anchored and short.** A popup inside a view cannot cover the menu's swipe-up strip at the
+  bottom (`frontend_v2/CLAUDE.md`, *Overlays and z-order*), so the drive list scrolls past four
+  entries rather than growing the card into it.
 - **Buttons pinned to the card's edges.** The import button appears when the scan answers, which is
   asynchronous, and a button joining a centred row would slide the others under a finger already
   reaching for them.

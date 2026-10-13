@@ -2,8 +2,8 @@ import QtQuick
 import QtQuick.Effects
 import frontend_v2
 
-// Reusable "liquid glass" surface — used by the notification pill, the dock, the
-// graph's inspect readout (HistoryGraph, without the frost) and the weather radar's
+// Reusable "liquid glass" surface — used by the notification pill, the graph's
+// inspect readout (HistoryGraph, without the frost) and the weather radar's
 // controls.
 // It captures the region of `backdropSource` directly behind itself, blurs and
 // rounds it, then overlays a dark translucent tint, a bright white rim and a
@@ -15,7 +15,7 @@ import frontend_v2
 // The capture needs this panel's top-left in `backdropSource`'s coordinates;
 // since the dashboard backdrop fills the window at (0,0), that is just the
 // panel's window position. The consumer passes it as `backdropOrigin`, bound
-// reactively (e.g. the pill's animated x/y, or the dock's x/y) so the frost
+// reactively (e.g. the pill's animated x/y) so the frost
 // tracks the panel as it moves. `live` is gated on `active` so the (transient)
 // capture+blur cost is paid only while the panel is actually on screen.
 Item {
@@ -27,7 +27,7 @@ Item {
     property point backdropOrigin: Qt.point(0, 0)
     property int radius: Theme.notificationRadius
     // The rim's width and the translucent tint, per instance; the defaults are the
-    // notification pill's and the dock's.
+    // notification pill's.
     property real rimWidth: 1.5
     property color tintTop: Theme.notificationGlassTop
     property color tintBottom: Theme.notificationGlassBottom

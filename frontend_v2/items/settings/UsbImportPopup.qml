@@ -9,9 +9,8 @@ import frontend_v2
 // see how many photos its tesla_homedash_screensaver folder holds, copy them.
 // Nothing is decided here beyond which button was pressed.
 //
-// Top-anchored and short on purpose: a popup inside a view cannot cover the dock
-// (y 684–780 on the target), so a card reaching that band would hide its own
-// buttons. The drive list scrolls past four entries rather than growing.
+// Top-anchored and short on purpose, clear of the menu's swipe-up strip
+// (ModalDialog): the drive list scrolls past four entries rather than growing.
 ModalDialog {
     id: popup
 

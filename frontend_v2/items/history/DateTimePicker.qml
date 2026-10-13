@@ -58,7 +58,7 @@ Item {
         background: Rectangle {
             color: "#1b2230"
             radius: 12
-            border.color: Theme.dockBorder
+            border.color: "#22ffffff"
             border.width: 1
         }
 

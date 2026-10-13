@@ -524,7 +524,7 @@ Item {
         border.width: 1
         opacity: root.moved ? 1 : 0
         visible: opacity > 0
-        Behavior on opacity { NumberAnimation { duration: Theme.dockDuration } }
+        Behavior on opacity { NumberAnimation { duration: 260 } }
 
         Image {
             anchors.centerIn: parent

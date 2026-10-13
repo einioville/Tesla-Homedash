@@ -167,7 +167,7 @@ Rectangle {
             blurEnabled: true
             blur: 1.0
             // Well below GlassPanel's 64: this covers the whole 1280x800 view
-            // rather than a dock-sized strip, and the extra passes buy nothing
+            // rather than a pill-sized panel, and the extra passes buy nothing
             // once the content is unreadable, which is the entire point.
             blurMax: 32
             // The blurred image must stay exactly the view's size; padding would
@@ -340,7 +340,7 @@ Rectangle {
             anchors.bottom: parent.bottom
             anchors.leftMargin: Theme.gridMargin
             anchors.topMargin: 8
-            // Clear of the dock's swipe zone and the home indicator.
+            // Clear of the menu's swipe-up strip and the home indicator (Main.qml).
             anchors.bottomMargin: Theme.gridMargin + 28
             width: 260
 

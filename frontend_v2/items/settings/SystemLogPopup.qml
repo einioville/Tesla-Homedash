@@ -7,7 +7,8 @@ import frontend_v2
 // restart, to the last time the logs were cleared in full.
 //
 // A child of SettingsView like the other dialogs, anchored high and capped in
-// height so it never reaches the dock band; the list scrolls.
+// height so it stays clear of the menu's swipe-up strip (ModalDialog); the list
+// scrolls.
 ModalDialog {
     id: popup
 
@@ -17,7 +18,7 @@ ModalDialog {
     cardTopMargin: Theme.gridMargin + 48
     cardWidth: 760
     // At least room for the empty / loading line when there is no list yet; at
-    // most what stays clear of the dock band.
+    // most what stays clear of the swipe-up strip.
     cardHeight: Math.min(header.height + Math.max(list.contentHeight, 72) + footer.height + 64,
                          height - cardTopMargin - 140)
 
