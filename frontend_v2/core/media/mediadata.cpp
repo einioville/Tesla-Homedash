@@ -126,16 +126,17 @@ void MediaData::decodeCoverArt(const QByteArray &packet) {
         m_coverArtId = QStringLiteral("image://media/") + id;
         emit coverArtIdChanged();
         setDominantColor(result.color);
+        setPalette(result.palette);
     });
 
     // Decode to QImage (thread-safe) off the GUI thread — never a QPixmap on a
     // worker (QPixmap is GUI-thread-only). The same worker pass also runs the
     // k-means dominant-colour extraction so the card gradient never blocks the
-    // GUI thread. The provider serves the QImage; the colour drives the gradient.
+    // GUI thread. The provider serves the QImage; the colours drive the gradients.
     m_coverWatcher->setFuture(QtConcurrent::run([packet]() {
         DecodedCover out;
         out.image.loadFromData(packet);
-        out.color = computeDominantColor(out.image);
+        computeCoverColors(out);
         return out;
     }));
 }
@@ -228,12 +229,21 @@ void MediaData::setDominantColor(const QColor &value) {
     emit dominantColorChanged();
 }
 
-QColor MediaData::computeDominantColor(const QImage &cover_art_image) {
+void MediaData::setPalette(const QVariantList &value) {
+    if (m_palette == value) {
+        return;
+    }
+    m_palette = value;
+    emit paletteChanged();
+}
+
+void MediaData::computeCoverColors(DecodedCover &cover) {
     // k-means on the album art with a hue/value gate that biases against
     // yellow and brown. Ported verbatim from the Widgets MediaPlayerCard
     // (RNG seed 69420, gating, scoring) — these inputs define the dashboard's
-    // visual identity and must not change. Runs on a worker thread.
-    const QImage image = cover_art_image.convertToFormat(QImage::Format_RGB888);
+    // visual identity and must not change; the palette is drawn from the same
+    // clusters after the dominant colour is chosen. Runs on a worker thread.
+    const QImage image = cover.image.convertToFormat(QImage::Format_RGB888);
 
     const int img_width = image.width();
     const int img_height = image.height();
@@ -271,7 +281,8 @@ QColor MediaData::computeDominantColor(const QImage &cover_art_image) {
     // the default gradient blue rather than building a distribution over an
     // empty range (size()-1 underflows → out-of-bounds indexing / UB).
     if (samples.isEmpty()) {
-        return QColor(0x1E, 0x3A, 0x8A);
+        cover.color = QColor(0x1E, 0x3A, 0x8A);
+        return;
     }
 
     QVector<QVector3D> centers;
@@ -353,28 +364,56 @@ QColor MediaData::computeDominantColor(const QImage &cover_art_image) {
         return a.count > b.count;
     });
 
-    QColor best_color;
-    float best_score = -1.0f;
-
-    for (const auto &c : info) {
-        QColor color(
+    auto color_of = [](const ClusterInfo &c) {
+        return QColor(
             std::clamp<int>(c.center.x(), 0, 255),
             std::clamp<int>(c.center.y(), 0, 255),
             std::clamp<int>(c.center.z(), 0, 255)
         );
-        float score = color.hsvSaturationF() * color.valueF();
+    };
+    auto shunned = [](const QColor &color) {
         const int hue = color.hsvHue();
-        if (hue != -1) {
-            if (hue >= 45 && hue <= 65)
-                score *= 0.2f;  // yellow (light or bright)
-            else if (hue >= 10 && hue <= 40 && color.valueF() < 0.60f)
-                score *= 0.2f;  // brown
-        }
+        if (hue == -1)
+            return false;
+        return (hue >= 45 && hue <= 65)                               // yellow (light or bright)
+            || (hue >= 10 && hue <= 40 && color.valueF() < 0.60f);    // brown
+    };
+
+    int best_index = 0;
+    float best_score = -1.0f;
+
+    for (int i = 0; i < info.size(); i++) {
+        const QColor color = color_of(info[i]);
+        float score = color.hsvSaturationF() * color.valueF();
+        if (shunned(color))
+            score *= 0.2f;
         if (score > best_score) {
             best_score = score;
-            best_color = color;
+            best_index = i;
         }
     }
 
-    return best_color;
+    cover.color = color_of(info[best_index]);
+
+    // The rest of the palette, largest share first. Each colour takes a part of the
+    // backdrop, so a speck in the art (under min_share of the samples) does not get
+    // one; nor does a grey, a near-black, or a yellow or brown, which darken to mud.
+    // k-means splits a large flat area into near-twins (JPEG noise), so a cluster
+    // within min_distance (RGB, 0-255) of a colour already taken is the same colour.
+    constexpr float min_share = 0.1f;
+    constexpr float min_distance = 60.0f;
+    constexpr int palette_size = 3;
+    QVector<QVector3D> taken{info[best_index].center};
+    cover.palette = {cover.color};
+    for (int i = 0; i < info.size() && cover.palette.size() < palette_size; i++) {
+        const QColor color = color_of(info[i]);
+        const bool twin = std::any_of(taken.cbegin(), taken.cend(), [&](const QVector3D &t) {
+            return (t - info[i].center).length() < min_distance;
+        });
+        if (twin || info[i].count < min_share * samples.size()
+                || color.hsvSaturationF() < 0.2f || color.valueF() < 0.15f || shunned(color))
+            continue;
+        taken.append(info[i].center);
+        cover.palette.append(color);
+    }
 }

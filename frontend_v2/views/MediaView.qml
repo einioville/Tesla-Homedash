@@ -1,11 +1,9 @@
 import QtQuick
 import frontend_v2
 
-// Fullscreen media player. The background is a smooth vertical gradient derived
-// from the album cover's dominant colour (rich at the top border, fading
-// straight down into near-black), cross-fading whenever the track — and thus the
-// dominant colour — changes. The cover heads a centred vertical stack with the
-// title/artist and the (larger) transport controls + progress bar below it.
+// Fullscreen media player over the cover-coloured backdrop (MediaBackdrop), its
+// main colour a halo behind the cover. The cover heads a centred vertical stack
+// with the title/artist and the (larger) transport controls + progress bar below it.
 // Cover, controls and seek bar are the shared media components, so this view and
 // the dashboard card stay in lockstep.
 Item {
@@ -13,34 +11,37 @@ Item {
 
     property bool isCurrent: false
 
-    // Top of the gradient: the live cover dominant colour, cross-faded so the
-    // background glides to the new palette when the track changes.
-    property color backgroundColor: Media.dominantColor
-    Behavior on backgroundColor { enabled: view.isCurrent; ColorAnimation { duration: 400 } }
-
-    // Bottom of the gradient: a heavily darkened variant of the same colour, so
-    // the fade settles into near-black at the bottom edge.
-    readonly property color backgroundBottom:
-        Qt.rgba(backgroundColor.r * 0.12,
-                backgroundColor.g * 0.12,
-                backgroundColor.b * 0.12, 1.0)
-
-    // Smooth, opaque vertical gradient — top border straight down. Two stops only,
-    // so the colour interpolates continuously (a corner radial shows visible
-    // "level" boundaries). Opaque, so this view fully hides the others behind it
-    // (see ViewController).
+    // Opaque, so this view fully hides the others behind it (see ViewController).
     Rectangle {
         anchors.fill: parent
-        gradient: Gradient {
-            orientation: Gradient.Vertical
-            GradientStop { position: 0.0; color: view.backgroundColor }
-            GradientStop { position: 1.0; color: view.backgroundBottom }
-        }
+        color: Theme.mediaBackground
+    }
+
+    // The halo is centred on the cover (the stack below puts it about here) and
+    // reaches well past it, the cover hiding its middle; the cover's colours drift
+    // in the corners round it, its main one the most. Nothing lies over the light
+    // here, so it is stronger than on the dashboard, under translucent cards.
+    MediaBackdrop {
+        anchors.fill: parent
+        active: view.isCurrent
+        strength: Theme.mediaBackdropStrength
+        glows: [
+            { tone: 0, radius: 760, home: Qt.point(640, 280), reach: Qt.point(50, 30),
+              periods: Qt.vector3d(31, 23, 19), phase: 0.0 },
+            { tone: 1, radius: 520, home: Qt.point(170, 170), reach: Qt.point(140, 110),
+              periods: Qt.vector3d(41, 33, 27), phase: 1.3 },
+            { tone: 0, radius: 560, home: Qt.point(1110, 630), reach: Qt.point(150, 110),
+              periods: Qt.vector3d(47, 37, 29), phase: 2.6 },
+            { tone: 2, radius: 480, home: Qt.point(1120, 150), reach: Qt.point(130, 100),
+              periods: Qt.vector3d(53, 39, 31), phase: 3.9 },
+            { tone: 0, radius: 500, home: Qt.point(160, 650), reach: Qt.point(130, 100),
+              periods: Qt.vector3d(43, 35, 25), phase: 5.2 }
+        ]
     }
 
     // One-shot noise tile, generated once and tiled by the GPU, blended at very
-    // low opacity over the gradient. It dithers away the 8-bit banding a tall dark
-    // gradient would otherwise show — the per-frame cost is just one extra
+    // low opacity over the backdrop. It dithers away the 8-bit banding its broad
+    // dark gradients would otherwise show — the per-frame cost is just one extra
     // textured quad. Tunable: drop opacity toward 0 to soften, or remove entirely.
     Canvas {
         id: noiseTile
@@ -49,7 +50,7 @@ Item {
         // opacity:0 (not visible:false) so the Canvas stays in the rendered scene
         // and onPaint reliably fires — an invisible, unconsumed Canvas may never
         // paint, leaving the tile (and the dither) empty. It is 128x128 at 0,0,
-        // fully covered by the gradient + content, so it is effectively hidden.
+        // fully covered by the backdrop + content, so it is effectively hidden.
         opacity: 0
         property string url: ""
         onPaint: {

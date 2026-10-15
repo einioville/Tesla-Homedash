@@ -64,6 +64,19 @@ QtObject {
     // Per-view backgrounds; the dashboard mirrors the Widgets frontend's #121212 base.
     readonly property color dashboardBackground: "#121212"
     readonly property color tripBackground: "#121212"
+    readonly property color mediaBackground: "#121212"
+    // The backdrop of the dashboard and the Media view (items/media/MediaBackdrop.qml):
+    // the cover's colours as drifting light, at most backdropStrength alpha at a
+    // glow's centre behind the dashboard's cards, mediaBackdropStrength on the Media
+    // view, where nothing lies over it.
+    // A pause dims it to backdropPausedGlow of that and slows the drift to a stop,
+    // both over backdropSettleDuration; a new cover's colours fade in over
+    // backdropFadeDuration.
+    readonly property real backdropStrength: 0.4
+    readonly property real mediaBackdropStrength: 0.75
+    readonly property real backdropPausedGlow: 0.55
+    readonly property int backdropSettleDuration: 4000
+    readonly property int backdropFadeDuration: 2000
 
     // Motion (ms)
     readonly property int pressDuration: 90

@@ -7,6 +7,7 @@
 #include <QImage>
 #include <QObject>
 #include <QString>
+#include <QVariantList>
 #include <memory>
 
 #include "mediaimagecache.hh"
@@ -14,10 +15,11 @@
 class ServerClient;
 
 // Result of the off-thread cover-art decode: the image plus its k-means
-// dominant colour, computed together in one worker pass.
+// colours, computed together in one worker pass.
 struct DecodedCover {
     QImage image;
     QColor color;
+    QVariantList palette;
 };
 
 /**
@@ -43,6 +45,10 @@ class MediaData : public QObject {
     // Dominant colour of the current cover art (k-means), drives the card
     // gradient. A deep Tesla blue until the first art is decoded.
     Q_PROPERTY(QColor dominantColor READ dominantColor NOTIFY dominantColorChanged)
+    // The cover's main colours for the backdrop (MediaBackdrop): dominantColor, then
+    // up to two more that each cover a fair share of the art. Empty until the
+    // first art is decoded.
+    Q_PROPERTY(QVariantList palette READ palette NOTIFY paletteChanged)
 
 public:
     MediaData(ServerClient *server, std::shared_ptr<MediaImageCache> cache,
@@ -56,6 +62,7 @@ public:
     int mediaType() const { return m_mediaType; }
     QString coverArtId() const { return m_coverArtId; }
     QColor dominantColor() const { return m_dominantColor; }
+    QVariantList palette() const { return m_palette; }
 
     // Transport controls (frontend -> backend). isPlaying follows the server's
     // echo, not the button press, so pausePlay() does not flip it locally.
@@ -73,6 +80,7 @@ signals:
     void mediaTypeChanged();
     void coverArtIdChanged();
     void dominantColorChanged();
+    void paletteChanged();
 
 private slots:
     void onPacket(quint8 type, const QByteArray &payload);
@@ -86,9 +94,11 @@ private:
     void setIsPlaying(bool value);
     void setMediaType(int value);
     void setDominantColor(const QColor &value);
+    void setPalette(const QVariantList &value);
 
-    // k-means dominant-colour extraction, run on the cover-art decode worker.
-    static QColor computeDominantColor(const QImage &image);
+    // k-means colour extraction from cover.image into cover.color and
+    // cover.palette, run on the cover-art decode worker.
+    static void computeCoverColors(DecodedCover &cover);
 
     ServerClient *m_server;
     std::shared_ptr<MediaImageCache> m_cache;
@@ -104,6 +114,7 @@ private:
     int m_mediaType = 0;
     QString m_coverArtId;
     QColor m_dominantColor = QColor(0x1E, 0x3A, 0x8A);
+    QVariantList m_palette;
 };
 
 #endif  // FRONTEND_V2_MEDIADATA_HH

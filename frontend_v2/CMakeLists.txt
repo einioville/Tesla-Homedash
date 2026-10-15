@@ -209,6 +209,7 @@ qt_add_qml_module(appfrontend_v2
         items/tesla/ClimateCard.qml
         items/tesla/TeslaMap.qml
         items/media/MediaPlayerCard.qml
+        items/media/MediaBackdrop.qml
         items/media/MediaCover.qml
         items/media/MediaTransport.qml
         items/media/MediaSeekBar.qml

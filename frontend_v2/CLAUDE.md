@@ -218,6 +218,17 @@ invisible) a switch is instant and an open menu closes.
   keyboard itself z:290, the screensaver z:300. Something that must be seen
   whichever view is current belongs here, not inside a view.
 
+## Motion that keeps running
+
+While any QML `Animation` runs — a `Behavior`, a `NumberAnimation`, a sprite — Qt Quick renders
+the whole window on every vsync, the map and every card with it: the threaded render loop asks for
+a frame per animation tick and always presents it (`qsgthreadedrenderloop.cpp`). A running `Timer`
+does not; the window is redrawn only when a tick changes the scene. Measured on 6.11: an item moved
+by a 50 ms `Timer`, 20 frames a second; by a `NumberAnimation`, 60. So motion that goes on for
+minutes steps on a `Timer`, and animations are kept to moments. The cover-coloured backdrop of the
+dashboard and the Media view (`items/media/MediaBackdrop.qml`) is the case: 22 frames a second
+while music plays (its 20 and the seek bar's tick), none once paused.
+
 ## QML ↔ C++ traps
 
 - **A `Q_INVOKABLE` registers no property dependency**, so a binding built on one never

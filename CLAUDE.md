@@ -481,7 +481,9 @@ the first step of the UI modernization: the home screen's cards on the Weather v
 (`items/util/Card.qml`), with the map and the media card taking its corners and the album art
 rounded to match (`RoundedImage` now honours its radius, smoothly); and the climate button's
 switch as a wave from the button to the card's rim and back, its colours moving through every hue
-between (`items/tesla/CLAUDE.md`).
+between (`items/tesla/CLAUDE.md`); and a backdrop of the cover's colours (`Media.palette`) drifting
+behind the dashboard's cards and the Media view and resting while the music is paused
+(`items/media/MediaBackdrop.qml`).
 When you land a change that touches documented behaviour, update this line.
 
 ### 7.8 Keeping the code clean
