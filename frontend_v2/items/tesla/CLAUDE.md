@@ -1,5 +1,15 @@
 # `items/tesla/` — Tesla cards and the map
 
+## The HVAC button's switch wave — `ClimateStarter.qml`
+
+A switch sends a wave from the button out to the climate card's rim, which stays lit yellow while
+the car is asked, then takes the answer's colour and runs back in to the button. Three files:
+`ClimateStarter.qml` holds the timeline and the button (its header lists what is load-bearing —
+pending is the backend's state, so every display waves; a press the backend silently refuses
+times out; colours move through hue, not RGB), `ClimateWave.qml` draws the band and the lit rim
+over the card, and the rim is `items/util/GlowBorder.qml` (the Spotify device dialog's glow)
+revealed by a growing circle. Timings and the disc colours are `Theme` tokens (`hvac*`).
+
 ## Map tuning and follow modes — `TeslaMap.qml`
 
 **Map tuning** is the *Kartta* card in **Datan visualisointi**, beside the *Kuvaajat* card whose

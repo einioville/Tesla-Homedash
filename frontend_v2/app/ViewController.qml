@@ -10,7 +10,7 @@ import frontend_v2
 // One view at a time is LIVE: the current one, or in the menu the one settled at
 // the front (`liveIndex`). The rest are FROZEN, not torn down: their per-frame
 // work — the map's follow animation + center binding, the media colour fades,
-// the seek ticker, the HVAC breath glow — is gated on the `isCurrent` property
+// the seek ticker, the HVAC switch wave — is gated on the `isCurrent` property
 // bound below, so a view nobody is looking at does no animated/rendered work
 // and stops stealing GPU/CPU from the one that is. Cheap data bindings stay
 // live (scalar updates that don't paint while hidden), so a view coming live

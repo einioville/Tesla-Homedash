@@ -1,218 +1,278 @@
 import QtQuick
+import QtQuick.Effects
+import QtQuick.Shapes
 import frontend_v2
 
-// HVAC power button: a solid coloured disc icon plus a coloured glow behind it,
-// both driven by the HVAC power-state string; a click toggles climate.
+// HVAC power button, and the timeline of what a switch looks like. The disc and its
+// glow take the state's colour: red off, yellow while a switch is under way, green on.
 //
-// The glow is a "breathing" state indicator with a DEFERRED colour/icon swap:
-//   * In a settled on/off state the glow is held STEADY at full strength.
-//   * The moment the user clicks, the state flips to the pending sentinel and
-//     the glow starts BREATHING (opacity oscillates 0 <-> full) in yellow.
-//   * When the state resolves (or changes again) the rendered glow colour and
-//     disc icon do NOT swap immediately. The swap is DEFERRED to the next
-//     breathing TROUGH — the instant the glow is fully invisible — after a
-//     brief hold there. So a change rides out the current breath, swaps colour
-//     + icon while hidden, then fades back in with the new colour.
+// A switch sends a wave out from the button to the card's rim, its light trailing off
+// behind the front, and the rim stays lit in yellow while the car is asked. When the
+// answer comes, the rim takes the new state's colour as the wave sets off back in, and
+// the button turns from the moment the front reaches it until the tail has poured in —
+// green when climate came on, red when it went off or the switch failed. The card draws
+// the wave (ClimateWave) from `waveFront` and its neighbours, and tells this item how
+// far its farthest corner is (`waveExtent`).
 //
-// The disc icon itself stays fully opaque throughout; only the glow's opacity
-// breathes. That works because GlowIcon's MultiEffect renders a single item
-// holding both a copy of the source image AND its drop shadow, and
-// MultiEffect.shadowOpacity dims ONLY the shadow. So animating the value bound to
-// GlowIcon.glowStrength (-> shadowOpacity) fades just the glow; the disc is
-// untouched. Colour = GlowIcon.glow (-> shadowColor); disc = GlowIcon.source.
-// Both are read from the private `render` object so they only ever change inside
-// the trough ScriptAction, never mid-fade.
+// Load-bearing:
+//  - Pending is the BACKEND's state (HvacPowerStatePending, streamed to every
+//    display), so a switch made on any display waves on all of them. A press here
+//    shows it at once and holds it until the backend answers; the backend refuses
+//    some presses without a word (rate limit, a state it cannot switch from), so
+//    after awaitMs with no answer the wave goes back in.
+//  - Every colour runs through the hues between — red, orange, yellow, green — as
+//    one number (a key: 0 off, 1 pending, 2 on) mapped to HSV. A ColorAnimation
+//    goes straight across RGB, through brown.
+//  - On the way back the button's colour is driven by the front's position, not by
+//    a timer, so it starts exactly when the wave touches the button whatever the
+//    easing or the card's size.
+//  - A wave runs to its end before the next starts, so an answer that arrives
+//    while the wave is still going out turns it back only once it has reached the rim.
+//  - Off the screen nothing animates: the view's last state is set as it is.
 Item {
     id: starter
 
     property string powerState: ""
     property int iconSize: 100
-    // Gated by the owning view: while the dashboard is hidden the breath must not
-    // run (wasted off-screen animation). The re-arm guards below stop it cycling
-    // when false; becoming true again resumes breathing if the state still needs
-    // it. A breath already in flight rides out its current cycle, then settles.
+    // Gated by the owning view (DashboardView's isCurrent).
     property bool isCurrent: true
-    onIsCurrentChanged: if (isCurrent) ensureBreathing()
+    // From the button's centre to the card's farthest corner, in px.
+    property real waveExtent: 0
     signal clicked()
 
-    // What the glow SHOULD become, derived from powerState. These update instantly
-    // on powerState changes but are NOT shown until the next trough commits them
-    // into `render`.
-    readonly property bool targetPending:
-        powerState !== "HvacPowerStateOn" && powerState !== "HvacPowerStateOff"
+    // How long a press waits for the backend to report the switch as pending.
+    readonly property int awaitMs: 5000
 
-    readonly property url targetSource:
-        powerState === "HvacPowerStateOn" ? "qrc:/resources/icons/power_on.svg"
-        : powerState === "HvacPowerStateOff" ? "qrc:/resources/icons/power_off.svg"
-        : "qrc:/resources/icons/power_pending.svg"
+    // For the card's wave. The front is its leading edge, in px from the button's
+    // centre; inbound, it runs toward the button and its tail lies outside it.
+    readonly property real waveFront: timeline.front
+    readonly property bool waveInbound: timeline.inbound
+    readonly property bool waveShown: timeline.waving || waveIn.running
+    readonly property bool waveMoving: waveOut.running || waveIn.running
+    readonly property color waveColor: hueAt(timeline.rimKey, Theme.glowOff, Theme.glowPending, Theme.glowOn)
 
-    readonly property color targetGlow:
-        powerState === "HvacPowerStateOn" ? Theme.glowOn
-        : powerState === "HvacPowerStateOff" ? Theme.glowOff
-        : Theme.glowPending
+    readonly property real buttonRadius: iconSize / 2
+    readonly property bool switchable: powerState === "HvacPowerStateOn" || powerState === "HvacPowerStateOff"
+    readonly property bool pending: awaiting || powerState === "HvacPowerStatePending"
+    // Where the colour settles when nothing is pending. A state the car reports
+    // that is neither on nor off (no data yet, preconditioning) stays yellow.
+    readonly property real restKey: powerState === "HvacPowerStateOn" ? 2
+                                  : powerState === "HvacPowerStateOff" ? 0 : 1
 
-    // Peak glow strength (MultiEffect.shadowOpacity at the top of a breath, and
-    // the steady rest value). The PENDING glow breathes BRIGHTER than the settled
-    // on/off states: each fade-in latches this when it starts, so pending pulses
-    // peak at full 1.0 while a resolved/steady glow rests at 0.85. Read only
-    // outside powerState's change handler (commit / animation / onCompleted), so
-    // the one-transition binding lag that the callLater below guards against
-    // cannot affect it.
-    readonly property real fullStrength: targetPending ? 1.0 : 0.85
+    // A press is waiting for the backend's pending state.
+    property bool awaiting: false
 
-    // Private internal state, held in a QtObject so it does not look like a public
-    // input. `render.*` is the CURRENTLY rendered glow; `breath` is the live
-    // shadow-opacity value.
-    QtObject {
-        id: render
-
-        // Rendered glow colour + disc icon, bound into GlowIcon below. Only
-        // commitTarget() writes these — at the trough, or once at cold start —
-        // so the visible colour/icon never changes mid-fade.
-        property color glow: starter.targetGlow
-        property url source: starter.targetSource
-
-        // Live glow opacity (0 = hidden trough, fullStrength = fully shown).
-        // Bound into GlowIcon.glowStrength. The breath animation drives it; when
-        // settled steady it simply rests at fullStrength.
-        property real breath: starter.fullStrength
-
-        // True once the first real powerState has been committed. Guards the
-        // cold-start case where powerState is "" then a real value arrives.
-        property bool initialised: false
-
-        // Latched true in Component.onCompleted. Until then ensureBreathing() is
-        // inert, so the ONLY thing that can start a breath (or touch `breath`)
-        // during construction is the controlled cold-start path below. This
-        // makes the component robust to QML init ordering: even if a bound
-        // powerState fires onPowerStateChanged before onCompleted, it cannot
-        // start an animation that onCompleted would then fight by writing breath.
-        property bool ready: false
+    function hueAt(key, off, pending, on) {
+        var a = key <= 1 ? off : pending
+        var b = key <= 1 ? pending : on
+        var f = key <= 1 ? key : key - 1
+        return Qt.hsva(a.hsvHue + (b.hsvHue - a.hsvHue) * f,
+                       a.hsvSaturation + (b.hsvSaturation - a.hsvSaturation) * f,
+                       a.hsvValue + (b.hsvValue - a.hsvValue) * f, 1)
     }
 
-    Component.onCompleted: {
-        // Cold start: adopt the first target immediately as the steady rendered
-        // state (no startup fade), then let any later change breathe. If the
-        // first real value differs from the placeholder default this still
-        // converges because ensureBreathing() re-checks against the target.
-        commitTarget()
-        render.breath = starter.fullStrength
-        render.ready = true
-        ensureBreathing()
-    }
-
-    // Any powerState change re-evaluates whether to breathe. We never touch the
-    // rendered colour/icon here — only ensureBreathing(), which lets the running
-    // (or freshly started) cycle perform the swap at its trough. This is what
-    // defers the colour change to the trough for EVERY transition ordering:
-    // off->pending->on, direct off->on, or a change landing mid-fade.
-    //
-    // CRITICAL: defer via Qt.callLater. ensureBreathing() reads the derived
-    // bindings (targetPending / targetGlow / targetSource), but inside THIS
-    // handler — powerState's own change slot — those sibling bindings have not
-    // been re-evaluated yet and still hold the PREVIOUS state's values. Calling
-    // ensureBreathing() synchronously here would decide against stale data: the
-    // breath never starts on the pending click and the glow sticks on the wrong
-    // colour (e.g. stays green after HVAC returns to off). callLater runs it once
-    // at the end of this event-loop turn, after the bindings have settled (and
-    // coalesces bursts of powerState changes into a single, current evaluation).
-    onPowerStateChanged: Qt.callLater(ensureBreathing)
-
-    GlowIcon {
-        anchors.centerIn: parent
-        iconSize: starter.iconSize
-        glowRadiusPx: 32
-        source: render.source
-        glow: render.glow
-        glowStrength: render.breath
-    }
-
-    // The breath. ONE run of this animation = exactly one breath: fade the glow
-    // out to the trough, hold hidden, commit the pending target colour + icon
-    // while hidden, then fade back in with the (possibly new) colour. It does NOT
-    // loop itself; onFinished re-arms it for the next breath only while there is
-    // still work to do (the re-arm rule, onBreathFinished). That makes the loop
-    // fully imperative and keeps every colour/icon swap pinned to the trough.
-    SequentialAnimation {
-        id: breathCycle
-
-        NumberAnimation {
-            target: render
-            property: "breath"
-            to: 0.0
-            duration: 1000
-            easing.type: Easing.InOutSine
-        }
-
-        // "Hidden for a bit" — the deferred swap happens entirely inside this
-        // invisible window so no colour change is ever seen mid-fade.
-        PauseAnimation { duration: 140 }
-
-        // Whatever the latest powerState resolved to is what fades back in.
-        ScriptAction { script: starter.commitTarget() }
-
-        NumberAnimation {
-            target: render
-            property: "breath"
-            to: starter.fullStrength
-            duration: 1000
-            easing.type: Easing.InOutSine
-        }
-
-        onFinished: starter.onBreathFinished()
-    }
-
-    // Copy the current target (colour + icon) into the rendered state. Called
-    // from the trough ScriptAction, where the swap is hidden, and once from
-    // Component.onCompleted to adopt the cold-start state.
-    function commitTarget() {
-        render.glow = starter.targetGlow
-        render.source = starter.targetSource
-        render.initialised = true
-    }
-
-    // Is the rendered glow already showing the target? Compares both colour and
-    // disc, so it stays correct even if a future theme gave two states the same
-    // glow colour (url == is the right comparison for QML urls).
-    function renderMatchesTarget() {
-        return render.initialised
-            && Qt.colorEqual(render.glow, starter.targetGlow)
-            && render.source == starter.targetSource
-    }
-
-    // Re-arm rule, evaluated after every completed breath. Breathe again IFF the
-    // view is current and the state is still pending OR the rendered colour has
-    // not yet caught up to the target. Consequences:
-    //   * Pending: always true -> the glow breathes continuously.
-    //   * A resolution (on/off): the trough in THIS breath already committed the
-    //     resolved colour, so renderMatchesTarget() is now true and pending is
-    //     false -> we stop. breath has just faded back up to fullStrength, so the
-    //     glow settles STEADY at full strength in the new colour. Exactly one
-    //     catch-up breath runs after a resolution, then it rests.
-    //   * A change that arrived after the trough (committed the OLD target):
-    //     renderMatchesTarget() is false -> one more breath catches it up.
-    function onBreathFinished() {
-        if (starter.isCurrent && (starter.targetPending || !starter.renderMatchesTarget())) {
-            breathCycle.restart()
-        }
-        // else: settle steady — breath is already at fullStrength, render holds
-        // the resolved colour/icon, and the animation stays stopped.
-    }
-
-    // Start (or keep) breathing whenever there is outstanding work and the cycle
-    // is not already running. Idempotent: calling it while running is a no-op,
-    // so rapid re-clicks and bursts of powerState changes never stack animations
-    // or restart mid-fade — the in-flight breath simply rides to its trough and
-    // picks up the latest target there.
-    function ensureBreathing() {
-        if (!render.ready || !starter.isCurrent || breathCycle.running)
+    function press() {
+        // The backend switches only from on or off; a press during a switch is spent.
+        if (starter.pending || !starter.switchable)
             return
-        if (starter.targetPending || !starter.renderMatchesTarget())
-            breathCycle.restart()
+        starter.awaiting = true
+        awaitTimer.restart()
+        starter.clicked()
+    }
+
+    onPowerStateChanged: {
+        awaiting = false
+        awaitTimer.stop()
+    }
+    onPendingChanged: Qt.callLater(sync)
+    onRestKeyChanged: Qt.callLater(sync)
+    onIsCurrentChanged: sync()
+    Component.onCompleted: {
+        snap()
+        timeline.ready = true
+    }
+
+    Timer {
+        id: awaitTimer
+        interval: starter.awaitMs
+        onTriggered: starter.awaiting = false
+    }
+
+    // What is on screen, and where it is heading.
+    QtObject {
+        id: timeline
+        property real buttonKey: 0
+        property real rimKey: 0
+        property real front: 0
+        property bool inbound: false
+        property bool waving: false
+        // The way back: from the button's colour when it set off to the answer's.
+        property real fromKey: 1
+        property real answerKey: 0
+        property bool ready: false
+
+        // The button turns while the wave pours in: from the front touching it
+        // until the end of the tail has.
+        onFrontChanged: {
+            if (!inbound || !waveIn.running)
+                return
+            var poured = Math.max(0, Math.min(1, (starter.buttonRadius - front) / Theme.hvacWaveTail))
+            buttonKey = fromKey + (answerKey - fromKey) * poured
+        }
+    }
+
+    function snap() {
+        waveOut.stop()
+        waveIn.stop()
+        settle.stop()
+        timeline.waving = starter.pending
+        timeline.inbound = false
+        timeline.buttonKey = starter.pending ? 1 : starter.restKey
+        timeline.rimKey = timeline.buttonKey
+        timeline.front = starter.pending ? starter.waveExtent + Theme.hvacWaveTail : starter.buttonRadius
+    }
+
+    function sync() {
+        if (!timeline.ready)
+            return
+        if (!starter.isCurrent) {
+            snap()
+            return
+        }
+        if (waveOut.running || waveIn.running)
+            return
+        if (starter.pending && !timeline.waving) {
+            settle.stop()
+            timeline.waving = true
+            timeline.inbound = false
+            timeline.rimKey = 1
+            timeline.front = starter.buttonRadius
+            waveOut.restart()
+        } else if (!starter.pending && timeline.waving) {
+            timeline.waving = false
+            timeline.inbound = true
+            timeline.fromKey = timeline.buttonKey
+            timeline.answerKey = starter.restKey
+            waveIn.restart()
+        } else if (!starter.pending && timeline.buttonKey !== starter.restKey
+                   && !(settle.running && settle.to === starter.restKey)) {
+            // A change that did not come through a switch here or on another
+            // display (climate started from the car's app): the button alone.
+            settle.to = starter.restKey
+            settle.restart()
+        }
+    }
+
+    // Out: the button turns yellow as the wave leaves it; the front runs on until
+    // the end of its tail has passed the farthest corner.
+    ParallelAnimation {
+        id: waveOut
+        NumberAnimation {
+            target: timeline; property: "buttonKey"; to: 1
+            duration: Theme.hvacColorDuration; easing.type: Easing.InOutSine
+        }
+        SequentialAnimation {
+            PauseAnimation { duration: 120 }
+            NumberAnimation {
+                target: timeline; property: "front"
+                from: starter.buttonRadius; to: starter.waveExtent + Theme.hvacWaveTail
+                duration: Theme.hvacWaveOutDuration; easing.type: Easing.OutQuad
+            }
+        }
+        onFinished: Qt.callLater(starter.sync)
+    }
+
+    // Back: the rim takes the answer's colour as the wave sets off from the farthest
+    // corner, and runs on until its tail has poured into the button.
+    ParallelAnimation {
+        id: waveIn
+        NumberAnimation {
+            target: timeline; property: "rimKey"; to: timeline.answerKey
+            duration: Theme.hvacColorDuration; easing.type: Easing.InOutSine
+        }
+        NumberAnimation {
+            target: timeline; property: "front"
+            from: starter.waveExtent; to: starter.buttonRadius - Theme.hvacWaveTail
+            duration: Theme.hvacWaveInDuration; easing.type: Easing.InOutSine
+        }
+        onFinished: {
+            timeline.buttonKey = timeline.answerKey
+            timeline.inbound = false
+            Qt.callLater(starter.sync)
+        }
+    }
+
+    NumberAnimation {
+        id: settle
+        target: timeline
+        property: "buttonKey"
+        duration: Theme.hvacColorDuration
+        easing.type: Easing.InOutSine
+    }
+
+    // The disc and its power glyph (the glyph on a 180-unit grid), drawn rather than
+    // an image so the colour can move through every hue between states.
+    Item {
+        id: disc
+        anchors.centerIn: parent
+        width: starter.iconSize
+        height: starter.iconSize
+        visible: false
+        layer.enabled: true
+
+        Rectangle {
+            anchors.fill: parent
+            radius: width / 2
+            color: starter.hueAt(timeline.buttonKey, Theme.hvacDiscOff, Theme.hvacDiscPending, Theme.hvacDiscOn)
+        }
+
+        Shape {
+            id: glyph
+            anchors.fill: parent
+            preferredRendererType: Shape.CurveRenderer
+            readonly property real u: width / 180
+
+            ShapePath {
+                strokeColor: "white"
+                strokeWidth: 10 * glyph.u
+                fillColor: "transparent"
+                capStyle: ShapePath.RoundCap
+                PathAngleArc {
+                    centerX: 90 * glyph.u
+                    centerY: 90 * glyph.u
+                    radiusX: 39.26 * glyph.u
+                    radiusY: 39.26 * glyph.u
+                    startAngle: -52.3
+                    sweepAngle: 284.1
+                }
+            }
+            ShapePath {
+                strokeColor: "white"
+                strokeWidth: 10 * glyph.u
+                fillColor: "transparent"
+                capStyle: ShapePath.RoundCap
+                startX: 90 * glyph.u
+                startY: 46.93 * glyph.u
+                PathLine { x: 90 * glyph.u; y: 86.93 * glyph.u }
+            }
+        }
+    }
+
+    MultiEffect {
+        anchors.fill: disc
+        source: disc
+        autoPaddingEnabled: true
+        shadowEnabled: true
+        shadowColor: starter.hueAt(timeline.buttonKey, Theme.glowOff, Theme.glowPending, Theme.glowOn)
+        shadowBlur: 1.0
+        blurMax: 32
+        shadowHorizontalOffset: 0
+        shadowVerticalOffset: 0
+        shadowOpacity: 0.85
     }
 
     MouseArea {
         anchors.fill: parent
-        onClicked: starter.clicked()
+        onClicked: starter.press()
     }
 }

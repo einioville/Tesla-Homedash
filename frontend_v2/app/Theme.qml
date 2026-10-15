@@ -147,10 +147,21 @@ QtObject {
     readonly property color sliderGroove: "#66333333"       // rgba(51, 51, 51, 102)
     readonly property color sliderFill: "#ffffff"
 
-    // Climate glows / icon tints.
+    // Climate glows / icon tints. The HVAC button's disc and glow per state, and
+    // the wave a switch sends between the button and the card's rim
+    // (items/tesla/ClimateStarter.qml): out in waveOut, back in waveIn, its light
+    // trailing off over hvacWaveTail px behind the front, and the button's and the
+    // rim's colour changes across hvacColorDuration.
+    readonly property color hvacDiscOff: "#ff5555"
+    readonly property color hvacDiscPending: "#ffd42a"
+    readonly property color hvacDiscOn: "#00ff00"
     readonly property color glowOff: "#ff0000"
     readonly property color glowOn: "#00ff00"
     readonly property color glowPending: "#ffff00"
+    readonly property int hvacColorDuration: 450
+    readonly property int hvacWaveOutDuration: 1300
+    readonly property int hvacWaveInDuration: 1200
+    readonly property int hvacWaveTail: 150
     readonly property color glowMinus: "#0000ff"
     readonly property color glowPlus: "#ff0000"
     readonly property color seatHeat: "#ff0000"

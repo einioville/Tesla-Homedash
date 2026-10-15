@@ -479,7 +479,9 @@ them under the finger, and a swipe up from the bottom that opens them as a menu 
 from (left still, it picks the front view itself), which replaces the dock (its screensaver tile and auto-hide setting gone with it) — plus
 the first step of the UI modernization: the home screen's cards on the Weather view's card
 (`items/util/Card.qml`), with the map and the media card taking its corners and the album art
-rounded to match (`RoundedImage` now honours its radius, smoothly).
+rounded to match (`RoundedImage` now honours its radius, smoothly); and the climate button's
+switch as a wave from the button to the card's rim and back, its colours moving through every hue
+between (`items/tesla/CLAUDE.md`).
 When you land a change that touches documented behaviour, update this line.
 
 ### 7.8 Keeping the code clean
@@ -509,9 +511,9 @@ Four kinds of debris do not belong in this codebase; review your own diff for th
   - Frontend: `core/seriesbounds.hh` for graph bounds, `TeslaData::qmlName` for a registry id's
     property name, `app/Format.js` for displayed values ("—" for a missing one),
     `items/util/Card.qml` for a card (the dashboard's and the Weather view's look; its colours
-    are `Theme`'s *card* tokens), `items/settings/ModalDialog.qml` for a dialog,
-    `SettingDetails.qml` for a status line with its dot, `DialogButton.qml` for a button, and the
-    motion pieces in `items/util/`.
+    are `Theme`'s *card* tokens), `items/util/GlowBorder.qml` for a card's rim lit from inside,
+    `items/settings/ModalDialog.qml` for a dialog, `SettingDetails.qml` for a status line with its
+    dot, `DialogButton.qml` for a button, and the motion pieces in `items/util/`.
 
   Two copies that behave differently are merged only once you know which behaviour is right — ask
   when it is not obvious.

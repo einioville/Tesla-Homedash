@@ -37,8 +37,9 @@ ModalDialog {
     // room — the user is at the speaker, not at the panel — and going from
     // "one arc moving" to "the whole border lit" is legible at that distance
     // in a way that a line of Finnish text is not.
-    SpotifyGlowBorder {
+    GlowBorder {
         anchors.fill: parent
+        glowColor: Theme.spotifyGreen
         // Taken from the card rather than restated, so the glow's outer edge
         // lands on the inside of this rim however the rim changes.
         borderWidth: popup.card.border.width

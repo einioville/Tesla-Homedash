@@ -4,9 +4,11 @@ import QtQuick.Shapes
 
 import frontend_v2
 
-// Light bleeding inward from a dialog's border — as if the rim itself were
-// glowing — that runs around the card while a scan is looking and lights the
-// whole perimeter once there is something to report.
+// Light bleeding inward from a card's border, as if the rim itself were glowing.
+// Either an arc chasing round the rim (the Spotify device dialog, while its scan
+// looks) or the whole perimeter lit (`complete`). A lit rim can also be revealed by
+// a circle growing from a point — the climate card's wave, which lights the rim
+// where it has passed (`revealOrigin` / `revealRadius`).
 //
 // It is a pure gradient: brightest exactly at the border, falling off smoothly
 // inward, with nothing solid anywhere. That comes from a NARROW arc blurred by a
@@ -41,16 +43,21 @@ Item {
     property real arcFraction: 0.16
     // Light the WHOLE perimeter instead of chasing an arc around it.
     property bool complete: false
-    property color glowColor: Theme.spotifyGreen
+    property color glowColor: "white"
     // The rim the light lies against. Match these to the card's own border.
     property real borderWidth: 1
-    property real cornerRadius: Theme.tripCardRadius
+    property real cornerRadius: Theme.cardRadius
     property int spinMs: 2400
     // Half-height of the arc BEFORE blurring. Must stay well below glowRadius or
     // the middle survives the blur as a solid strip (see the note above).
     property real glowThickness: 5
     // How far the light reaches inward.
     property int glowRadius: 24
+    // The rim is lit only within revealRadius of revealOrigin, fading out over the
+    // last revealFeather pixels; below zero, all of it.
+    property point revealOrigin: Qt.point(width / 2, height / 2)
+    property real revealRadius: -1
+    property real revealFeather: 6
 
     // How much of the ring is lit. The Behavior is what makes the transition a
     // completed lap rather than a jump.
@@ -73,9 +80,11 @@ Item {
     }
 
     // Lightening toward white is the "found it" signal: there is no second,
-    // brighter element to switch on.
-    property color litColor: complete ? Qt.lighter(glowColor, 1.2) : glowColor
-    Behavior on litColor { ColorAnimation { duration: 420 } }
+    // brighter element to switch on. The factor is what animates, not the colour,
+    // so a glowColor that is itself animating is followed at once.
+    property real lift: complete ? 1.2 : 1.0
+    Behavior on lift { NumberAnimation { duration: 420 } }
+    readonly property color litColor: Qt.lighter(glowColor, lift)
 
     // The cut. Its edge is the card's inner rim, and the arc below is centred on
     // exactly that edge, so the mask keeps the inner half of the light.
@@ -118,6 +127,56 @@ Item {
         }
     }
 
+    // The same cut, lit only inside the reveal circle: the cut filled with a
+    // radial gradient that ends at revealRadius, softened over revealFeather.
+    Shape {
+        id: revealMask
+        anchors.fill: parent
+        preferredRendererType: Shape.CurveRenderer
+        visible: false
+        layer.enabled: trace.revealRadius >= 0
+
+        // From the origin to the farthest corner: the whole cut at a radius this far.
+        readonly property real extent: Math.max(1,
+            Math.hypot(trace.revealOrigin.x, trace.revealOrigin.y),
+            Math.hypot(width - trace.revealOrigin.x, trace.revealOrigin.y),
+            Math.hypot(trace.revealOrigin.x, height - trace.revealOrigin.y),
+            Math.hypot(width - trace.revealOrigin.x, height - trace.revealOrigin.y))
+        // The radius clamped just past the extent, inside a gradient a little wider
+        // still: both stops must stay below position 1, or Qt keeps only the last of
+        // the two there (transparent) and a fully revealed rim goes dark.
+        readonly property real lit: Math.min(trace.revealRadius, extent + trace.revealFeather)
+        readonly property real span: extent + trace.revealFeather + 1
+
+        ShapePath {
+            strokeWidth: 0
+            strokeColor: "transparent"
+            fillGradient: RadialGradient {
+                centerX: trace.revealOrigin.x
+                centerY: trace.revealOrigin.y
+                centerRadius: revealMask.span
+                focalX: trace.revealOrigin.x
+                focalY: trace.revealOrigin.y
+                focalRadius: 0
+                GradientStop {
+                    position: Math.max(0, (revealMask.lit - trace.revealFeather) / revealMask.span)
+                    color: "white"
+                }
+                GradientStop {
+                    position: Math.max(0, revealMask.lit / revealMask.span)
+                    color: "transparent"
+                }
+            }
+            PathRectangle {
+                x: trace.borderWidth
+                y: trace.borderWidth
+                width: Math.max(0, revealMask.width - 2 * trace.borderWidth)
+                height: Math.max(0, revealMask.height - 2 * trace.borderWidth)
+                radius: Math.max(0, trace.cornerRadius - trace.borderWidth)
+            }
+        }
+    }
+
     MultiEffect {
         anchors.fill: parent
         source: haloArc
@@ -128,6 +187,13 @@ Item {
         // past the card's edge.
         autoPaddingEnabled: false
         maskEnabled: true
-        maskSource: clipMask
+        maskSource: trace.revealRadius >= 0 ? revealMask : clipMask
+        // The reveal's feather is a gradient in the mask. MultiEffect maps a mask's
+        // alpha through smoothstep(t·(1+s) − s, t·(1+s)) of this threshold t and spread
+        // s, so only t 0.5 with s 1 passes the gradient through (smoothstep(0, 1)): at
+        // the defaults (0, 0) any alpha above zero is fully inside and the feather is a
+        // hard edge at its far end, and at (0, 1) every alpha is.
+        maskThresholdMin: trace.revealRadius >= 0 ? 0.5 : 0.0
+        maskSpreadAtMin: trace.revealRadius >= 0 ? 1.0 : 0.0
     }
 }

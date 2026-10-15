@@ -158,7 +158,6 @@ qt_add_qml_module(appfrontend_v2
         items/settings/SpotifyAuthPopup.qml
         items/settings/SpotifyDevicePopup.qml
         items/settings/UsbImportPopup.qml
-        items/settings/SpotifyGlowBorder.qml
         items/settings/SpotifyButton.qml
         items/settings/DialogButton.qml
         items/settings/ModalDialog.qml
@@ -186,6 +185,7 @@ qt_add_qml_module(appfrontend_v2
         items/util/HomeIndicator.qml
         items/util/TextButton.qml
         items/util/Card.qml
+        items/util/GlowBorder.qml
         items/util/TintedIcon.qml
         items/util/GlowIcon.qml
         items/util/HoldRepeatArea.qml
@@ -203,6 +203,7 @@ qt_add_qml_module(appfrontend_v2
         items/tesla/DataEntryList.qml
         items/tesla/TemperatureCard.qml
         items/tesla/ClimateStarter.qml
+        items/tesla/ClimateWave.qml
         items/tesla/SeatWidget.qml
         items/tesla/SteeringWidget.qml
         items/tesla/ClimateCard.qml
@@ -307,9 +308,6 @@ qt_add_resources(appfrontend_v2 "app_resources"
         resources/icons/play.svg
         resources/icons/price.svg
         resources/icons/plus.svg
-        resources/icons/power_off.svg
-        resources/icons/power_on.svg
-        resources/icons/power_pending.svg
         resources/icons/redshadow.png
         resources/icons/seat.svg
         resources/icons/settings.svg
