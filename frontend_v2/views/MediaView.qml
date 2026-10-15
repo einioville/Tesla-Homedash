@@ -92,9 +92,9 @@ Item {
             id: cover
             anchors.horizontalCenter: parent.horizontalCenter
             coverSize: view.coverSize
-            // Gentler, larger rounding than the dashboard card, scaled to the
-            // big cover so it reads as softly rounded rather than near-square.
-            coverRadius: Math.max(Theme.cardRadius, Math.round(view.coverSize * 0.04))
+            // Gentler, larger rounding than the dashboard card's cover, scaled to
+            // the big cover so it reads as softly rounded rather than near-square.
+            coverRadius: Math.max(Theme.coverRadius, Math.round(view.coverSize * 0.04))
         }
 
         // Title + artist, below the cover.

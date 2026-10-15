@@ -476,7 +476,9 @@ connection (#64): TLS 1.3 on 6969 with a SCRAM password login, remembered per-di
 pinned certificate, and Ylläpito › Näytöt to list and revoke displays — plus the carousel view
 switch: every switch a 3D turn the short way round past the views between, edge swipes that turn
 them under the finger, and a swipe up from the bottom that opens them as a menu to spin and pick
-from (left still, it picks the front view itself), which replaces the dock (its screensaver tile and auto-hide setting gone with it).
+from (left still, it picks the front view itself), which replaces the dock (its screensaver tile and auto-hide setting gone with it) — plus
+the first step of the UI modernization: the home screen's cards on the Weather view's card
+(`items/util/Card.qml`), with the map and the media card taking its corners.
 When you land a change that touches documented behaviour, update this line.
 
 ### 7.8 Keeping the code clean
@@ -505,8 +507,10 @@ Four kinds of debris do not belong in this codebase; review your own diff for th
     `BaseMediaPlayer._send*` for media packets.
   - Frontend: `core/seriesbounds.hh` for graph bounds, `TeslaData::qmlName` for a registry id's
     property name, `app/Format.js` for displayed values ("—" for a missing one),
-    `items/settings/ModalDialog.qml` for a dialog, `SettingDetails.qml` for a status line with its
-    dot, `DialogButton.qml` for a button, and the motion pieces in `items/util/`.
+    `items/util/Card.qml` for a card (the dashboard's and the Weather view's look; its colours
+    are `Theme`'s *card* tokens), `items/settings/ModalDialog.qml` for a dialog,
+    `SettingDetails.qml` for a status line with its dot, `DialogButton.qml` for a button, and the
+    motion pieces in `items/util/`.
 
   Two copies that behave differently are merged only once you know which behaviour is right — ask
   when it is not obvious.

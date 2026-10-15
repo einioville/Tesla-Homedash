@@ -1,22 +1,23 @@
 import QtQuick
 import frontend_v2
 
-// The Weather view's card: a translucent panel with a small caps title on the
-// left and a note on the right. Children are laid over it.
+// The card every dashboard panel and the Weather view are built from: a faint
+// translucent panel with a hairline rim, a small caps title on the left and a note
+// on the right (either may be left empty). Children are laid over it.
 Rectangle {
     property string title
     property string note
 
-    color: "#12ffffff"
-    border.color: "#24ffffff"
+    color: Theme.cardFill
+    border.color: Theme.cardBorder
     border.width: 1
-    radius: 14
+    radius: Theme.cardRadius
 
     Text {
         x: 14
         y: 10
         text: parent.title
-        color: "#8f9aa6"
+        color: Theme.cardTitle
         font.family: Theme.fontFamily
         font.pixelSize: 12
         font.letterSpacing: 1.2
@@ -27,7 +28,7 @@ Rectangle {
         anchors.rightMargin: 14
         y: 10
         text: parent.note
-        color: "#6f7a86"
+        color: Theme.cardNote
         font.family: Theme.fontFamily
         font.pixelSize: 12
         z: 2

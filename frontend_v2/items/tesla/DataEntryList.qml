@@ -2,14 +2,14 @@ import QtQuick
 import QtQuick.Layouts
 import frontend_v2
 
-// A gradient card holding a vertical stack of DataEntry rows separated by thin
-// white rules — the QML port of TeslaDataEntryList. `entries` is an array of
-// { title, value, unit }; the gradient origin faces a chosen corner.
+// A card holding a vertical stack of DataEntry rows separated by hairline
+// rules — the QML port of TeslaDataEntryList. `entries` is an array of
+// { title, value, unit }.
 //
 // Each entry gets an equal-height band (mirroring the original's even addStretch
 // distribution) and is centred within it, so entries never collide; the divider
 // sits at the top of every band after the first, i.e. cleanly between entries.
-GradientCard {
+Card {
     id: list
 
     property var entries: []
@@ -35,9 +35,8 @@ GradientCard {
                     anchors.left: parent.left
                     anchors.right: parent.right
                     anchors.top: parent.top
-                    height: 4
-                    radius: 2
-                    color: Theme.separator
+                    height: 1
+                    color: Theme.cardDivider
                 }
 
                 DataEntry {

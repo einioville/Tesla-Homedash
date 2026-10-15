@@ -28,11 +28,10 @@ Rectangle {
         isCurrent: view.isCurrent
     }
 
-    // Driven today / this month + odometer — gradient toward the bottom-right.
+    // Driven today / this month + odometer.
     DataEntryList {
         x: view.cellX(8); y: view.cellY(0)
         width: view.spanW(4); height: view.spanH(6)
-        gradientCx: 0.75; gradientCy: 1.0
         entries: [
             { title: "Ajettu Tänään",       value: Tesla.drivenToday,     unit: "km" },
             { title: "Ajettu Tässä Kuussa", value: Tesla.drivenThisMonth, unit: "km" },
@@ -40,11 +39,10 @@ Rectangle {
         ]
     }
 
-    // Speed / battery / range — gradient toward the bottom-left.
+    // Speed / battery / range.
     DataEntryList {
         x: view.cellX(12); y: view.cellY(0)
         width: view.spanW(4); height: view.spanH(6)
-        gradientCx: 0.25; gradientCy: 1.0
         entries: [
             { title: "Nopeus",      value: Tesla.vehicleSpeed,    unit: "km/h" },
             { title: "Akun Varaus", value: Tesla.batteryLevel,    unit: "%" },

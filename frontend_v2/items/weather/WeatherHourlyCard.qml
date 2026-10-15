@@ -5,7 +5,7 @@ import frontend_v2
 // all of `hours`. The title names the hours on screen ("SEURAAVAT 24 TUNTIA" at the start,
 // their span once scrolled) unless `heading` overrides it, and "↺ Nyt" glides back to now.
 // Used by the Weather view and the dashboard's weather panel.
-WeatherCard {
+Card {
     id: card
 
     property var hours: []

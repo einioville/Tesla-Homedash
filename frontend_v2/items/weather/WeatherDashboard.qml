@@ -58,8 +58,6 @@ Item {
         }
     }
 
-    component Card: WeatherCard {}
-
     component Metric: Column {
         property string label
         property string value
@@ -327,7 +325,7 @@ Item {
             ShapePath {
                 fillColor: "transparent"
                 strokeWidth: 1
-                strokeColor: "#24ffffff"
+                strokeColor: Theme.cardBorder
                 PathRectangle {
                     x: 0.5; y: 0.5
                     width: radarCard.width - 1; height: radarCard.height - 1

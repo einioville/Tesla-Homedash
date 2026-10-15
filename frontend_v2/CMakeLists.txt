@@ -185,7 +185,7 @@ qt_add_qml_module(appfrontend_v2
         items/luna/Luna.qml
         items/util/HomeIndicator.qml
         items/util/TextButton.qml
-        items/util/GradientCard.qml
+        items/util/Card.qml
         items/util/TintedIcon.qml
         items/util/GlowIcon.qml
         items/util/HoldRepeatArea.qml
@@ -218,7 +218,6 @@ qt_add_qml_module(appfrontend_v2
         items/weather/WeatherRadarControls.qml
         items/weather/WeatherSunArc.qml
         items/weather/WeatherMoon.qml
-        items/weather/WeatherCard.qml
         items/weather/WeatherChart.qml
         items/weather/WeatherHourlyCard.qml
         items/weather/WeatherDashboard.qml

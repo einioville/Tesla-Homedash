@@ -445,7 +445,8 @@ Item {
     // because the map sits on a solid Theme.dashboardBackground, costs nothing
     // per frame, and — having no input handlers — lets pan/pinch/wheel gestures
     // fall straight through to the Map underneath. Gated on roundedCorners so a
-    // full-screen map view can drop the overlay entirely.
+    // full-screen map view can drop the overlay entirely. The card's rim is drawn
+    // on top, as every other card's is over its fill.
     Shape {
         anchors.fill: parent
         visible: root.roundedCorners
@@ -459,6 +460,16 @@ Item {
             fillColor: Theme.dashboardBackground
             PathRectangle { width: root.width; height: root.height; radius: 0 }
             PathRectangle { width: root.width; height: root.height; radius: Theme.cardRadius }
+        }
+        ShapePath {
+            fillColor: "transparent"
+            strokeWidth: 1
+            strokeColor: Theme.cardBorder
+            PathRectangle {
+                x: 0.5; y: 0.5
+                width: root.width - 1; height: root.height - 1
+                radius: Theme.cardRadius - 0.5
+            }
         }
     }
 }

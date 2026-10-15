@@ -106,21 +106,24 @@ QtObject {
     // Shared so the home indicator can be placed relative to that edge.
     readonly property int gridMargin: 10
 
-    // Card shell: rounded corners, the dark-blue→black radial gradient and the
-    // soft drop shadow shared by the data lists, climate and weather panels.
-    readonly property int cardRadius: 5
-    readonly property color cardGradientInner: "#03002e"    // rgb(3, 0, 46)
-    readonly property color cardGradientOuter: "#000000"
+    // Card shell (items/util/Card.qml) — the dashboard's panels and the Weather
+    // view's: a faint translucent fill and a hairline rim over the view's dark
+    // background. The map and the media card take the same corners.
+    readonly property int cardRadius: 14
+    readonly property color cardFill: "#12ffffff"
+    readonly property color cardBorder: "#24ffffff"
+    readonly property color cardTitle: "#8f9aa6"
+    readonly property color cardNote: "#6f7a86"
+    // Rule between the rows stacked in a card.
+    readonly property color cardDivider: "#24ffffff"
+    // The media card's drop shadow; it alone keeps one, under its cover-coloured fill.
     readonly property color cardShadowColor: "#96000000"    // rgba(0, 0, 0, 150)
+    // Album-art corners on the media card; the Media view scales its bigger cover's up from this.
+    readonly property int coverRadius: 5
 
     // Tesla data-entry labels.
     readonly property color dataLabelTitle: "#c0c0c0"
     readonly property color dataLabelValue: "#ffffff"
-    readonly property color separator: "#ffffff"
-
-    // Weather cards: translucent grey panel with a faint white border.
-    readonly property color weatherCardBg: "#325c5c5c"      // rgba(92, 92, 92, 50)
-    readonly property color weatherCardBorder: "#78ffffff"  // rgba(255, 255, 255, 120)
 
     // --- Spotify -----------------------------------------------------------
     // Spotify's own surface and text ramp. spotifySurface / spotifyRim are the

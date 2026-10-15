@@ -11,9 +11,9 @@ Item {
     id: root
 
     property real coverSize: 160
-    // Corner radius of the art (and its halo). Defaults to the dashboard card
-    // radius; the fullscreen view overrides it for gentler, larger rounding.
-    property int coverRadius: Theme.cardRadius
+    // Corner radius of the art (and its halo); the fullscreen view overrides it
+    // for gentler, larger rounding.
+    property int coverRadius: Theme.coverRadius
 
     readonly property real shadowBlur: coverSize * (24 / 160)
     readonly property real shadowSpread: coverSize * (6 / 160)

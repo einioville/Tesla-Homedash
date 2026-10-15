@@ -2,12 +2,11 @@ import QtQuick
 import QtQuick.Layouts
 import frontend_v2
 
-// Climate panel — the QML port of ClimateControllerCard. A top-left-anchored
-// gradient card laying out inside/outside/target temperatures, the HVAC power
-// button, the steering + seat heaters and the target-temperature ± arrows,
-// reproducing the original 5-column grid. All data binds to the Tesla
-// singleton; the controls call its HVAC invokables.
-GradientCard {
+// Climate panel — the QML port of ClimateControllerCard. A card laying out
+// inside/outside/target temperatures, the HVAC power button, the steering + seat
+// heaters and the target-temperature ± arrows, reproducing the original 5-column
+// grid. All data binds to the Tesla singleton; the controls call its HVAC invokables.
+Card {
     id: climate
 
     // Forwarded to the breathing HVAC glow so it idles while the dashboard is
@@ -18,9 +17,6 @@ GradientCard {
     // past it with a WARNING, so the arrows stop here instead of sending one.
     readonly property real minTarget: 15.0
     readonly property real maxTarget: 28.0
-
-    gradientCx: 0.0
-    gradientCy: 0.0
 
     GridLayout {
         id: grid
