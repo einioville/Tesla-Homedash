@@ -30,10 +30,15 @@ Item {
         layer.enabled: true
     }
 
+    // The threshold and spread turn the mask's anti-aliased edge into a smooth one.
+    // At their defaults (0, 0) any alpha above zero counts as inside, which leaves
+    // the corners jagged and visibly tighter than `radius`.
     MultiEffect {
         anchors.fill: img
         source: img
         maskEnabled: true
         maskSource: mask
+        maskThresholdMin: 0.5
+        maskSpreadAtMin: 1.0
     }
 }

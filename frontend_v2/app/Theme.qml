@@ -118,8 +118,9 @@ QtObject {
     readonly property color cardDivider: "#24ffffff"
     // The media card's drop shadow; it alone keeps one, under its cover-coloured fill.
     readonly property color cardShadowColor: "#96000000"    // rgba(0, 0, 0, 150)
-    // Album-art corners on the media card; the Media view scales its bigger cover's up from this.
-    readonly property int coverRadius: 5
+    // Album-art corners on the media card: a step under cardRadius, so the cover
+    // reads as part of the card. The Media view scales its bigger cover's up from this.
+    readonly property int coverRadius: 10
 
     // Tesla data-entry labels.
     readonly property color dataLabelTitle: "#c0c0c0"

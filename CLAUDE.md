@@ -478,7 +478,8 @@ switch: every switch a 3D turn the short way round past the views between, edge 
 them under the finger, and a swipe up from the bottom that opens them as a menu to spin and pick
 from (left still, it picks the front view itself), which replaces the dock (its screensaver tile and auto-hide setting gone with it) — plus
 the first step of the UI modernization: the home screen's cards on the Weather view's card
-(`items/util/Card.qml`), with the map and the media card taking its corners.
+(`items/util/Card.qml`), with the map and the media card taking its corners and the album art
+rounded to match (`RoundedImage` now honours its radius, smoothly).
 When you land a change that touches documented behaviour, update this line.
 
 ### 7.8 Keeping the code clean
