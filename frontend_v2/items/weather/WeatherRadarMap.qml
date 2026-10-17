@@ -173,8 +173,12 @@ Item {
     onViewChanged: strikeLayer.requestPaint()
     onLatitudeChanged: Qt.callLater(goHome)
     onLongitudeChanged: Qt.callLater(goHome)
+    // Coming live refreshes the frame list: it is as old as the last refresh, and the view
+    // is built in the background long before it is first opened.
     onActiveChanged: {
-        if (!active) {
+        if (active) {
+            refreshFrames()
+        } else {
             returnTimer.stop()
             if (moved)
                 goHome()
