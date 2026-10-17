@@ -81,3 +81,31 @@ Load-bearing:
   level multiplies with the dashboard's; and choosing another default output outside the dashboard
   bypasses the chain until it next starts (a backend restart, or the curve leaving flat again).
 
+## The Media view's spectrum — `spectrum.py`
+
+`AudioSpectrum` serves `MEDIA_SPECTRUM_WATCH` (`0x1F`): while at least one display shows the Media
+view it runs `pw-record` on the **default output's monitor** (`stream.capture.sink`), mono at 48 kHz,
+and sends each watching display `MEDIA_SPECTRUM` (`0x20`) about 30 times a second — 40 log-spaced
+bands, 40 Hz to 16 kHz. The frontend draws them as pill bars or a line (`frontend_v2/items/media/MediaSpectrum.qml`).
+The monitor hears the radio and Spotify alike, since both play into the default output — the
+equalizer's chain when it runs. Load-bearing:
+- **Only while watched.** The display sends `on` when the view comes live and `off` when it leaves,
+  and again after a reconnect, since a watcher is forgotten with its connection. The server swallows
+  a write to a dead display, so the service drops watchers whose writer `is_closing()` itself (the
+  device scan's rule, `../media_service/CLAUDE.md`); after the last one the recording stops.
+- **The recording is passive** (`node.passive`), so it never keeps an idle output awake. With nothing
+  playing it receives nothing; after `QUIET_S` without sound the watchers get one flat frame and then
+  nothing until it returns, so the displays stop redrawing too.
+- **Levels follow the loudest band.** Each band's power is summed (the bands widen with frequency,
+  so pink noise comes out level — measured), and the dB values map a `RANGE_DB` window under a
+  ceiling that rises at once and falls `CEILING_FALL_DB` a second, never below `MIN_CEILING_DB` —
+  so a quiet recording or a low volume fills the height as a loud one does.
+  Tuned on Radio Rock and Radio Suomipop recordings: mean levels about 0.3–0.45, peaks near 0.7.
+  The bands below ~100 Hz are narrower than an FFT bin and read the power at their centre,
+  interpolated, so neighbours there still differ.
+- **`SpectrumAnalyser` is apart from the recording**, so it can be fed from a file — how the tuning
+  above was done. On WSL the radio plays through WSLg's PulseAudio, not PipeWire, so the monitor
+  hears only what `pw-play` sends it; on the Pi everything passes through PipeWire.
+- `pw-record` runs through `setpriv --pdeathsig TERM` like the equalizer's chain, and a recording
+  that dies is restarted after `RESTART_DELAY_S` while someone watches. A host without `pw-record`
+  logs one warning and the line stays flat.

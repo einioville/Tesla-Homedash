@@ -5,6 +5,7 @@ import struct
 from datetime import datetime, timezone
 
 from .audio_service.audio_service import AudioService
+from .audio_service.spectrum import AudioSpectrum
 from .auth_service.auth_service import AuthService
 from .charging_service.charging_loader import ChargingLoader
 from .config_service.config_service import ConfigService
@@ -793,6 +794,8 @@ async def main():
     # writes that do nothing.
     audio = AudioService(config=config)
     logger.debug("Audio service initialized")
+    # The Media view's spectrum: records only while a display watches.
+    spectrum = AudioSpectrum(server=server)
 
     display = DisplayService(server=server)
     logger.debug("Display service initialized")
@@ -981,6 +984,7 @@ async def main():
         server, mm, vehicle, trip_loader, charging_loader, config, config_service
     )
     server.register_handler(protocol.DISPLAY_SET_POWER, display.handle_set_power)
+    server.register_handler(protocol.MEDIA_SPECTRUM_WATCH, spectrum.handle_watch)
     server.register_handler(protocol.SPOTIFY_AUTH_GET_URL, spotify_auth.handle_get_url)
     server.register_handler(protocol.SPOTIFY_DEVICE_SCAN_START, spotify_devices.handle_scan_start)
     server.register_handler(protocol.SPOTIFY_DEVICE_SCAN_STOP, spotify_devices.handle_scan_stop)

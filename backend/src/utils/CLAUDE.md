@@ -66,6 +66,8 @@ with inbound messages capped at `MAX_PREAUTH_MSG_SIZE` (4 KB) — `../auth_servi
 | `0x1C` | MEDIA_SET_PROGRESS | F→B | `progress_ms(4B)` |
 | `0x1D` | MEDIA_STREAM_ARTISTS | B→F | `length(2B) + UTF-8` |
 | `0x1E` | MEDIA_STREAM_TYPE | B→F | `media_type(1B)`: 0x01=radio, 0x02=spotify |
+| `0x1F` | MEDIA_SPECTRUM_WATCH | F→B | `on(1B)` — 1 while the display shows the spectrum, 0 when it stops; sent again after a reconnect (`../audio_service/CLAUDE.md`) |
+| `0x20` | MEDIA_SPECTRUM | B→F | `count(1B) + count × level(1B, 0–255)`, low to high frequency, ~30 a second to each watching display only, one flat frame when the sound stops |
 | `0x30` | WEATHER_FORECAST | B→F | repeated `sub_id(1B) + value` |
 | `0x36` | WEATHER_VIEW | B→F | `status(1B, always OK) + len(4B) + JSON` — `{meta, now, hourly, daily, astro, warnings}`, the Weather view's document (`../weather_service/CLAUDE.md`); **broadcast** every 10 min and in the on-connect snapshot |
 | `0x60` | TESLA_SWITCH_CLIMATE | F→B | (empty) |
