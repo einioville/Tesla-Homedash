@@ -320,6 +320,12 @@ class Server:
     async def __safe_write(
         self, writer: asyncio.StreamWriter, packet: bytes
     ) -> None:
+        # A closed TLS writer raises AttributeError on write, not an OSError
+        # (asyncio's sslproto drops its protocol on the second close), so a
+        # service that writes to a display that has just gone would crash.
+        # Nothing awaits between this check and the write.
+        if writer.is_closing():
+            return
         try:
             writer.write(packet)
             await writer.drain()
