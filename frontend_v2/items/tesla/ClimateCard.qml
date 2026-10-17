@@ -12,24 +12,17 @@ Card {
     // Forwarded to the HVAC button, which animates only while the dashboard is
     // shown (DashboardView binds this to its isCurrent).
     property bool isCurrent: true
+    // The switch's wave runs over the dashboard (DashboardView's ClimateWave), which
+    // reads the button and its centre here and tells it how far the wave runs.
+    readonly property alias hvacButton: starter
+    readonly property point hvacButtonCenter: Qt.point(starter.x + starter.width / 2,
+                                                       starter.y + starter.height / 2)
+    property real waveOutTo: 0
 
     // The target range Vehicle.plus_temp / minus_temp enforce; they refuse a step
     // past it with a WARNING, so the arrows stop here instead of sending one.
     readonly property real minTarget: 15.0
     readonly property real maxTarget: 28.0
-
-    // Under the content, so the light passes beneath the readouts.
-    ClimateWave {
-        id: wave
-        anchors.fill: parent
-        origin: Qt.point(starter.x + starter.width / 2, starter.y + starter.height / 2)
-        buttonRadius: starter.buttonRadius
-        front: starter.waveFront
-        inbound: starter.waveInbound
-        shown: starter.waveShown
-        moving: starter.waveMoving
-        color: starter.waveColor
-    }
 
     GridLayout {
         id: grid
@@ -180,7 +173,7 @@ Card {
         y: grid.y + starterCell.y + (starterCell.height - height) / 2
         powerState: Tesla.hvacPower
         isCurrent: climate.isCurrent
-        waveExtent: wave.extent
+        waveOutTo: climate.waveOutTo
         onClicked: Tesla.switchClimate()
     }
 }

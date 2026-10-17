@@ -3,7 +3,8 @@ import frontend_v2
 
 // The dashboard: a 10×16 grid (10px margins, 10px gaps) holding the map, two
 // telemetry lists, the media card, the weather panel and the climate panel, over
-// a backdrop in the playing cover's colours (MediaBackdrop). Cell
+// a backdrop in the playing cover's colours (MediaBackdrop) that the climate
+// switch's wave runs across (ClimateWave). Cell
 // geometry is computed as the Widgets frontend's MainWindow QGridLayout does it,
 // so the six cards sit in the same positions on the fixed 1280×800 surface.
 Rectangle {
@@ -27,6 +28,7 @@ Rectangle {
     // are opaque, so the cover's own colour pools beside the player, in the weather
     // card, as if spilling from it, and the rest spreads over the cards on the right.
     MediaBackdrop {
+        id: backdrop
         anchors.fill: parent
         active: view.isCurrent
         glows: [
@@ -39,6 +41,14 @@ Rectangle {
             { tone: 0, radius: 460, home: Qt.point(1150, 560), reach: Qt.point(140, 120),
               periods: Qt.vector3d(47, 34, 29), phase: 4.4 }
         ]
+    }
+
+    ClimateWave {
+        id: climateWave
+        anchors.fill: parent
+        backdrop: backdrop
+        button: climate.hvacButton
+        origin: Qt.point(climate.x + climate.hvacButtonCenter.x, climate.y + climate.hvacButtonCenter.y)
     }
 
     TeslaMap {
@@ -81,9 +91,11 @@ Rectangle {
     }
 
     ClimateCard {
+        id: climate
         x: view.cellX(12); y: view.cellY(6)
         width: view.spanW(4); height: view.spanH(4)
         isCurrent: view.isCurrent
+        waveOutTo: climateWave.outTo
     }
 
     // Luna — a memorial overlay for our dog. Deliberately its OWN full-view layer

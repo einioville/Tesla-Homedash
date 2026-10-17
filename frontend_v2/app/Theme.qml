@@ -161,10 +161,19 @@ QtObject {
     readonly property color sliderFill: "#ffffff"
 
     // Climate glows / icon tints. The HVAC button's disc and glow per state, and
-    // the wave a switch sends between the button and the card's rim
-    // (items/tesla/ClimateStarter.qml): out in waveOut, back in waveIn, its light
-    // trailing off over hvacWaveTail px behind the front, and the button's and the
-    // rim's colour changes across hvacColorDuration.
+    // the wave a switch sends across the dashboard's background
+    // (items/tesla/ClimateStarter.qml, ClimateWave.qml): out past the farthest corner
+    // over hvacWaveOutDuration, and again from the button each time, until the car
+    // answers. The answer's colour comes in over hvacColorDuration, the water fades over
+    // hvacWaterFade and the background back to the cover's over hvacWavePaintFade.
+    // The pushes move simulated water (hvacWater*: a cell per hvacWaterCell px, pushed
+    // hvacWaterPush a step over a ring hvacWaterRingWidth px across that wanders up to
+    // hvacWaveWobble px out of round; each step keeps hvacWaterDamping of the water's
+    // speed). A height step of 1 between cells reads as a slope of hvacWaterSlopeGain,
+    // and a slope of 1 bends the backdrop seen through it by hvacWaveRefraction px. The
+    // backdrop's light behind the front fades into the wave's colour over hvacWaveTail
+    // px, pending yellow hvacWavePendingGain times as strong as the cover's (dim yellow
+    // reads as olive); red and green, as strong.
     readonly property color hvacDiscOff: "#ff5555"
     readonly property color hvacDiscPending: "#ffd42a"
     readonly property color hvacDiscOn: "#00ff00"
@@ -172,9 +181,18 @@ QtObject {
     readonly property color glowOn: "#00ff00"
     readonly property color glowPending: "#ffff00"
     readonly property int hvacColorDuration: 450
-    readonly property int hvacWaveOutDuration: 1300
-    readonly property int hvacWaveInDuration: 1200
-    readonly property int hvacWaveTail: 150
+    readonly property int hvacWaveOutDuration: 4500
+    readonly property real hvacWaveTail: 300
+    readonly property real hvacWaveRefraction: 24
+    readonly property real hvacWaveWobble: 16
+    readonly property real hvacWaterCell: 10
+    readonly property real hvacWaterPush: 0.1
+    readonly property real hvacWaterRingWidth: 40
+    readonly property real hvacWaterDamping: 0.985
+    readonly property real hvacWaterSlopeGain: 14
+    readonly property int hvacWaterFade: 2500
+    readonly property int hvacWavePaintFade: 2500
+    readonly property real hvacWavePendingGain: 1.6
     readonly property color glowMinus: "#0000ff"
     readonly property color glowPlus: "#ff0000"
     readonly property color seatHeat: "#ff0000"
