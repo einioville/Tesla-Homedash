@@ -436,17 +436,41 @@ Item {
         restoreMode: Binding.RestoreNone
     }
 
+    // What lies under the card — the dashboard's background with its moving light
+    // and the climate switch's water — for the rounded corners; null paints them
+    // Theme.dashboardBackground.
+    property Item background: null
+
+    // The background under the card, for the corners. A sixteenth of the size is
+    // enough for light with no edges, and cheap to redraw at each of the backdrop's
+    // steps; only the corner slivers ever show it.
+    ShaderEffectSource {
+        id: underCard
+        visible: false
+        width: root.width
+        height: root.height
+        sourceItem: root.roundedCorners ? root.background : null
+        sourceRect: {
+            const moved = root.x + root.y + root.width + root.height
+            const p = root.background ? root.mapToItem(root.background, 0, 0) : Qt.point(0, 0)
+            return Qt.rect(p.x, p.y, root.width, root.height)
+        }
+        textureSize: Qt.size(Math.max(1, Math.ceil(root.width / 16)),
+                             Math.max(1, Math.ceil(root.height / 16)))
+        smooth: true
+    }
+
     // Rounded corners without masking the live map. The Widgets frontend clipped
     // the map with a rounded-rect mask, but routing this constantly-repainting,
     // interactive Map through a layer/MultiEffect mask would force a full-surface
-    // FBO texture copy every frame. Instead we paint the surrounding background
-    // back over the four corners: an odd-even Shape fills everything EXCEPT a
-    // rounded interior, leaving only the corner slivers covered. This works
-    // because the map sits on a solid Theme.dashboardBackground, costs nothing
-    // per frame, and — having no input handlers — lets pan/pinch/wheel gestures
-    // fall straight through to the Map underneath. Gated on roundedCorners so a
-    // full-screen map view can drop the overlay entirely. The card's rim is drawn
-    // on top, as every other card's is over its fill.
+    // FBO texture copy every frame. Instead we paint what lies under the card back
+    // over the four corners: an odd-even Shape fills everything EXCEPT a rounded
+    // interior, leaving only the corner slivers covered, filled from `underCard`.
+    // A solid colour would show as dark squares on the moving backdrop. It costs
+    // nothing per map frame and — having no input handlers — lets
+    // pan/pinch/wheel gestures fall straight through to the Map underneath. Gated
+    // on roundedCorners so a full-screen map view can drop the overlay entirely.
+    // The card's rim is drawn on top, as every other card's is over its fill.
     Shape {
         anchors.fill: parent
         visible: root.roundedCorners
@@ -458,6 +482,7 @@ Item {
             strokeWidth: 0
             strokeColor: "transparent"
             fillColor: Theme.dashboardBackground
+            fillItem: root.background ? underCard : null
             PathRectangle { width: root.width; height: root.height; radius: 0 }
             PathRectangle { width: root.width; height: root.height; radius: Theme.cardRadius }
         }

@@ -24,37 +24,45 @@ Rectangle {
     function spanW(span) { return span * cellW + (span - 1) * gridSpacing }
     function spanH(span) { return span * cellH + (span - 1) * gridSpacing }
 
-    // The light lies where the cards let it through: the map and the media card
-    // are opaque, so the cover's own colour pools beside the player, in the weather
-    // card, as if spilling from it, and the rest spreads over the cards on the right.
-    MediaBackdrop {
-        id: backdrop
+    // Everything under the cards, as one item: the map paints its corners from it.
+    Rectangle {
+        id: background
         anchors.fill: parent
-        active: view.isCurrent
-        glows: [
-            { tone: 0, radius: 520, home: Qt.point(430, 640), reach: Qt.point(150, 110),
-              periods: Qt.vector3d(37, 29, 23), phase: 0.0 },
-            { tone: 1, radius: 560, home: Qt.point(1000, 200), reach: Qt.point(200, 120),
-              periods: Qt.vector3d(43, 31, 27), phase: 1.7 },
-            { tone: 2, radius: 480, home: Qt.point(780, 630), reach: Qt.point(220, 130),
-              periods: Qt.vector3d(53, 41, 33), phase: 3.1 },
-            { tone: 0, radius: 460, home: Qt.point(1150, 560), reach: Qt.point(140, 120),
-              periods: Qt.vector3d(47, 34, 29), phase: 4.4 }
-        ]
-    }
+        color: Theme.dashboardBackground
 
-    ClimateWave {
-        id: climateWave
-        anchors.fill: parent
-        backdrop: backdrop
-        button: climate.hvacButton
-        origin: Qt.point(climate.x + climate.hvacButtonCenter.x, climate.y + climate.hvacButtonCenter.y)
+        // The light lies where the cards let it through: the map and the media card
+        // are opaque, so the cover's own colour pools beside the player, in the weather
+        // card, as if spilling from it, and the rest spreads over the cards on the right.
+        MediaBackdrop {
+            id: backdrop
+            anchors.fill: parent
+            active: view.isCurrent
+            glows: [
+                { tone: 0, radius: 520, home: Qt.point(430, 640), reach: Qt.point(150, 110),
+                  periods: Qt.vector3d(37, 29, 23), phase: 0.0 },
+                { tone: 1, radius: 560, home: Qt.point(1000, 200), reach: Qt.point(200, 120),
+                  periods: Qt.vector3d(43, 31, 27), phase: 1.7 },
+                { tone: 2, radius: 480, home: Qt.point(780, 630), reach: Qt.point(220, 130),
+                  periods: Qt.vector3d(53, 41, 33), phase: 3.1 },
+                { tone: 0, radius: 460, home: Qt.point(1150, 560), reach: Qt.point(140, 120),
+                  periods: Qt.vector3d(47, 34, 29), phase: 4.4 }
+            ]
+        }
+
+        ClimateWave {
+            id: climateWave
+            anchors.fill: parent
+            backdrop: backdrop
+            button: climate.hvacButton
+            origin: Qt.point(climate.x + climate.hvacButtonCenter.x, climate.y + climate.hvacButtonCenter.y)
+        }
     }
 
     TeslaMap {
         x: view.cellX(0); y: view.cellY(0)
         width: view.spanW(8); height: view.spanH(6)
         isCurrent: view.isCurrent
+        background: background
     }
 
     // Driven today / this month + odometer.
