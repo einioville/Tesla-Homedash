@@ -6,28 +6,26 @@ import frontend_v2
 // HVAC power button, and the timeline of what a switch looks like. The disc and its
 // glow take the state's colour: red off, yellow while a switch is under way, green on.
 //
-// A switch sends a wave out from the button to the card's rim, its light trailing off
-// behind the front, and the rim stays lit in yellow while the car is asked. When the
-// answer comes, the rim takes the new state's colour as the wave sets off back in, and
-// the button turns from the moment the front reaches it until the tail has poured in —
-// green when climate came on, red when it went off or the switch failed. The card draws
-// the wave (ClimateWave) from `waveFront` and its neighbours, and tells this item how
-// far its farthest corner is (`waveExtent`).
+// A switch sends a wave out from the button across the dashboard's water (ClimateWave),
+// and the backdrop's light it has passed turns yellow. While the car is asked, the
+// button sends the next wave each time the last one's tail has passed the farthest
+// corner. When the answer comes, the background and
+// the button take the new state's colour together — green when climate came on, red
+// when it went off or the switch failed — and as the water calms, the background fades
+// back to the cover's colours. The dashboard draws the wave from `waveFront`,
+// `pushFront` and their neighbours, and tells this item how far it runs (`waveOutTo`).
 //
 // Load-bearing:
 //  - Pending is the BACKEND's state (HvacPowerStatePending, streamed to every
 //    display), so a switch made on any display waves on all of them. A press here
 //    shows it at once and holds it until the backend answers; the backend refuses
 //    some presses without a word (rate limit, a state it cannot switch from), so
-//    after awaitMs with no answer the wave goes back in.
+//    after awaitMs with no answer the switch ends as it began.
 //  - Every colour runs through the hues between — red, orange, yellow, green — as
 //    one number (a key: 0 off, 1 pending, 2 on) mapped to HSV. A ColorAnimation
 //    goes straight across RGB, through brown.
-//  - On the way back the button's colour is driven by the front's position, not by
-//    a timer, so it starts exactly when the wave touches the button whatever the
-//    easing or the card's size.
-//  - A wave runs to its end before the next starts, so an answer that arrives
-//    while the wave is still going out turns it back only once it has reached the rim.
+//  - The first wave runs to the edges before the answer shows, so the whole
+//    background is yellow when it turns.
 //  - Off the screen nothing animates: the view's last state is set as it is.
 Item {
     id: starter
@@ -36,20 +34,33 @@ Item {
     property int iconSize: 100
     // Gated by the owning view (DashboardView's isCurrent).
     property bool isCurrent: true
-    // From the button's centre to the card's farthest corner, in px.
-    property real waveExtent: 0
+    // Where the first wave runs out to, in px from the button's centre: past the
+    // view's farthest corner (ClimateWave).
+    property real waveOutTo: 0
     signal clicked()
 
     // How long a press waits for the backend to report the switch as pending.
     readonly property int awaitMs: 5000
 
-    // For the card's wave. The front is its leading edge, in px from the button's
-    // centre; inbound, it runs toward the button and its tail lies outside it.
+    // For the dashboard's wave, in px from the button's centre. The first wave's front
+    // paints the background; the water is pushed at pushFront, which runs with the
+    // first wave and then with each one sent after it while the car is asked.
     readonly property real waveFront: timeline.front
-    readonly property bool waveInbound: timeline.inbound
-    readonly property bool waveShown: timeline.waving || waveIn.running
-    readonly property bool waveMoving: waveOut.running || waveIn.running
-    readonly property color waveColor: hueAt(timeline.rimKey, Theme.glowOff, Theme.glowPending, Theme.glowOn)
+    readonly property real pushFront: waveOut.running ? timeline.front : timeline.nextFront
+    readonly property bool pushing: waveOut.running || waves.running
+    // Each wave's own draw of how it breaks up and of its rings (climatewater.frag's
+    // `seed`, `rings`, `lobes` and `shape`), so no two look alike.
+    readonly property vector4d waveSeed: timeline.seed
+    readonly property vector4d waveRings: timeline.rings
+    readonly property vector4d waveLobes: timeline.lobes
+    readonly property vector4d waveShape: timeline.shape
+    readonly property bool waveShown: timeline.waving
+    // How much of the painted colour and of the water show, 1 to 0 as they fade.
+    readonly property real paintLevel: timeline.paintLevel
+    readonly property real waterLevel: timeline.waterLevel
+    // The button's own colours, so the wave is the button's light spreading.
+    readonly property real waveKey: timeline.waveKey
+    readonly property color waveColor: hueAt(timeline.waveKey, Theme.hvacDiscOff, Theme.hvacDiscPending, Theme.hvacDiscOn)
 
     readonly property real buttonRadius: iconSize / 2
     readonly property bool switchable: powerState === "HvacPowerStateOn" || powerState === "HvacPowerStateOff"
@@ -102,34 +113,46 @@ Item {
     QtObject {
         id: timeline
         property real buttonKey: 0
-        property real rimKey: 0
+        property real waveKey: 0
         property real front: 0
-        property bool inbound: false
+        property real nextFront: 0
+        property vector4d seed: Qt.vector4d(0, 0, 0, 1)
+        property vector4d rings: Qt.vector4d(1, 0, 1, 1)
+        property vector4d lobes: Qt.vector4d(3, 5, 11, 7)
+        property vector4d shape: Qt.vector4d(1, 1, 0.4, 4)
+        property real paintLevel: 1
+        property real waterLevel: 1
         property bool waving: false
-        // The way back: from the button's colour when it set off to the answer's.
-        property real fromKey: 1
         property real answerKey: 0
         property bool ready: false
+    }
 
-        // The button turns while the wave pours in: from the front touching it
-        // until the end of the tail has.
-        onFrontChanged: {
-            if (!inbound || !waveIn.running)
-                return
-            var poured = Math.max(0, Math.min(1, (starter.buttonRadius - front) / Theme.hvacWaveTail))
-            buttonKey = fromKey + (answerKey - fromKey) * poured
-        }
+    // A wave's draw (climatewater.frag has what each number does), in ranges that
+    // keep every wave the same kind of wave. The last ring trails the front by less
+    // than the tail, so it too has passed the farthest corner when the next wave sets
+    // off.
+    function reseed() {
+        function between(low, high) { return low + (high - low) * Math.random() }
+        function pick(choices) { return choices[Math.floor(choices.length * Math.random())] }
+        timeline.seed = Qt.vector4d(between(0, 2 * Math.PI), between(0, 2 * Math.PI),
+                                    between(0, 2 * Math.PI), between(0.85, 1.15))
+        timeline.rings = Qt.vector4d(pick([1, 2, 3]), between(80, 110), between(0.8, 1.2), between(0.55, 0.8))
+        timeline.lobes = Qt.vector4d(pick([2, 3, 4]), pick([5, 6, 7]), pick([9, 11, 13]), pick([5, 6, 7, 8]))
+        timeline.shape = Qt.vector4d(between(0.6, 1.4), pick([-1, 1]) * between(0.6, 1.5),
+                                     between(0.25, 0.5), pick([3, 4]))
     }
 
     function snap() {
         waveOut.stop()
-        waveIn.stop()
+        waves.stop()
+        answer.stop()
         settle.stop()
         timeline.waving = starter.pending
-        timeline.inbound = false
         timeline.buttonKey = starter.pending ? 1 : starter.restKey
-        timeline.rimKey = timeline.buttonKey
-        timeline.front = starter.pending ? starter.waveExtent + Theme.hvacWaveTail : starter.buttonRadius
+        timeline.waveKey = timeline.buttonKey
+        timeline.front = starter.pending ? starter.waveOutTo : starter.buttonRadius
+        timeline.paintLevel = 1
+        timeline.waterLevel = 1
     }
 
     function sync() {
@@ -139,22 +162,25 @@ Item {
             snap()
             return
         }
-        if (waveOut.running || waveIn.running)
+        if (waveOut.running || answer.running)
             return
         if (starter.pending && !timeline.waving) {
             settle.stop()
             timeline.waving = true
-            timeline.inbound = false
-            timeline.rimKey = 1
+            timeline.waveKey = 1
+            timeline.paintLevel = 1
+            timeline.waterLevel = 1
             timeline.front = starter.buttonRadius
+            reseed()
             waveOut.restart()
-        } else if (!starter.pending && timeline.waving) {
-            timeline.waving = false
-            timeline.inbound = true
-            timeline.fromKey = timeline.buttonKey
+        } else if (starter.pending) {
+            if (!waves.running)
+                waves.restart()
+        } else if (timeline.waving) {
+            waves.stop()
             timeline.answerKey = starter.restKey
-            waveIn.restart()
-        } else if (!starter.pending && timeline.buttonKey !== starter.restKey
+            answer.restart()
+        } else if (timeline.buttonKey !== starter.restKey
                    && !(settle.running && settle.to === starter.restKey)) {
             // A change that did not come through a switch here or on another
             // display (climate started from the car's app): the button alone.
@@ -163,8 +189,9 @@ Item {
         }
     }
 
-    // Out: the button turns yellow as the wave leaves it; the front runs on until
-    // the end of its tail has passed the farthest corner.
+    // Out: the button turns yellow as the wave leaves it; the front runs on, at the
+    // water's own speed, until the end of its tail has passed the view's farthest
+    // corner.
     ParallelAnimation {
         id: waveOut
         NumberAnimation {
@@ -175,29 +202,51 @@ Item {
             PauseAnimation { duration: 120 }
             NumberAnimation {
                 target: timeline; property: "front"
-                from: starter.buttonRadius; to: starter.waveExtent + Theme.hvacWaveTail
-                duration: Theme.hvacWaveOutDuration; easing.type: Easing.OutQuad
+                from: starter.buttonRadius; to: starter.waveOutTo
+                duration: Theme.hvacWaveOutDuration
             }
         }
         onFinished: Qt.callLater(starter.sync)
     }
 
-    // Back: the rim takes the answer's colour as the wave sets off from the farthest
-    // corner, and runs on until its tail has poured into the button.
-    ParallelAnimation {
-        id: waveIn
+    // While the car is asked: the next wave, pushed out as the first was, each one
+    // setting off as the last one's tail passes the farthest corner.
+    SequentialAnimation {
+        id: waves
+        loops: Animation.Infinite
+        ScriptAction { script: starter.reseed() }
         NumberAnimation {
-            target: timeline; property: "rimKey"; to: timeline.answerKey
+            target: timeline; property: "nextFront"
+            from: starter.buttonRadius; to: starter.waveOutTo
+            duration: Theme.hvacWaveOutDuration
+        }
+    }
+
+    // The answer: the background and the button take its colour together, the water
+    // calms, and the background fades back to the cover's colours as it does.
+    ParallelAnimation {
+        id: answer
+        NumberAnimation {
+            target: timeline; property: "waveKey"; to: timeline.answerKey
             duration: Theme.hvacColorDuration; easing.type: Easing.InOutSine
         }
         NumberAnimation {
-            target: timeline; property: "front"
-            from: starter.waveExtent; to: starter.buttonRadius - Theme.hvacWaveTail
-            duration: Theme.hvacWaveInDuration; easing.type: Easing.InOutSine
+            target: timeline; property: "buttonKey"; to: timeline.answerKey
+            duration: Theme.hvacColorDuration; easing.type: Easing.InOutSine
+        }
+        NumberAnimation {
+            target: timeline; property: "waterLevel"; to: 0
+            duration: Theme.hvacWaterFade; easing.type: Easing.InOutSine
+        }
+        SequentialAnimation {
+            PauseAnimation { duration: Theme.hvacColorDuration }
+            NumberAnimation {
+                target: timeline; property: "paintLevel"; to: 0
+                duration: Theme.hvacWavePaintFade; easing.type: Easing.InOutSine
+            }
         }
         onFinished: {
-            timeline.buttonKey = timeline.answerKey
-            timeline.inbound = false
+            timeline.waving = false
             Qt.callLater(starter.sync)
         }
     }

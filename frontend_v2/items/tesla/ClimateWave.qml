@@ -1,95 +1,129 @@
 import QtQuick
-import QtQuick.Shapes
 import frontend_v2
 
-// The climate switch's wave over its card, driven by ClimateStarter: a band of light
-// whose front runs between the button and the card's edge with its light trailing off
-// behind it, and the rim lit — as the Spotify device dialog lights its — where the
-// wave has passed going out, and where it has not yet passed coming back. Lies under
-// the card's content and draws nothing while no switch is showing.
-Item {
+// The climate switch's wave over the whole dashboard, driven by the HVAC button
+// (ClimateStarter): water that the wave's front and the waves after it push, and the
+// backdrop's drifting light repainted in the wave's colour where the first wave has
+// passed, fading back to the cover's when the switch is over. Lies between the
+// backdrop and the cards, so it passes under them, and draws the backdrop itself while
+// it shows.
+//
+// The water is simulated (resources/shaders/climatewater.frag, a step a frame into a
+// texture that feeds back into itself), so its ripples, their crossings and their
+// reflections off the edges are the water's own; climatesurface.frag unpacks it and
+// climatewave.frag draws it. It runs only while a switch shows: a live recursive layer
+// redraws the window every frame (ShaderEffectSource docs).
+ShaderEffect {
     id: wave
 
-    // The button's centre, in this item's coordinates, and its radius.
+    // The backdrop the wave repaints; hidden while the wave draws it.
+    property Item backdrop
+    property ClimateStarter button
+    // The button's centre, in this item's coordinates.
     property point origin
-    property real buttonRadius: 50
-    // The leading edge, in px from the origin. Inbound, the wave runs toward the
-    // button and its tail lies outside the front; outbound, inside it.
-    property real front: 0
-    property bool inbound: false
-    property bool shown: false
-    property bool moving: false
-    property color color: "white"
 
-    // From the origin to the farthest corner; the starter runs the wave out past it.
-    readonly property real extent: Math.max(
-        Math.hypot(origin.x, origin.y),
-        Math.hypot(width - origin.x, origin.y),
-        Math.hypot(origin.x, height - origin.y),
-        Math.hypot(width - origin.x, height - origin.y))
+    // Where the first wave runs out to, in px from the button's centre: until the
+    // paint's tail has passed the farthest corner.
+    readonly property real outTo: farthest + tail
+    readonly property real farthest: Math.max(Math.hypot(origin.x, origin.y),
+                                              Math.hypot(width - origin.x, origin.y),
+                                              Math.hypot(origin.x, height - origin.y),
+                                              Math.hypot(width - origin.x, height - origin.y))
+
+    readonly property bool shown: button !== null && button.waveShown
+    readonly property size cells: Qt.size(Math.max(1, Math.round(width / Theme.hvacWaterCell)),
+                                          Math.max(1, Math.round(height / Theme.hvacWaterCell)))
+
+    // Uniforms of the shaders, by name.
+    readonly property size viewSize: Qt.size(width, height)
+    readonly property vector2d texel: Qt.vector2d(1 / cells.width, 1 / cells.height)
+    readonly property real buttonRadius: button ? button.buttonRadius : 0
+    readonly property real front: button ? button.waveFront : 0
     readonly property real tail: Theme.hvacWaveTail
-    // The front's own soft edge, ahead of it.
-    readonly property real lead: 14
-    readonly property real peak: 0.55
-    // The gradient's radius, beyond every stop it can have: a stop at position 1
-    // shares it with the pad, and Qt keeps only one colour there.
-    readonly property real span: extent + 2 * tail
+    property real clock: 0
+    readonly property real slopeGain: Theme.hvacWaterSlopeGain
+    readonly property real refraction: Theme.hvacWaveRefraction
+    readonly property real peak: 0.6
+    readonly property real waterShown: button ? button.waterLevel : 0
+    readonly property real paintShown: button ? button.paintLevel : 0
+    // Dim yellow reads as olive, so the pending yellow paints stronger than the
+    // cover's light; red and green read well at its strength.
+    readonly property real paintGain: button ? 1 + (Theme.hvacWavePendingGain - 1)
+                                               * Math.max(0, 1 - Math.abs(button.waveKey - 1)) : 1
+    readonly property color color: button ? button.waveColor : "white"
 
-    // A distance `behind` the front (negative: ahead of it), as a gradient position.
-    function at(behind) {
-        return Math.max(0, Math.min(1, (front + (inbound ? behind : -behind)) / span))
+    property var source: ShaderEffectSource {
+        sourceItem: wave.shown ? wave.backdrop : null
+        hideSource: true
     }
-    function tint(alpha) {
-        return Qt.rgba(color.r, color.g, color.b, alpha)
+    // Packed values, so read only at cell centres, unfiltered.
+    property var water: ShaderEffectSource {
+        sourceItem: step
+        hideSource: true
+        recursive: true
+        live: wave.shown
+        smooth: false
+        textureSize: wave.cells
+        wrapMode: ShaderEffectSource.ClampToEdge
+    }
+    property var surface: ShaderEffectSource {
+        sourceItem: surfaceStep
+        hideSource: true
+        live: wave.shown
+        textureSize: wave.cells
+        wrapMode: ShaderEffectSource.ClampToEdge
+    }
+
+    // Seconds while the water runs; the water redraws every frame then anyway, so
+    // this costs no frames of its own.
+    NumberAnimation on clock {
+        running: wave.shown
+        from: 0
+        to: 3600
+        duration: 3600 * 1000
+    }
+
+    // One step of the water, rendered only into `water` (cells.width × cells.height).
+    // Unblended, since its alpha is data.
+    ShaderEffect {
+        id: step
+        anchors.fill: parent
+        blending: false
+
+        readonly property var source: wave.water
+        readonly property vector2d texel: wave.texel
+        readonly property size viewSize: wave.viewSize
+        readonly property point origin: wave.origin
+        readonly property real front: wave.button ? wave.button.pushFront : 0
+        readonly property real push: wave.button && wave.button.pushing ? Theme.hvacWaterPush : 0
+        readonly property real ringWidth: Theme.hvacWaterRingWidth
+        readonly property real damping: Theme.hvacWaterDamping
+        readonly property real wobble: Theme.hvacWaveWobble
+        readonly property real buttonRadius: wave.buttonRadius
+        readonly property real clock: wave.clock
+        readonly property vector4d seed: wave.button ? wave.button.waveSeed : Qt.vector4d(0, 0, 0, 1)
+        readonly property vector4d rings: wave.button ? wave.button.waveRings : Qt.vector4d(1, 0, 1, 1)
+        readonly property vector4d lobes: wave.button ? wave.button.waveLobes : Qt.vector4d(3, 5, 11, 7)
+        readonly property vector4d shape: wave.button ? wave.button.waveShape : Qt.vector4d(1, 1, 0.4, 4)
+        // The first steps after the water starts clear what the texture held.
+        readonly property real reset: wave.clock < 0.05 ? 1 : 0
+
+        fragmentShader: "qrc:/resources/shaders/climatewater.frag.qsb"
+    }
+
+    // The water unpacked for the screen, rendered only into `surface`.
+    ShaderEffect {
+        id: surfaceStep
+        anchors.fill: parent
+        blending: false
+
+        readonly property var water: wave.water
+        readonly property vector2d texel: wave.texel
+        readonly property real clock: wave.clock
+
+        fragmentShader: "qrc:/resources/shaders/climatesurface.frag.qsb"
     }
 
     visible: shown
-
-    GlowBorder {
-        anchors.fill: parent
-        complete: true
-        glowColor: wave.color
-        glowThickness: 12
-        glowRadius: 64
-        revealOrigin: wave.origin
-        // Lit up behind the front over the tail's length going out; going back, dark
-        // behind it over the same length.
-        revealRadius: wave.inbound ? wave.front + wave.tail : wave.front
-        revealFeather: wave.tail
-    }
-
-    // The band: the card's shape filled with a ring of light, brightest at the front
-    // and fading along the tail (stops on a square fall-off, so it thins out gently).
-    // Fades in over the first pixels off the button, so it never pops into being.
-    Shape {
-        anchors.fill: parent
-        visible: wave.moving
-        opacity: wave.inbound ? 1 : Math.max(0, Math.min(1, (wave.front - wave.buttonRadius) / 20))
-        preferredRendererType: Shape.CurveRenderer
-
-        ShapePath {
-            strokeWidth: 0
-            strokeColor: "transparent"
-            // Fading to the band's own colour at zero alpha, not "transparent"
-            // (black), which would edge it with a dark rim.
-            fillGradient: RadialGradient {
-                centerX: wave.origin.x
-                centerY: wave.origin.y
-                centerRadius: wave.span
-                focalX: wave.origin.x
-                focalY: wave.origin.y
-                focalRadius: 0
-                GradientStop { position: wave.at(-wave.lead); color: wave.tint(0) }
-                GradientStop { position: wave.at(0); color: wave.tint(wave.peak) }
-                GradientStop { position: wave.at(0.3 * wave.tail); color: wave.tint(wave.peak * 0.49) }
-                GradientStop { position: wave.at(0.6 * wave.tail); color: wave.tint(wave.peak * 0.16) }
-                GradientStop { position: wave.at(wave.tail); color: wave.tint(0) }
-            }
-            PathRectangle {
-                width: wave.width
-                height: wave.height
-                radius: Theme.cardRadius
-            }
-        }
-    }
+    fragmentShader: "qrc:/resources/shaders/climatewave.frag.qsb"
 }

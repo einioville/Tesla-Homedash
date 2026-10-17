@@ -16,7 +16,7 @@ core/           # C++: ServerClient, protocol.hh, Logger, AppConfig, dotenv, the
   tesla/ media/ weather/ charging/ trip/ notification/   # per-domain data models
 items/          # QML components by domain (charging history luna media settings tesla trip util weather)
 views/          # one screen per view: Dashboard Map Weather Media History Trips Charging Settings
-resources/      # fonts, icons, styles, Luna
+resources/      # fonts, icons, styles, Luna, shaders (ShaderEffect .frag, compiled by qt_add_shaders)
 ```
 
 ## Where the detailed notes live
@@ -227,7 +227,8 @@ does not; the window is redrawn only when a tick changes the scene. Measured on 
 by a 50 ms `Timer`, 20 frames a second; by a `NumberAnimation`, 60. So motion that goes on for
 minutes steps on a `Timer`, and animations are kept to moments. The cover-coloured backdrop of the
 dashboard and the Media view (`items/media/MediaBackdrop.qml`) is the case: 22 frames a second
-while music plays (its 20 and the seek bar's tick), none once paused.
+while music plays (its 20 and the seek bar's tick), none once paused. The climate switch's water
+(`items/tesla/CLAUDE.md`) renders every frame while a switch shows, and only then.
 
 ## QML ↔ C++ traps
 

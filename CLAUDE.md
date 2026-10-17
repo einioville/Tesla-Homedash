@@ -120,7 +120,7 @@ frontend_v2/                      # ★ Qt Quick/QML frontend — the live targe
     util/                         # ★ screensaver, notifications, shared widgets and motion pieces
     charging/ history/ luna/ media/ trip/ weather/
   views/                          # one screen per view on the switcher
-  resources/                      # fonts, icons, styles, Luna
+  resources/                      # fonts, icons, styles, Luna, shaders (ShaderEffect, compiled by qt_add_shaders)
 
 frontend/                         # ★ frozen Qt Widgets frontend (file layout in its CLAUDE.md)
 scripts/                          # ★ build-frontend.{sh,ps1,cmd}; Windows-only new-/finish-session
@@ -480,10 +480,12 @@ from (left still, it picks the front view itself), which replaces the dock (its 
 the first step of the UI modernization: the home screen's cards on the Weather view's card
 (`items/util/Card.qml`), with the map and the media card taking its corners and the album art
 rounded to match (`RoundedImage` now honours its radius, smoothly); and the climate button's
-switch as a wave from the button to the card's rim and back, its colours moving through every hue
-between (`items/tesla/CLAUDE.md`); and a backdrop of the cover's colours (`Media.palette`) drifting
-behind the dashboard's cards and the Media view and resting while the music is paused
-(`items/media/MediaBackdrop.qml`).
+switch as simulated water rippling across the dashboard's background, a new wave each time the
+last has passed the farthest corner until the car answers, every wave drawn at random, the
+background yellow and then the answer's colour before it fades back to the cover's
+(`items/tesla/CLAUDE.md`; Qt Shader Tools a new build dependency); and a backdrop of the cover's
+colours (`Media.palette`) drifting behind the dashboard's cards and the Media view and resting
+while the music is paused (`items/media/MediaBackdrop.qml`).
 When you land a change that touches documented behaviour, update this line.
 
 ### 7.8 Keeping the code clean

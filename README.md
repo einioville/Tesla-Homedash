@@ -36,7 +36,7 @@ Tesla-Homedash is a desktop dashboard that brings live vehicle telemetry, music,
 - [teslemetry-stream](https://pypi.org/project/teslemetry-stream/) — Teslemetry WebSocket client.
 
 ### C++
-- [Qt 6](https://www.qt.io/) — the frontend is a Qt 6 Quick (QML) application, using the `Quick`, `QuickControls2`, `Network`, `Concurrent`, `Svg`, `Location`, `Positioning`, `Graphs`, `Core5Compat`, `LabsFolderListModel` and `VirtualKeyboard` modules.
+- [Qt 6](https://www.qt.io/) — the frontend is a Qt 6 Quick (QML) application, using the `Quick`, `QuickControls2`, `Network`, `Concurrent`, `Svg`, `Location`, `Positioning`, `Graphs`, `Core5Compat`, `LabsFolderListModel` and `VirtualKeyboard` modules, and Qt Shader Tools to build its shaders.
 - [CMake](https://cmake.org/) 3.16 or newer — the frontend's build system.
 - A C++20-capable compiler (MSVC 2019 16.10+, GCC 10+, or Clang 12+).
 
@@ -87,7 +87,7 @@ In the installer's **Additional Libraries** step, make sure the following module
 
 The other Qt modules the frontend links against — `Core`, `Gui`, `Network`, `Quick`, `QuickControls2`, `Svg`, `Concurrent` and `LabsFolderListModel` — are part of the default Qt 6 install and don't need to be enabled separately.
 
-All five of the modules above are `REQUIRED` in `frontend_v2/CMakeLists.txt`, so leaving one unchecked makes `cmake` fail at configure time rather than at build time.
+All five of the modules above are `REQUIRED` in `frontend_v2/CMakeLists.txt`, so leaving one unchecked makes `cmake` fail at configure time rather than at build time. So is **Qt Shader Tools**, which compiles the climate animation's shaders; it needs no box of its own, because the installer selects it with Qt Graphs.
 
 Take note of the install path the installer reports when it finishes (for example `~/Qt/6.8.0/gcc_arm64/` on the Pi). You'll pass it to CMake when building the frontend later.
 

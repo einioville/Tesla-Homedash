@@ -10,7 +10,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # meta-object symbols. CMP0100 (CMake 3.18+) opts .hh/.h++ into AUTOMOC.
 cmake_policy(SET CMP0100 NEW)
 
-find_package(Qt6 REQUIRED COMPONENTS Quick Network Concurrent Svg Location Positioning QuickControls2 Core5Compat Graphs LabsFolderListModel VirtualKeyboard)
+find_package(Qt6 REQUIRED COMPONENTS Quick Network Concurrent Svg Location Positioning QuickControls2 Core5Compat Graphs LabsFolderListModel VirtualKeyboard ShaderTools)
 
 qt_standard_project_setup(REQUIRES 6.11)
 
@@ -336,6 +336,17 @@ qt_add_resources(appfrontend_v2 "app_resources"
         resources/Luna/walking_5.png
         config/notifications.json
         config/settings.json
+)
+
+# ShaderEffect shaders, compiled to .qsb at build time and served at
+# qrc:/resources/shaders/<file>.qsb. Qt Shader Tools needs no box of its own in
+# the Qt installer: it comes with Qt Graphs (Graphs → Quick 3D → Shader Tools).
+qt_add_shaders(appfrontend_v2 "shaders"
+    PREFIX "/"
+    FILES
+        resources/shaders/climatesurface.frag
+        resources/shaders/climatewater.frag
+        resources/shaders/climatewave.frag
 )
 
 # Developer convenience: regenerate the Tesla data layer from the registry.

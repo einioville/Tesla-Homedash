@@ -1,14 +1,45 @@
 # `items/tesla/` — Tesla cards and the map
 
-## The HVAC button's switch wave — `ClimateStarter.qml`
+## The HVAC button's switch wave — `ClimateStarter.qml`, `ClimateWave.qml`
 
-A switch sends a wave from the button out to the climate card's rim, which stays lit yellow while
-the car is asked, then takes the answer's colour and runs back in to the button. Three files:
-`ClimateStarter.qml` holds the timeline and the button (its header lists what is load-bearing —
-pending is the backend's state, so every display waves; a press the backend silently refuses
-times out; colours move through hue, not RGB), `ClimateWave.qml` draws the band and the lit rim
-over the card, and the rim is `items/util/GlowBorder.qml` (the Spotify device dialog's glow)
-revealed by a growing circle. Timings and the disc colours are `Theme` tokens (`hvac*`).
+A switch sends a wave of water out from the button across the dashboard's background, under the
+cards, and the cover-coloured backdrop it passes turns yellow. While the car is asked, the button
+sends the next wave each time the last one's tail has passed the view's farthest corner. On the
+answer the background and the button take its colour together (green on, red off or failed), the
+water calms and the background fades back to the cover's colours. `ClimateStarter.qml` holds the
+timeline and the button (its header lists what is load-bearing — pending is the backend's state,
+so every display waves; a press the backend silently refuses times out; colours move through hue,
+not RGB). `ClimateWave.qml` (in `DashboardView`, between `MediaBackdrop` and the cards) runs the
+water and draws it with the backdrop. Timings, colours and the water's constants are `Theme`
+tokens (`hvac*`).
+
+The water is simulated, as `jquery.ripples` does it: `resources/shaders/climatewater.frag` steps
+the wave equation once a frame on a grid of `hvacWaterCell` px cells, in a layer that feeds back
+into itself, and the wave fronts push it; `climatesurface.frag` unpacks it and `climatewave.frag`
+draws it — crests glowing in the wave's colour, glints, shade, the backdrop bent through it, the
+yellow paint. Load-bearing:
+- **One step a frame, so the water's own speed is in px per frame**: 0.63 cells a step (the
+  step's pull of 1.6; 2 is the scheme's stability limit), ≈ 380 px/s at 60 fps with 10 px cells.
+  The fronts run at about that speed. A push much faster than the water outruns its own crest and
+  raises none — the reason the waves run at an even speed; a display that renders slower slows
+  the water but not the fronts, and the crests weaken.
+- **The texture is 8-bit, with height and speed packed as 16 bits over two channels each.** Qt
+  gives a layer a float format only on a GL 3+ context (`QRhiGles2`: `caps.floatFormats`), and the
+  dev box's offscreen and WSLg contexts are older; asked for `RGBA16F` there, the layer warns
+  (`unsupported texture format 8`) and falls back to 8-bit, where the water cannot go below zero.
+  The packed texture is read unfiltered at cell centres; the surface pass turns it into plain
+  values a filtered texture can blend.
+- **A layer redraws only when its own item changes**, not when a texture it reads does, so the
+  surface and screen passes take the running `clock` as a uniform they never read.
+- **A live recursive layer renders the window every frame** (ShaderEffectSource docs), so the
+  water runs only while a switch shows, from the press until the fade after the answer.
+- **The push moves the height, not the speed**: an up-and-down push on the speed integrates to a
+  raised surface for good. The ring's outer side is the longer, so the push is not quite level and
+  the height is drawn back toward level each step.
+- **Every wave draws its own look** (`ClimateStarter.reseed`: a turn of the pattern, its phases,
+  lobe counts, wobble, breakup, one to three rings, their spacing, width and falloff, the push).
+  The ranges keep the last ring within the tail, so it too has passed the farthest corner when the
+  next wave sets off.
 
 ## Map tuning and follow modes — `TeslaMap.qml`
 
