@@ -357,7 +357,7 @@
                             "key": "mediaSpectrumStyle",
                             "type": "enum",
                             "label": "Tyyli",
-                            "help": "Musiikkinäkymän alareunassa soivan musiikin taajuudet.",
+                            "help": "Soivan musiikin taajuudet musiikkinäkymän alareunassa ja taajuuskorjaimen kuvaajassa.",
                             "options": [
                                 {"value": "bars", "label": "Palkit"},
                                 {"value": "line", "label": "Viiva"}

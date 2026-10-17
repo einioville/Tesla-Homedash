@@ -41,7 +41,7 @@ inline constexpr quint8 MEDIA_IS_PLAYING = 0x1B;
 inline constexpr quint8 MEDIA_SET_PROGRESS = 0x1C;
 inline constexpr quint8 MEDIA_STREAM_ARTISTS = 0x1D;
 inline constexpr quint8 MEDIA_STREAM_TYPE = 0x1E;
-// The Media view's spectrum: a display that shows it says so (WATCH, on(1B)) and
+// The spectrum of what is playing: a display that shows it says so (WATCH, on(1B)) and
 // gets count(1B) + count*level(1B) frames, low to high frequency.
 inline constexpr quint8 MEDIA_SPECTRUM_WATCH = 0x1F;
 inline constexpr quint8 MEDIA_SPECTRUM = 0x20;

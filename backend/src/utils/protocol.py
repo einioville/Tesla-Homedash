@@ -25,7 +25,7 @@ MEDIA_IS_PLAYING = 0x1B
 MEDIA_SET_PROGRESS = 0x1C
 MEDIA_STREAM_ARTISTS = 0x1D
 MEDIA_STREAM_TYPE = 0x1E
-# The Media view's spectrum (audio_service/spectrum.py). A display that shows it
+# The spectrum of what is playing (audio_service/spectrum.py). A display that shows it
 # says so, and only displays that do get the frames — to each, not a broadcast.
 MEDIA_SPECTRUM_WATCH = 0x1F  # F->B: on(1B) — 1 showing, 0 not; sent again after a reconnect
 MEDIA_SPECTRUM = 0x20        # B->F: count(1B) + count*level(1B, 0-255), low to high frequency

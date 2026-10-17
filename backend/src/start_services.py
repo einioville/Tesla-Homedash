@@ -788,14 +788,14 @@ async def main():
     mm.set_spotify_auth_listener(spotify_auth.notify_auth_state_changed)
     logger.debug("Spotify auth service initialized")
 
+    # The spectrum of what is playing: records only while a display watches.
+    spectrum = AudioSpectrum(server=server)
     # Host audio (system volume + output device). Always constructed: detection is
     # at most three cheap subprocess probes and needs no credentials, and a host with no
     # controllable audio stack must be able to SAY so rather than silently accept
     # writes that do nothing.
-    audio = AudioService(config=config)
+    audio = AudioService(config=config, spectrum=spectrum)
     logger.debug("Audio service initialized")
-    # The Media view's spectrum: records only while a display watches.
-    spectrum = AudioSpectrum(server=server)
 
     display = DisplayService(server=server)
     logger.debug("Display service initialized")

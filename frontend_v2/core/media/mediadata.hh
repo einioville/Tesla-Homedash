@@ -49,12 +49,11 @@ class MediaData : public QObject {
     // up to two more that each cover a fair share of the art. Empty until the
     // first art is decoded.
     Q_PROPERTY(QVariantList palette READ palette NOTIFY paletteChanged)
-    // The Media view's spectrum: band levels 0-1, low to high frequency, new about
-    // 30 times a second while spectrumWatched and something plays (a flat frame
-    // when it stops). The backend records only while some display watches.
+    // The spectrum of what is playing: band levels 0-1, low to high frequency, new
+    // about 30 times a second while spectrumWatched and something plays (a flat
+    // frame when it stops). The backend records only while some display watches.
     Q_PROPERTY(QVariantList spectrum READ spectrum NOTIFY spectrumChanged)
-    Q_PROPERTY(bool spectrumWatched READ spectrumWatched WRITE setSpectrumWatched
-                   NOTIFY spectrumWatchedChanged)
+    Q_PROPERTY(bool spectrumWatched READ spectrumWatched NOTIFY spectrumWatchedChanged)
 
 public:
     MediaData(ServerClient *server, std::shared_ptr<MediaImageCache> cache,
@@ -70,8 +69,12 @@ public:
     QColor dominantColor() const { return m_dominantColor; }
     QVariantList palette() const { return m_palette; }
     QVariantList spectrum() const { return m_spectrum; }
-    bool spectrumWatched() const { return m_spectrumWatched; }
-    void setSpectrumWatched(bool on);
+    bool spectrumWatched() const { return m_spectrumWatchers > 0; }
+
+    // Counted like SystemHistory's retain(): the Media view and the equalizer
+    // each draw one, and a view coming live overlaps one going.
+    Q_INVOKABLE void retainSpectrum();
+    Q_INVOKABLE void releaseSpectrum();
 
     // Transport controls (frontend -> backend). isPlaying follows the server's
     // echo, not the button press, so pausePlay() does not flip it locally.
@@ -129,7 +132,7 @@ private:
     QColor m_dominantColor = QColor(0x1E, 0x3A, 0x8A);
     QVariantList m_palette;
     QVariantList m_spectrum;
-    bool m_spectrumWatched = false;
+    int m_spectrumWatchers = 0;
 };
 
 #endif  // FRONTEND_V2_MEDIADATA_HH

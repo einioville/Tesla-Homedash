@@ -20,8 +20,15 @@ import frontend_v2
 //
 // Only a press ON a knob grabs: anywhere else in the plot the press goes to the
 // page, so the card never becomes a dead zone the page cannot be scrolled from.
+//
+// Behind the curve, while something plays, the spectrum of what reaches the
+// speakers (MediaSpectrum, recorded after the filters) on the plot's own
+// frequency axis — so a knob moved shows its effect on the sound under it.
 Item {
     id: panel
+
+    // The Settings view's isCurrent: the spectrum is recorded only while it is.
+    property bool live: false
 
     // --- Schema -------------------------------------------------------------
     // This card's subsection, found by id: a status widget is handed nothing.
@@ -167,6 +174,30 @@ Item {
     readonly property real columnWidth: count > 0 ? (plot.width - gutter) / count : 0
 
     function xOf(i) { return gutter + columnWidth * (i + 0.5) }
+
+    // Log frequency fitted to the columns by least squares: the bands are about
+    // two octaves apart but the top one less, and the fit puts every band within
+    // a tenth of a column of its knob. Null for a schema without the bands' "hz".
+    readonly property var hzFit: {
+        if (count < 2 || bands[0].hz === undefined)
+            return null
+        let meanIndex = 0
+        let meanLog = 0
+        for (let i = 0; i < count; ++i) {
+            meanIndex += i / count
+            meanLog += Math.log(bands[i].hz) / count
+        }
+        let covariance = 0
+        let variance = 0
+        for (let i = 0; i < count; ++i) {
+            covariance += (i - meanIndex) * (Math.log(bands[i].hz) - meanLog)
+            variance += (i - meanIndex) * (i - meanIndex)
+        }
+        return { meanIndex: meanIndex, meanLog: meanLog, slope: covariance / variance }
+    }
+    function xOfHz(hz) {
+        return xOf(hzFit.meanIndex + (Math.log(hz) - hzFit.meanLog) / hzFit.slope)
+    }
     function yOf(gain) { return plotTop + (maxGain - gain) / (maxGain - minGain) * (plotBottom - plotTop) }
     function gainOf(y) { return maxGain - (y - plotTop) / (plotBottom - plotTop) * (maxGain - minGain) }
     function bandAt(x) {
@@ -313,6 +344,17 @@ Item {
             height: 200
             enabled: panel.available
             opacity: panel.available ? 1 : Theme.settingIrrelevantOpacity
+
+            // Under the grid, spanning the backend's bands where they fall on the
+            // plot's axis. Clipped, because the line closes its fill outside itself.
+            MediaSpectrum {
+                visible: panel.hzFit !== null
+                active: panel.live
+                x: visible ? panel.xOfHz(lowHz) : 0
+                width: visible ? panel.xOfHz(highHz) - x : 0
+                height: plot.height
+                clip: true
+            }
 
             // Grid: the range's ends, its halves and 0 dB, which is brighter —
             // the line the curve rests on when nothing is changed.

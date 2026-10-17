@@ -2,14 +2,16 @@ import QtQuick
 import QtQuick.Shapes
 import frontend_v2
 
-// The Media view's spectrum: what is playing, along the bottom edge in the
-// cover's colour — a row of pills that grow from dots (`bars`, the default), or
-// one smooth line with a soft fill under it (`line`), Theme.mediaSpectrumStyle.
-// The levels are the backend's (Media.spectrum, from a recording of the host's
-// output — backend/src/audio_service/spectrum.py); here each band rises most of
-// the way to a new level at once and falls back at most spectrumFall a second, so
-// the bass swells and settles instead of flickering. Watched only while live,
-// which is the only time the backend records.
+// The spectrum of what is playing, in the cover's colour — a row of pills that
+// grow from dots (`bars`, the default), or one smooth line with a soft fill under
+// it (`line`), Theme.mediaSpectrumStyle. Along the Media view's bottom edge, and
+// behind the equalizer's curve in the Options view (EqualizerPanel), where it
+// shows what the curve does to the sound. The levels are the backend's
+// (Media.spectrum, from a recording of the host's output —
+// backend/src/audio_service/spectrum.py); here each band rises most of the way to
+// a new level at once and falls back at most spectrumFall a second, so the bass
+// swells and settles instead of flickering. Watched only while live, which is the
+// only time the backend records.
 //
 // Load-bearing:
 //  - Redrawn per frame the backend sends (about 30 a second), never by an
@@ -17,7 +19,8 @@ import frontend_v2
 //    *Motion that keeps running*). Only the fade on play and pause animates.
 //  - The line is one SVG path through the levels (Catmull-Rom, as cubics) for
 //    the fill, the line and its glow. Its closing edge runs outside the item, so the
-//    stroke draws the curve alone.
+//    stroke draws the curve alone — where the item does not reach the window's
+//    edges, clip it.
 //  - The Shape is not asynchronous. Measured: fed 30 paths a second, an
 //    asynchronous one kept the window drawing every frame (59 fps, against 34
 //    with the backdrop's steps).
@@ -27,6 +30,11 @@ Item {
     // The owning view's isCurrent.
     property bool active: true
     readonly property bool live: active && visible && !Display.off
+
+    // The span of the backend's bands (LOW_HZ, HIGH_HZ in spectrum.py), equal
+    // steps of log frequency across the width — for placing it on a frequency axis.
+    readonly property real lowHz: 40
+    readonly property real highHz: 16000
 
     property string style: Theme.mediaSpectrumStyle
     // The levels as they move (0-1), as drawn (averaged with their neighbours),
@@ -51,14 +59,29 @@ Item {
     opacity: Media.isPlaying ? 1 : 0
     Behavior on opacity { NumberAnimation { duration: 600; easing.type: Easing.InOutSine } }
 
-    Binding {
-        target: Media
-        property: "spectrumWatched"
-        value: spectrum.live
+    property bool retained: false
+    function syncWatch() {
+        if (live === retained)
+            return
+        retained = live
+        if (retained) {
+            Media.retainSpectrum()
+        } else {
+            Media.releaseSpectrum()
+            step([])
+        }
+    }
+    onLiveChanged: syncWatch()
+    Component.onCompleted: syncWatch()
+    Component.onDestruction: {
+        if (retained)
+            Media.releaseSpectrum()
     }
 
+    // Only while live: the frames another instance retained are not this one's.
     Connections {
         target: Media
+        enabled: spectrum.live
         function onSpectrumChanged() { spectrum.step(Media.spectrum) }
     }
 

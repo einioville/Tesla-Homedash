@@ -52,7 +52,7 @@ MediaData::MediaData(ServerClient *server, std::shared_ptr<MediaImageCache> cach
     connect(server, &ServerClient::packetReceived, this, &MediaData::onPacket);
     // The backend forgets a watcher with its connection.
     connect(server, &ServerClient::connectedChanged, this, [this]() {
-        if (m_server->connected() && m_spectrumWatched) {
+        if (m_server->connected() && spectrumWatched()) {
             sendSpectrumWatch();
         }
     });
@@ -99,7 +99,7 @@ void MediaData::onPacket(quint8 type, const QByteArray &payload) {
             break;
         case protocol::MEDIA_SPECTRUM: {
             const int count = payload.isEmpty() ? 0 : static_cast<quint8>(payload.at(0));
-            if (!m_spectrumWatched || payload.size() < 1 + count) {
+            if (!spectrumWatched() || payload.size() < 1 + count) {
                 break;
             }
             QVariantList levels;
@@ -261,23 +261,34 @@ void MediaData::setSpectrum(const QVariantList &value) {
     emit spectrumChanged();
 }
 
-void MediaData::setSpectrumWatched(bool on) {
-    if (m_spectrumWatched == on) {
+void MediaData::retainSpectrum() {
+    if (++m_spectrumWatchers > 1) {
         return;
     }
-    m_spectrumWatched = on;
     emit spectrumWatchedChanged();
     if (m_server->connected()) {
         sendSpectrumWatch();
     }
-    if (!on) {
-        setSpectrum({});
+}
+
+void MediaData::releaseSpectrum() {
+    if (m_spectrumWatchers == 0) {
+        logger.warning(QStringLiteral("releaseSpectrum() without a matching retainSpectrum()"));
+        return;
     }
+    if (--m_spectrumWatchers > 0) {
+        return;
+    }
+    emit spectrumWatchedChanged();
+    if (m_server->connected()) {
+        sendSpectrumWatch();
+    }
+    setSpectrum({});
 }
 
 void MediaData::sendSpectrumWatch() {
     m_server->sendPacket(protocol::frame(protocol::MEDIA_SPECTRUM_WATCH,
-                                         QByteArray(1, m_spectrumWatched ? 1 : 0)));
+                                         QByteArray(1, spectrumWatched() ? 1 : 0)));
 }
 
 void MediaData::computeCoverColors(DecodedCover &cover) {

@@ -1,11 +1,12 @@
 '''
-The Media view's spectrum: what the host is playing, as the level of BANDS
-log-spaced frequency bands, FRAME_HZ times a second, to the displays watching
-(MEDIA_SPECTRUM_WATCH / MEDIA_SPECTRUM).
+The spectrum of what the host is playing — the Media view's, and the one behind
+the Options view's equalizer — as the level of BANDS log-spaced frequency bands,
+FRAME_HZ times a second, to the displays watching (MEDIA_SPECTRUM_WATCH /
+MEDIA_SPECTRUM).
 
-The sound is recorded from the default output's monitor with pw-record, so it
-is whatever reaches the speakers — the radio and Spotify alike. The recording
-runs only while some display watches.
+The sound is recorded with pw-record as it reaches the speakers, the radio and
+Spotify alike: from the equalizer chain's output while it runs, else from the
+default output's monitor. The recording runs only while some display watches.
 '''
 import asyncio
 import logging
@@ -118,7 +119,7 @@ def spectrum_frame(levels: np.ndarray) -> bytes:
 
 class AudioSpectrum:
     '''
-    Serves MEDIA_SPECTRUM_WATCH: records the default output's monitor while at
+    Serves MEDIA_SPECTRUM_WATCH: records what reaches the speakers while at
     least one display watches and sends each one MEDIA_SPECTRUM frames.
     Arguments:
         server (Server): Delivers the frames to the watchers.
@@ -130,6 +131,23 @@ class AudioSpectrum:
         self.__task: asyncio.Task | None = None
         self.__analyser = SpectrumAnalyser()
         self.__missing_logged = False
+        # The node whose output is recorded; None for the default output's monitor.
+        # Counted rather than compared: a chain that stops and starts again
+        # between two looks is the same name on a new node.
+        self.__source: str | None = None
+        self.__moves = 0
+
+    def follow(self, node: str | None) -> None:
+        '''
+        Records from another node: the equalizer chain's output while it runs —
+        its sink's monitor hears the sound before the filters — and the default
+        output's monitor otherwise.  A running recording starts over on the new
+        node within QUIET_S.  Called whenever the chain starts or stops.
+        Arguments:
+            node (str | None): node.name of an output stream, or None.
+        '''
+        self.__source = node
+        self.__moves += 1
 
     async def handle_watch(self, payload: bytes, writer) -> None:
         '''
@@ -168,20 +186,30 @@ class AudioSpectrum:
             self.__prune()
             if not self.__watchers:
                 return
-            await self.__record()
+            if await self.__record():
+                continue
             self.__prune()
             if not self.__watchers:
                 return
             await asyncio.sleep(RESTART_DELAY_S)
 
-    async def __record(self) -> None:
-        '''One pw-record process, read until it ends or nobody watches.'''
+    async def __record(self) -> bool:
+        '''
+        One pw-record process, read until it ends, nobody watches or the source
+        changes.  Returns whether it stopped for a new source, which is recorded
+        at once rather than after RESTART_DELAY_S.
+        '''
+        source, moves = self.__source, self.__moves
         # Passive: the recording never keeps an idle output awake.  Mono, so
         # PipeWire mixes the channels down.
-        argv = ["pw-record", "-P",
-                "{ stream.capture.sink = true node.passive = true "
-                "node.name = tesla_homedash_spectrum }",
-                "--format", "f32", "--rate", str(RATE), "--channels", "1",
+        if source is None:
+            props = "stream.capture.sink = true node.passive = true"
+            target = []
+        else:
+            props = "node.passive = true"
+            target = ["--target", source]
+        argv = ["pw-record", "-P", f"{{ {props} node.name = tesla_homedash_spectrum }}",
+                *target, "--format", "f32", "--rate", str(RATE), "--channels", "1",
                 "--latency", f"{1000 // FRAME_HZ}ms", "-"]
         # As the equalizer's chain: never outlive the backend.
         if shutil.which("setpriv"):
@@ -195,14 +223,18 @@ class AudioSpectrum:
             )
         except OSError as e:
             logger.warning("Could not start the spectrum recording: %s", e)
-            return
-        logger.info("Spectrum recording started")
+            return False
+        logger.info("Spectrum recording started (%s)", source or "the default output")
         self.__analyser.reset()
         quiet = True
+        moved = False
         try:
             while True:
                 self.__prune()
                 if not self.__watchers:
+                    break
+                if self.__moves != moves:
+                    moved = True
                     break
                 try:
                     data = await asyncio.wait_for(
@@ -229,6 +261,7 @@ class AudioSpectrum:
                     process.kill()
                     await process.wait()
             logger.info("Spectrum recording stopped")
+        return moved
 
     async def __send(self, packet: bytes) -> None:
         '''

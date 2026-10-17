@@ -362,6 +362,7 @@ Rectangle {
 
             groupData: view.currentGroup
             rowFeedback: view.rowFeedback
+            live: view.isCurrent
         }
     }
 

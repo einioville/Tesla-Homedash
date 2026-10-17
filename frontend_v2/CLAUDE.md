@@ -227,9 +227,10 @@ does not; the window is redrawn only when a tick changes the scene. Measured on 
 by a 50 ms `Timer`, 20 frames a second; by a `NumberAnimation`, 60. So motion that goes on for
 minutes steps on a `Timer`, and animations are kept to moments. The cover-coloured backdrop of the
 dashboard and the Media view (`items/media/MediaBackdrop.qml`) is the case: 22 frames a second
-while music plays (its 20 and the seek bar's tick), none once paused. The Media view's spectrum
-(`items/media/MediaSpectrum.qml`, bars or line) redraws per frame the backend sends, about 30 a
-second: 34 with the backdrop on the dev box (measured with the line). The climate switch's water
+while music plays (its 20 and the seek bar's tick), none once paused. The spectrum
+(`items/media/MediaSpectrum.qml`, bars or line, in the Media view and behind the equalizer) redraws
+per frame the backend sends, about 30 a second: 34 with the backdrop on the dev box (measured with
+the line). The climate switch's water
 (`items/tesla/CLAUDE.md`) renders every frame while a switch shows, and only then.
 
 ## QML ↔ C++ traps

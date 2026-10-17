@@ -65,7 +65,7 @@ Load-bearing:
   section. `Settings` applies the list after the merge: named ids first, in that order, everything
   unnamed after them in its natural order (so a subsection added later still appears). Media uses
   it to put the backend's *Ääni* card above the local *Spotify* card and the backend's *Radio*, with
-  the local *Spektri* card (the Media view's spectrum style) last.
+  the local *Spektri* card (the spectrum's style, in the Media view and the equalizer) last.
 - **A group may name a `view`**, a screen `SettingsPane` renders in place of the card stack, built
   by a `Loader` only while that section is selected (so whatever it polls stops when the user moves
   on) and resolved in the pane's view table. `Settings::rebuildGroups` keeps such a group although it
@@ -443,6 +443,16 @@ slider row under it. Load-bearing:
 - **The status row keeps its height** whether or not *Nollaa* shows, so the first band moved off
   flat does not push the bass row down under the finger. *Nollaa* writes each non-zero value once
   and is not armed — like the graphs' *Palauta*, it only puts a view back.
+- **Behind the curve, the spectrum of what is playing** — the Media view's `MediaSpectrum`, as the
+  plot's bottom layer. It is recorded **after the filters** (the backend follows the chain's output,
+  `backend/src/audio_service/CLAUDE.md`), so a knob moved shows its effect on the sound under it.
+  It sits on the plot's frequency axis: log frequency is fitted to the columns by least squares
+  from each band's `hz` (in the subsection's `bands`), which puts every band within a tenth of a
+  column of its knob — the bands are two octaves apart but the top one less, so no single scale
+  hits all five. It is clipped, because the line style closes its fill outside itself. It records
+  only while the Settings view is current (`SettingsPane.live`, the view's `isCurrent`) and this
+  card is built; `Media` counts its watchers (`retainSpectrum()` / `releaseSpectrum()`), since the
+  Media view's instance is going as this one comes.
 
 ## USB photo import — `UsbImportPopup.qml`
 

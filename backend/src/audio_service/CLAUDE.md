@@ -81,14 +81,23 @@ Load-bearing:
   level multiplies with the dashboard's; and choosing another default output outside the dashboard
   bypasses the chain until it next starts (a backend restart, or the curve leaving flat again).
 
-## The Media view's spectrum — `spectrum.py`
+## The spectrum — `spectrum.py`
 
-`AudioSpectrum` serves `MEDIA_SPECTRUM_WATCH` (`0x1F`): while at least one display shows the Media
-view it runs `pw-record` on the **default output's monitor** (`stream.capture.sink`), mono at 48 kHz,
-and sends each watching display `MEDIA_SPECTRUM` (`0x20`) about 30 times a second — 40 log-spaced
-bands, 40 Hz to 16 kHz. The frontend draws them as pill bars or a line (`frontend_v2/items/media/MediaSpectrum.qml`).
-The monitor hears the radio and Spotify alike, since both play into the default output — the
-equalizer's chain when it runs. Load-bearing:
+`AudioSpectrum` serves `MEDIA_SPECTRUM_WATCH` (`0x1F`): while at least one display shows the
+spectrum — the Media view, or Media › *Taajuuskorjain* behind the equalizer's curve — it runs
+`pw-record`, mono at 48 kHz, and sends each watching display `MEDIA_SPECTRUM` (`0x20`) about 30
+times a second — 40 log-spaced bands, 40 Hz to 16 kHz. The frontend draws them as pill bars or a
+line (`frontend_v2/items/media/MediaSpectrum.qml`). It hears the radio and Spotify alike, since
+both play into the default output. Load-bearing:
+- **Recorded after the equalizer.** While the chain runs, the recording is of its output stream
+  (`tesla_homedash_eq.output`, `--target`); otherwise of the default output's monitor
+  (`stream.capture.sink`). The chain's sink is the default then, but its monitor carries the sound
+  going *into* the filters — measured against the curve at +12 dB on 60 Hz and −8 dB on 1 kHz: the
+  monitor and the chain's output differed by +8.0 and −3.6 dB in those octaves, so the monitor
+  would hide what a knob does. `AudioService` calls `follow()` whenever the chain starts
+  or stops (a health-check restart is a stop and a start), and a running recording starts over on
+  the new node within `QUIET_S`, at once rather than after `RESTART_DELAY_S`. The moves are counted,
+  not compared by name: a chain restarted between two looks is the same name on a new node.
 - **Only while watched.** The display sends `on` when the view comes live and `off` when it leaves,
   and again after a reconnect, since a watcher is forgotten with its connection. The server swallows
   a write to a dead display, so the service drops watchers whose writer `is_closing()` itself (the

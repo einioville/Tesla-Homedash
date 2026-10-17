@@ -81,7 +81,7 @@ backend/                          # ★ orchestration, service contracts, .env +
       audio_backend.py            # AudioBackend adapters (pactl / wpctl / amixer) + detect_backend()
       audio_service.py            # AudioService — system volume + output device + equalizer, applied from config.json
       equalizer.py                # PipeWireEqualizer — the filter-chain sink (5 bands + bass shelf) it owns and retunes live
-      spectrum.py                 # AudioSpectrum — the Media view's spectrum: records the output's monitor while watched (0x1F/0x20)
+      spectrum.py                 # AudioSpectrum — the spectrum of what plays (Media view, equalizer): records it after the equalizer while watched (0x1F/0x20)
     display_service/              # ★
       display_service.py          # DisplayService — panel power via wlopm; the frontend decides when
     system_service/               # ★
@@ -488,7 +488,8 @@ background yellow and then the answer's colour before it fades back to the cover
 colours (`Media.palette`) drifting behind the dashboard's cards and the Media view and resting
 while the music is paused (`items/media/MediaBackdrop.qml`); and the Media view's spectrum along
 its bottom edge, pill bars or a line (Media › Spektri), drawn from what the host is playing
-(`backend/src/audio_service/CLAUDE.md`).
+(`backend/src/audio_service/CLAUDE.md`), and the same spectrum behind Media › *Taajuuskorjain*'s
+curve, recorded after the equalizer so a knob shows what it does to the sound.
 When you land a change that touches documented behaviour, update this line.
 
 ### 7.8 Keeping the code clean
