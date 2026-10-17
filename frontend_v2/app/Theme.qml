@@ -77,6 +77,13 @@ QtObject {
     readonly property real backdropPausedGlow: 0.55
     readonly property int backdropSettleDuration: 4000
     readonly property int backdropFadeDuration: 2000
+    // The Media view's spectrum line (items/media/MediaSpectrum.qml): each band
+    // rises this share of the way to a new level per frame, and falls back at
+    // most spectrumFall (of the full height) a second.
+    readonly property real spectrumRise: 0.6
+    readonly property real spectrumFall: 1.2
+    // "bars" or "line" (Asetukset › Media › Spektri).
+    readonly property string mediaSpectrumStyle: Settings.values.mediaSpectrumStyle
 
     // Motion (ms)
     readonly property int pressDuration: 90

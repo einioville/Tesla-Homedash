@@ -5,6 +5,7 @@ import struct
 from datetime import datetime, timezone
 
 from .audio_service.audio_service import AudioService
+from .audio_service.spectrum import AudioSpectrum
 from .auth_service.auth_service import AuthService
 from .charging_service.charging_loader import ChargingLoader
 from .config_service.config_service import ConfigService
@@ -787,11 +788,13 @@ async def main():
     mm.set_spotify_auth_listener(spotify_auth.notify_auth_state_changed)
     logger.debug("Spotify auth service initialized")
 
+    # The spectrum of what is playing: records only while a display watches.
+    spectrum = AudioSpectrum(server=server)
     # Host audio (system volume + output device). Always constructed: detection is
     # at most three cheap subprocess probes and needs no credentials, and a host with no
     # controllable audio stack must be able to SAY so rather than silently accept
     # writes that do nothing.
-    audio = AudioService(config=config)
+    audio = AudioService(config=config, spectrum=spectrum)
     logger.debug("Audio service initialized")
 
     display = DisplayService(server=server)
@@ -981,6 +984,7 @@ async def main():
         server, mm, vehicle, trip_loader, charging_loader, config, config_service
     )
     server.register_handler(protocol.DISPLAY_SET_POWER, display.handle_set_power)
+    server.register_handler(protocol.MEDIA_SPECTRUM_WATCH, spectrum.handle_watch)
     server.register_handler(protocol.SPOTIFY_AUTH_GET_URL, spotify_auth.handle_get_url)
     server.register_handler(protocol.SPOTIFY_DEVICE_SCAN_START, spotify_devices.handle_scan_start)
     server.register_handler(protocol.SPOTIFY_DEVICE_SCAN_STOP, spotify_devices.handle_scan_stop)

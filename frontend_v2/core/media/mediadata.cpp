@@ -50,6 +50,12 @@ quint32 readU32(const QByteArray &payload) {
 MediaData::MediaData(ServerClient *server, std::shared_ptr<MediaImageCache> cache, QObject *parent)
     : QObject(parent), m_server(server), m_cache(std::move(cache)) {
     connect(server, &ServerClient::packetReceived, this, &MediaData::onPacket);
+    // The backend forgets a watcher with its connection.
+    connect(server, &ServerClient::connectedChanged, this, [this]() {
+        if (m_server->connected() && spectrumWatched()) {
+            sendSpectrumWatch();
+        }
+    });
 }
 
 void MediaData::onPacket(quint8 type, const QByteArray &payload) {
@@ -91,6 +97,19 @@ void MediaData::onPacket(quint8 type, const QByteArray &payload) {
                 setMediaType(static_cast<quint8>(payload.at(0)));
             }
             break;
+        case protocol::MEDIA_SPECTRUM: {
+            const int count = payload.isEmpty() ? 0 : static_cast<quint8>(payload.at(0));
+            if (!spectrumWatched() || payload.size() < 1 + count) {
+                break;
+            }
+            QVariantList levels;
+            levels.reserve(count);
+            for (int i = 1; i <= count; i++) {
+                levels.append(static_cast<quint8>(payload.at(i)) / 255.0);
+            }
+            setSpectrum(levels);
+            break;
+        }
         default:
             break;  // not ours — other datahandlers consume their own types
     }
@@ -235,6 +254,41 @@ void MediaData::setPalette(const QVariantList &value) {
     }
     m_palette = value;
     emit paletteChanged();
+}
+
+void MediaData::setSpectrum(const QVariantList &value) {
+    m_spectrum = value;
+    emit spectrumChanged();
+}
+
+void MediaData::retainSpectrum() {
+    if (++m_spectrumWatchers > 1) {
+        return;
+    }
+    emit spectrumWatchedChanged();
+    if (m_server->connected()) {
+        sendSpectrumWatch();
+    }
+}
+
+void MediaData::releaseSpectrum() {
+    if (m_spectrumWatchers == 0) {
+        logger.warning(QStringLiteral("releaseSpectrum() without a matching retainSpectrum()"));
+        return;
+    }
+    if (--m_spectrumWatchers > 0) {
+        return;
+    }
+    emit spectrumWatchedChanged();
+    if (m_server->connected()) {
+        sendSpectrumWatch();
+    }
+    setSpectrum({});
+}
+
+void MediaData::sendSpectrumWatch() {
+    m_server->sendPacket(protocol::frame(protocol::MEDIA_SPECTRUM_WATCH,
+                                         QByteArray(1, spectrumWatched() ? 1 : 0)));
 }
 
 void MediaData::computeCoverColors(DecodedCover &cover) {

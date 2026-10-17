@@ -238,14 +238,14 @@ def _timezone_options(current: str) -> list[dict]:
 # and optionally requiresConnection, and confirm: False for one whose action opens
 # a dialog of its own (otherwise a first tap only arms it).
 
-# The equalizer's bands: config key under "audio" and the column label, which is
-# the band's centre frequency — keep it in step with audio_service/equalizer.BANDS.
+# The equalizer's bands: config key under "audio", the column label and the
+# band's centre frequency in Hz — keep them in step with audio_service/equalizer.BANDS.
 _EQ_BANDS = (
-    ("eqBand1", "60 Hz"),
-    ("eqBand2", "250 Hz"),
-    ("eqBand3", "1 kHz"),
-    ("eqBand4", "4 kHz"),
-    ("eqBand5", "12 kHz"),
+    ("eqBand1", "60 Hz", 60),
+    ("eqBand2", "250 Hz", 250),
+    ("eqBand3", "1 kHz", 1000),
+    ("eqBand4", "4 kHz", 4000),
+    ("eqBand5", "12 kHz", 12000),
 )
 _EQ_RANGE_DB = 12
 
@@ -386,16 +386,16 @@ SETTINGS_SCHEMA: list[dict] = [
                 # (status "equalizer", items/settings/EqualizerPanel.qml) draws
                 # and edits them.  The frontend strips hidden entries before any
                 # widget sees them, so "bands" repeats what the widget needs —
-                # each key, its column label and range — at subsection level,
-                # which does reach it.  The bass shelf is an ordinary slider row
+                # each key, its column label, frequency and range — at subsection
+                # level, which does reach it.  The bass shelf is an ordinary slider row
                 # under the widget, and carries the equalizer's runtime state.
                 "id": "equalizer",
                 "label": "Taajuuskorjain",
                 "status": "equalizer",
                 "bands": [
-                    {"key": f"audio.{key}", "label": label,
+                    {"key": f"audio.{key}", "label": label, "hz": hz,
                      "min": -_EQ_RANGE_DB, "max": _EQ_RANGE_DB}
-                    for key, label in _EQ_BANDS
+                    for key, label, hz in _EQ_BANDS
                 ],
                 "settings": [
                     {
@@ -411,7 +411,7 @@ SETTINGS_SCHEMA: list[dict] = [
                         "hooks": ["equalizer"],
                         "guard": "equalizer",
                     }
-                    for key, label in _EQ_BANDS
+                    for key, label, _ in _EQ_BANDS
                 ] + [
                     {
                         # Boost only: the bands above already cut, and a slider

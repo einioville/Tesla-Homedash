@@ -16,6 +16,8 @@ Item {
     // The selected group from Settings.groups, or undefined while none is
     // selected / the list is still empty.
     property var groupData
+    // The view's isCurrent, for the widgets that record or poll only while it is.
+    property bool live: false
 
     // The last write result, {key, text, error}, shown beside that row's title.
     // Held by the view rather than by the row: a schema change that alters the
@@ -590,7 +592,7 @@ Item {
     Component { id: updateComponent; UpdatePanel {} }
     Component { id: screenPowerComponent; ScreenPowerStatus {} }
     Component { id: teslaFieldsComponent; TeslaFieldTable {} }
-    Component { id: equalizerComponent; EqualizerPanel {} }
+    Component { id: equalizerComponent; EqualizerPanel { live: pane.live } }
     Component { id: pairedDisplaysComponent; PairedDisplaysPanel {} }
 
     // The screens a group may name with `view`.

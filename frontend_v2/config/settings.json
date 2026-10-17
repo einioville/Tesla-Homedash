@@ -323,7 +323,7 @@
             "id": "media",
             "icon": "media",
             "label": "Media",
-            "sectionOrder": ["audio", "spotify", "radio", "equalizer"],
+            "sectionOrder": ["audio", "spotify", "radio", "equalizer", "spectrum"],
             "sections": [
                 {
                     "id": "spotify",
@@ -345,6 +345,24 @@
                             "details": "spotifyDevice",
                             "actionLabel": "Tunnista",
                             "requiresConnection": true,
+                            "apply": "live"
+                        }
+                    ]
+                },
+                {
+                    "id": "spectrum",
+                    "label": "Spektri",
+                    "settings": [
+                        {
+                            "key": "mediaSpectrumStyle",
+                            "type": "enum",
+                            "label": "Tyyli",
+                            "help": "Soivan musiikin taajuudet musiikkinäkymän alareunassa ja taajuuskorjaimen kuvaajassa.",
+                            "options": [
+                                {"value": "bars", "label": "Palkit"},
+                                {"value": "line", "label": "Viiva"}
+                            ],
+                            "default": "bars",
                             "apply": "live"
                         }
                     ]

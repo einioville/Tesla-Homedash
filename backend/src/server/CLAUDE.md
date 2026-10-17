@@ -33,6 +33,10 @@ debug mode.
 >   The login is the exception: `_LOGIN_TIMEOUT_S` (30 s, room for a Pi deriving its SCRAM key)
 >   bounds it, and `_TLS_HANDSHAKE_TIMEOUT_S` (15 s) the handshake before it.
 > - **Broadcast never blocks on one slow client** — keep the per-client task fan-out.
+> - **A write to a closed connection is skipped, not attempted.** asyncio's TLS transport raises
+>   `AttributeError` on a write once it has been closed twice, not an `OSError`, so `__safe_write`
+>   checks `is_closing()` first. The spectrum's 30 frames a second hit this whenever a display left
+>   mid-frame.
 > - **Snapshot `__active_connections` keys before iterating** (`list(...)`) — concurrent
 >   disconnects pop entries.
 > - **Enforce `MAX_MSG_SIZE`** (1 MB) in the read loop and `MAX_PREAUTH_MSG_SIZE` before login.

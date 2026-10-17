@@ -2,8 +2,9 @@ import QtQuick
 import frontend_v2
 
 // Fullscreen media player over the cover-coloured backdrop (MediaBackdrop), its
-// main colour a halo behind the cover. The cover heads a centred vertical stack
-// with the title/artist and the (larger) transport controls + progress bar below it.
+// main colour a halo behind the cover, with the spectrum of what is playing along
+// the bottom edge (MediaSpectrum). The cover heads a centred vertical stack with
+// the title/artist and the (larger) transport controls + progress bar below it.
 // Cover, controls and seek bar are the shared media components, so this view and
 // the dashboard card stay in lockstep.
 Item {
@@ -78,6 +79,15 @@ Item {
         visible: noiseTile.url.length > 0
         fillMode: Image.Tile
         opacity: 0.02
+    }
+
+    // Along the bottom edge, over the backdrop and under everything else.
+    MediaSpectrum {
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        height: 200
+        active: view.isCurrent
     }
 
     // Cover sized to leave room for the title/artist + controls stacked below it.

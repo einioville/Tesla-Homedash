@@ -20,7 +20,7 @@ import asyncio
 import logging
 
 from .audio_backend import AudioBackend, AudioDevice, NullAudioBackend, detect_backend
-from .equalizer import GAIN_KEYS, SINK_NAME, PipeWireEqualizer, is_flat
+from .equalizer import GAIN_KEYS, OUTPUT_NAME, SINK_NAME, PipeWireEqualizer, is_flat
 
 logger = logging.getLogger("audio_service.audio_service")
 
@@ -40,10 +40,13 @@ class AudioService:
     Arguments:
         config (Config): Shared configuration.  The audio block is snapshotted
             here and re-read only in apply_config(), like every other service.
+        spectrum (AudioSpectrum): Told where the sound leaves the equalizer, so
+            the spectrum shows what the curve does to it.
     '''
 
-    def __init__(self, config):
+    def __init__(self, config, spectrum):
         self.__config = config
+        self.__spectrum = spectrum
         self.__backend: AudioBackend = NullAudioBackend()
         self.__devices: list[AudioDevice] = []
         audio = config.audio_config
@@ -348,6 +351,7 @@ class AudioService:
             if await self.__equalizer.start(self.__eq_gains, self.__equalizer_target()):
                 await self.__backend.set_default_device(SINK_NAME)
                 await self.__apply_volume()
+                self.__spectrum.follow(OUTPUT_NAME)
                 self.__eq_state = "on"
             else:
                 # Also covers a chain left as WirePlumber's default by the last
@@ -359,6 +363,7 @@ class AudioService:
         elif self.__equalizer.running:
             await self.__restore_default()
             await self.__equalizer.stop()
+            self.__spectrum.follow(None)
             await self.__apply_volume()
             self.__eq_state = "off"
         else:
@@ -378,6 +383,7 @@ class AudioService:
                 return
             logger.warning("The equalizer stopped unexpectedly; starting it again")
             await self.__equalizer.stop()
+            self.__spectrum.follow(None)
             await self.__sync_equalizer()
         if self.__config_service is not None:
             await self.__config_service.broadcast_schema()
