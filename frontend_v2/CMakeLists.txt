@@ -224,6 +224,7 @@ qt_add_qml_module(appfrontend_v2
         items/weather/WeatherChart.qml
         items/weather/WeatherHourlyCard.qml
         items/weather/WeatherDashboard.qml
+        items/weather/WeatherWarningsPopup.qml
 )
 
 set_target_properties(appfrontend_v2 PROPERTIES WIN32_EXECUTABLE TRUE)

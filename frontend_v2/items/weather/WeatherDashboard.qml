@@ -97,22 +97,57 @@ Item {
             anchors.topMargin: 36
             spacing: 8
 
+            // The first warning that covers the place, by the area that covers it rather
+            // than the headline's region, which can lead with one far away. A tap opens
+            // them all, whole.
             Rectangle {
                 visible: root.here.length > 0
                 Layout.fillWidth: true
                 Layout.preferredHeight: 30
                 radius: 8
                 color: root.here.length ? U.warnColor(root.here[0].color) : "transparent"
+                opacity: warningTap.pressed ? 0.8 : 1
                 Text {
-                    anchors.fill: parent
+                    anchors.left: parent.left
+                    anchors.right: more.left
+                    anchors.top: parent.top
+                    anchors.bottom: parent.bottom
                     anchors.leftMargin: 10
-                    anchors.rightMargin: 10
+                    anchors.rightMargin: 6
                     verticalAlignment: Text.AlignVCenter
                     elide: Text.ElideRight
-                    text: root.here.length ? "⚠  " + root.here[0].headline : ""
+                    text: {
+                        if (!root.here.length)
+                            return ""
+                        const w = root.here[0]
+                        const parts = [U.warnTitle(w)]
+                        if ((w.hereAreas || []).length)
+                            parts.push(w.hereAreas.join(", "))
+                        const when = U.warnWhen(w)
+                        if (when)
+                            parts.push(when)
+                        return "⚠  " + parts.join(" · ")
+                    }
                     color: "#1a1400"
                     font.family: Theme.fontFamily
                     font.pixelSize: 13
+                }
+                Text {
+                    id: more
+                    anchors.right: parent.right
+                    anchors.rightMargin: 10
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: (root.here.length > 1 ? "+" + (root.here.length - 1) + "  " : "") + "›"
+                    color: "#1a1400"
+                    font.family: Theme.fontFamily
+                    font.pixelSize: 15
+                    font.bold: true
+                }
+                MouseArea {
+                    id: warningTap
+                    anchors.fill: parent
+                    anchors.margins: -6
+                    onClicked: warningsPopup.open()
                 }
             }
 
@@ -519,4 +554,12 @@ Item {
             }
         }
     }
+
+    // Last, so it covers the cards. A dialog left open would still be there on the way
+    // back to a view that has moved on.
+    WeatherWarningsPopup {
+        id: warningsPopup
+        warnings: root.here
+    }
+    onActiveChanged: if (!active) warningsPopup.close()
 }

@@ -490,7 +490,9 @@ colours (`Media.palette`) drifting behind the dashboard's cards and the Media vi
 while the music is paused (`items/media/MediaBackdrop.qml`); and the Media view's spectrum along
 its bottom edge, pill bars or a line (Media › Spektri), drawn from what the host is playing
 (`backend/src/audio_service/CLAUDE.md`), and the same spectrum behind Media › *Taajuuskorjain*'s
-curve, recorded after the equalizer so a knob shows what it does to the sound.
+curve, recorded after the equalizer so a knob shows what it does to the sound; and the Weather
+view's warning strip naming the area that covers the place, a tap opening the warnings whole, and
+its radar refreshing the moment the view opens.
 When you land a change that touches documented behaviour, update this line.
 
 ### 7.8 Keeping the code clean

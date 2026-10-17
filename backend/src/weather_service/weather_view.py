@@ -413,11 +413,12 @@ class WeatherViewBuilder:
             seen.add(headline)
             areas, polygons = [], []
             for area in info.findall(ns + "area"):
-                areas.append(area.findtext(ns + "areaDesc") or "")
+                name = area.findtext(ns + "areaDesc") or ""
+                areas.append(name)
                 for p in area.findall(ns + "polygon"):
                     polygon = [tuple(map(float, pt.split(","))) for pt in (p.text or "").split()]
                     if len(polygon) > 2:
-                        polygons.append(polygon)
+                        polygons.append((name, polygon))
             severity = info.findtext(ns + "severity") or ""
             warnings.append({
                 "event": info.findtext(ns + "event"), "severity": severity,
@@ -432,8 +433,9 @@ class WeatherViewBuilder:
     @staticmethod
     def __mark_warnings(warnings: list[dict], lat: float, lon: float) -> list[dict]:
         '''
-        The warnings as sent: each flagged with whether one of its areas covers the place,
-        and without the polygons, which only that test needs.
+        The warnings as sent: each with the areas that cover the place (`hereAreas`; the
+        headline names the warning's whole region, which can lead with one far away) and
+        whether any does, and without the polygons, which only that test needs.
         Arguments:
             warnings (list[dict]): Parsed warnings, polygons included.
             lat (float): The place's latitude.
@@ -442,7 +444,9 @@ class WeatherViewBuilder:
         marked = []
         for w in warnings:
             entry = {k: v for k, v in w.items() if k != "polygons"}
-            entry["appliesHere"] = any(_inside(p, lat, lon) for p in w["polygons"])
+            here = [name for name, p in w["polygons"] if _inside(p, lat, lon)]
+            entry["hereAreas"] = list(dict.fromkeys(here))
+            entry["appliesHere"] = bool(here)
             marked.append(entry)
         return marked
 

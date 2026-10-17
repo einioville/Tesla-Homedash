@@ -51,6 +51,11 @@ few minutes after their slot — under the same scheduler rules as the forecast 
   place's own station rarely measures everything), the **edited** forecast (~230 h, what
   ilmatieteenlaitos.fi shows), HARMONIE's `RadiationGlobal` for the hour, sun and moon, and the CAP
   warnings feed, each tested against the place's coordinates (`appliesHere`).
+- **A warning names the areas that cover the place** (`hereAreas`, from each area's own polygons).
+  The headline names the warning's whole region and can lead with one far away — *Keltainen
+  liikennesää: Kainuu sekä paikoin maan keskiosa* covers Tampere through Pirkanmaa, its sixth area —
+  so the Weather view's strip shows `hereAreas`, and a tap opens every warning that applies, whole
+  (`frontend_v2/items/weather/WeatherWarningsPopup.qml`). `areas` keeps only the first four.
 - **A failed part keeps its last good value**; parts are dropped when the place changes. A forecast
   kept from an earlier cycle is trimmed to start at the current hour. No forecast hours at all → no
   frame, the previous one stays (the forecast job's rule). A build that finishes after the place

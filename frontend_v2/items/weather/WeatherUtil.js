@@ -41,6 +41,22 @@ function warnColor(c) {
     return ({ yellow: "#f5c518", orange: "#ff8c1a", red: "#e53935" })[c] || "#f5c518"
 }
 
+// A warning's level and kind, its headline before the region ("Keltainen liikennesää").
+function warnTitle(w) {
+    var h = w.headline || ""
+    var i = h.indexOf(":")
+    return i > 0 ? h.slice(0, i) : (h || w.event || "")
+}
+
+// When a warning is in force, "su 2.00–9.00": the day said once if it does not change.
+// onset and expires come as "<weekday> <h.mm>".
+function warnWhen(w) {
+    if (!w.onset || !w.expires)
+        return w.onset ? w.onset + " alkaen" : (w.expires ? w.expires + " asti" : "")
+    var a = w.onset.split(" "), b = w.expires.split(" ")
+    return a[0] === b[0] ? w.onset + "–" + b[1] : w.onset + " – " + w.expires
+}
+
 // A blue → teal → yellow → orange → red ramp over temperature, for range bars.
 function tempColor(t) {
     var stops = [[-20, [70, 110, 255]], [-5, [90, 180, 255]], [5, [80, 210, 190]],
