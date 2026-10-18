@@ -324,6 +324,7 @@ Item {
             zoom: 8.0
             placeOffset: Qt.point(0, -20)
             active: root.active
+            latestOnly: Settings.values.weatherRadarLatestOnly === true
         }
         Text {
             x: 14; y: 10
@@ -341,6 +342,7 @@ Item {
             anchors.bottomMargin: 12
             radar: radar.radarLayer
             backdrop: radar
+            latestOnlyKey: "weatherRadarLatestOnly"
             rimWidth: 0.75
             highlight: false
             frostBrightness: -0.05

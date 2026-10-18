@@ -41,6 +41,7 @@ Rectangle {
         showRadar: view.showRadar
         showWarnings: view.showWarnings
         showCameras: view.showCameras
+        radarLatestOnly: Settings.values.mapRadarLatestOnly === true
         onCameraOpened: (stationId) => cameraPopup.open(stationId)
         showRoute: view.showRoute
         showPlaceNames: view.showPlaces
@@ -53,6 +54,7 @@ Rectangle {
         anchors.bottom: stats.visible ? stats.top : parent.bottom
         anchors.bottomMargin: stats.visible ? 12 : 20
         vertical: true
+        latestOnlyKey: "mapRadarLatestOnly"
         visible: map.radar !== null
         radar: map.radar
         backdrop: map

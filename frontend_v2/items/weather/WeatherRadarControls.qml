@@ -4,7 +4,9 @@ import frontend_v2
 
 // Play/pause, the frame's time and a scrub track for a RadarLayer, laid out in a row (the
 // Weather card) or, `vertical`, in a column with the track running up from the oldest frame to
-// the newest, so time goes the way the eye reads "later" (the Kartta view's left edge).
+// the newest, so time goes the way the eye reads "later" (the Kartta view's left edge). With a
+// `latestOnlyKey`, a *Vain uusin* checkbox writes that setting, which the view hands the layer
+// as `latestOnly`; while it is ticked the loop's controls fade and take no input.
 // Frosted glass over the map behind it (the app's GlassPanel, as the notification pill has).
 GlassPanel {
     id: bar
@@ -13,6 +15,9 @@ GlassPanel {
     // What the glass frosts: the map under the radar, a sibling of this bar.
     property Item backdrop: null
     property bool vertical: false
+    // The local setting the *Vain uusin* checkbox writes; empty, no checkbox.
+    property string latestOnlyKey: ""
+    readonly property bool latestOnly: latestOnlyKey !== "" && Settings.values[latestOnlyKey] === true
 
     implicitWidth: layout.implicitWidth + 24
     implicitHeight: layout.implicitHeight + (vertical ? 24 : 12)
@@ -36,6 +41,8 @@ GlassPanel {
             height: 32
             radius: 16
             color: "#26ffffff"
+            enabled: !bar.latestOnly
+            opacity: enabled ? 1 : 0.35
 
             TintedIcon {
                 anchors.centerIn: parent
@@ -61,6 +68,8 @@ GlassPanel {
         // Scrub track: one tick per frame, filled up to the shown one.
         Item {
             id: track
+            enabled: !bar.latestOnly
+            opacity: enabled ? 1 : 0.35
             readonly property int count: bar.radar ? bar.radar.frameCount : 0
             readonly property real length: bar.vertical ? Math.max(48, count * 14) : 200
             width: bar.vertical ? 32 : length
@@ -179,6 +188,49 @@ GlassPanel {
             Text {
                 text: bar.vertical ? qsTr("heikko") : qsTr("voimakas")
                 color: "#b8c2cc"; font.pixelSize: 11; font.family: Theme.fontFamily
+            }
+        }
+
+        // Only the newest frame, no loop.
+        Item {
+            visible: bar.latestOnlyKey !== ""
+            width: latestRow.implicitWidth
+            height: latestRow.implicitHeight
+
+            Grid {
+                id: latestRow
+                rows: bar.vertical ? -1 : 1
+                columns: bar.vertical ? 1 : -1
+                spacing: bar.vertical ? 4 : 6
+                horizontalItemAlignment: Grid.AlignHCenter
+                verticalItemAlignment: Grid.AlignVCenter
+
+                Rectangle {
+                    width: 20
+                    height: 20
+                    radius: 5
+                    color: bar.latestOnly ? Theme.accent : "transparent"
+                    border.color: bar.latestOnly ? Theme.accent : "#80ffffff"
+                    border.width: 1.5
+
+                    TintedIcon {
+                        anchors.centerIn: parent
+                        visible: bar.latestOnly
+                        iconSize: 14
+                        source: "qrc:/resources/icons/check.svg"
+                    }
+                }
+                Text {
+                    text: qsTr("Vain uusin")
+                    color: "white"
+                    font.family: Theme.fontFamily
+                    font.pixelSize: 12
+                }
+            }
+            MouseArea {
+                anchors.fill: parent
+                anchors.margins: -6
+                onClicked: Settings.setValue(bar.latestOnlyKey, !bar.latestOnly)
             }
         }
     }

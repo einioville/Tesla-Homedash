@@ -54,6 +54,8 @@ Item {
     property bool showRoute: false
     property bool showPlaceNames: false
     property bool showCameras: false
+    // The radar shows only its newest frame (the Kartta view's *Vain uusin*).
+    property bool radarLatestOnly: false
     // Holds CurrentDrive's requests while this map draws the route on screen.
     readonly property bool watchingDrive: showRoute && isCurrent
     onWatchingDriveChanged: watchingDrive ? CurrentDrive.retain() : CurrentDrive.release()
@@ -483,6 +485,7 @@ Item {
                 frameCount: 4
                 frameMs: 1500
                 newestFrameMs: 3500
+                latestOnly: root.radarLatestOnly
                 holdFetch: panHandler.active || pinchHandler.active
             }
         }

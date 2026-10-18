@@ -566,6 +566,22 @@
                             "apply": "live"
                         },
                         {
+                            "key": "mapRadarLatestOnly",
+                            "type": "bool",
+                            "label": "Sadetutka: vain uusin (kartta)",
+                            "hidden": true,
+                            "default": false,
+                            "apply": "live"
+                        },
+                        {
+                            "key": "weatherRadarLatestOnly",
+                            "type": "bool",
+                            "label": "Sadetutka: vain uusin (sää)",
+                            "hidden": true,
+                            "default": false,
+                            "apply": "live"
+                        },
+                        {
                             "key": "homeMapLayerRoute",
                             "type": "bool",
                             "label": "Ajettu reitti (aloitusnäkymä)",

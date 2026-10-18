@@ -52,6 +52,8 @@ Item {
 
     property int frame: frameCount - 1
     property bool playing: true
+    // Only the newest frame: no loop, and the older frames are not fetched at all.
+    property bool latestOnly: false
     property var frameTimes: []
     // The box the frames were last fetched for: its top-left coordinate, its EPSG:3857 metres,
     // its pixel size and resolution, the map's zoom and metres per pixel when it was taken, and
@@ -213,6 +215,7 @@ Item {
                + "&format=image/png&transparent=true&time=" + d.toISOString().replace(".000Z", "Z")
     }
 
+    onLatestOnlyChanged: if (latestOnly) frame = frameCount - 1
     onFrameChanged: strikeLayer.repaint()
     onStrikesChanged: strikeLayer.repaint()
     onHoldFetchChanged: if (!holdFetch) watch.moved()
@@ -254,7 +257,8 @@ Item {
             scale: place ? place.s : 1
             rotation: place ? place.r : 0
             transformOrigin: Item.TopLeft
-            source: root.frameUrl(root.frameTimes[index], root.view)
+            source: root.latestOnly && index !== root.frameCount - 1
+                    ? "" : root.frameUrl(root.frameTimes[index], root.view)
             retainWhileLoading: true
             visible: place !== null
             asynchronous: true
@@ -373,7 +377,7 @@ Item {
 
     Timer {
         interval: root.frame === root.frameCount - 1 ? root.newestFrameMs : root.frameMs
-        running: root.active && root.playing && root.frameTimes.length > 0
+        running: root.active && root.playing && !root.latestOnly && root.frameTimes.length > 0
         repeat: true
         onTriggered: root.frame = (root.frame + 1) % root.frameCount
     }

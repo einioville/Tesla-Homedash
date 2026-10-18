@@ -34,6 +34,7 @@ Item {
     // the controls laid over the map.
     property point placeOffset: Qt.point(0, 0)
     property bool active: true
+    property bool latestOnly: false
     readonly property alias radarLayer: radarLayer
     property string tilesUrl: "https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2024_3857/default/"
                               + "GoogleMapsCompatible/%z/%y/%x.jpg"
@@ -231,6 +232,7 @@ Item {
         anchors.fill: parent
         geoMap: map
         active: root.active
+        latestOnly: root.latestOnly
         holdFetch: panHandler.active || pinchHandler.active
     }
 
