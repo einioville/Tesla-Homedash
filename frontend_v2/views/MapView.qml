@@ -4,7 +4,7 @@ import frontend_v2
 // Full-screen map view (*Kartta*): the dashboard's TeslaMap blown up to fill the whole
 // surface, with layers switched from the menu in the bottom-right corner (MapLayerMenu): the
 // live data card in the bottom-left, the drive under way, OSM place names, and FMI's radar
-// with its timeline upright on the left edge. Corners are left square (roundedCorners: false) — the map IS
+// with its timeline upright on the left edge; zoom buttons sit over the layer button. Corners are left square (roundedCorners: false) — the map IS
 // the view, so there's no surrounding card for rounded corners to blend into.
 //
 // isCurrent is forwarded to the map so it freezes its follow animation + center
@@ -62,6 +62,13 @@ Rectangle {
         visible: view.showStats
         active: view.isCurrent && visible
         backdrop: map
+    }
+
+    // Over the layer button. The layer menu opens over both.
+    MapZoomButtons {
+        x: layerMenu.toggleButton.x + (layerMenu.toggleButton.width - width) / 2
+        y: layerMenu.toggleButton.y - height - 12
+        teslaMap: map
     }
 
     MapLayerMenu {

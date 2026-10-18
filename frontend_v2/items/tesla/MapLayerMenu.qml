@@ -15,6 +15,8 @@ Item {
     property Item backdrop: null
     property bool open: false
     property int margin: 20
+    // The round button, for placing other controls beside it.
+    readonly property Item toggleButton: button
 
     readonly property var layers: [
         { key: "mapLayerStats", label: qsTr("Ajotiedot") },

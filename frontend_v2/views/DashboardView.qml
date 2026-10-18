@@ -59,10 +59,20 @@ Rectangle {
     }
 
     TeslaMap {
+        id: map
         x: view.cellX(0); y: view.cellY(0)
         width: view.spanW(8); height: view.spanH(6)
         isCurrent: view.isCurrent
         background: background
+    }
+
+    // Out of sight until the map is touched.
+    MapZoomButtons {
+        anchors.right: map.right
+        anchors.bottom: map.bottom
+        anchors.margins: 12
+        teslaMap: map
+        autoHide: true
     }
 
     // Driven today / this month + odometer.

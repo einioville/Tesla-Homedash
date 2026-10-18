@@ -130,6 +130,14 @@ outlasts a restart without a row in the Options view. The dashboard's card shows
   that changes every frame — is its own two-point line.
 - **Paikannimet** — `PlaceLabels.qml` over the `PlaceNames` store (below), issue #54's first step.
 
+**Zoom buttons** — `MapZoomButtons.qml`, + over − on a glass pill: over the layer button on Kartta,
+and on the dashboard's card out of sight until the map is touched (a passive `PointHandler`, so a
+press that never moves counts too and the pan still gets the gesture), fading 4 s after the last
+touch. A step is `TeslaMap.stepZoom`: a whole level from where the map is, **written as
+`mapDefaultZoom`**, so the snap-back after a gesture returns there and the other map follows
+(`onDefaultZoomChanged`: eased if it is on screen, set if hidden, left alone mid-gesture). Steps
+stay within the setting's 10–19.
+
 **Inside the `Map`, the layers are ordered by `z`**: the radar's Loader 1, the route 2, the names
 3, the car arrow 10. Plain items declared inside a `Map` are its children and draw over the tiles,
 but `PlaceLabels` (a `MapItemView`) adds its items after everything declared, so declaration order

@@ -80,12 +80,54 @@ Item {
         RotationAnimation { duration: 999; easing.type: Easing.Linear; direction: RotationAnimation.Shortest }
     }
 
+    // Any press, wheel or pinch on the map — MapZoomButtons shows itself on it.
+    signal touched()
+
+    // The bounds of the mapDefaultZoom setting, which a zoom step writes.
+    readonly property int minimumDefaultZoom: 10
+    readonly property int maximumDefaultZoom: 19
+
+    // One whole zoom level in or out from where the map is (or is heading), made the default
+    // zoom, so the snap-back after a gesture returns there and the other map follows
+    // (onDefaultZoomChanged).
+    function stepZoom(direction) {
+        var from = zoomAnim.running ? zoomAnim.to : Math.round(map.zoomLevel)
+        var to = Math.max(minimumDefaultZoom, Math.min(maximumDefaultZoom, from + direction))
+        zoomAnim.to = to
+        zoomAnim.restart()
+        Settings.setValue("mapDefaultZoom", to)
+    }
+
+    // A new default from a zoom step on either map. The map that took the step is already
+    // easing there; one in the middle of a gesture returns there with its snap-back; a hidden
+    // one jumps, since nobody sees it.
+    onDefaultZoomChanged: {
+        if ((zoomAnim.running && zoomAnim.to === defaultZoom) || userControlled)
+            return
+        if (isCurrent) {
+            zoomAnim.to = defaultZoom
+            zoomAnim.restart()
+        } else {
+            map.zoomLevel = defaultZoom
+        }
+    }
+
+    NumberAnimation {
+        id: zoomAnim
+        target: map
+        property: "zoomLevel"
+        duration: 300
+        easing.type: Easing.OutCubic
+    }
+
     function handleGestureActive(active) {
         if (active) {
+            root.touched()
             userControlled = true
             returnTimer.stop()
             returnAnim.stop()
             warpAnim.stop()
+            zoomAnim.stop()
         } else {
             returnTimer.restart()
         }
@@ -375,6 +417,12 @@ Item {
                     map.center.longitude + (from.longitude - to.longitude) * root.sensitivity)
                 lastCentroid = centroid.position
             }
+        }
+
+        // Any press at all, moved or not. A passive grab, so the pan and pinch handlers
+        // still take the gesture.
+        PointHandler {
+            onActiveChanged: if (active) root.touched()
         }
 
         WheelHandler {
