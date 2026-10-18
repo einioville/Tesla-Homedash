@@ -6,7 +6,8 @@ import frontend_v2
 // Weather card) or, `vertical`, in a column with the track running up from the oldest frame to
 // the newest, so time goes the way the eye reads "later" (the Kartta view's left edge). With a
 // `latestOnlyKey`, a *Vain uusin* checkbox writes that setting, which the view hands the layer
-// as `latestOnly`; while it is ticked the loop's controls fade and take no input.
+// as `latestOnly`; while it is ticked the loop's controls are gone and only the newest frame's
+// time is left.
 // Frosted glass over the map behind it (the app's GlassPanel, as the notification pill has).
 GlassPanel {
     id: bar
@@ -41,8 +42,7 @@ GlassPanel {
             height: 32
             radius: 16
             color: "#26ffffff"
-            enabled: !bar.latestOnly
-            opacity: enabled ? 1 : 0.35
+            visible: !bar.latestOnly
 
             TintedIcon {
                 anchors.centerIn: parent
@@ -68,8 +68,7 @@ GlassPanel {
         // Scrub track: one tick per frame, filled up to the shown one.
         Item {
             id: track
-            enabled: !bar.latestOnly
-            opacity: enabled ? 1 : 0.35
+            visible: !bar.latestOnly
             readonly property int count: bar.radar ? bar.radar.frameCount : 0
             readonly property real length: bar.vertical ? Math.max(48, count * 14) : 200
             width: bar.vertical ? 32 : length
@@ -110,6 +109,7 @@ GlassPanel {
         }
 
         Text {
+            visible: !bar.latestOnly
             width: 52
             horizontalAlignment: bar.vertical ? Text.AlignHCenter : Text.AlignLeft
             text: {
