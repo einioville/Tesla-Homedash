@@ -201,8 +201,8 @@ way; *Tallenna* asks FMI for the point's zone and writes the whole object with `
 It is hung from the top so the field and the hits stay above the keyboard, and Enter closes the
 keyboard so the map shows. The map is a plain `Map` on the app's imagery (`App.mapTilesUrl`) with
 pan, pinch, wheel and tap handlers of its own: a picker shares nothing else with the car's map.
-The pin is `location.svg`'s two paths in a `Shape`, filled red and outlined in black — a tinted icon
-has one colour.
+The pin is `location.svg`'s two paths in one even-odd `Shape` path, filled red and outlined in black
+with the inner circle left hollow — a tinted icon has one colour.
 
 **`type: "action"` is a button, not a value.** `SettingAction.qml` renders it and calls
 `Settings::invokeAction(key)`; nothing is stored, persisted or sent as `CONFIG_SET`. Keeping

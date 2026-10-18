@@ -348,6 +348,7 @@ ModalDialog {
                 anchorPoint.y: 31.5
                 // location.svg's two paths (24 px grid) at 36 px, filled red and outlined in
                 // black so it stands out on the aerial imagery; a tint colours one part only.
+                // One path, even-odd, so the inner circle is a hole the map shows through.
                 sourceItem: Shape {
                     width: 36
                     height: 36
@@ -355,17 +356,11 @@ ModalDialog {
                     ShapePath {
                         scale: Qt.size(1.5, 1.5)
                         fillColor: "#e0302a"
+                        fillRule: ShapePath.OddEvenFill
                         strokeColor: "black"
                         strokeWidth: 3
                         joinStyle: ShapePath.RoundJoin
-                        PathSvg { path: "M12 21C15.5 17.4 19 14.1764 19 10.2C19 6.22355 15.866 3 12 3C8.13401 3 5 6.22355 5 10.2C5 14.1764 8.5 17.4 12 21Z" }
-                    }
-                    ShapePath {
-                        scale: Qt.size(1.5, 1.5)
-                        fillColor: "#e0302a"
-                        strokeColor: "black"
-                        strokeWidth: 3
-                        PathSvg { path: "M12 13C13.6569 13 15 11.6569 15 10C15 8.34315 13.6569 7 12 7C10.3431 7 9 8.34315 9 10C9 11.6569 10.3431 13 12 13Z" }
+                        PathSvg { path: "M12 21C15.5 17.4 19 14.1764 19 10.2C19 6.22355 15.866 3 12 3C8.13401 3 5 6.22355 5 10.2C5 14.1764 8.5 17.4 12 21Z M12 13C13.6569 13 15 11.6569 15 10C15 8.34315 13.6569 7 12 7C10.3431 7 9 8.34315 9 10C9 11.6569 10.3431 13 12 13Z" }
                     }
                 }
             }
