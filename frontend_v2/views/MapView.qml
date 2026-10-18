@@ -45,6 +45,7 @@ Rectangle {
         onCameraOpened: (stationId) => cameraPopup.open(stationId)
         showRoute: view.showRoute
         showPlaceNames: view.showPlaces
+        interactive: !cameraPopup.visible && !warningsPopup.visible
     }
 
     // The frosted glass of every panel over the map, made once.
@@ -118,6 +119,8 @@ Rectangle {
 
     RoadCameraPopup {
         id: cameraPopup
+        backdrop: map
+        frost: frost
     }
 
     WeatherWarningsPopup {

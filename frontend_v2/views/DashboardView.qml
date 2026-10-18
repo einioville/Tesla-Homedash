@@ -31,134 +31,141 @@ Rectangle {
     function spanW(span) { return span * cellW + (span - 1) * gridSpacing }
     function spanH(span) { return span * cellH + (span - 1) * gridSpacing }
 
-    // Everything under the cards, as one item: the map paints its corners from it.
-    Rectangle {
-        id: background
+    // The dashboard itself, which the camera popup frosts: everything but the popup and Luna.
+    Item {
+        id: surface
         anchors.fill: parent
-        color: Theme.dashboardBackground
 
-        // The light lies where the cards let it through: the map and the media card
-        // are opaque, so the cover's own colour pools beside the player, in the weather
-        // card, as if spilling from it, and the rest spreads over the cards on the right.
-        MediaBackdrop {
-            id: backdrop
+        // Everything under the cards, as one item: the map paints its corners from it.
+        Rectangle {
+            id: background
             anchors.fill: parent
-            active: view.isCurrent
-            glows: [
-                { tone: 0, radius: 520, home: Qt.point(430, 640), reach: Qt.point(150, 110),
-                  periods: Qt.vector3d(37, 29, 23), phase: 0.0 },
-                { tone: 1, radius: 560, home: Qt.point(1000, 200), reach: Qt.point(200, 120),
-                  periods: Qt.vector3d(43, 31, 27), phase: 1.7 },
-                { tone: 2, radius: 480, home: Qt.point(780, 630), reach: Qt.point(220, 130),
-                  periods: Qt.vector3d(53, 41, 33), phase: 3.1 },
-                { tone: 0, radius: 460, home: Qt.point(1150, 560), reach: Qt.point(140, 120),
-                  periods: Qt.vector3d(47, 34, 29), phase: 4.4 }
+            color: Theme.dashboardBackground
+
+            // The light lies where the cards let it through: the map and the media card
+            // are opaque, so the cover's own colour pools beside the player, in the weather
+            // card, as if spilling from it, and the rest spreads over the cards on the right.
+            MediaBackdrop {
+                id: backdrop
+                anchors.fill: parent
+                active: view.isCurrent
+                glows: [
+                    { tone: 0, radius: 520, home: Qt.point(430, 640), reach: Qt.point(150, 110),
+                      periods: Qt.vector3d(37, 29, 23), phase: 0.0 },
+                    { tone: 1, radius: 560, home: Qt.point(1000, 200), reach: Qt.point(200, 120),
+                      periods: Qt.vector3d(43, 31, 27), phase: 1.7 },
+                    { tone: 2, radius: 480, home: Qt.point(780, 630), reach: Qt.point(220, 130),
+                      periods: Qt.vector3d(53, 41, 33), phase: 3.1 },
+                    { tone: 0, radius: 460, home: Qt.point(1150, 560), reach: Qt.point(140, 120),
+                      periods: Qt.vector3d(47, 34, 29), phase: 4.4 }
+                ]
+            }
+
+            ClimateWave {
+                id: climateWave
+                anchors.fill: parent
+                backdrop: backdrop
+                button: climate.hvacButton
+                origin: Qt.point(climate.x + climate.hvacButtonCenter.x, climate.y + climate.hvacButtonCenter.y)
+            }
+        }
+
+        // The Kartta view's layers but for the warnings and the data card, which need the full
+        // screen, switched separately (homeMapLayer*); the radar loops on its own, with no timeline
+        // to work it.
+        TeslaMap {
+            id: map
+            x: view.cellX(0); y: view.cellY(0)
+            width: view.spanW(8); height: view.spanH(6)
+            isCurrent: view.isCurrent
+            background: background
+            showRadar: Settings.values.homeMapLayerRadar === true
+            showRoute: Settings.values.homeMapLayerRoute === true
+            showPlaceNames: Settings.values.homeMapLayerPlaces === true
+            showCameras: Settings.values.homeMapLayerCameras === true
+            onCameraOpened: (stationId) => cameraPopup.open(stationId)
+            interactive: !cameraPopup.visible
+        }
+
+        // The map's controls, out of sight until the map is touched.
+        MapTouchReveal {
+            id: mapControls
+            teslaMap: map
+            hold: homeLayers.open
+        }
+
+        // The controls' frosted glass, made once and only while they show.
+        FrostLayer {
+            id: mapFrost
+            sourceItem: map
+            live: view.isCurrent && mapControls.shown
+        }
+
+        MapZoomButtons {
+            x: homeLayers.toggleButton.x
+            y: homeLayers.toggleButton.y - height - 12
+            teslaMap: map
+            frost: mapFrost
+            shown: mapControls.shown
+            onUsed: mapControls.poke()
+        }
+
+        MapLayerMenu {
+            id: homeLayers
+            anchors.fill: parent
+            backdrop: map
+            frost: mapFrost
+            margin: 12
+            shown: mapControls.shown
+            onUsed: mapControls.poke()
+            layers: [
+                { key: "homeMapLayerRoute", label: qsTr("Ajettu reitti") },
+                { key: "homeMapLayerPlaces", label: qsTr("Paikannimet") },
+                { key: "homeMapLayerCameras", label: qsTr("Kelikamerat") },
+                { key: "homeMapLayerRadar", label: qsTr("Sadetutka") }
             ]
         }
 
-        ClimateWave {
-            id: climateWave
-            anchors.fill: parent
-            backdrop: backdrop
-            button: climate.hvacButton
-            origin: Qt.point(climate.x + climate.hvacButtonCenter.x, climate.y + climate.hvacButtonCenter.y)
+        // Driven today / this month + odometer.
+        DataEntryList {
+            x: view.cellX(8); y: view.cellY(0)
+            width: view.spanW(4); height: view.spanH(6)
+            entries: [
+                { title: "Ajettu Tänään",       value: Tesla.drivenToday,     unit: "km" },
+                { title: "Ajettu Tässä Kuussa", value: Tesla.drivenThisMonth, unit: "km" },
+                { title: "Odometer",            value: Tesla.odometer,        unit: "km" }
+            ]
         }
-    }
 
-    // The Kartta view's layers but for the warnings and the data card, which need the full
-    // screen, switched separately (homeMapLayer*); the radar loops on its own, with no timeline
-    // to work it.
-    TeslaMap {
-        id: map
-        x: view.cellX(0); y: view.cellY(0)
-        width: view.spanW(8); height: view.spanH(6)
-        isCurrent: view.isCurrent
-        background: background
-        showRadar: Settings.values.homeMapLayerRadar === true
-        showRoute: Settings.values.homeMapLayerRoute === true
-        showPlaceNames: Settings.values.homeMapLayerPlaces === true
-        showCameras: Settings.values.homeMapLayerCameras === true
-        onCameraOpened: (stationId) => cameraPopup.open(stationId)
-    }
+        // Speed / battery / range.
+        DataEntryList {
+            x: view.cellX(12); y: view.cellY(0)
+            width: view.spanW(4); height: view.spanH(6)
+            entries: [
+                { title: "Nopeus",      value: Tesla.vehicleSpeed,    unit: "km/h" },
+                { title: "Akun Varaus", value: Tesla.batteryLevel,    unit: "%" },
+                { title: "Range",       value: Tesla.estBatteryRange, unit: "km" }
+            ]
+        }
 
-    // The map's controls, out of sight until the map is touched.
-    MapTouchReveal {
-        id: mapControls
-        teslaMap: map
-        hold: homeLayers.open
-    }
+        MediaPlayerCard {
+            x: view.cellX(0); y: view.cellY(6)
+            width: view.spanW(4); height: view.spanH(4)
+            active: view.isCurrent
+        }
 
-    // The controls' frosted glass, made once and only while they show.
-    FrostLayer {
-        id: mapFrost
-        sourceItem: map
-        live: view.isCurrent && mapControls.shown
-    }
+        MainWeather {
+            x: view.cellX(4); y: view.cellY(6)
+            width: view.spanW(8); height: view.spanH(4)
+        }
 
-    MapZoomButtons {
-        x: homeLayers.toggleButton.x
-        y: homeLayers.toggleButton.y - height - 12
-        teslaMap: map
-        frost: mapFrost
-        shown: mapControls.shown
-        onUsed: mapControls.poke()
-    }
-
-    MapLayerMenu {
-        id: homeLayers
-        anchors.fill: parent
-        backdrop: map
-        frost: mapFrost
-        margin: 12
-        shown: mapControls.shown
-        onUsed: mapControls.poke()
-        layers: [
-            { key: "homeMapLayerRoute", label: qsTr("Ajettu reitti") },
-            { key: "homeMapLayerPlaces", label: qsTr("Paikannimet") },
-            { key: "homeMapLayerCameras", label: qsTr("Kelikamerat") },
-            { key: "homeMapLayerRadar", label: qsTr("Sadetutka") }
-        ]
-    }
-
-    // Driven today / this month + odometer.
-    DataEntryList {
-        x: view.cellX(8); y: view.cellY(0)
-        width: view.spanW(4); height: view.spanH(6)
-        entries: [
-            { title: "Ajettu Tänään",       value: Tesla.drivenToday,     unit: "km" },
-            { title: "Ajettu Tässä Kuussa", value: Tesla.drivenThisMonth, unit: "km" },
-            { title: "Odometer",            value: Tesla.odometer,        unit: "km" }
-        ]
-    }
-
-    // Speed / battery / range.
-    DataEntryList {
-        x: view.cellX(12); y: view.cellY(0)
-        width: view.spanW(4); height: view.spanH(6)
-        entries: [
-            { title: "Nopeus",      value: Tesla.vehicleSpeed,    unit: "km/h" },
-            { title: "Akun Varaus", value: Tesla.batteryLevel,    unit: "%" },
-            { title: "Range",       value: Tesla.estBatteryRange, unit: "km" }
-        ]
-    }
-
-    MediaPlayerCard {
-        x: view.cellX(0); y: view.cellY(6)
-        width: view.spanW(4); height: view.spanH(4)
-        active: view.isCurrent
-    }
-
-    MainWeather {
-        x: view.cellX(4); y: view.cellY(6)
-        width: view.spanW(8); height: view.spanH(4)
-    }
-
-    ClimateCard {
-        id: climate
-        x: view.cellX(12); y: view.cellY(6)
-        width: view.spanW(4); height: view.spanH(4)
-        isCurrent: view.isCurrent
-        waveOutTo: climateWave.outTo
+        ClimateCard {
+            id: climate
+            x: view.cellX(12); y: view.cellY(6)
+            width: view.spanW(4); height: view.spanH(4)
+            isCurrent: view.isCurrent
+            waveOutTo: climateWave.outTo
+        }
     }
 
     // Luna — a memorial overlay for our dog. Deliberately its OWN full-view layer
@@ -178,7 +185,15 @@ Rectangle {
         }
     }
 
+    FrostLayer {
+        id: popupFrost
+        sourceItem: surface
+        live: view.isCurrent && cameraPopup.visible
+    }
+
     RoadCameraPopup {
         id: cameraPopup
+        backdrop: surface
+        frost: popupFrost
     }
 }

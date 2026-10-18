@@ -154,7 +154,9 @@ the menu sits in its map's corner, full-screen or the card. `TeslaMap`'s `show*`
   station's readings (`nearestWeatherStationId`: road condition, road and air temperature, wind,
   rain, visibility, humidity), all fetched when it opens. Pictures are taken every ten minutes; the
   time is in the image URL so a new one is not served from the cache. Requests carry the
-  `Digitraffic-User` header Digitraffic asks for.
+  `Digitraffic-User` header Digitraffic asks for. The dialog is centred, on frosted glass over its
+  view (the dashboard frosts all of itself, `surface`, through a FrostLayer made while the dialog
+  shows), and the map under it takes no gesture while it is open (`interactive`).
 - **Säävaroitukset** (a demo, on by default) — FMI's warnings in force as areas,
   `items/weather/WarningAreas.qml`: each warning's regions from the weather document's `shapes`
   (`backend/src/weather_service/CLAUDE.md`), filled faintly in its colour and outlined, in a

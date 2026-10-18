@@ -89,6 +89,10 @@ Item {
         RotationAnimation { duration: 999; easing.type: Easing.Linear; direction: RotationAnimation.Shortest }
     }
 
+    // Off while a dialog lies over the map: pointer handlers beneath an item that took the press
+    // still see it, so a drag on the dialog's scrim would pan the map.
+    property bool interactive: true
+
     // Any press, wheel or pinch on the map — MapZoomButtons shows itself on it.
     signal touched()
     // A road camera's marker tapped (RoadCameras).
@@ -382,6 +386,7 @@ Item {
 
         DragHandler {
             id: panHandler
+            enabled: root.interactive
             target: null
             minimumPointCount: 1
             maximumPointCount: 1
@@ -433,11 +438,13 @@ Item {
         // Any press at all, moved or not. A passive grab, so the pan and pinch handlers
         // still take the gesture.
         PointHandler {
+            enabled: root.interactive
             onActiveChanged: if (active) root.touched()
         }
 
         WheelHandler {
             id: wheelHandler
+            enabled: root.interactive
             acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
             onWheel: function(event) {
                 root.handleGestureActive(true)
@@ -448,6 +455,7 @@ Item {
 
         PinchHandler {
             id: pinchHandler
+            enabled: root.interactive
             target: null
             minimumPointCount: 2
 

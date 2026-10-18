@@ -378,7 +378,10 @@ cards from `System` (`../../core/CLAUDE.md`), both retained only while the secti
 - **Every dialog is a `ModalDialog`** — the opaque card over a scrim that takes every press and
   wheel turn beside it (a MouseArea with no wheel handler lets the wheel through to the page behind;
   a list inside the card still scrolls, since it sits above the scrim). A new dialog is built on
-  `ModalDialog`, not on another scrim and card.
+  `ModalDialog`, not on another scrim and card. Over a map, where nothing blurs the view behind,
+  a dialog gives a `backdrop` (and its `frost`) and the card is frosted glass instead
+  (`RoadCameraPopup`). The scrim stops presses but not the pointer handlers beneath it, which
+  still see a press another item took — a map under a dialog is switched off (`TeslaMap.interactive`).
 
 - **Disk is graphed as I/O** (read / write rates) with the free space as the card's headline: space
   changes too slowly over ten minutes to be a line, and disk-full is still the failure worth seeing.

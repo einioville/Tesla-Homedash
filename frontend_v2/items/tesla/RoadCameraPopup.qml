@@ -7,7 +7,8 @@ import "../../app/Format.js" as Format
 // readings beside them. Opened from a RoadCameras marker with the station's id; everything is
 // fetched from Digitraffic (CC BY 4.0, credited in the footer) when it opens, and a reply for a
 // station since closed is dropped. A picture is taken every ten minutes; its time is shown, and
-// it is in the URL so a new one is not served from the image cache.
+// it is in the URL so a new one is not served from the image cache. Centred, on frosted glass
+// over the view's `backdrop` (ModalDialog).
 ModalDialog {
     id: popup
 
@@ -93,10 +94,9 @@ ModalDialog {
     }
 
     onScrimClicked: close()
-    cardTopMargin: Theme.gridMargin + 20
     cardWidth: 940
-    // Ends above the menu's swipe-up strip.
-    cardHeight: Math.min(560, popup.height - cardTopMargin - 72 - Theme.gridMargin)
+    // Centred on the 800 px screen, it ends above the menu's swipe-up strip (the bottom 72 px).
+    cardHeight: 560
 
     Text {
         id: title
@@ -122,7 +122,7 @@ ModalDialog {
         color: Theme.dataLabelTitle
     }
 
-    Rectangle {
+    Item {
         id: picture
         anchors.left: parent.left
         anchors.top: subtitle.bottom
@@ -130,15 +130,18 @@ ModalDialog {
         anchors.topMargin: 14
         width: 640
         height: 360
-        radius: 10
-        color: "#14181d"
-        clip: true
 
-        Image {
+        // Where the picture goes, while it loads.
+        Rectangle {
+            anchors.fill: parent
+            radius: image.radius
+            color: "#33000000"
+        }
+        RoundedImage {
             id: image
             anchors.fill: parent
+            radius: 10
             fillMode: Image.PreserveAspectCrop
-            asynchronous: true
             source: popup.current ? popup.current.url + "?t=" + (popup.taken[popup.current.id] || "") : ""
         }
         Text {
