@@ -88,10 +88,18 @@ Rectangle {
         hold: homeLayers.open
     }
 
+    // The controls' frosted glass, made once and only while they show.
+    FrostLayer {
+        id: mapFrost
+        sourceItem: map
+        live: view.isCurrent && mapControls.shown
+    }
+
     MapZoomButtons {
         x: homeLayers.toggleButton.x
         y: homeLayers.toggleButton.y - height - 12
         teslaMap: map
+        frost: mapFrost
         shown: mapControls.shown
         onUsed: mapControls.poke()
     }
@@ -100,6 +108,7 @@ Rectangle {
         id: homeLayers
         anchors.fill: parent
         backdrop: map
+        frost: mapFrost
         margin: 12
         shown: mapControls.shown
         onUsed: mapControls.poke()

@@ -37,7 +37,11 @@ Item {
     // already dark backdrop (the weather radar) black; such a panel passes its own.
     property real frostBrightness: Theme.notificationFrostBrightness
 
-    readonly property bool frostActive: frostedBackdrop && backdropSource !== null
+    // Its part of a shared frosted backdrop (FrostLayer), in place of a frost of its own — for
+    // the panels over a map. `backdropOrigin` places it in that backdrop as it would here.
+    property Item frost: null
+
+    readonly property bool frostActive: frostedBackdrop && backdropSource !== null && frost === null
 
     // Capture just the backdrop region behind the panel. The backdrop is never a
     // parent of this panel, so the capture can't include the panel itself.
@@ -46,7 +50,7 @@ Item {
         anchors.fill: parent
         visible: false
         live: panel.frostActive && panel.active
-        sourceItem: panel.backdropSource
+        sourceItem: panel.frostActive ? panel.backdropSource : null
         sourceRect: Qt.rect(panel.backdropOrigin.x, panel.backdropOrigin.y,
                              panel.width, panel.height)
     }
@@ -56,7 +60,7 @@ Item {
         anchors.fill: parent
         radius: panel.radius
         visible: false
-        layer.enabled: true
+        layer.enabled: panel.frostActive
     }
 
     // Blur + round the captured backdrop, toned darker so it reads as dark glass.
@@ -72,6 +76,21 @@ Item {
         saturation: Theme.notificationFrostSaturation
         maskEnabled: true
         maskSource: frostMask
+    }
+
+    ShaderEffect {
+        anchors.fill: parent
+        visible: panel.frost !== null && panel.frost.sourceWidth > 0
+        property var source: panel.frost ? panel.frost.texture : null
+        property rect region: panel.frost && panel.frost.sourceWidth > 0
+                              ? Qt.rect(panel.backdropOrigin.x / panel.frost.sourceWidth,
+                                        panel.backdropOrigin.y / panel.frost.sourceHeight,
+                                        width / panel.frost.sourceWidth,
+                                        height / panel.frost.sourceHeight)
+                              : Qt.rect(0, 0, 1, 1)
+        property size size: Qt.size(width, height)
+        property real radius: panel.radius
+        fragmentShader: "qrc:/resources/shaders/glassfrost.frag.qsb"
     }
 
     // Dark translucent tint (brighter at the top) + bright white rim.

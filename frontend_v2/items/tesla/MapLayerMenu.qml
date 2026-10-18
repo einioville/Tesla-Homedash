@@ -15,6 +15,8 @@ Item {
 
     // The map: the button sits in its corner and the glass frosts it. A sibling of this item.
     property Item backdrop: null
+    // The backdrop's shared frost (FrostLayer), for the menu's and the button's glass.
+    property Item frost: null
     property var layers: []
     property bool open: false
     property bool shown: true
@@ -42,6 +44,7 @@ Item {
         highlight: false
         backdropSource: root.backdrop
         backdropOrigin: Qt.point(x - (root.backdrop ? root.backdrop.x : 0), y - (root.backdrop ? root.backdrop.y : 0))
+        frost: root.frost
         active: visible
         opacity: root.open ? 1 : 0
         scale: root.open ? 1 : 0.9
@@ -125,6 +128,7 @@ Item {
         tintBottom: root.open ? "#334aa8ff" : Theme.notificationGlassBottom
         backdropSource: root.backdrop
         backdropOrigin: Qt.point(x - (root.backdrop ? root.backdrop.x : 0), y - (root.backdrop ? root.backdrop.y : 0))
+        frost: root.frost
         active: visible
         opacity: root.shown ? 1 : 0
         visible: opacity > 0

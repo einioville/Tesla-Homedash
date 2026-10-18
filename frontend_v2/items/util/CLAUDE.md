@@ -100,3 +100,18 @@ Five pieces exist so every future control moves and responds the same way. Their
   at rest — the speed of the last move event would still read as a flick after a pause, and move
   events arrive in bursts whose 1 ms gaps are spikes of thousands of px/s. The view switch's three
   gestures use it (`../../CLAUDE.md`, *View switching*).
+
+## Frosted glass over a map — `GlassPanel.qml`, `FrostLayer.qml`
+
+A `GlassPanel` frosts the backdrop behind it by capturing its own region (`ShaderEffectSource`),
+blurring it (`MultiEffect`, several passes into textures of its own) and masking it round. Over a
+map that follows the car, that re-renders every frame, for every panel: on the Kartta view the
+panels needed a few dozen render targets updated per frame, and the user saw the glass turn nearly
+clear at random on the device (2026-10-18) — a capture or blur pass that came out empty for a while.
+**Panels over a map take their frost from one `FrostLayer`** instead (`GlassPanel.frost`): the map
+captured at a quarter of its size and blurred once, in the notification glass's tone, from which
+each panel cuts its part with `resources/shaders/glassfrost.frag` (the rounded rectangle, a
+one-pixel soft edge). That is three render targets for the whole view, and each panel's frost is a
+plain texture lookup. The Kartta view's layer menu, zoom pill, data card, radar bar and warning
+legend share one; the dashboard's map controls another, live only while they show. Panels not over
+a moving backdrop (the notification pill) still frost themselves.

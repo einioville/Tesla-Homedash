@@ -47,6 +47,13 @@ Rectangle {
         showPlaceNames: view.showPlaces
     }
 
+    // The frosted glass of every panel over the map, made once.
+    FrostLayer {
+        id: frost
+        sourceItem: map
+        live: view.isCurrent
+    }
+
     // Over the live data card when it shows, in the corner otherwise.
     WeatherRadarControls {
         anchors.left: parent.left
@@ -58,6 +65,7 @@ Rectangle {
         visible: map.radar !== null
         radar: map.radar
         backdrop: map
+        frost: frost
         rimWidth: 0.75
         highlight: false
     }
@@ -70,6 +78,7 @@ Rectangle {
         visible: view.showStats
         active: view.isCurrent && visible
         backdrop: map
+        frost: frost
     }
 
     WarningLegend {
@@ -80,6 +89,7 @@ Rectangle {
         active: view.isCurrent && visible
         warnings: view.warnings
         backdrop: map
+        frost: frost
         onTapped: warningsPopup.open()
     }
 
@@ -88,12 +98,14 @@ Rectangle {
         x: layerMenu.toggleButton.x + (layerMenu.toggleButton.width - width) / 2
         y: layerMenu.toggleButton.y - height - 12
         teslaMap: map
+        frost: frost
     }
 
     MapLayerMenu {
         id: layerMenu
         anchors.fill: parent
         backdrop: map
+        frost: frost
         layers: [
             { key: "mapLayerStats", label: qsTr("Ajotiedot") },
             { key: "mapLayerRoute", label: qsTr("Ajettu reitti") },

@@ -200,6 +200,7 @@ qt_add_qml_module(appfrontend_v2
         items/util/ElasticFlickable.qml
         items/util/RoundedImage.qml
         items/util/GlassPanel.qml
+        items/util/FrostLayer.qml
         items/util/NotificationLayer.qml
         items/util/ScreenSaver.qml
         items/util/NightSchedule.qml
@@ -371,6 +372,7 @@ qt_add_shaders(appfrontend_v2 "shaders"
         resources/shaders/climatesurface.frag
         resources/shaders/climatewater.frag
         resources/shaders/climatewave.frag
+        resources/shaders/glassfrost.frag
 )
 
 # Developer convenience: regenerate the Tesla data layer from the registry.
