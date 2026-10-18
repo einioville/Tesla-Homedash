@@ -105,10 +105,11 @@ The full-screen map carries four layers, each switched from the menu behind the 
 the bottom-right corner (`MapLayerMenu.qml`; a press outside the open menu closes it and goes no
 further). Their states are **hidden local settings** in the Kartta card (`mapLayerStats`,
 `mapLayerRadar`, `mapLayerRoute`, `mapLayerPlaces`), written straight from the menu, so a choice
-outlasts a restart without a row in the Options view. **The dashboard's card follows the same
-switches** for the radar, the route, the names and the cameras — not the warnings or the data card,
-which need the full screen — with no radar timeline: its loop plays on its own, and a camera's tap
-opens the same dialog over the dashboard. `TeslaMap`'s `show*` default off.
+outlasts a restart without a row in the Options view. **The dashboard's card has its own** menu and
+switches (`homeMapLayer*`) for the radar, the route, the names and the cameras — not the warnings or
+the data card, which need the full screen — with no radar timeline: its loop plays on its own, and a
+camera's tap opens the same dialog over the dashboard. Each view names its rows (`MapLayerMenu.layers`);
+the menu sits in its map's corner, full-screen or the card. `TeslaMap`'s `show*` default off.
 
 - **Ajotiedot** — `MapLiveStats.qml` in the bottom-left: speed, battery, range and outside
   temperature on frosted glass, read straight off `Tesla`.
@@ -161,10 +162,11 @@ and then only transformed — a frame costs one projection, where a `MapPolyline
 camera change. A stroke takes `px / pixelsPerMetre` and is rebuilt only when the zoom changes.
 `DriveRoute` and `WarningAreas` draw in one.
 
-**Zoom buttons** — `MapZoomButtons.qml`, + over − on a glass pill: over the layer button on Kartta,
-and on the dashboard's card out of sight until the map is touched (a passive `PointHandler`, so a
-press that never moves counts too and the pan still gets the gesture), fading 4 s after the last
-touch. A step is `TeslaMap.stepZoom`: a whole level from where the map is, **written as
+**Zoom buttons** — `MapZoomButtons.qml`, + over − on a glass pill, over the layer button on both
+maps. On the dashboard's card the two are out of sight until the map is touched (`MapTouchReveal`:
+`TeslaMap.touched` comes from a passive `PointHandler`, so a press that never moves counts too and
+the pan still gets the gesture), fading 4 s after the last touch — held while the layer menu is
+open. A step is `TeslaMap.stepZoom`: a whole level from where the map is, **written as
 `mapDefaultZoom`**, so the snap-back after a gesture returns there and the other map follows
 (`onDefaultZoomChanged`: eased if it is on screen, set if hidden, left alone mid-gesture). Steps
 stay within the setting's 10–19.

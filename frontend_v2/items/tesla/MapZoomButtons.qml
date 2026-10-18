@@ -5,17 +5,16 @@ import frontend_v2
 // becomes the default zoom (TeslaMap.stepZoom), so the map stays there after a gesture's
 // snap-back, and the other map follows.
 //
-// `autoHide` keeps it out of sight until the map is touched and fades it away again
-// `hideAfterMs` after the last touch — the dashboard's card, where it would cover the map for
-// nothing most of the time. Hidden, it takes no input, so the map under it pans as usual.
+// `shown` fades it in and out (the dashboard's card shows it on a touch, MapTouchReveal);
+// hidden, it takes no input, so the map under it pans as usual. `used()` on every step.
 GlassPanel {
     id: root
 
     // Not `map`: a binding `map: map` would read this property itself.
     property Item teslaMap: null
-    property bool autoHide: false
-    property int hideAfterMs: 4000
-    property bool shown: !autoHide
+    property bool shown: true
+
+    signal used()
 
     width: 56
     height: 112
@@ -28,24 +27,6 @@ GlassPanel {
     opacity: shown ? 1 : 0
     visible: opacity > 0
     Behavior on opacity { NumberAnimation { duration: 250; easing.type: Easing.OutCubic } }
-
-    function poke() {
-        if (!autoHide)
-            return
-        shown = true
-        hideTimer.restart()
-    }
-
-    Timer {
-        id: hideTimer
-        interval: root.hideAfterMs
-        onTriggered: root.shown = false
-    }
-
-    Connections {
-        target: root.teslaMap
-        function onTouched() { root.poke() }
-    }
 
     component Step: Item {
         id: step
@@ -72,7 +53,7 @@ GlassPanel {
             anchors.fill: parent
             onClicked: {
                 root.teslaMap.stepZoom(step.direction)
-                root.poke()
+                root.used()
             }
         }
     }

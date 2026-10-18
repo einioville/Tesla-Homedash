@@ -1,31 +1,28 @@
 import QtQuick
 import frontend_v2
 
-// The Kartta view's layer switch: a round button in the bottom-right corner, and over it,
-// once tapped, a menu of the map's layers with a switch each. Fill the view with it — while
-// the menu is open a press anywhere outside it closes it (and goes no further, so it does
-// not also move the map); closed, nothing here but the button takes input.
+// A map's layer switch: a round button in the map's bottom-right corner, and over it, once
+// tapped, a menu of the map's layers with a switch each — the Kartta view's and the dashboard
+// card's. Fill the view with it — while the menu is open a press anywhere outside it closes it
+// (and goes no further, so it does not also move the map); closed, nothing here but the button
+// takes input.
 //
-// The layers are hidden local settings (mapLayer*, the Kartta card), so a choice outlasts a
-// restart without a row in the Options view.
+// Each view names its layers (`layers`: { key, label }), hidden local settings in the Kartta
+// card, so a choice outlasts a restart without a row in the Options view. `shown` fades the
+// button in and out (the dashboard's card shows it on a touch); `used()` on every tap.
 Item {
     id: root
 
-    // What the glass frosts: the map, a sibling filling the view.
+    // The map: the button sits in its corner and the glass frosts it. A sibling of this item.
     property Item backdrop: null
+    property var layers: []
     property bool open: false
+    property bool shown: true
     property int margin: 20
     // The round button, for placing other controls beside it.
     readonly property Item toggleButton: button
 
-    readonly property var layers: [
-        { key: "mapLayerStats", label: qsTr("Ajotiedot") },
-        { key: "mapLayerRoute", label: qsTr("Ajettu reitti") },
-        { key: "mapLayerPlaces", label: qsTr("Paikannimet") },
-        { key: "mapLayerCameras", label: qsTr("Kelikamerat") },
-        { key: "mapLayerRadar", label: qsTr("Sadetutka") },
-        { key: "mapLayerWarnings", label: qsTr("Säävaroitukset") }
-    ]
+    signal used()
 
     MouseArea {
         anchors.fill: parent
@@ -44,7 +41,7 @@ Item {
         rimWidth: 0.75
         highlight: false
         backdropSource: root.backdrop
-        backdropOrigin: Qt.point(x, y)
+        backdropOrigin: Qt.point(x - (root.backdrop ? root.backdrop.x : 0), y - (root.backdrop ? root.backdrop.y : 0))
         active: visible
         opacity: root.open ? 1 : 0
         scale: root.open ? 1 : 0.9
@@ -87,6 +84,7 @@ Item {
 
                     function flip() {
                         Settings.setValue(row.modelData.key, !row.checked)
+                        root.used()
                     }
 
                     MouseArea {
@@ -116,9 +114,8 @@ Item {
 
     GlassPanel {
         id: button
-        anchors.right: parent.right
-        anchors.bottom: parent.bottom
-        anchors.margins: root.margin
+        x: root.backdrop ? root.backdrop.x + root.backdrop.width - width - root.margin : 0
+        y: root.backdrop ? root.backdrop.y + root.backdrop.height - height - root.margin : 0
         width: 56
         height: 56
         radius: 28
@@ -127,7 +124,11 @@ Item {
         tintTop: root.open ? "#4d4aa8ff" : Theme.notificationGlassTop
         tintBottom: root.open ? "#334aa8ff" : Theme.notificationGlassBottom
         backdropSource: root.backdrop
-        backdropOrigin: Qt.point(x, y)
+        backdropOrigin: Qt.point(x - (root.backdrop ? root.backdrop.x : 0), y - (root.backdrop ? root.backdrop.y : 0))
+        active: visible
+        opacity: root.shown ? 1 : 0
+        visible: opacity > 0
+        Behavior on opacity { NumberAnimation { duration: 250; easing.type: Easing.OutCubic } }
 
         Image {
             anchors.centerIn: parent
@@ -139,7 +140,10 @@ Item {
         MouseArea {
             anchors.fill: parent
             anchors.margins: -8
-            onClicked: root.open = !root.open
+            onClicked: {
+                root.open = !root.open
+                root.used()
+            }
         }
     }
 }

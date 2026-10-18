@@ -14,7 +14,12 @@ Rectangle {
 
     color: Theme.dashboardBackground
 
-    onIsCurrentChanged: if (!isCurrent) cameraPopup.close()
+    onIsCurrentChanged: {
+        if (!isCurrent) {
+            cameraPopup.close()
+            homeLayers.open = false
+        }
+    }
 
     readonly property real gridMargin: Theme.gridMargin
     readonly property real gridSpacing: 10
@@ -60,28 +65,50 @@ Rectangle {
         }
     }
 
-    // The Kartta view's layers as its menu sets them, but for the warnings, which need the
-    // full screen to read; the radar loops on its own, with no timeline to work it.
+    // The Kartta view's layers but for the warnings and the data card, which need the full
+    // screen, switched separately (homeMapLayer*); the radar loops on its own, with no timeline
+    // to work it.
     TeslaMap {
         id: map
         x: view.cellX(0); y: view.cellY(0)
         width: view.spanW(8); height: view.spanH(6)
         isCurrent: view.isCurrent
         background: background
-        showRadar: Settings.values.mapLayerRadar === true
-        showRoute: Settings.values.mapLayerRoute === true
-        showPlaceNames: Settings.values.mapLayerPlaces === true
-        showCameras: Settings.values.mapLayerCameras === true
+        showRadar: Settings.values.homeMapLayerRadar === true
+        showRoute: Settings.values.homeMapLayerRoute === true
+        showPlaceNames: Settings.values.homeMapLayerPlaces === true
+        showCameras: Settings.values.homeMapLayerCameras === true
         onCameraOpened: (stationId) => cameraPopup.open(stationId)
     }
 
-    // Out of sight until the map is touched.
-    MapZoomButtons {
-        anchors.right: map.right
-        anchors.bottom: map.bottom
-        anchors.margins: 12
+    // The map's controls, out of sight until the map is touched.
+    MapTouchReveal {
+        id: mapControls
         teslaMap: map
-        autoHide: true
+        hold: homeLayers.open
+    }
+
+    MapZoomButtons {
+        x: homeLayers.toggleButton.x
+        y: homeLayers.toggleButton.y - height - 12
+        teslaMap: map
+        shown: mapControls.shown
+        onUsed: mapControls.poke()
+    }
+
+    MapLayerMenu {
+        id: homeLayers
+        anchors.fill: parent
+        backdrop: map
+        margin: 12
+        shown: mapControls.shown
+        onUsed: mapControls.poke()
+        layers: [
+            { key: "homeMapLayerRoute", label: qsTr("Ajettu reitti") },
+            { key: "homeMapLayerPlaces", label: qsTr("Paikannimet") },
+            { key: "homeMapLayerCameras", label: qsTr("Kelikamerat") },
+            { key: "homeMapLayerRadar", label: qsTr("Sadetutka") }
+        ]
     }
 
     // Driven today / this month + odometer.

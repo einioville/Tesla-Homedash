@@ -566,6 +566,38 @@
                             "apply": "live"
                         },
                         {
+                            "key": "homeMapLayerRoute",
+                            "type": "bool",
+                            "label": "Ajettu reitti (aloitusnäkymä)",
+                            "hidden": true,
+                            "default": true,
+                            "apply": "live"
+                        },
+                        {
+                            "key": "homeMapLayerPlaces",
+                            "type": "bool",
+                            "label": "Paikannimet (aloitusnäkymä)",
+                            "hidden": true,
+                            "default": true,
+                            "apply": "live"
+                        },
+                        {
+                            "key": "homeMapLayerCameras",
+                            "type": "bool",
+                            "label": "Kelikamerat (aloitusnäkymä)",
+                            "hidden": true,
+                            "default": true,
+                            "apply": "live"
+                        },
+                        {
+                            "key": "homeMapLayerRadar",
+                            "type": "bool",
+                            "label": "Sadetutka (aloitusnäkymä)",
+                            "hidden": true,
+                            "default": false,
+                            "apply": "live"
+                        },
+                        {
                             "key": "mapLayerCameras",
                             "type": "bool",
                             "label": "Kelikamerat",

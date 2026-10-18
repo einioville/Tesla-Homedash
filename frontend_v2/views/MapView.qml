@@ -92,6 +92,14 @@ Rectangle {
         id: layerMenu
         anchors.fill: parent
         backdrop: map
+        layers: [
+            { key: "mapLayerStats", label: qsTr("Ajotiedot") },
+            { key: "mapLayerRoute", label: qsTr("Ajettu reitti") },
+            { key: "mapLayerPlaces", label: qsTr("Paikannimet") },
+            { key: "mapLayerCameras", label: qsTr("Kelikamerat") },
+            { key: "mapLayerRadar", label: qsTr("Sadetutka") },
+            { key: "mapLayerWarnings", label: qsTr("Säävaroitukset") }
+        ]
     }
 
     RoadCameraPopup {
