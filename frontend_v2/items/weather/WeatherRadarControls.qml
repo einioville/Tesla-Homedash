@@ -3,8 +3,8 @@ import QtQuick.Shapes
 import frontend_v2
 
 // Play/pause, the frame's time and a scrub track for a RadarLayer, laid out in a row (the
-// Weather card) or, `vertical`, in a column with the track running down from the oldest frame
-// to the newest (the Kartta view's left edge).
+// Weather card) or, `vertical`, in a column with the track running up from the oldest frame to
+// the newest, so time goes the way the eye reads "later" (the Kartta view's left edge).
 // Frosted glass over the map behind it (the app's GlassPanel, as the notification pill has).
 GlassPanel {
     id: bar
@@ -77,12 +77,14 @@ GlassPanel {
                     model: track.count
                     Rectangle {
                         required property int index
+                        // Upright, the newest frame is the top tick.
+                        readonly property int frame: bar.vertical ? track.count - 1 - index : index
                         readonly property real along: (track.length - 3 * (track.count - 1)) / track.count
-                        readonly property real across: index === bar.radar.frame ? 14 : 6
+                        readonly property real across: frame === bar.radar.frame ? 14 : 6
                         width: bar.vertical ? across : along
                         height: bar.vertical ? along : across
                         radius: 3
-                        color: index <= bar.radar.frame ? "#4aa8ff" : "#40ffffff"
+                        color: frame <= bar.radar.frame ? "#4aa8ff" : "#40ffffff"
                     }
                 }
             }
@@ -93,8 +95,8 @@ GlassPanel {
                     bar.radar.playing = false
                     bar.radar.frame = Math.max(0, Math.min(n - 1, Math.round(position / track.length * (n - 1))))
                 }
-                onPressed: (mouse) => seek(bar.vertical ? mouse.y : mouse.x)
-                onPositionChanged: (mouse) => seek(bar.vertical ? mouse.y : mouse.x)
+                onPressed: (mouse) => seek(bar.vertical ? track.length - mouse.y : mouse.x)
+                onPositionChanged: (mouse) => seek(bar.vertical ? track.length - mouse.y : mouse.x)
             }
         }
 
