@@ -496,7 +496,12 @@ its radar refreshing the moment the view opens — plus the Kartta view's layers
 a menu in its corner: a live data card, the radar (the Weather card's loop, now a shared
 `RadarLayer` that also turns with a heading-up map), the drive under way drawn behind the car
 (`TRIP_GET_CURRENT`, the Trips view's detection) and OSM place names fetched from Overpass and kept
-on disk per tile (#54's first step; `items/tesla/CLAUDE.md`).
+on disk per tile (#54's first step; `items/tesla/CLAUDE.md`) — then its second round: the drive
+coloured by speed (a `GeoFrame` Shape carried with the map), FMI's warnings as areas (a demo, the
+document's simplified `shapes`), Fintraffic's road cameras with their pictures and road weather,
+the radar timeline upright on the left with a 15-minute loop, and zoom buttons that set the default
+zoom (on the dashboard's map shown on a touch); and every UI icon from the Dazzle Line set, text
+glyphs included (`frontend_v2/CLAUDE.md`, *Icons*).
 When you land a change that touches documented behaviour, update this line.
 
 ### 7.8 Keeping the code clean
