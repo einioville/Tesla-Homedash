@@ -56,6 +56,11 @@ few minutes after their slot — under the same scheduler rules as the forecast 
   liikennesää: Kainuu sekä paikoin maan keskiosa* covers Tampere through Pirkanmaa, its sixth area —
   so the Weather view's strip shows `hereAreas`, and a tap opens every warning that applies, whole
   (`frontend_v2/items/weather/WeatherWarningsPopup.qml`). `areas` keeps only the first four.
+- **A warning carries its areas for the map** (`shapes`: rings of `[lat, lon]`), which the Kartta
+  view draws (`frontend_v2/items/weather/WarningAreas.qml`). FMI's polygons run to ~16 000 points
+  over seven warnings; Douglas–Peucker at ~0.5 km and rounding to ~100 m (`_simplify`,
+  `_SHAPE_*`) leave ~4 000 points, ~70 KB of the document. The full polygons stay server-side for
+  `hereAreas`.
 - **A failed part keeps its last good value**; parts are dropped when the place changes. A forecast
   kept from an earlier cycle is trimmed to start at the current hour. No forecast hours at all → no
   frame, the previous one stays (the forecast job's rule). A build that finishes after the place

@@ -22,7 +22,8 @@ Item {
         { key: "mapLayerStats", label: qsTr("Ajotiedot") },
         { key: "mapLayerRoute", label: qsTr("Ajettu reitti") },
         { key: "mapLayerPlaces", label: qsTr("Paikannimet") },
-        { key: "mapLayerRadar", label: qsTr("Sadetutka") }
+        { key: "mapLayerRadar", label: qsTr("Sadetutka") },
+        { key: "mapLayerWarnings", label: qsTr("Säävaroitukset") }
     ]
 
     MouseArea {

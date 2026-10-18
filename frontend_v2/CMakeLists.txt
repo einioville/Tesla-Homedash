@@ -217,6 +217,7 @@ qt_add_qml_module(appfrontend_v2
         items/tesla/MapLiveStats.qml
         items/tesla/MapZoomButtons.qml
         items/tesla/DriveRoute.qml
+        items/tesla/GeoFrame.qml
         items/media/MediaPlayerCard.qml
         items/media/MediaBackdrop.qml
         items/media/MediaSpectrum.qml
@@ -228,6 +229,8 @@ qt_add_qml_module(appfrontend_v2
         items/weather/WeatherWindArrow.qml
         items/weather/WeatherRadarMap.qml
         items/weather/RadarLayer.qml
+        items/weather/WarningAreas.qml
+        items/weather/WarningLegend.qml
         items/weather/WeatherRadarControls.qml
         items/weather/WeatherSunArc.qml
         items/weather/WeatherMoon.qml

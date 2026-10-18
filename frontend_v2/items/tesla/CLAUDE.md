@@ -132,9 +132,21 @@ outlasts a restart without a row in the Options view. The dashboard's card shows
   every frame, and colouring would take a line per speed band. `DriveRoute.qml` is one `Shape` in
   EPSG:3857 metres from the first fix — a `ShapePath` per 15 km/h band holding that band's runs —
   moved, scaled and turned with the map, so a frame costs one projection and the paths are
-  rebuilt only when the zoom changes the stroke width or a fix arrives. A fix extends the runs of
-  its band only; a reply that replaces the path (`CurrentDrive.generation`) starts them over.
+  rebuilt only when the zoom changes the stroke width or a fix arrives (a `GeoFrame`, below). A fix
+  extends the runs of its band only; a reply that replaces the path (`CurrentDrive.generation`)
+  starts them over.
 - **Paikannimet** — `PlaceLabels.qml` over the `PlaceNames` store (below), issue #54's first step.
+- **Säävaroitukset** (a demo, on by default) — FMI's warnings in force as areas,
+  `items/weather/WarningAreas.qml`: each warning's regions from the weather document's `shapes`
+  (`backend/src/weather_service/CLAUDE.md`), filled faintly in its colour and outlined, in a
+  `GeoFrame` from the middle of Finland. `WarningLegend.qml` in the top-left corner names them, and
+  a tap opens them whole in the Weather view's `WeatherWarningsPopup`.
+
+**`GeoFrame.qml` carries drawing in metres with the map.** Its coordinates are EPSG:3857 metres from
+an origin; it is moved, scaled and turned with the camera, so a `Shape` in it is triangulated once
+and then only transformed — a frame costs one projection, where a `MapPolyline` is rebuilt every
+camera change. A stroke takes `px / pixelsPerMetre` and is rebuilt only when the zoom changes.
+`DriveRoute` and `WarningAreas` draw in one.
 
 **Zoom buttons** — `MapZoomButtons.qml`, + over − on a glass pill: over the layer button on Kartta,
 and on the dashboard's card out of sight until the map is touched (a passive `PointHandler`, so a
@@ -144,8 +156,8 @@ touch. A step is `TeslaMap.stepZoom`: a whole level from where the map is, **wri
 (`onDefaultZoomChanged`: eased if it is on screen, set if hidden, left alone mid-gesture). Steps
 stay within the setting's 10–19.
 
-**Inside the `Map`, the layers are ordered by `z`**: the radar's Loader 1, the route 2, the names
-3, the car arrow 10. Plain items declared inside a `Map` are its children and draw over the tiles,
+**Inside the `Map`, the layers are ordered by `z`**: the radar's Loader 1, the warnings 1 (declared
+after it), the route 2, the names 3, the car arrow 10. Plain items declared inside a `Map` are its children and draw over the tiles,
 but `PlaceLabels` (a `MapItemView`) adds its items after everything declared, so declaration order
 alone would put the names over the car.
 

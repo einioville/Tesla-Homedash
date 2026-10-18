@@ -46,10 +46,11 @@ Item {
     property bool roundedCorners: true
 
     // The Kartta view's layers, all off on the dashboard card: FMI's radar and lightning
-    // under everything else, the drive under way (CurrentDrive) drawn behind the car, and
+    // under everything else, FMI's warning areas, the drive under way (CurrentDrive) drawn behind the car, and
     // OSM place names (PlaceLabels). `radar` is the RadarLayer while it is shown, for its
     // controls.
     property bool showRadar: false
+    property bool showWarnings: false
     property bool showRoute: false
     property bool showPlaceNames: false
     readonly property Item radar: radarLoader.item
@@ -453,7 +454,8 @@ Item {
         }
 
         // Children of the Map, so they lie over the imagery and under the car; the z values
-        // order them, since PlaceLabels adds its items after everything declared here.
+        // order them (equal ones by declaration), since PlaceLabels adds its items after
+        // everything declared here.
         Loader {
             id: radarLoader
             anchors.fill: parent
@@ -474,6 +476,16 @@ Item {
                 frameMs: 1500
                 newestFrameMs: 3500
                 holdFetch: panHandler.active || pinchHandler.active
+            }
+        }
+
+        // Over the radar, under the route.
+        Loader {
+            anchors.fill: parent
+            z: 1
+            active: root.showWarnings
+            sourceComponent: WarningAreas {
+                geoMap: map
             }
         }
 

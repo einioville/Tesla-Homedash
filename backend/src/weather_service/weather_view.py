@@ -102,6 +102,49 @@ def _inside(polygon: list[tuple[float, float]], lat: float, lon: float) -> bool:
     return hit
 
 
+# A warning's areas as the Kartta view draws them (`shapes`): FMI's polygons, thousands of
+# points per warning, simplified to about half a kilometre and rounded to about a hundred
+# metres — finer than the map shows a region, and small enough to send every ten minutes.
+_SHAPE_TOLERANCE_DEG = 0.005
+_SHAPE_DECIMALS = 3
+
+
+def _simplify(points: list[tuple[float, float]], tolerance: float) -> list[tuple[float, float]]:
+    '''
+    Douglas-Peucker: drops every point that lies within `tolerance` of the line its kept
+    neighbours draw. Longitude is scaled by the cosine of latitude, so the tolerance is the
+    same distance east-west as north-south.
+    Arguments:
+        points (list[tuple[float, float]]): A ring or line as (lat, lon).
+        tolerance (float): The largest deviation dropped, in degrees of latitude.
+    '''
+    if len(points) < 3:
+        return list(points)
+    scale = math.cos(math.radians(points[0][0]))
+    xy = [(lon * scale, lat) for lat, lon in points]
+    keep = [False] * len(points)
+    keep[0] = keep[-1] = True
+    stack = [(0, len(points) - 1)]
+    while stack:
+        first, last = stack.pop()
+        (x1, y1), (x2, y2) = xy[first], xy[last]
+        dx, dy = x2 - x1, y2 - y1
+        length = math.hypot(dx, dy)
+        farthest, index = 0.0, -1
+        for i in range(first + 1, last):
+            x, y = xy[i]
+            # From the chord, or from its end when the chord is a point (a closed ring).
+            d = (abs(dy * x - dx * y + x2 * y1 - y2 * x1) / length if length
+                 else math.hypot(x - x1, y - y1))
+            if d > farthest:
+                farthest, index = d, i
+        if farthest > tolerance:
+            keep[index] = True
+            stack.append((first, index))
+            stack.append((index, last))
+    return [p for p, k in zip(points, keep) if k]
+
+
 def _utc(t: datetime) -> str:
     '''
     Formats an aware datetime as the UTC timestamp FMI's starttime takes.
@@ -427,6 +470,12 @@ class WeatherViewBuilder:
                 "expires": when(info.findtext(ns + "expires")),
                 "description": (info.findtext(ns + "description") or "").strip(),
                 "polygons": polygons,
+                "shapes": [
+                    [[round(lat, _SHAPE_DECIMALS), round(lon, _SHAPE_DECIMALS)]
+                     for lat, lon in ring]
+                    for ring in (_simplify(p, _SHAPE_TOLERANCE_DEG) for _, p in polygons)
+                    if len(ring) > 3
+                ],
             })
         return warnings
 
@@ -435,7 +484,8 @@ class WeatherViewBuilder:
         '''
         The warnings as sent: each with the areas that cover the place (`hereAreas`; the
         headline names the warning's whole region, which can lead with one far away) and
-        whether any does, and without the polygons, which only that test needs.
+        whether any does, and without the full polygons, which only that test needs — the
+        map draws the simplified `shapes`.
         Arguments:
             warnings (list[dict]): Parsed warnings, polygons included.
             lat (float): The place's latitude.

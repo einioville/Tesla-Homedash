@@ -566,6 +566,14 @@
                             "apply": "live"
                         },
                         {
+                            "key": "mapLayerWarnings",
+                            "type": "bool",
+                            "label": "Säävaroitukset",
+                            "hidden": true,
+                            "default": true,
+                            "apply": "live"
+                        },
+                        {
                             "key": "mapLayerPlaces",
                             "type": "bool",
                             "label": "Paikannimet",

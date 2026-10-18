@@ -21,8 +21,15 @@ Rectangle {
     readonly property bool showRadar: Settings.values.mapLayerRadar === true
     readonly property bool showRoute: Settings.values.mapLayerRoute === true
     readonly property bool showPlaces: Settings.values.mapLayerPlaces === true
+    readonly property bool showWarnings: Settings.values.mapLayerWarnings === true
+    readonly property var warnings: (Weather.view.warnings || []).filter(w => (w.shapes || []).length > 0)
 
-    onIsCurrentChanged: if (!isCurrent) layerMenu.open = false
+    onIsCurrentChanged: {
+        if (!isCurrent) {
+            layerMenu.open = false
+            warningsPopup.close()
+        }
+    }
 
     Binding {
         target: CurrentDrive
@@ -36,6 +43,7 @@ Rectangle {
         roundedCorners: false
         isCurrent: view.isCurrent
         showRadar: view.showRadar
+        showWarnings: view.showWarnings
         showRoute: view.showRoute
         showPlaceNames: view.showPlaces
     }
@@ -64,6 +72,17 @@ Rectangle {
         backdrop: map
     }
 
+    WarningLegend {
+        anchors.left: parent.left
+        anchors.top: parent.top
+        anchors.margins: 20
+        visible: view.showWarnings && view.warnings.length > 0
+        active: view.isCurrent && visible
+        warnings: view.warnings
+        backdrop: map
+        onTapped: warningsPopup.open()
+    }
+
     // Over the layer button. The layer menu opens over both.
     MapZoomButtons {
         x: layerMenu.toggleButton.x + (layerMenu.toggleButton.width - width) / 2
@@ -75,5 +94,11 @@ Rectangle {
         id: layerMenu
         anchors.fill: parent
         backdrop: map
+    }
+
+    WeatherWarningsPopup {
+        id: warningsPopup
+        anchors.fill: parent
+        warnings: view.warnings
     }
 }
