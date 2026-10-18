@@ -59,7 +59,7 @@ void CurrentDrive::setWatched(bool watched) {
     m_watched = watched;
     emit watchedChanged();
     if (m_watched) {
-        updateActive();
+        updateState();
         request();
     } else {
         // Fixes are not followed while nobody looks; the next look asks again and
@@ -114,14 +114,24 @@ void CurrentDrive::clear() {
     emit pathChanged();
 }
 
-void CurrentDrive::updateActive() {
-    const bool active = m_backendDrive || !parked();
+void CurrentDrive::updateState() {
+    const bool live = m_backendLive || !parked();
+    // Leaving Park while the last trip is drawn starts the next drive.
+    if (live && m_showingLast) {
+        m_showingLast = false;
+        clear();
+    }
+    const bool active = live || m_showingLast;
     if (!active)
         clear();
-    if (m_watched && active)
+    if (m_watched && live)
         m_poll.start();
     else
         m_poll.stop();
+    if (live != m_live) {
+        m_live = live;
+        emit liveChanged();
+    }
     if (active != m_active) {
         m_active = active;
         emit activeChanged();
@@ -129,7 +139,7 @@ void CurrentDrive::updateActive() {
 }
 
 void CurrentDrive::onLocation() {
-    if (!m_watched || !m_active)
+    if (!m_watched || !m_live)
         return;
     const QGeoCoordinate fix = liveFix();
     if (!fix.isValid() || (m_head.isValid() && m_head.distanceTo(fix) < 0.5))
@@ -139,7 +149,7 @@ void CurrentDrive::onLocation() {
 }
 
 void CurrentDrive::onGear() {
-    updateActive();
+    updateState();
     if (m_watched)
         m_gearSettle.start();
 }
@@ -151,21 +161,25 @@ void CurrentDrive::onPacket(quint8 type, const QByteArray &payload) {
     stream.setByteOrder(QDataStream::BigEndian);
     QIODevice *device = stream.device();
 
-    // trip_id(8) + status(1) + count(4)
-    if (device->bytesAvailable() < 13) {
+    // trip_id(8) + live(1) + status(1) + count(4)
+    if (device->bytesAvailable() < 14) {
         logger.warning(QStringLiteral("Current-drive frame too short"));
         return;
     }
     qint64 tripId;
+    quint8 live;
     quint8 status;
     quint32 count;
-    stream >> tripId >> status >> count;
+    stream >> tripId >> live >> status >> count;
 
-    m_backendDrive = tripId != 0;
-    if (!m_backendDrive) {
-        // Parked: the drive is over, and updateActive clears it. Out of Park: a drive too
-        // short for the backend's minimum distance, whose live fixes are all there is.
-        updateActive();
+    m_backendLive = tripId != 0 && live;
+    if (tripId == 0 || (!live && !parked())) {
+        // No trip in a week: parked, updateState clears the path. Out of Park with the
+        // backend's newest trip finished: a drive whose gear it has not logged yet, whose
+        // live fixes are all there is.
+        if (tripId == 0)
+            m_showingLast = false;
+        updateState();
         return;
     }
 
@@ -188,11 +202,23 @@ void CurrentDrive::onPacket(quint8 type, const QByteArray &payload) {
             addFix(QGeoCoordinate(lat, lon), speed);
         }
     }
-    // The car may have moved on since the backend read its log.
-    const QGeoCoordinate fix = liveFix();
-    if (fix.isValid() && (!m_head.isValid() || m_head.distanceTo(fix) >= kMinStepM))
-        addFix(fix, m_tesla->vehicleSpeed());
-    updateActive();
+    if (live) {
+        // The car may have moved on since the backend read its log.
+        const QGeoCoordinate fix = liveFix();
+        if (fix.isValid() && (!m_head.isValid() || m_head.distanceTo(fix) >= kMinStepM))
+            addFix(fix, m_tesla->vehicleSpeed());
+        m_showingLast = false;
+    } else {
+        // A finished trip: no tail runs on from its last fix, so that fix joins the path.
+        if (m_head.isValid()) {
+            m_path.append(m_head);
+            m_speeds.append(m_headSpeed);
+            m_head = QGeoCoordinate();
+        }
+        m_showingLast = true;
+    }
+    updateState();
     emit pathChanged();
-    logger.debug(QStringLiteral("Current drive | id=%1 points=%2").arg(tripId).arg(m_path.size()));
+    logger.debug(QStringLiteral("Current drive | id=%1 live=%2 points=%3")
+                     .arg(tripId).arg(live).arg(m_path.size()));
 }

@@ -498,7 +498,8 @@ Item {
         }
 
         // The drive so far, coloured by speed, and on from its last fix to the car arrow as
-        // it eases toward the newest: the line grows behind the car, never ahead of it.
+        // it eases toward the newest: the line grows behind the car, never ahead of it. While
+        // parked, the last trip, whole.
         Loader {
             anchors.fill: parent
             z: 2
@@ -509,7 +510,7 @@ Item {
         }
         MapPolyline {
             z: 2
-            visible: root.showRoute && CurrentDrive.active && CurrentDrive.tailStart.isValid
+            visible: root.showRoute && CurrentDrive.live && CurrentDrive.tailStart.isValid
             path: visible ? [CurrentDrive.tailStart, QtPositioning.coordinate(root.latitude, root.longitude)]
                           : []
             line.width: Theme.mapDriveRouteWidth

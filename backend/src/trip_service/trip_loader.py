@@ -66,9 +66,11 @@ class TripLoader:
     '''
 
     GEAR_ID = "Gear"
-    # How far back current_trip looks for the drive under way. A drive that started
-    # earlier is cut at this boundary, and none lasts that long.
+    # How far back current_trip looks: a day first, which holds the drive under way (one
+    # that started earlier is cut at the boundary, and none lasts that long), then a week
+    # for the last trip of a car parked longer.
     CURRENT_LOOKBACK_MS = 24 * 60 * 60 * 1000
+    LAST_TRIP_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000
 
     def __init__(self, influx_handler, config):
         self.__influx = influx_handler
@@ -97,7 +99,8 @@ class TripLoader:
         )
 
     async def list_trips(
-        self, start_ms: int, end_ms: int, park_threshold_s: int | None = None
+        self, start_ms: int, end_ms: int, park_threshold_s: int | None = None,
+        min_distance_km: float | None = None,
     ) -> list:
         '''
         Returns the trips whose driving falls within [start_ms, end_ms], in
@@ -110,6 +113,8 @@ class TripLoader:
             park_threshold_s (int | None): Per-request override (seconds) for the Park
                 merge threshold; falls back to the configured min_stop_minutes when
                 None or non-positive.
+            min_distance_km (float | None): Per-request override for the shortest trip
+                kept; falls back to the configured min_trip_distance_km when None.
         Returns:
             list[Trip]: The detected trips (each computes its own summary on demand).
         '''
@@ -121,6 +126,7 @@ class TripLoader:
             if park_threshold_s and park_threshold_s > 0
             else self.__min_stop_ms
         )
+        minimum_km = self.__min_distance_km if min_distance_km is None else min_distance_km
 
         start_iso = to_flux_time(start_ms)
         end_iso = to_flux_time(end_ms)
@@ -155,10 +161,10 @@ class TripLoader:
             # Drop sub-threshold shuffles (e.g. moving the car in the driveway). Keep a
             # trip whose distance can't be computed (NaN) rather than silently losing a
             # real trip on a data gap.
-            if not math.isnan(distance) and distance < self.__min_distance_km:
+            if not math.isnan(distance) and distance < minimum_km:
                 logger.debug(
                     "Discarding sub-threshold trip (%.3f km < %.3f km): start=%s",
-                    distance, self.__min_distance_km, window_start,
+                    distance, minimum_km, window_start,
                 )
                 continue
             trip = Trip(self.__influx, window_start, window_end, in_progress)
@@ -170,24 +176,33 @@ class TripLoader:
         )
         return trips
 
-    async def current_trip(self, now_ms: int) -> Trip | None:
+    async def current_trip(self, now_ms: int) -> tuple[Trip | None, bool]:
         '''
-        Returns the drive under way, by the same detection as list_trips: the last trip
-        of the past CURRENT_LOOKBACK_MS, if the car is still driving or has been parked
-        for less than the Park merge threshold (a stop that short would still be merged
-        into it). A drive too short to pass min_trip_distance_km is not one yet.
+        Returns the drive under way, or the last trip when the car is parked, by the same
+        detection as list_trips. The newest trip is under way while the car is still
+        driving or has been parked for less than the Park merge threshold (a stop that
+        short would still be merged into it), and counts from the moment the car left
+        Park — no minimum distance, so a map draws it from the first metres. A finished
+        trip must pass min_trip_distance_km, so moving the car in the driveway does not
+        stand in for the last real trip.
         Arguments:
             now_ms (int): The present moment, epoch-ms UTC.
         Returns:
-            Trip | None: The drive, its end the window end, or None when parked.
+            tuple[Trip | None, bool]: The trip and whether it is under way; (None, False)
+                when the car has made no trip in a week.
         '''
-        trips = await self.list_trips(now_ms - self.CURRENT_LOOKBACK_MS, now_ms)
-        if not trips:
-            return None
-        last = trips[-1]
-        if last.in_progress or now_ms - last.end_ms < self.__min_stop_ms:
-            return last
-        return None
+        for lookback in (self.CURRENT_LOOKBACK_MS, self.LAST_TRIP_LOOKBACK_MS):
+            trips = await self.list_trips(now_ms - lookback, now_ms, min_distance_km=0.0)
+            if not trips:
+                continue
+            last = trips[-1]
+            if last.in_progress or now_ms - last.end_ms < self.__min_stop_ms:
+                return last, True
+            for trip in reversed(trips):
+                distance = await trip.distance_km()
+                if math.isnan(distance) or distance >= self.__min_distance_km:
+                    return trip, False
+        return None, False
 
     async def load_route(self, start_ms: int, end_ms: int) -> list:
         '''

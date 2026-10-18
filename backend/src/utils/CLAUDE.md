@@ -140,9 +140,11 @@ with inbound messages capped at `MAX_PREAUTH_MSG_SIZE` (4 KB) — `../auth_servi
 
 (Trip codes `0x74`–`0x7F` — the Trips view, and `TRIP_GET_CURRENT`/`TRIP_CURRENT` for the Kartta
 view's route layer — are omitted from this table; they mirror the History request/response shape and
-their layouts are in `protocol.py`. `TRIP_CURRENT` is `TRIP_DETAIL`'s body for the drive under way,
-trip id 0 when there is none: `TripLoader.current_trip`, the last trip of the past day unless the car
-has been parked longer than `min_stop_minutes`.)
+their layouts are in `protocol.py`. `TRIP_CURRENT` carries the maps' route: the drive under way up to
+now (`live` 1) or, once the car has been parked longer than `min_stop_minutes`, the last trip whole,
+trip id 0 when there is none in a week — `TripLoader.current_trip`. A drive counts from the first
+metres; a finished trip only past `min_trip_distance_km`, so a driveway shuffle does not stand in
+for the last real trip.)
 
 The `0x70`–`0x73` pair is **request/response** (the History view): the backend replies to the
 requesting client only (`send_to`), never a broadcast, and `TESLA_HISTORY` echoes the requested id so

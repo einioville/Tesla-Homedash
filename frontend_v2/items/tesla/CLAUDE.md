@@ -122,12 +122,14 @@ the menu sits in its map's corner, full-screen or the card. `TeslaMap`'s `show*`
   follows the car, so it fetches a 25 % margin round the view, no finer than 150 m a pixel
   (the composite's cells are about 500 m) and at most 1024 px a side — all thirteen frames stay
   decoded, so the size is the memory.
-- **Ajettu reitti** — the drive under way, from `CurrentDrive` (`core/trip/currentdrive.hh`),
+- **Ajettu reitti** — the drive under way, or while the car is parked the last trip, whole (no
+  tail), from `CurrentDrive` (`core/trip/currentdrive.hh`),
   which asks the backend only while a map on screen draws it — each `TeslaMap` holds it with
   `retain()` / `release()`, since the dashboard's and the Kartta view's overlap while one view is
-  built and the other left. The backend's `TRIP_GET_CURRENT` finds it with the Trips view's own detection (the last trip of the
-  past day, unless parked longer than `min_stop_minutes`), and each live fix is added to it with the
-  speed of the moment. It is **coloured by speed on the Trips map's scale** (`Theme.speedColor`)
+  built and the other left. The backend's `TRIP_GET_CURRENT` finds it with the Trips view's own
+  detection, a drive counting from the first metres (no minimum distance), and each live fix is
+  added to a drive with the speed of the moment; the car leaving Park clears the last trip for
+  the next drive. It is **coloured by speed on the Trips map's scale** (`Theme.speedColor`)
   and drawn in two parts: `path`, which ends at the fix before the newest, and a two-point
   `MapPolyline` tail from there to the car arrow's eased position, in the current speed's colour.
   The arrow takes a second to glide to each new fix, so a line through the newest fix would run
