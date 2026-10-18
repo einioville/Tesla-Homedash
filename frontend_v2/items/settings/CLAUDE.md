@@ -189,6 +189,19 @@ and `graphRenderMargin` (*Pieni* … *Erittäin suuri* → a margin fraction) �
 `mapGestureSensitivity`, which shares the graph's sensitivity table (`Theme.gestureSensitivityLevels`),
 and its warp-mode `mapWarpDeadzone` / `mapWarpLead` (→ fractions of the map's shorter side).
 
+**`type: "location"` is an object edited in a dialog of its own.** The backend's `home` (*Yleinen ›
+Sijainti › Koti*) is `{address, lat, lon, timeZone}`; its row is `SettingAction`'s button
+(`actionLabel` *Muuta*, `confirm: false`), which `SettingsView` routes to `HomeLocationPopup.qml`,
+and `HomeLocationDetails.qml` (`details: "homeLocation"`) shows the address, the coordinates and the
+zone — with a line in the warning colour when that zone is not the running backend's
+(`runtime.zoneInEffect`; `backend/src/config_service/CLAUDE.md`, *Location and timezone*). The
+dialog finds the home by address through `Geocoder` (`../../core/CLAUDE.md`) — on *Hae* or Enter,
+never per keystroke, Nominatim's rule — or by a tap on its map, whose address is looked up the same
+way; *Tallenna* asks FMI for the point's zone and writes the whole object with `Settings.setValue`.
+It is hung from the top so the field and the hits stay above the keyboard, and Enter closes the
+keyboard so the map shows. The map is a plain `Map` on the app's imagery (`App.mapTilesUrl`) with
+pan, pinch, wheel and tap handlers of its own: a picker shares nothing else with the car's map.
+
 **`type: "action"` is a button, not a value.** `SettingAction.qml` renders it and calls
 `Settings::invokeAction(key)`; nothing is stored, persisted or sent as `CONFIG_SET`. Keeping
 actions in the schema is what lets the *Ylläpito* section — **restart the dashboard**,
@@ -260,8 +273,8 @@ wording: the row's badge and the restart banner already say it.
 
 **The restart badge names the half that restarts**: *sovelluksen uudelleenkäynnistys* on a local
 restart-tier row (read once by `AppConfig` — today the backend address and port), *palvelimen
-uudelleenkäynnistys* on a backend one (read once by a backend service — `timeZone`,
-`spotPrice.enabled`, a hook setting whose service is absent). `SettingRow` picks it from the
+uudelleenkäynnistys* on a backend one (read once by a backend service — `spotPrice.enabled`,
+`server.reachability`, a hook setting whose service is absent). `SettingRow` picks it from the
 entry's `origin`. They are two separate restarts with separate banner buttons, so a bare
 *uudelleenkäynnistys* left the user guessing which one to press.
 

@@ -121,6 +121,23 @@ socket and flushes cleanly, and unlike the backend there is no journal-traceback
 avoid. On the embedded target this is the ONLY way to restart the dashboard — it runs
 fullscreen with no keyboard — which is also why no bare "quit" is offered.
 
+**A JS object written from QML arrives as a `QJSValue`** inside `setValue`'s `QVariant`, which
+`QJsonValue::fromVariant` would turn into null — the home location's write would clear it.
+`setValue` converts it to a `QVariantMap` first.
+
+## `Geocoder` — `map/geocoder.{hh,cpp}`
+
+Address search and lookup for the Options view's *Koti* dialog (`../items/settings/CLAUDE.md`):
+`search(query)` fills `results` (`{address, lat, lon}`, one per distinct address — Nominatim answers
+the building, its entrance and a shop in it separately), `reverse(lat, lon)` answers `addressFound`,
+`lookupZone(lat, lon)` answers `zoneFound` with FMI's `tz` for the point (`""` when it could not
+say). It is C++ because **Nominatim's usage policy wants a User-Agent naming the application**,
+which QML's `XMLHttpRequest` may not set, and **at most one request a second**: a request waits for
+its turn, and a newer one replaces any still waiting (`m_generation` drops a reply nobody wants any
+more). Searches are limited to Finland (`countrycodes=fi`), where the weather and the road cameras
+are, and the addresses are short — street and number, postcode and town — with the place's own
+name only where there is no street. The zone comes from FMI, not Nominatim, which has none.
+
 ## `Probe` — `connectionprobe.{hh,cpp}`
 
 **Backend reachability** (issue #36) is `core/connectionprobe.{hh,cpp}`, the QML singleton

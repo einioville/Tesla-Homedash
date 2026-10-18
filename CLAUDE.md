@@ -501,7 +501,12 @@ coloured by speed (a `GeoFrame` Shape carried with the map), FMI's warnings as a
 document's simplified `shapes`), Fintraffic's road cameras with their pictures and road weather,
 the radar timeline upright on the left with a 15-minute loop, and zoom buttons that set the default
 zoom (on the dashboard's map shown on a touch); and every UI icon from the Dazzle Line set, text
-glyphs included (`frontend_v2/CLAUDE.md`, *Icons*).
+glyphs included (`frontend_v2/CLAUDE.md`, *Icons*); then the road camera dialog centred on frosted
+glass with the maps still under any dialog (`TeslaMap.interactive`), Kartta's outside temperature
+from FMI an hour into the car's sleep (`Tesla.asleepSince`), the Weather view's *Kelikamerat* button
+on the cameras nearest the place, and the home location — *Yleinen › Sijainti › Koti*, an address or
+a point on a map (`Geocoder`, Nominatim) — that the weather and the timezone follow, in place of the
+place and timezone rows.
 When you land a change that touches documented behaviour, update this line.
 
 ### 7.8 Keeping the code clean

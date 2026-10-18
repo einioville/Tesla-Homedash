@@ -6,6 +6,7 @@
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QJSValue>
 #include <QJsonValue>
 #include <QSaveFile>
 #include <QStandardPaths>
@@ -614,10 +615,18 @@ void Settings::setValue(const QString &key, const QVariant &value) {
         emit writeFailed(key, QStringLiteral("Ei yhteyttä palvelimeen"));
         return;
     }
+    // A JS object from QML (the home location) arrives as a QJSValue, which
+    // QJsonValue::fromVariant would turn into null.
+    const QJsonValue json = QJsonValue::fromVariant(
+        value.metaType() == QMetaType::fromType<QJSValue>() ? value.value<QJSValue>().toVariant()
+                                                            : value);
     QJsonObject request;
     request.insert(QStringLiteral("key"), key);
-    request.insert(QStringLiteral("value"), QJsonValue::fromVariant(value));
-    logger.info(QStringLiteral("CONFIG_SET %1 = %2").arg(key, value.toString()));
+    request.insert(QStringLiteral("value"), json);
+    logger.info(QStringLiteral("CONFIG_SET %1 = %2")
+                    .arg(key, QString::fromUtf8(QJsonDocument(QJsonArray{json})
+                                                    .toJson(QJsonDocument::Compact))
+                                  .mid(1).chopped(1)));
     m_server->sendPacket(
         protocol::frame(protocol::CONFIG_SET, protocol::jsonRequestBody(request)));
 }

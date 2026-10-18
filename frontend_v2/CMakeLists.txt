@@ -96,6 +96,8 @@ qt_add_executable(appfrontend_v2
     core/trip/currentdrive.cpp
     core/map/placenames.hh
     core/map/placenames.cpp
+    core/map/geocoder.hh
+    core/map/geocoder.cpp
     core/charging/chargingdata.hh
     core/charging/chargingdata.cpp
     core/media/mediaimagecache.hh
@@ -164,6 +166,8 @@ qt_add_qml_module(appfrontend_v2
         items/settings/UsbImportPopup.qml
         items/settings/SpotifyButton.qml
         items/settings/DialogButton.qml
+        items/settings/HomeLocationDetails.qml
+        items/settings/HomeLocationPopup.qml
         items/settings/ModalDialog.qml
         items/settings/SpotifyAuthAlert.qml
         items/settings/BackendLoginPrompt.qml

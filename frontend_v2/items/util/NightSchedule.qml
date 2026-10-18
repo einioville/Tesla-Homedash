@@ -11,8 +11,8 @@ import frontend_v2
 // update inhibit, the wlopm fault handling. Nothing here talks to the backend or
 // to the panel.
 //
-// The clock is the FRONTEND's local time, which on the target is the same host
-// as the backend's timeZone setting.
+// The clock is the FRONTEND's local time, the host's zone — the backend's too
+// unless its home (Yleinen › Sijainti) lies in another zone.
 Item {
     id: root
     visible: false

@@ -6,11 +6,11 @@ schema to every new client (`register_service`). `SETTINGS_SCHEMA` is a literal 
 subsection `id` / `label` / optional `help`. **Group ids are shared with the frontend's own
 bundled schema and a group present in both halves MERGES into one sidebar section** — which is
 how `general` shows the frontend's screensaver card beside this file's location card. Every
-setting declares `key` (dotted), `type` (`bool|int|float|string|enum`), Finnish
+setting declares `key` (dotted), `type` (`bool|int|float|string|enum|location`), Finnish
 `label`/`help`, `unit`, numeric `min`/`max`/`step`, `nullable`, `options` (or the string
 `"dynamic"`, resolved at schema-build time by the provider the owning service registered with
-`register_options` — `audio.outputDevice`'s choices are the host's sinks; `timeZone`'s, which this
-service registers itself, are covered under *Timezone* below), an optional `validator` name, and its **apply tier**. It is both the
+`register_options` — `audio.outputDevice`'s choices are the host's sinks), an optional `validator`
+name, and its **apply tier**. It is both the
 write allow-list and the frontend's UI description, so adding a tunable is one entry here and
 **no frontend change at all**.
 
@@ -27,8 +27,8 @@ write allow-list and the frontend's UI description, so adding a tunable is one e
 >   `_media()` (the manager's own `media` block), `AudioService`, and `AuthService` (`auth`, the login
 >   lifetime — `../auth_service/CLAUDE.md`). `SpotPriceProvider` needs no cache flush — it caches *raw* prices and
 >   applies VAT/margin on read.
-> - **`restart`** — the value builds something that cannot be rebuilt in place: `timeZone`
->   (APScheduler cron jobs), `spotPrice.enabled` (whether `SpotPriceService` has a run task at
+> - **`restart`** — the value builds something that cannot be rebuilt in place:
+>   `spotPrice.enabled` (whether `SpotPriceService` has a run task at
 >   all), `server.reachability` (the address the server is bound to). `myenergi.zappiSerial` (the Zappi resolved at connect) would be one too, but it is
 >   `config.json`-only and not in the schema, like `spotPrice.baseUrl`.
 >
@@ -58,17 +58,21 @@ rather than `raise SystemExit`: asyncio does not store SystemExit on a task, it 
 through the runner's teardown and prints a full traceback plus *"Task exception was never
 retrieved"* — misleading noise in the journal for an intentional restart.
 
-**Timezone.** `timeZone` is an enum: `"auto"` (the default, and what an absent key means) follows
-the host's own zone through `tzlocal` (`utils/config_parser.system_timezone_name`, UTC when the host
-names none), then `UTC`, then every zone in the tz database's continent/ocean areas, each labelled
-with its offset *today* ("Europe/Helsinki (UTC+3)"). Legacy aliases and `Etc/GMT±N` are left out,
-since the latter's sign is inverted from what its name says. A value outside the list that is
-already in `config.json` is added so its row still shows it. The zones are cached, because
-`available_timezones()` opens every zoneinfo file and the schema is rebuilt on every connect and write.
+**Location and timezone.** *Yleinen › Sijainti* holds one setting, `home`, of type `location`:
+`{address, lat, lon, timeZone}`, written whole by the frontend's *Koti* dialog (address search or a
+point on a map; `frontend_v2/items/settings/CLAUDE.md`) and checked by `_validate_location`. It is
+`hook`-tier for the weather, which moves to the coordinates at once. The zone is the other half:
+`timeZone` has no row: `"auto"` (absent, the default) follows the home's zone, else the
+host's (`utils/config_parser.resolve_timezone`), and a named zone stays a `config.json`-only
+override. The schedulers are built once, so a home in another zone takes effect on the next start;
+the entry's `runtime` (`zoneInEffect`, the zone this process started in, and `zoneNext`) lets the row
+say so. That is the one place the zone can change from the Options view, and an edge case — every
+Finnish home is in Europe/Helsinki — so it is a line under the row rather than a restart-tier setting.
 
-**Safety.** Validation happens before any write. The `timeZone` membership check is the important
-one: an unresolvable zone makes `Config.__init__` raise, and since `timeZone` is restart-tier that
-would be a restart *loop*. A failed `save()` rolls the in-memory value back so services and disk never
+**Safety.** Validation happens before any write. The home's zone check is the important one: an
+unresolvable zone would make `Config.__init__` raise on the next start — a restart *loop* — so
+`_validate_location` refuses one (and `resolve_timezone` passes a hand-edited bad one over for the
+host's, with a warning). A failed `save()` rolls the in-memory value back so services and disk never
 disagree. A hook that raises is logged and swallowed: the value is already saved, so failing the
 write there would leave the reply and the disk disagreeing. **Talks to:** `Config` (set/save),
 `Server` (send_to/broadcast), every hooked service.

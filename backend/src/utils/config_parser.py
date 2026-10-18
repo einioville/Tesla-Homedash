@@ -53,17 +53,36 @@ def system_timezone_name() -> str:
     return "UTC"
 
 
-def resolve_timezone(value: str) -> ZoneInfo:
+def resolve_timezone(value: str, home_zone: str | None = None) -> ZoneInfo:
     '''
     Builds the ZoneInfo a timeZone setting stands for.  Raises
     ZoneInfoNotFoundError / ValueError for a named zone that does not resolve.
     Arguments:
-        value (str): "auto" for the host's own zone, else an IANA name such as
-            "Europe/Helsinki".
+        value (str): "auto" for the home's zone (or the host's own without one),
+            else an IANA name such as "Europe/Helsinki".
+        home_zone (str | None): The home location's zone, which "auto" follows.
+            One that does not resolve is passed over for the host's, with a
+            warning: the dialog that set it checked it, so only a hand edit gets here.
     '''
-    if value == AUTO_TIMEZONE:
-        return ZoneInfo(system_timezone_name())
-    return ZoneInfo(value)
+    if value != AUTO_TIMEZONE:
+        return ZoneInfo(value)
+    if home_zone:
+        try:
+            return ZoneInfo(home_zone)
+        except (ZoneInfoNotFoundError, ValueError, TypeError) as e:
+            logger.warning("The home's timezone %r does not resolve (%s); using the host's",
+                           home_zone, e)
+    return ZoneInfo(system_timezone_name())
+
+
+def _home_zone(data: dict) -> str | None:
+    '''
+    The home location's zone from a config document, or None without one.
+    Arguments:
+        data (dict): The parsed config.json.
+    '''
+    home = data.get("home")
+    return home.get("timeZone") if isinstance(home, dict) else None
 
 
 def app_config_dir() -> str:
@@ -278,8 +297,8 @@ class Config:
 
     @property
     def timezone(self) -> str:
-        '''IANA name in effect (e.g. "Europe/Helsinki") — the host's own zone,
-        as detected at load, when timeZone is "auto".'''
+        '''IANA name in effect (e.g. "Europe/Helsinki") — when timeZone is
+        "auto", the home's zone, or without a home the host's own.'''
         return self.__zone_info.key
 
     @property
@@ -298,8 +317,31 @@ class Config:
         return self.__data["calculated tesla data"]
 
     @property
-    def weather_place(self) -> str:
-        return self.__data["weatherPlace"]
+    def home(self) -> dict | None:
+        '''
+        The home location set in the Options view — {address, lat, lon} and the
+        zone FMI gives it (timeZone) — or None while there is none.
+        '''
+        home = self.__data.get("home")
+        return home if isinstance(home, dict) else None
+
+    @property
+    def weather_location(self) -> dict[str, str]:
+        '''
+        Where the weather is for, as FMI query arguments: the home's coordinates
+        ({"latlon": "61.44970,23.85860"}), or without a home the weatherPlace
+        name ({"place": "Tampere"}).
+        '''
+        home = self.home
+        if home:
+            return {"latlon": f"{home['lat']:.5f},{home['lon']:.5f}"}
+        return {"place": self.__data["weatherPlace"]}
+
+    @property
+    def weather_location_name(self) -> str:
+        '''The weather location in words: the home's address, else weatherPlace.'''
+        home = self.home
+        return home["address"] if home else self.__data["weatherPlace"]
 
     @property
     def radio_media_ids(self) -> dict:
@@ -457,7 +499,7 @@ class Config:
         # rather than a missing value.
         data.setdefault("timeZone", AUTO_TIMEZONE)
         try:
-            zone_info = resolve_timezone(data["timeZone"])
+            zone_info = resolve_timezone(data["timeZone"], _home_zone(data))
         except (ZoneInfoNotFoundError, ValueError) as e:
             raise ValueError(
                 f"Invalid timeZone in config: {data['timeZone']!r}"
@@ -493,12 +535,12 @@ class Config:
             target = existing
         target[parts[-1]] = value
 
-        # timeZone is the one key with a derived cached value.  Rebuild it so a
-        # live change is consistent even though the APScheduler cron jobs built
-        # from it only pick the new zone up on the next process start (which is
-        # why the schema marks timeZone as a restart-tier setting).
-        if key_path == "timeZone":
-            self.__zone_info = resolve_timezone(value)
+        # The zone in effect is derived from timeZone and, for "auto", the home's
+        # zone.  Rebuild it so a live change is consistent even though the
+        # APScheduler cron jobs built from it only pick the new zone up on the
+        # next process start (the Koti row says so when the zone changes).
+        if key_path in ("timeZone", "home"):
+            self.__zone_info = resolve_timezone(self.__data["timeZone"], _home_zone(self.__data))
 
     def save(self) -> None:
         '''
