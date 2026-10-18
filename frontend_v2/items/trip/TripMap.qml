@@ -29,7 +29,6 @@ Item {
     clip: true
 
     property bool isCurrent: true
-    property real maxSpeedKmh: Theme.tripMaxSpeedKmh
     property real lineWidth: Theme.tripRouteWidth
     property real defaultZoom: 12
 
@@ -300,16 +299,6 @@ Item {
             followAnim.stop()
     }
 
-    // Dark green (0 km/h) -> red / dark red (maxSpeedKmh). Hue sweeps 120deg->0deg;
-    // the value dips toward the top so the fast end reads as a darker red. Speeds
-    // above the max clamp to the top colour.
-    function colorForSpeed(kmh) {
-        var t = Math.max(0, Math.min(1, kmh / root.maxSpeedKmh))
-        var hue = 0.333 * (1 - t)      // 120deg green -> 0deg red (Qt.hsva hue is 0..1)
-        var val = 0.72 - 0.18 * t      // dark-ish green -> dark red
-        return Qt.hsva(hue, 1.0, val, 1.0)
-    }
-
     // Rebuild the decimated survivor list for the current zoom. Spacing target is
     // ~4 px, converted to metres via the Web-Mercator metres-per-pixel at the current
     // zoom/latitude, and applied as an equirectangular distance in geo space — so no
@@ -486,7 +475,7 @@ Item {
             // Coloured, one stroke per segment (mean speed of its two endpoints).
             ctx.lineWidth = root.lineWidth
             for (k = 1; k < run.length; ++k) {
-                ctx.strokeStyle = root.colorForSpeed((run[k - 1].speed + run[k].speed) * 0.5)
+                ctx.strokeStyle = Theme.speedColor((run[k - 1].speed + run[k].speed) * 0.5)
                 ctx.beginPath()
                 ctx.moveTo(run[k - 1].x, run[k - 1].y)
                 ctx.lineTo(run[k].x, run[k].y)

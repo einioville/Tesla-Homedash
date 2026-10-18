@@ -78,22 +78,27 @@ QGeoCoordinate CurrentDrive::liveFix() const {
     return QGeoCoordinate(lat.toDouble(), lon.toDouble());
 }
 
-void CurrentDrive::addFix(const QGeoCoordinate &fix) {
+void CurrentDrive::addFix(const QGeoCoordinate &fix, qreal speed) {
     if (!fix.isValid())
         return;
     if (m_head.isValid()) {
         const QGeoCoordinate &anchor = m_path.isEmpty() ? m_head : m_path.last();
-        if (m_path.isEmpty() || anchor.distanceTo(m_head) >= kMinStepM)
+        if (m_path.isEmpty() || anchor.distanceTo(m_head) >= kMinStepM) {
             m_path.append(m_head);
+            m_speeds.append(m_headSpeed);
+        }
     }
     m_head = fix;
+    m_headSpeed = speed;
 }
 
 void CurrentDrive::clear() {
     if (m_path.isEmpty() && !m_head.isValid())
         return;
     m_path.clear();
+    m_speeds.clear();
     m_head = QGeoCoordinate();
+    ++m_generation;
     emit pathChanged();
 }
 
@@ -117,7 +122,7 @@ void CurrentDrive::onLocation() {
     const QGeoCoordinate fix = liveFix();
     if (!fix.isValid() || (m_head.isValid() && m_head.distanceTo(fix) < 0.5))
         return;
-    addFix(fix);
+    addFix(fix, m_tesla->vehicleSpeed());
     emit pathChanged();
 }
 
@@ -153,7 +158,9 @@ void CurrentDrive::onPacket(quint8 type, const QByteArray &payload) {
     }
 
     m_path.clear();
+    m_speeds.clear();
     m_head = QGeoCoordinate();
+    ++m_generation;
     if (status == 1) {
         for (quint32 i = 0; i < count; ++i) {
             // ts(8) + lat(8) + lon(8) + speed(8) = 32 bytes per point.
@@ -166,13 +173,13 @@ void CurrentDrive::onPacket(quint8 type, const QByteArray &payload) {
             double lon;
             double speed;
             stream >> ts >> lat >> lon >> speed;
-            addFix(QGeoCoordinate(lat, lon));
+            addFix(QGeoCoordinate(lat, lon), speed);
         }
     }
     // The car may have moved on since the backend read its log.
     const QGeoCoordinate fix = liveFix();
     if (fix.isValid() && (!m_head.isValid() || m_head.distanceTo(fix) >= kMinStepM))
-        addFix(fix);
+        addFix(fix, m_tesla->vehicleSpeed());
     updateActive();
     emit pathChanged();
     logger.debug(QStringLiteral("Current drive | id=%1 points=%2").arg(tripId).arg(m_path.size()));

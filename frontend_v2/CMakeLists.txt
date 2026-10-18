@@ -216,6 +216,7 @@ qt_add_qml_module(appfrontend_v2
         items/tesla/MapLayerMenu.qml
         items/tesla/MapLiveStats.qml
         items/tesla/MapZoomButtons.qml
+        items/tesla/DriveRoute.qml
         items/media/MediaPlayerCard.qml
         items/media/MediaBackdrop.qml
         items/media/MediaSpectrum.qml

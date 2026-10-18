@@ -121,13 +121,19 @@ outlasts a restart without a row in the Options view. The dashboard's card shows
   decoded, so the size is the memory.
 - **Ajettu reitti** — the drive under way, from `CurrentDrive` (`core/trip/currentdrive.hh`): the
   backend's `TRIP_GET_CURRENT` finds it with the Trips view's own detection (the last trip of the
-  past day, unless parked longer than `min_stop_minutes`), and each live fix is added to it. It is
-  **drawn as two `MapPolyline`s**: `path`, which ends at the fix before the newest, and a two-point
-  tail from there to the car arrow's eased position. The arrow takes a second to glide to each new
-  fix, so a single line through the newest fix would run ahead of the car. A `MapPolyline` is
-  rebuilt (projected, clipped to the view, triangulated) on every camera change
-  (`QDeclarativePolylineMapItemPrivateCPU::afterViewportChanged`), which is why the tail — the part
-  that changes every frame — is its own two-point line.
+  past day, unless parked longer than `min_stop_minutes`), and each live fix is added to it with the
+  speed of the moment. It is **coloured by speed on the Trips map's scale** (`Theme.speedColor`)
+  and drawn in two parts: `path`, which ends at the fix before the newest, and a two-point
+  `MapPolyline` tail from there to the car arrow's eased position, in the current speed's colour.
+  The arrow takes a second to glide to each new fix, so a line through the newest fix would run
+  ahead of the car. **`path` is not a `MapPolyline`**: one is rebuilt (projected, clipped to the
+  view, triangulated) on every camera change
+  (`QDeclarativePolylineMapItemPrivateCPU::afterViewportChanged`), which a following map makes
+  every frame, and colouring would take a line per speed band. `DriveRoute.qml` is one `Shape` in
+  EPSG:3857 metres from the first fix — a `ShapePath` per 15 km/h band holding that band's runs —
+  moved, scaled and turned with the map, so a frame costs one projection and the paths are
+  rebuilt only when the zoom changes the stroke width or a fix arrives. A fix extends the runs of
+  its band only; a reply that replaces the path (`CurrentDrive.generation`) starts them over.
 - **Paikannimet** — `PlaceLabels.qml` over the `PlaceNames` store (below), issue #54's first step.
 
 **Zoom buttons** — `MapZoomButtons.qml`, + over − on a glass pill: over the layer button on Kartta,

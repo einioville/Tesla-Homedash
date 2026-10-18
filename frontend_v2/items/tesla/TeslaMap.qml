@@ -477,14 +477,15 @@ Item {
             }
         }
 
-        // The drive so far, and on from its last fix to the car arrow as it eases toward
-        // the newest: the line grows behind the car, never ahead of it.
-        MapPolyline {
+        // The drive so far, coloured by speed, and on from its last fix to the car arrow as
+        // it eases toward the newest: the line grows behind the car, never ahead of it.
+        Loader {
+            anchors.fill: parent
             z: 2
-            visible: root.showRoute && CurrentDrive.active
-            path: CurrentDrive.path
-            line.width: Theme.mapDriveRouteWidth
-            line.color: Theme.mapDriveRoute
+            active: root.showRoute && CurrentDrive.active
+            sourceComponent: DriveRoute {
+                geoMap: map
+            }
         }
         MapPolyline {
             z: 2
@@ -492,7 +493,7 @@ Item {
             path: visible ? [CurrentDrive.tailStart, QtPositioning.coordinate(root.latitude, root.longitude)]
                           : []
             line.width: Theme.mapDriveRouteWidth
-            line.color: Theme.mapDriveRoute
+            line.color: Theme.speedColor(Tesla.vehicleSpeed)
         }
 
         PlaceLabels {
