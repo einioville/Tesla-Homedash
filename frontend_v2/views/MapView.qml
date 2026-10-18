@@ -4,7 +4,7 @@ import frontend_v2
 // Full-screen map view (*Kartta*): the dashboard's TeslaMap blown up to fill the whole
 // surface, with layers switched from the menu in the bottom-right corner (MapLayerMenu): the
 // live data card in the bottom-left, the drive under way, OSM place names, and FMI's radar
-// with its timeline at the top. Corners are left square (roundedCorners: false) — the map IS
+// with its timeline upright on the left edge. Corners are left square (roundedCorners: false) — the map IS
 // the view, so there's no surrounding card for rounded corners to blend into.
 //
 // isCurrent is forwarded to the map so it freezes its follow animation + center
@@ -40,10 +40,13 @@ Rectangle {
         showPlaceNames: view.showPlaces
     }
 
+    // Over the live data card when it shows, in the corner otherwise.
     WeatherRadarControls {
-        anchors.horizontalCenter: parent.horizontalCenter
-        anchors.top: parent.top
-        anchors.topMargin: 20
+        anchors.left: parent.left
+        anchors.leftMargin: 20
+        anchors.bottom: stats.visible ? stats.top : parent.bottom
+        anchors.bottomMargin: stats.visible ? 12 : 20
+        vertical: true
         visible: map.radar !== null
         radar: map.radar
         backdrop: map
@@ -52,6 +55,7 @@ Rectangle {
     }
 
     MapLiveStats {
+        id: stats
         anchors.left: parent.left
         anchors.bottom: parent.bottom
         anchors.margins: 20

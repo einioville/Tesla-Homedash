@@ -2,7 +2,9 @@ import QtQuick
 import QtQuick.Shapes
 import frontend_v2
 
-// Play/pause, the frame's time and a scrub track for a RadarLayer.
+// Play/pause, the frame's time and a scrub track for a RadarLayer, laid out in a row (the
+// Weather card) or, `vertical`, in a column with the track running down from the oldest frame
+// to the newest (the Kartta view's left edge).
 // Frosted glass over the map behind it (the app's GlassPanel, as the notification pill has).
 GlassPanel {
     id: bar
@@ -10,25 +12,30 @@ GlassPanel {
     property Item radar: null
     // What the glass frosts: the map under the radar, a sibling of this bar.
     property Item backdrop: null
+    property bool vertical: false
 
-    implicitWidth: row.implicitWidth + 24
-    implicitHeight: 44
+    implicitWidth: layout.implicitWidth + 24
+    implicitHeight: layout.implicitHeight + (vertical ? 24 : 12)
     radius: 12
     backdropSource: bar.backdrop
     backdropOrigin: Qt.point(bar.x - (bar.backdrop ? bar.backdrop.x : 0), bar.y - (bar.backdrop ? bar.backdrop.y : 0))
     active: bar.radar ? bar.radar.active : false
 
-    Row {
-        id: row
+    Grid {
+        id: layout
         anchors.centerIn: parent
-        spacing: 12
+        flow: bar.vertical ? Grid.TopToBottom : Grid.LeftToRight
+        rows: bar.vertical ? -1 : 1
+        columns: bar.vertical ? 1 : -1
+        spacing: bar.vertical ? 10 : 12
+        horizontalItemAlignment: Grid.AlignHCenter
+        verticalItemAlignment: Grid.AlignVCenter
 
         Rectangle {
             width: 32
             height: 32
             radius: 16
             color: "#26ffffff"
-            anchors.verticalCenter: parent.verticalCenter
 
             TintedIcon {
                 anchors.centerIn: parent
@@ -43,8 +50,8 @@ GlassPanel {
         }
 
         Text {
-            anchors.verticalCenter: parent.verticalCenter
             width: 48
+            horizontalAlignment: Text.AlignHCenter
             text: bar.radar ? Qt.formatTime(bar.radar.frameTime, "HH:mm") : ""
             color: "white"
             font.family: Theme.fontFamily
@@ -54,39 +61,46 @@ GlassPanel {
         // Scrub track: one tick per frame, filled up to the shown one.
         Item {
             id: track
-            width: 200
-            height: 32
-            anchors.verticalCenter: parent.verticalCenter
+            readonly property int count: bar.radar ? bar.radar.frameCount : 0
+            readonly property real length: bar.vertical ? Math.max(48, count * 14) : 200
+            width: bar.vertical ? 32 : length
+            height: bar.vertical ? length : 32
 
-            Row {
-                anchors.verticalCenter: parent.verticalCenter
+            Grid {
+                anchors.centerIn: parent
+                rows: bar.vertical ? -1 : 1
+                columns: bar.vertical ? 1 : -1
                 spacing: 3
+                horizontalItemAlignment: Grid.AlignHCenter
+                verticalItemAlignment: Grid.AlignVCenter
                 Repeater {
-                    model: bar.radar ? bar.radar.frameCount : 0
+                    model: track.count
                     Rectangle {
                         required property int index
-                        width: (track.width - 3 * (bar.radar.frameCount - 1)) / bar.radar.frameCount
-                        height: index === bar.radar.frame ? 14 : 6
+                        readonly property real along: (track.length - 3 * (track.count - 1)) / track.count
+                        readonly property real across: index === bar.radar.frame ? 14 : 6
+                        width: bar.vertical ? across : along
+                        height: bar.vertical ? along : across
                         radius: 3
-                        anchors.verticalCenter: parent.verticalCenter
                         color: index <= bar.radar.frame ? "#4aa8ff" : "#40ffffff"
                     }
                 }
             }
             MouseArea {
                 anchors.fill: parent
-                function seek(x) {
+                function seek(position) {
                     var n = bar.radar.frameCount
                     bar.radar.playing = false
-                    bar.radar.frame = Math.max(0, Math.min(n - 1, Math.round(x / width * (n - 1))))
+                    bar.radar.frame = Math.max(0, Math.min(n - 1, Math.round(position / track.length * (n - 1))))
                 }
-                onPressed: (mouse) => seek(mouse.x)
-                onPositionChanged: (mouse) => seek(mouse.x)
+                onPressed: (mouse) => seek(bar.vertical ? mouse.y : mouse.x)
+                onPositionChanged: (mouse) => seek(bar.vertical ? mouse.y : mouse.x)
             }
         }
 
         Text {
-            anchors.verticalCenter: parent.verticalCenter
+            width: 52
+            horizontalAlignment: bar.vertical ? Text.AlignHCenter : Text.AlignLeft
             text: {
                 if (!bar.radar)
                     return ""
@@ -96,14 +110,12 @@ GlassPanel {
             color: "#b8c2cc"
             font.family: Theme.fontFamily
             font.pixelSize: 13
-            width: 52
         }
 
         // Lightning up to the shown frame, there whenever the loop has any, so the bar does
-        // not change width as the count climbs from zero.
+        // not change size as the count climbs from zero.
         Row {
             visible: bar.radar !== null && bar.radar.strikes.length > 0
-            anchors.verticalCenter: parent.verticalCenter
             spacing: 4
             // The map's strike mark: a yellow cross outlined in black.
             Shape {
@@ -138,25 +150,34 @@ GlassPanel {
             }
         }
 
-        // dBZ legend, FMI's palette from light to heavy.
-        Row {
-            anchors.verticalCenter: parent.verticalCenter
+        // dBZ legend, FMI's palette from light to heavy; upright, heavy is at the top.
+        Grid {
+            rows: bar.vertical ? -1 : 1
+            columns: bar.vertical ? 1 : -1
             spacing: 4
-            Text { text: qsTr("heikko"); color: "#b8c2cc"; font.pixelSize: 11; font.family: Theme.fontFamily }
+            horizontalItemAlignment: Grid.AlignHCenter
+            verticalItemAlignment: Grid.AlignVCenter
+
+            Text {
+                text: bar.vertical ? qsTr("voimakas") : qsTr("heikko")
+                color: "#b8c2cc"; font.pixelSize: 11; font.family: Theme.fontFamily
+            }
             Rectangle {
-                width: 70
-                height: 8
+                width: bar.vertical ? 8 : 70
+                height: bar.vertical ? 70 : 8
                 radius: 4
-                anchors.verticalCenter: parent.verticalCenter
                 gradient: Gradient {
-                    orientation: Gradient.Horizontal
-                    GradientStop { position: 0.0; color: "#7fe0ff" }
-                    GradientStop { position: 0.35; color: "#2fb35a" }
-                    GradientStop { position: 0.65; color: "#f2e23a" }
-                    GradientStop { position: 1.0; color: "#e0302a" }
+                    orientation: bar.vertical ? Gradient.Vertical : Gradient.Horizontal
+                    GradientStop { position: 0.0; color: bar.vertical ? "#e0302a" : "#7fe0ff" }
+                    GradientStop { position: 0.35; color: bar.vertical ? "#f2e23a" : "#2fb35a" }
+                    GradientStop { position: 0.65; color: bar.vertical ? "#2fb35a" : "#f2e23a" }
+                    GradientStop { position: 1.0; color: bar.vertical ? "#7fe0ff" : "#e0302a" }
                 }
             }
-            Text { text: qsTr("voimakas"); color: "#b8c2cc"; font.pixelSize: 11; font.family: Theme.fontFamily }
+            Text {
+                text: bar.vertical ? qsTr("heikko") : qsTr("voimakas")
+                color: "#b8c2cc"; font.pixelSize: 11; font.family: Theme.fontFamily
+            }
         }
     }
 }

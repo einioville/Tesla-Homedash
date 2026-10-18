@@ -420,6 +420,11 @@ Item {
                 minMetresPerPixel: 150
                 maxImageSize: 1024
                 dim: 0
+                // The last quarter hour, played slowly: a glance at what is coming, not
+                // the hour of history the Weather card loops.
+                frameCount: 4
+                frameMs: 1500
+                newestFrameMs: 3500
                 holdFetch: panHandler.active || pinchHandler.active
             }
         }

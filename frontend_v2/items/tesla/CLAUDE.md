@@ -111,8 +111,9 @@ outlasts a restart without a row in the Options view. The dashboard's card shows
 - **Ajotiedot** — `MapLiveStats.qml` in the bottom-left: speed, battery, range and outside
   temperature on frosted glass, read straight off `Tesla`.
 - **Sadetutka** — `items/weather/RadarLayer.qml`, the Weather view's radar loop and lightning, over
-  this map too, with `WeatherRadarControls` at the top. Its header is the reference; two things
-  differ from the Weather card. This map turns heading-up, so each frame is fetched for the
+  this map too, undimmed, with `WeatherRadarControls` upright on the left edge above the data card.
+  The loop is the last quarter hour (four frames, 1.5 s each, the newest held 3.5 s) rather than the
+  Weather card's hour. Its header is the reference; two more things differ from the Weather card. This map turns heading-up, so each frame is fetched for the
   bounding box of all four screen corners and turned with the map (`Image.rotation`), and the
   lightning is painted in screen pixels and carried the same way. And it keeps moving while it
   follows the car, so it fetches a 25 % margin round the view, no finer than 150 m a pixel

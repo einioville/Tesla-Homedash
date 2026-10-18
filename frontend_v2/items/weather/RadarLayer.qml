@@ -41,6 +41,9 @@ Item {
     property real dim: 0.25
 
     property int frameCount: 13          // one hour at FMI's 5-minute cadence
+    // How long each frame of the loop shows, and the newest, which holds longer.
+    property int frameMs: 600
+    property int newestFrameMs: 2500
     readonly property int frameStepMin: 5
     property string radarLayer: "Radar:suomi_dbz_eureffin"
     // The lightning is fetched for the composite's whole extent (its EPSG:3067 box from the
@@ -391,7 +394,7 @@ Item {
     }
 
     Timer {
-        interval: root.frame === root.frameCount - 1 ? 2500 : 600
+        interval: root.frame === root.frameCount - 1 ? root.newestFrameMs : root.frameMs
         running: root.active && root.playing && root.frameTimes.length > 0
         repeat: true
         onTriggered: root.frame = (root.frame + 1) % root.frameCount
