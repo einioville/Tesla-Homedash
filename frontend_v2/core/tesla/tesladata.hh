@@ -18,6 +18,9 @@ class ServerClient;
  */
 class TeslaData : public TeslaDataGen {
     Q_OBJECT
+    // When the car stopped being online (epoch ms, the backend's state event); 0 while it is
+    // online or has not said. A repeated offline event leaves it where it is.
+    Q_PROPERTY(qint64 asleepSince READ asleepSince NOTIFY asleepSinceChanged)
 
 public:
     explicit TeslaData(ServerClient *server, QObject *parent = nullptr);
@@ -34,11 +37,21 @@ public:
         return registryName.left(1).toLower() + registryName.mid(1);
     }
 
+    qint64 asleepSince() const { return m_asleepSince; }
+
+signals:
+    void asleepSinceChanged();
+
 private slots:
     void onPacket(quint8 type, const QByteArray &payload);
 
 private:
+    void trackSleep();
+
     ServerClient *m_server;
+    // The timestamp of the packet being applied, for the NOTIFY handlers it sets off.
+    qint64 m_packetTime = 0;
+    qint64 m_asleepSince = 0;
 };
 
 #endif  // FRONTEND_V2_TESLADATA_HH

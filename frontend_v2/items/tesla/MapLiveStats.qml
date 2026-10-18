@@ -5,10 +5,26 @@ import "../../app/Format.js" as Format
 // The Kartta view's live data — speed, battery level, range and outside temperature — on
 // frosted glass over the map (`backdrop`, a sibling of this panel). The glass is the
 // notification pill's, darker than the Weather card's radar bar: aerial imagery is bright.
+// The car reports the outside temperature only while it is awake, so an hour into its sleep
+// the temperature is FMI's for the place (the Weather view's now), captioned so.
 GlassPanel {
     id: root
 
     property Item backdrop: null
+
+    readonly property int carTempMaxSleepMs: 60 * 60 * 1000
+    property real clock: Date.now()
+    readonly property var fmiTemp: Weather.view.now ? Weather.view.now.temp : undefined
+    readonly property bool fmiOutside: Tesla.asleepSince > 0 && clock - Tesla.asleepSince >= carTempMaxSleepMs
+                                       && typeof fmiTemp === "number"
+
+    Timer {
+        interval: 60 * 1000
+        running: root.active && Tesla.asleepSince > 0
+        repeat: true
+        triggeredOnStart: true
+        onTriggered: root.clock = Date.now()
+    }
 
     implicitWidth: row.implicitWidth + 40
     implicitHeight: 84
@@ -60,6 +76,10 @@ GlassPanel {
         Stat { value: Format.num(Tesla.vehicleSpeed, "", 0); unit: "km/h"; caption: qsTr("NOPEUS") }
         Stat { value: Format.num(Tesla.batteryLevel, "", 0); unit: "%"; caption: qsTr("AKKU") }
         Stat { value: Format.num(Tesla.estBatteryRange, "", 0); unit: "km"; caption: qsTr("TOIMINTAMATKA") }
-        Stat { value: Format.num(Tesla.outsideTemp, "", 1); unit: "°C"; caption: qsTr("ULKONA") }
+        Stat {
+            value: Format.num(root.fmiOutside ? root.fmiTemp : Tesla.outsideTemp, "", 1)
+            unit: "°C"
+            caption: root.fmiOutside ? qsTr("ULKONA · FMI") : qsTr("ULKONA")
+        }
     }
 }
