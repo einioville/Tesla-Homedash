@@ -275,6 +275,12 @@ QtObject {
     // most of the separating; at 0xcc the frosted backdrop is invisible and the
     // effect pure cost.
     readonly property color dialogScrim: "#99000000"
+    // A dialog on frosted glass (ModalDialog's `backdrop`): darker than the notification glass,
+    // and its FrostLayer blurs further, so what lies behind cannot be read through it.
+    readonly property color dialogGlassTop: "#99101016"
+    readonly property color dialogGlassBottom: "#b30a0a0e"
+    readonly property real dialogFrostBlur: 64
+    readonly property real dialogFrostBrightness: -0.3
 
     // --- Screensaver ------------------------------------------------------
     // Printed-photo pile on a black background: each photo sits in a white frame

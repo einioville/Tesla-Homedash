@@ -159,7 +159,8 @@ the menu sits in its map's corner, full-screen or the card. `TeslaMap`'s `show*`
   time is in the image URL so a new one is not served from the cache. Requests carry the
   `Digitraffic-User` header Digitraffic asks for. The dialog is centred, on frosted glass over its
   view (the dashboard frosts all of itself, `surface`, through a FrostLayer made while the dialog
-  shows), and the map under it takes no gesture while it is open (`interactive`).
+  shows; Kartta's dialog has one of its own beside the panels' shared one, since a dialog's frost
+  is stronger), and the map under it takes no gesture while it is open (`interactive`).
   The Weather view's *Nyt* card has a *Kelikamerat* button that opens the same dialog on the ten
   cameras nearest the weather document's place (`RoadCameraStations.nearest`, great-circle
   distance), nearest first, stepped through with the arrows in its corner and each one's distance

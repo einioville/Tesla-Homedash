@@ -14,6 +14,10 @@ Item {
     property Item sourceItem: null
     // Off while nobody sees the panels; the texture keeps its last picture.
     property bool live: true
+    // The panels' own 64 at a quarter of the size; a dialog's glass blurs further, so the text
+    // behind it cannot be read, and darker.
+    property real blurMax: 16
+    property real brightness: Theme.notificationFrostBrightness
     // The backdrop's size, by which a panel finds its part of the texture.
     readonly property real sourceWidth: sourceItem ? sourceItem.width : 0
     readonly property real sourceHeight: sourceItem ? sourceItem.height : 0
@@ -30,8 +34,7 @@ Item {
         smooth: true
     }
 
-    // Drawn only into `frosted` (hideSource). Its blurMax is the panels' own 64 at a quarter of
-    // the size.
+    // Drawn only into `frosted` (hideSource).
     MultiEffect {
         id: blur
         width: root.textureSize.width
@@ -40,8 +43,8 @@ Item {
         autoPaddingEnabled: false
         blurEnabled: true
         blur: 1.0
-        blurMax: 16
-        brightness: Theme.notificationFrostBrightness
+        blurMax: root.blurMax
+        brightness: root.brightness
         saturation: Theme.notificationFrostSaturation
     }
 

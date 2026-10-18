@@ -65,6 +65,8 @@ Item {
                                         : Qt.point(0, 0)
         frost: dialog.frost
         active: dialog.visible
+        tintTop: Theme.dialogGlassTop
+        tintBottom: Theme.dialogGlassBottom
     }
 
     Rectangle {

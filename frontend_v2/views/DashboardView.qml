@@ -189,6 +189,8 @@ Rectangle {
         id: popupFrost
         sourceItem: surface
         live: view.isCurrent && cameraPopup.visible
+        blurMax: Theme.dialogFrostBlur
+        brightness: Theme.dialogFrostBrightness
     }
 
     RoadCameraPopup {

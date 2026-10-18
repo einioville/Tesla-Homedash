@@ -201,6 +201,8 @@ way; *Tallenna* asks FMI for the point's zone and writes the whole object with `
 It is hung from the top so the field and the hits stay above the keyboard, and Enter closes the
 keyboard so the map shows. The map is a plain `Map` on the app's imagery (`App.mapTilesUrl`) with
 pan, pinch, wheel and tap handlers of its own: a picker shares nothing else with the car's map.
+The pin is `location.svg`'s two paths in a `Shape`, filled red and outlined in black — a tinted icon
+has one colour.
 
 **`type: "action"` is a button, not a value.** `SettingAction.qml` renders it and calls
 `Settings::invokeAction(key)`; nothing is stored, persisted or sent as `CONFIG_SET`. Keeping
@@ -393,7 +395,8 @@ cards from `System` (`../../core/CLAUDE.md`), both retained only while the secti
   a list inside the card still scrolls, since it sits above the scrim). A new dialog is built on
   `ModalDialog`, not on another scrim and card. Over a map, where nothing blurs the view behind,
   a dialog gives a `backdrop` (and its `frost`) and the card is frosted glass instead
-  (`RoadCameraPopup`). The scrim stops presses but not the pointer handlers beneath it, which
+  (`RoadCameraPopup`) — darker than a panel's (`Theme.dialogGlass*`), over a FrostLayer of its own
+  that blurs further (`Theme.dialogFrost*`), so the text behind cannot be read through it. The scrim stops presses but not the pointer handlers beneath it, which
   still see a press another item took — a map under a dialog is switched off (`TeslaMap.interactive`).
 
 - **Disk is graphed as I/O** (read / write rates) with the free space as the card's headline: space

@@ -66,6 +66,8 @@ Rectangle {
         id: frost
         sourceItem: dashboard
         live: view.isCurrent && cameraPopup.visible
+        blurMax: Theme.dialogFrostBlur
+        brightness: Theme.dialogFrostBrightness
     }
 
     RoadCameraPopup {

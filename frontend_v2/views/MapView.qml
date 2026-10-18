@@ -117,10 +117,19 @@ Rectangle {
         ]
     }
 
+    // The dialog's glass blurs further than the panels', so it has a frost of its own.
+    FrostLayer {
+        id: popupFrost
+        sourceItem: map
+        live: view.isCurrent && cameraPopup.visible
+        blurMax: Theme.dialogFrostBlur
+        brightness: Theme.dialogFrostBrightness
+    }
+
     RoadCameraPopup {
         id: cameraPopup
         backdrop: map
-        frost: frost
+        frost: popupFrost
     }
 
     WeatherWarningsPopup {
