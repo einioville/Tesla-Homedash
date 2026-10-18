@@ -25,6 +25,11 @@ Item {
 
     property var wx: ({})
     property bool active: true
+    // Off while a dialog of the view's lies over this (the radar map's gestures).
+    property bool interactive: true
+
+    // The Nyt card's camera button: the view opens the road cameras nearest the place.
+    signal camerasRequested()
 
     readonly property var now: wx.now || ({})
     readonly property var here: (wx.warnings || []).filter(w => w.appliesHere)
@@ -92,6 +97,7 @@ Item {
         note: root.now.time ? qsTr("havainto ") + root.now.time : ""
 
         ColumnLayout {
+            id: nowLayout
             anchors.fill: parent
             anchors.margins: 14
             anchors.topMargin: 36
@@ -172,6 +178,7 @@ Item {
             }
 
             RowLayout {
+                id: symbolRow
                 Layout.fillWidth: true
                 spacing: 12
                 Image {
@@ -253,6 +260,43 @@ Item {
 
             Item { Layout.fillHeight: true }
         }
+
+        // Beside the temperature, clear of the condition's text below it.
+        Rectangle {
+            anchors.right: parent.right
+            anchors.rightMargin: 14
+            y: nowLayout.y + symbolRow.y + 6
+            width: cameraLabel.implicitWidth + 24
+            height: 34
+            radius: 17
+            color: cameraTap.pressed ? "#33ffffff" : "#1fffffff"
+            border.color: "#33ffffff"
+            border.width: 1
+
+            Row {
+                id: cameraLabel
+                anchors.centerIn: parent
+                spacing: 6
+                TintedIcon {
+                    anchors.verticalCenter: parent.verticalCenter
+                    iconSize: 16
+                    source: "qrc:/resources/icons/camera.svg"
+                }
+                Text {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: qsTr("Kelikamerat")
+                    color: "white"
+                    font.family: Theme.fontFamily
+                    font.pixelSize: 13
+                }
+            }
+            MouseArea {
+                id: cameraTap
+                anchors.fill: parent
+                anchors.margins: -6
+                onClicked: root.camerasRequested()
+            }
+        }
     }
 
     // Sun and moon, side by side under the current weather.
@@ -324,6 +368,7 @@ Item {
             zoom: 8.0
             placeOffset: Qt.point(0, -20)
             active: root.active
+            interactive: root.interactive && !warningsPopup.visible
             latestOnly: Settings.values.weatherRadarLatestOnly === true
         }
         Text {

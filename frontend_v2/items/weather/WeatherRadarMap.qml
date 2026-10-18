@@ -35,6 +35,8 @@ Item {
     property point placeOffset: Qt.point(0, 0)
     property bool active: true
     property bool latestOnly: false
+    // Off while a dialog lies over the map (TeslaMap.interactive says why).
+    property bool interactive: true
     readonly property alias radarLayer: radarLayer
     property string tilesUrl: "https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2024_3857/default/"
                               + "GoogleMapsCompatible/%z/%y/%x.jpg"
@@ -154,6 +156,7 @@ Item {
 
         DragHandler {
             id: panHandler
+            enabled: root.interactive
             target: null
             minimumPointCount: 1
             maximumPointCount: 1
@@ -177,6 +180,7 @@ Item {
         }
 
         WheelHandler {
+            enabled: root.interactive
             acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
             onWheel: function(event) {
                 root.gestureActive(true)
@@ -187,6 +191,7 @@ Item {
 
         PinchHandler {
             id: pinchHandler
+            enabled: root.interactive
             target: null
             minimumPointCount: 2
             property real startZoom: root.zoom

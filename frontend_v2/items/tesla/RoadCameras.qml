@@ -3,22 +3,18 @@ import QtLocation
 import QtPositioning
 import frontend_v2
 
-// Fintraffic's road weather cameras (Digitraffic, CC BY 4.0) as markers on a TeslaMap: those in
+// Fintraffic's road weather cameras (RoadCameraStations) as markers on a TeslaMap: those in
 // view from zoom 9, at most 60 and none on top of another, each a MapQuickItem with no zoomLevel
-// so it stays upright. A tap
-// asks for the camera whole (`opened(stationId)`, RoadCameraPopup). Declare it inside the Map.
-//
-// The station list (~800 cameras, 37 kB gzipped) is fetched when the layer comes on and every
-// six hours while it stays on; cameras are added and moved rarely. Which show is decided again
-// when the map rests and every 2 s while it moves (MapCameraWatch).
+// so it stays upright. A tap asks for the camera whole (`opened(stationId)`, RoadCameraPopup).
+// Declare it inside the Map. Which show is decided again when the map rests and every 2 s while
+// it moves (MapCameraWatch).
 MapItemView {
     id: root
 
     // Not `map`: a binding `map: map` can read this property itself.
     property Map geoMap: null
     property bool active: true
-    // Every camera as { id, lat, lon }, and the ones on the map.
-    property var stations: []
+    // The cameras on the map, out of the whole list.
     property var shown: []
     readonly property real minimumZoom: 9
     readonly property int maxMarkers: 60
@@ -58,25 +54,6 @@ MapItemView {
         }
     }
 
-    function fetch() {
-        var xhr = new XMLHttpRequest()
-        xhr.onreadystatechange = function () {
-            if (xhr.readyState !== XMLHttpRequest.DONE)
-                return
-            if (xhr.status !== 200) {
-                console.warn("Road camera list fetch failed: HTTP", xhr.status)
-                return
-            }
-            root.stations = JSON.parse(xhr.responseText).features
-                .filter(f => f.properties.collectionStatus === "GATHERING")
-                .map(f => ({ id: f.id, lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0] }))
-            root.relayout()
-        }
-        xhr.open("GET", "https://tie.digitraffic.fi/api/weathercam/v1/stations")
-        xhr.setRequestHeader("Digitraffic-User", "Tesla-Homedash")
-        xhr.send()
-    }
-
     function relayout() {
         if (!active || !geoMap || !geoMap.mapReady || geoMap.zoomLevel < minimumZoom) {
             if (shown.length)
@@ -97,7 +74,7 @@ MapItemView {
         // cameras sit at one junction.
         var inView = []
         var placed = []
-        for (var s of stations) {
+        for (var s of list.stations) {
             if (inView.length >= maxMarkers)
                 break
             if (s.lat < south || s.lat > north || s.lon < west || s.lon > east)
@@ -112,14 +89,12 @@ MapItemView {
             shown = inView
     }
 
-    onActiveChanged: {
-        if (!active)
-            return
-        if (!stations.length)
-            fetch()
-        relayout()
+    onActiveChanged: if (active) relayout()
+
+    property RoadCameraStations list: RoadCameraStations {
+        active: root.active
+        onStationsChanged: root.relayout()
     }
-    Component.onCompleted: if (active) fetch()
 
     property MapCameraWatch watch: MapCameraWatch {
         geoMap: root.geoMap
@@ -127,12 +102,5 @@ MapItemView {
         restMs: 500
         paceMs: 2000
         onChanged: root.relayout()
-    }
-
-    property Timer refresh: Timer {
-        interval: 6 * 60 * 60 * 1000
-        running: root.active
-        repeat: true
-        onTriggered: root.fetch()
     }
 }

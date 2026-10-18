@@ -8,7 +8,8 @@ import "../../app/Format.js" as Format
 // fetched from Digitraffic (CC BY 4.0, credited in the footer) when it opens, and a reply for a
 // station since closed is dropped. A picture is taken every ten minutes; its time is shown, and
 // it is in the URL so a new one is not served from the image cache. Centred, on frosted glass
-// over the view's `backdrop` (ModalDialog).
+// over the view's `backdrop` (ModalDialog). Opened with a list of cameras instead (the Weather
+// view's nearest), it steps through them with the arrows in its corner, saying how far each is.
 ModalDialog {
     id: popup
 
@@ -22,12 +23,33 @@ ModalDialog {
     property var readings: ({})
     property string readAt: ""
     property int preset: 0
+    // The cameras to step through, nearest first, as { id, km } (RoadCameraStations.nearest);
+    // empty for one camera opened from the map.
+    property var cameras: []
+    property int cameraIndex: 0
 
     readonly property var current: station && station.presets.length > preset ? station.presets[preset] : null
 
     visible: shown
 
     function open(id) {
+        cameras = []
+        load(id)
+    }
+
+    function openNearest(list) {
+        cameras = list
+        cameraIndex = 0
+        if (list.length)
+            load(list[0].id)
+    }
+
+    function step(by) {
+        cameraIndex = Math.max(0, Math.min(cameras.length - 1, cameraIndex + by))
+        load(cameras[cameraIndex].id)
+    }
+
+    function load(id) {
         stationId = id
         station = null
         taken = {}
@@ -101,7 +123,7 @@ ModalDialog {
     Text {
         id: title
         anchors.left: parent.left
-        anchors.right: parent.right
+        anchors.right: stepper.visible ? stepper.left : parent.right
         anchors.top: parent.top
         anchors.margins: 20
         elide: Text.ElideRight
@@ -116,10 +138,69 @@ ModalDialog {
         anchors.left: title.left
         anchors.top: title.bottom
         anchors.topMargin: 2
-        text: popup.station ? popup.station.municipality : ""
+        text: {
+            var parts = []
+            if (popup.station && popup.station.municipality)
+                parts.push(popup.station.municipality)
+            if (popup.cameras.length)
+                parts.push(qsTr("%1 km päässä").arg(Format.num(popup.cameras[popup.cameraIndex].km, "", 1)))
+            return parts.join(" · ")
+        }
         font.family: Theme.fontFamily
         font.pixelSize: 13
         color: Theme.dataLabelTitle
+    }
+
+    component StepButton: Rectangle {
+        id: stepButton
+        property string icon
+        signal activated()
+        width: 36
+        height: 36
+        radius: 18
+        color: stepTap.pressed ? "#40ffffff" : "#26ffffff"
+        opacity: enabled ? 1 : 0.35
+        TintedIcon {
+            anchors.centerIn: parent
+            iconSize: 18
+            source: stepButton.icon
+        }
+        MouseArea {
+            id: stepTap
+            anchors.fill: parent
+            anchors.margins: -4
+            onClicked: stepButton.activated()
+        }
+    }
+
+    // Nearer and farther cameras, when there is a list to step through.
+    Row {
+        id: stepper
+        visible: popup.cameras.length > 1
+        anchors.right: parent.right
+        anchors.top: parent.top
+        anchors.margins: 20
+        spacing: 10
+
+        StepButton {
+            icon: "qrc:/resources/icons/arrow_left.svg"
+            enabled: popup.cameraIndex > 0
+            onActivated: popup.step(-1)
+        }
+        Text {
+            anchors.verticalCenter: parent.verticalCenter
+            width: 52
+            horizontalAlignment: Text.AlignHCenter
+            text: (popup.cameraIndex + 1) + " / " + popup.cameras.length
+            font.family: Theme.fontFamily
+            font.pixelSize: 15
+            color: Theme.dataLabelValue
+        }
+        StepButton {
+            icon: "qrc:/resources/icons/arrow_right.svg"
+            enabled: popup.cameraIndex < popup.cameras.length - 1
+            onActivated: popup.step(1)
+        }
     }
 
     Item {

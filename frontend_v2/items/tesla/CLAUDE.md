@@ -150,9 +150,9 @@ the menu sits in its map's corner, full-screen or the card. `TeslaMap`'s `show*`
   starts them over.
 - **Paikannimet** — `PlaceLabels.qml` over the `PlaceNames` store (below), issue #54's first step.
 - **Kelikamerat** — Fintraffic's road weather cameras (Digitraffic, CC BY 4.0, credited in the README
-  and the dialog), `RoadCameras.qml`: the station list (~800 cameras, 37 kB gzipped) fetched straight
-  from `tie.digitraffic.fi` when the layer comes on and every six hours, and a marker for each camera
-  in view from zoom 9 — at most 60, none within 30 px of another. A tap opens `RoadCameraPopup.qml`:
+  and the dialog), `RoadCameras.qml`: the station list (`RoadCameraStations.qml`, ~800 cameras, 37 kB
+  gzipped) fetched straight from `tie.digitraffic.fi` when the layer comes on and every six hours, and
+  a marker for each camera in view from zoom 9 — at most 60, none within 30 px of another. A tap opens `RoadCameraPopup.qml`:
   the station's pictures, one per direction it looks (a tab each), and the nearest road weather
   station's readings (`nearestWeatherStationId`: road condition, road and air temperature, wind,
   rain, visibility, humidity), all fetched when it opens. Pictures are taken every ten minutes; the
@@ -160,6 +160,11 @@ the menu sits in its map's corner, full-screen or the card. `TeslaMap`'s `show*`
   `Digitraffic-User` header Digitraffic asks for. The dialog is centred, on frosted glass over its
   view (the dashboard frosts all of itself, `surface`, through a FrostLayer made while the dialog
   shows), and the map under it takes no gesture while it is open (`interactive`).
+  The Weather view's *Nyt* card has a *Kelikamerat* button that opens the same dialog on the ten
+  cameras nearest the weather document's place (`RoadCameraStations.nearest`, great-circle
+  distance), nearest first, stepped through with the arrows in its corner and each one's distance
+  under its name; the view holds that list and the dialog (`views/WeatherView.qml`), frosting the
+  whole dashboard, whose radar map takes no gesture meanwhile.
 - **Säävaroitukset** (a demo, on by default) — FMI's warnings in force as areas,
   `items/weather/WarningAreas.qml`: each warning's regions from the weather document's `shapes`
   (`backend/src/weather_service/CLAUDE.md`), filled faintly in its colour and outlined, in a

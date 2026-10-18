@@ -223,6 +223,7 @@ qt_add_qml_module(appfrontend_v2
         items/tesla/MapCameraWatch.qml
         items/tesla/RoadCameras.qml
         items/tesla/RoadCameraPopup.qml
+        items/tesla/RoadCameraStations.qml
         items/media/MediaPlayerCard.qml
         items/media/MediaBackdrop.qml
         items/media/MediaSpectrum.qml
