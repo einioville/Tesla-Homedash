@@ -11,6 +11,10 @@ import frontend_v2
 // hang the card under the header instead of centring it: a tall one is
 // top-anchored, clear of the menu's swipe-up strip along the bottom edge
 // (Main.qml), where an upward drag in a list would open the menu instead.
+//
+// Over a map nothing blurs the view behind, so a dialog there gives a `backdrop` and its card is
+// frosted glass over it (GlassPanel) instead of opaque; `frost` is the backdrop's shared
+// FrostLayer. The backdrop is a sibling of the dialog, never its parent.
 Item {
     id: dialog
 
@@ -27,6 +31,8 @@ Item {
     // its own content.
     property color cardColor: Theme.spotifySurface
     property color cardBorderColor: Theme.spotifyRim
+    property Item backdrop: null
+    property Item frost: null
 
     // A press on the scrim, beside the card.
     signal scrimClicked()
@@ -46,6 +52,23 @@ Item {
         color: dialog.scrimColor
     }
 
+    GlassPanel {
+        visible: dialog.backdrop !== null
+        x: card.x
+        y: card.y
+        width: card.width
+        height: card.height
+        radius: card.radius
+        backdropSource: dialog.backdrop
+        backdropOrigin: dialog.backdrop ? Qt.point(dialog.x + card.x - dialog.backdrop.x,
+                                                   dialog.y + card.y - dialog.backdrop.y)
+                                        : Qt.point(0, 0)
+        frost: dialog.frost
+        active: dialog.visible
+        tintTop: Theme.dialogGlassTop
+        tintBottom: Theme.dialogGlassBottom
+    }
+
     Rectangle {
         id: card
         anchors.horizontalCenter: parent.horizontalCenter
@@ -55,8 +78,8 @@ Item {
         width: Math.min(parent.width - 2 * Theme.gridMargin, dialog.cardWidth)
         height: dialog.cardHeight
         radius: Theme.tripCardRadius
-        color: dialog.cardColor
-        border.width: 1
+        color: dialog.backdrop ? "transparent" : dialog.cardColor
+        border.width: dialog.backdrop ? 0 : 1
         border.color: dialog.cardBorderColor
 
         // A press on the card is not a press on the scrim.

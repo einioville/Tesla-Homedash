@@ -102,6 +102,58 @@ def _inside(polygon: list[tuple[float, float]], lat: float, lon: float) -> bool:
     return hit
 
 
+# A warning's areas as the Kartta view draws them (`shapes`): FMI's polygons, thousands of
+# points per warning, simplified to about half a kilometre and rounded to about a hundred
+# metres — finer than the map shows a region, and small enough to send every ten minutes.
+_SHAPE_TOLERANCE_DEG = 0.005
+_SHAPE_DECIMALS = 3
+
+
+def _simplify(points: list[tuple[float, float]], tolerance: float) -> list[tuple[float, float]]:
+    '''
+    Douglas-Peucker: drops every point that lies within `tolerance` of the line its kept
+    neighbours draw. Longitude is scaled by the cosine of latitude, so the tolerance is the
+    same distance east-west as north-south.
+    Arguments:
+        points (list[tuple[float, float]]): A ring or line as (lat, lon).
+        tolerance (float): The largest deviation dropped, in degrees of latitude.
+    '''
+    if len(points) < 3:
+        return list(points)
+    scale = math.cos(math.radians(points[0][0]))
+    xy = [(lon * scale, lat) for lat, lon in points]
+    keep = [False] * len(points)
+    keep[0] = keep[-1] = True
+    stack = [(0, len(points) - 1)]
+    while stack:
+        first, last = stack.pop()
+        (x1, y1), (x2, y2) = xy[first], xy[last]
+        dx, dy = x2 - x1, y2 - y1
+        length = math.hypot(dx, dy)
+        farthest, index = 0.0, -1
+        for i in range(first + 1, last):
+            x, y = xy[i]
+            # From the chord, or from its end when the chord is a point (a closed ring).
+            d = (abs(dy * x - dx * y + x2 * y1 - y2 * x1) / length if length
+                 else math.hypot(x - x1, y - y1))
+            if d > farthest:
+                farthest, index = d, i
+        if farthest > tolerance:
+            keep[index] = True
+            stack.append((first, index))
+            stack.append((index, last))
+    return [p for p, k in zip(points, keep) if k]
+
+
+def describe(where: dict) -> str:
+    '''
+    A weather location for the log: the place name or the coordinates.
+    Arguments:
+        where (dict): The location as FMI query arguments (Config.weather_location).
+    '''
+    return ", ".join(f"{k}={v}" for k, v in where.items())
+
+
 def _utc(t: datetime) -> str:
     '''
     Formats an aware datetime as the UTC timestamp FMI's starttime takes.
@@ -119,7 +171,7 @@ class WeatherViewBuilder:
 
     Each part is fetched on its own and a part that fails keeps its last good value, so one
     stalled request costs that part a refresh instead of costing the view all of its data.
-    The parts are dropped when the place changes.
+    The parts are dropped when the location changes.
     '''
 
     def __init__(self, zone_info: ZoneInfo, timeout: aiohttp.ClientTimeout):
@@ -131,7 +183,7 @@ class WeatherViewBuilder:
         self.__zone = zone_info
         self.__timeout = timeout
         self.__loop = asyncio.get_running_loop()
-        self.__place: str | None = None
+        self.__where: dict | None = None
         self.__location: dict | None = None
         self.__observation: dict | None = None
         self.__hourly: list[dict] | None = None
@@ -139,15 +191,16 @@ class WeatherViewBuilder:
         self.__astro: dict | None = None
         self.__warnings: list[dict] | None = None
 
-    async def build(self, place: str) -> dict | None:
+    async def build(self, where: dict) -> dict | None:
         '''
-        Fetches every part for the place and returns the document, or None when there is
-        no forecast to show — a document without hours would blank the chart and the days.
+        Fetches every part for the location and returns the document, or None when there
+        is no forecast to show — a document without hours would blank the chart and the days.
         Arguments:
-            place (str): FMI place name, the configured weatherPlace.
+            where (dict): The location as FMI query arguments (Config.weather_location):
+                a place name, or the home's coordinates, which FMI takes as they are.
         '''
-        if place != self.__place:
-            self.__place = place
+        if where != self.__where:
+            self.__where = where
             self.__location = self.__observation = self.__hourly = None
             self.__radiation = self.__astro = self.__warnings = None
 
@@ -155,15 +208,15 @@ class WeatherViewBuilder:
         hour0 = now.replace(minute=0, second=0, microsecond=0)
         async with aiohttp.ClientSession(timeout=self.__timeout) as session:
             if self.__location is None:
-                self.__location = await self.__part("location", self.__fetch_location(session, place))
+                self.__location = await self.__part("location", self.__fetch_location(session, where))
             if self.__location is None:
                 return None
             localtz = ZoneInfo(self.__location["localtz"])
             observation, hourly, radiation, astro, warnings = await asyncio.gather(
-                self.__part("observation", self.__fetch_observation(session, place)),
-                self.__part("forecast", self.__fetch_forecast(session, place, hour0)),
-                self.__part("radiation", self.__fetch_radiation(session, place, hour0)),
-                self.__part("sun and moon", self.__fetch_astro(session, place, now, localtz)),
+                self.__part("observation", self.__fetch_observation(session, where)),
+                self.__part("forecast", self.__fetch_forecast(session, where, hour0)),
+                self.__part("radiation", self.__fetch_radiation(session, where, hour0)),
+                self.__part("sun and moon", self.__fetch_astro(session, where, now, localtz)),
                 self.__part("warnings", self.__fetch_warnings(session)),
             )
         if observation is not None:
@@ -182,7 +235,7 @@ class WeatherViewBuilder:
         hour_iso = hour0.strftime("%Y-%m-%dT%H:%M")
         hours = [h for h in (self.__hourly or []) if h["iso"] >= hour_iso]
         if not hours:
-            logger.warning("Weather view has no forecast hours for place=%s — not sent", place)
+            logger.warning("Weather view has no forecast hours for %s — not sent", describe(where))
             return None
 
         # The UV estimate is for this hour only, so radiation from another hour is not used.
@@ -209,8 +262,8 @@ class WeatherViewBuilder:
         try:
             return await fetch
         except _FETCH_ERRORS as e:
-            logger.warning("Weather view %s fetch failed for place=%s: %s: %s",
-                           label, self.__place, type(e).__name__, e)
+            logger.warning("Weather view %s fetch failed for %s: %s: %s",
+                           label, describe(self.__where), type(e).__name__, e)
             return None
 
     async def __timeseries(self, session: aiohttp.ClientSession, params: dict) -> list[dict]:
@@ -236,29 +289,30 @@ class WeatherViewBuilder:
         '''
         return datetime.fromtimestamp(epoch, self.__zone)
 
-    async def __fetch_location(self, session: aiohttp.ClientSession, place: str) -> dict:
+    async def __fetch_location(self, session: aiohttp.ClientSession, where: dict) -> dict:
         '''
-        Resolves the place to its name, coordinates and own timezone; the radar centres on
-        the coordinates and the warnings are tested against them.
+        Resolves the location to its name (FMI's nearest place name, for coordinates),
+        coordinates and own timezone; the radar centres on the coordinates and the warnings
+        are tested against them.
         Arguments:
             session (aiohttp.ClientSession): Session carrying the request timeout.
-            place (str): FMI place name.
+            where (dict): The location as FMI query arguments (Config.weather_location).
         '''
         row = (await self.__timeseries(session, {
-            "place": place, "timesteps": 1, "param": "name,latitude,longitude,localtz"}))[0]
+            **where, "timesteps": 1, "param": "name,latitude,longitude,localtz"}))[0]
         return {"name": row["name"], "lat": row["latitude"], "lon": row["longitude"],
                 "localtz": row["localtz"]}
 
-    async def __fetch_observation(self, session: aiohttp.ClientSession, place: str) -> dict:
+    async def __fetch_observation(self, session: aiohttp.ClientSession, where: dict) -> dict:
         '''
         The newest value of each observation field from the nearest station reporting it,
         with where each came from and the time of the newest one used.
         Arguments:
             session (aiohttp.ClientSession): Session carrying the request timeout.
-            place (str): FMI place name.
+            where (dict): The location as FMI query arguments (Config.weather_location).
         '''
         rows = await self.__timeseries(session, {
-            "producer": "opendata", "place": place, "numberofstations": 5,
+            "producer": "opendata", **where, "numberofstations": 5,
             "maxdistance": 50000, "starttime": "-70m", "timestep": 10,
             "param": "fmisid,stationname,distance,epochtime," + ",".join(_OBS_FIELDS)})
         # Rows come grouped by station, nearest first, and oldest first within a station.
@@ -282,17 +336,17 @@ class WeatherViewBuilder:
         return {"values": values, "sources": sources,
                 "time": latest.strftime("%H:%M") if latest else None}
 
-    async def __fetch_forecast(self, session: aiohttp.ClientSession, place: str,
+    async def __fetch_forecast(self, session: aiohttp.ClientSession, where: dict,
                                hour0: datetime) -> list[dict]:
         '''
         The edited hourly forecast from the current hour to its end, about ten days.
         Arguments:
             session (aiohttp.ClientSession): Session carrying the request timeout.
-            place (str): FMI place name.
+            where (dict): The location as FMI query arguments (Config.weather_location).
             hour0 (datetime): The start of the current hour.
         '''
         rows = await self.__timeseries(session, {
-            "place": place, "timesteps": _FORECAST_HOURS, "timestep": 60,
+            **where, "timesteps": _FORECAST_HOURS, "timestep": 60,
             "starttime": _utc(hour0),
             "param": "epochtime,temperature,feelslike,smartsymbol,smartsymboltext,pop,"
                      "precipitation1h,windspeedms,winddirection,hourlymaximumgust,"
@@ -314,35 +368,35 @@ class WeatherViewBuilder:
             })
         return hourly
 
-    async def __fetch_radiation(self, session: aiohttp.ClientSession, place: str,
+    async def __fetch_radiation(self, session: aiohttp.ClientSession, where: dict,
                                 hour0: datetime) -> float | None:
         '''
         HARMONIE's global radiation for the current hour, for the UV estimate; the edited
         forecast has none.
         Arguments:
             session (aiohttp.ClientSession): Session carrying the request timeout.
-            place (str): FMI place name.
+            where (dict): The location as FMI query arguments (Config.weather_location).
             hour0 (datetime): The start of the current hour.
         '''
         rows = await self.__timeseries(session, {
-            "place": place, "producer": "harmonie_scandinavia_surface", "timesteps": 1,
+            **where, "producer": "harmonie_scandinavia_surface", "timesteps": 1,
             "starttime": _utc(hour0), "param": "epochtime,RadiationGlobal"})
         return rows[0].get("RadiationGlobal") if rows else None
 
-    async def __fetch_astro(self, session: aiohttp.ClientSession, place: str, now: datetime,
+    async def __fetch_astro(self, session: aiohttp.ClientSession, where: dict, now: datetime,
                             localtz: ZoneInfo) -> dict:
         '''
         Today's sun and moon. Yesterday is fetched for the day length's change and tomorrow
         for whether the moon is waxing.
         Arguments:
             session (aiohttp.ClientSession): Session carrying the request timeout.
-            place (str): FMI place name.
+            where (dict): The location as FMI query arguments (Config.weather_location).
             now (datetime): The current time in the configured zone.
             localtz (ZoneInfo): The place's own zone, which FMI's rise and set times are in.
         '''
         midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
         rows = await self.__timeseries(session, {
-            "place": place, "timestep": 1440, "timesteps": 3,
+            **where, "timestep": 1440, "timesteps": 3,
             "starttime": _utc(midnight - timedelta(days=1)),
             "param": "sunrise,sunset,noon,daylength,moonphase,moonrise,moonset"})
         yesterday, today, tomorrow = rows[0], rows[1], rows[2]
@@ -427,6 +481,12 @@ class WeatherViewBuilder:
                 "expires": when(info.findtext(ns + "expires")),
                 "description": (info.findtext(ns + "description") or "").strip(),
                 "polygons": polygons,
+                "shapes": [
+                    [[round(lat, _SHAPE_DECIMALS), round(lon, _SHAPE_DECIMALS)]
+                     for lat, lon in ring]
+                    for ring in (_simplify(p, _SHAPE_TOLERANCE_DEG) for _, p in polygons)
+                    if len(ring) > 3
+                ],
             })
         return warnings
 
@@ -435,7 +495,8 @@ class WeatherViewBuilder:
         '''
         The warnings as sent: each with the areas that cover the place (`hereAreas`; the
         headline names the warning's whole region, which can lead with one far away) and
-        whether any does, and without the polygons, which only that test needs.
+        whether any does, and without the full polygons, which only that test needs — the
+        map draws the simplified `shapes`.
         Arguments:
             warnings (list[dict]): Parsed warnings, polygons included.
             lat (float): The place's latitude.

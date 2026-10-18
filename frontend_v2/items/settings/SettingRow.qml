@@ -169,6 +169,7 @@ Item {
                 case "screensaverPhotos": return screensaverPhotosDetails
                 case "debugLog": return debugLogDetails
                 case "backendLogin": return backendLoginDetails
+                case "homeLocation": return homeLocationDetails
                 default: return null
                 }
             }
@@ -180,15 +181,15 @@ Item {
             visible: row.warned
             spacing: 6
 
-            Text {
+            TintedIcon {
                 anchors.verticalCenter: parent.verticalCenter
-                text: "⚠"
-                font.pixelSize: 12
-                color: "#ffb020"
+                iconSize: 14
+                source: "qrc:/resources/icons/warning.svg"
+                tint: "#ffb020"
             }
 
             Text {
-                width: labelColumn.width - 18
+                width: labelColumn.width - 20
                 text: row.setting.warnMessage !== undefined ? row.setting.warnMessage : ""
                 font.family: Theme.fontFamily
                 font.pixelSize: 12
@@ -223,6 +224,8 @@ Item {
             case "enum":
                 return selectComponent
             case "action":
+            // An object edited in a dialog of its own, which the button opens.
+            case "location":
                 return actionComponent
             default:
                 return textComponent
@@ -273,5 +276,9 @@ Item {
     Component {
         id: backendLoginDetails
         BackendLoginDetails {}
+    }
+    Component {
+        id: homeLocationDetails
+        HomeLocationDetails { setting: row.setting }
     }
 }

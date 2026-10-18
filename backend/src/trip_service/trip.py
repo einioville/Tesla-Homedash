@@ -66,6 +66,10 @@ class Trip:
     def end_ms(self) -> int:
         return self.__end_ms
 
+    @property
+    def in_progress(self) -> bool:
+        return self.__in_progress
+
     def seed_distance_km(self, value: float) -> None:
         '''
         Seeds the cached distance from a value computed elsewhere (TripLoader reads the

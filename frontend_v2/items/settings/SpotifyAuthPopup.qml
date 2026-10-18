@@ -49,14 +49,15 @@ ModalDialog {
 
         // State glyph. The pulse is the only motion on the card, so "still
         // working" reads at a glance from across the room.
-        Text {
+        TintedIcon {
             id: glyph
             anchors.horizontalCenter: parent.horizontalCenter
-            font.family: Theme.fontFamily
-            font.pixelSize: 40
-            text: popup.succeeded ? "✓" : popup.failed ? "!" : "…"
-            color: popup.succeeded ? "#4ade80"
-                 : popup.failed ? "#f87171" : Theme.dataLabelTitle
+            iconSize: 40
+            source: popup.succeeded ? "qrc:/resources/icons/check.svg"
+                  : popup.failed ? "qrc:/resources/icons/exclamation.svg"
+                  : "qrc:/resources/icons/dots.svg"
+            tint: popup.succeeded ? "#4ade80"
+                : popup.failed ? "#f87171" : Theme.dataLabelTitle
 
             SequentialAnimation on opacity {
                 running: popup.busy

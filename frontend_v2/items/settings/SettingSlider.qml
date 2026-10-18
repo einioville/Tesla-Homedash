@@ -120,11 +120,11 @@ Item {
             border.width: 1
             border.color: Theme.tripCardBorder
 
-            Text {
+            TintedIcon {
                 anchors.centerIn: parent
-                text: "×"
-                font.pixelSize: 13
-                color: Theme.dataLabelTitle
+                iconSize: 12
+                source: "qrc:/resources/icons/xmark.svg"
+                tint: Theme.dataLabelTitle
             }
 
             MouseArea {

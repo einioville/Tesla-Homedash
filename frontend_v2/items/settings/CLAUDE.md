@@ -189,6 +189,21 @@ and `graphRenderMargin` (*Pieni* … *Erittäin suuri* → a margin fraction) �
 `mapGestureSensitivity`, which shares the graph's sensitivity table (`Theme.gestureSensitivityLevels`),
 and its warp-mode `mapWarpDeadzone` / `mapWarpLead` (→ fractions of the map's shorter side).
 
+**`type: "location"` is an object edited in a dialog of its own.** The backend's `home` (*Yleinen ›
+Sijainti › Koti*) is `{address, lat, lon, timeZone}`; its row is `SettingAction`'s button
+(`actionLabel` *Muuta*, `confirm: false`), which `SettingsView` routes to `HomeLocationPopup.qml`,
+and `HomeLocationDetails.qml` (`details: "homeLocation"`) shows the address, the coordinates and the
+zone — with a line in the warning colour when that zone is not the running backend's
+(`runtime.zoneInEffect`; `backend/src/config_service/CLAUDE.md`, *Location and timezone*). The
+dialog finds the home by address through `Geocoder` (`../../core/CLAUDE.md`) — on *Hae* or Enter,
+never per keystroke, Nominatim's rule — or by a tap on its map, whose address is looked up the same
+way; *Tallenna* asks FMI for the point's zone and writes the whole object with `Settings.setValue`.
+It is hung from the top so the field and the hits stay above the keyboard, and Enter closes the
+keyboard so the map shows. The map is a plain `Map` on the app's imagery (`App.mapTilesUrl`) with
+pan, pinch, wheel and tap handlers of its own: a picker shares nothing else with the car's map.
+The pin is `location.svg`'s two paths in one even-odd `Shape` path, filled red and outlined in black
+with the inner circle left hollow — a tinted icon has one colour.
+
 **`type: "action"` is a button, not a value.** `SettingAction.qml` renders it and calls
 `Settings::invokeAction(key)`; nothing is stored, persisted or sent as `CONFIG_SET`. Keeping
 actions in the schema is what lets the *Ylläpito* section — **restart the dashboard**,
@@ -260,8 +275,8 @@ wording: the row's badge and the restart banner already say it.
 
 **The restart badge names the half that restarts**: *sovelluksen uudelleenkäynnistys* on a local
 restart-tier row (read once by `AppConfig` — today the backend address and port), *palvelimen
-uudelleenkäynnistys* on a backend one (read once by a backend service — `timeZone`,
-`spotPrice.enabled`, a hook setting whose service is absent). `SettingRow` picks it from the
+uudelleenkäynnistys* on a backend one (read once by a backend service — `spotPrice.enabled`,
+`server.reachability`, a hook setting whose service is absent). `SettingRow` picks it from the
 entry's `origin`. They are two separate restarts with separate banner buttons, so a bare
 *uudelleenkäynnistys* left the user guessing which one to press.
 
@@ -378,7 +393,11 @@ cards from `System` (`../../core/CLAUDE.md`), both retained only while the secti
 - **Every dialog is a `ModalDialog`** — the opaque card over a scrim that takes every press and
   wheel turn beside it (a MouseArea with no wheel handler lets the wheel through to the page behind;
   a list inside the card still scrolls, since it sits above the scrim). A new dialog is built on
-  `ModalDialog`, not on another scrim and card.
+  `ModalDialog`, not on another scrim and card. Over a map, where nothing blurs the view behind,
+  a dialog gives a `backdrop` (and its `frost`) and the card is frosted glass instead
+  (`RoadCameraPopup`) — darker than a panel's (`Theme.dialogGlass*`), over a FrostLayer of its own
+  that blurs further (`Theme.dialogFrost*`), so the text behind cannot be read through it. The scrim stops presses but not the pointer handlers beneath it, which
+  still see a press another item took — a map under a dialog is switched off (`TeslaMap.interactive`).
 
 - **Disk is graphed as I/O** (read / write rates) with the free space as the card's headline: space
   changes too slowly over ten minutes to be a line, and disk-full is still the failure worth seeing.

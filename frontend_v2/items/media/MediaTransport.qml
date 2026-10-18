@@ -27,16 +27,16 @@ Row {
     }
 
     TransportButton {
-        icon: "qrc:/resources/icons/skip_backward.svg"
+        icon: "qrc:/resources/icons/media_skip_backward.svg"
         onActivated: Media.skipBackward()
     }
     TransportButton {
-        icon: Media.isPlaying ? "qrc:/resources/icons/pause.svg"
-                              : "qrc:/resources/icons/play.svg"
+        icon: Media.isPlaying ? "qrc:/resources/icons/media_pause.svg"
+                              : "qrc:/resources/icons/media_play.svg"
         onActivated: Media.pausePlay()
     }
     TransportButton {
-        icon: "qrc:/resources/icons/skip_forward.svg"
+        icon: "qrc:/resources/icons/media_skip_forward.svg"
         onActivated: Media.skipForward()
     }
 }

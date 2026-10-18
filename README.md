@@ -13,7 +13,9 @@ Tesla-Homedash is a desktop dashboard that brings live vehicle telemetry, music,
 
 ![Main Screen](docs/images/Screenshot%202026-01-29%20154107.png)
 
-> Interface icons are from the [Dazzle Line Icons](https://www.svgrepo.com/collection/dazzle-line-icons/) collection by [Dazzle UI](https://www.svgrepo.com/author/Dazzle%20UI/), provided through [SVG Repo](https://www.svgrepo.com/) under the [Creative Commons Attribution License](https://creativecommons.org/licenses/by/4.0/). Thanks to Dazzle UI for the icons! ❤️
+> Interface icons are from the [Dazzle Line Icons](https://www.svgrepo.com/collection/dazzle-line-icons/) collection by [Dazzle UI](https://www.svgrepo.com/author/Dazzle%20UI/), provided through [SVG Repo](https://www.svgrepo.com/) under the [Creative Commons Attribution License](https://creativecommons.org/licenses/by/4.0/); the seat and steering-wheel icons are drawn for this project in the same style. Thanks to Dazzle UI for the icons! ❤️
+
+> Road weather cameras and road weather data on the map: Fintraffic / [digitraffic.fi](https://www.digitraffic.fi/), licensed [CC 4.0 BY](https://creativecommons.org/licenses/by/4.0/).
 
 ## Dependencies
 
@@ -248,8 +250,11 @@ Open `config.json` and adjust the fields you'll typically need to change:
 - `spotifyDeviceId` — leave blank for now; fill in during step 5.
 - `spotifyCachePath` — absolute path where spotipy will store its OAuth refresh token (e.g. `/home/<your-user>/spotify_cache`).
 - `spotifyRedirectUri` — defaults to `http://127.0.0.1:8080/callback`; must match whatever you registered as a redirect URI in the Spotify Developer App.
-- `timeZone` — IANA timezone (e.g. `Europe/Helsinki`).
-- `weatherPlace` — city the FMI feed should report for.
+- `weatherPlace` — city the FMI feed reports for until a home is set in the dashboard's Options view
+  (*Yleinen › Sijainti › Koti*, an address or a point on a map); from then on the weather is for the
+  home, and the timezone follows it.
+- `timeZone` — leave it out (`"auto"`): the home's zone, or the host's without one. An IANA name
+  (e.g. `Europe/Helsinki`) here overrides both.
 
 **5. Run the Spotify setup helper:**
 

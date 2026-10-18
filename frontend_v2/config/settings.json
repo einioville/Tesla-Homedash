@@ -540,6 +540,102 @@
                                 "key": "mapFollowMode",
                                 "equals": "warp"
                             }
+                        },
+                        {
+                            "key": "mapLayerStats",
+                            "type": "bool",
+                            "label": "Ajotiedot",
+                            "hidden": true,
+                            "default": true,
+                            "apply": "live"
+                        },
+                        {
+                            "key": "mapLayerRadar",
+                            "type": "bool",
+                            "label": "Sadetutka",
+                            "hidden": true,
+                            "default": false,
+                            "apply": "live"
+                        },
+                        {
+                            "key": "mapLayerRoute",
+                            "type": "bool",
+                            "label": "Ajettu reitti",
+                            "hidden": true,
+                            "default": true,
+                            "apply": "live"
+                        },
+                        {
+                            "key": "mapRadarLatestOnly",
+                            "type": "bool",
+                            "label": "Sadetutka: vain uusin (kartta)",
+                            "hidden": true,
+                            "default": false,
+                            "apply": "live"
+                        },
+                        {
+                            "key": "weatherRadarLatestOnly",
+                            "type": "bool",
+                            "label": "Sadetutka: vain uusin (sää)",
+                            "hidden": true,
+                            "default": false,
+                            "apply": "live"
+                        },
+                        {
+                            "key": "homeMapLayerRoute",
+                            "type": "bool",
+                            "label": "Ajettu reitti (aloitusnäkymä)",
+                            "hidden": true,
+                            "default": true,
+                            "apply": "live"
+                        },
+                        {
+                            "key": "homeMapLayerPlaces",
+                            "type": "bool",
+                            "label": "Paikannimet (aloitusnäkymä)",
+                            "hidden": true,
+                            "default": true,
+                            "apply": "live"
+                        },
+                        {
+                            "key": "homeMapLayerCameras",
+                            "type": "bool",
+                            "label": "Kelikamerat (aloitusnäkymä)",
+                            "hidden": true,
+                            "default": true,
+                            "apply": "live"
+                        },
+                        {
+                            "key": "homeMapLayerRadar",
+                            "type": "bool",
+                            "label": "Sadetutka (aloitusnäkymä)",
+                            "hidden": true,
+                            "default": false,
+                            "apply": "live"
+                        },
+                        {
+                            "key": "mapLayerCameras",
+                            "type": "bool",
+                            "label": "Kelikamerat",
+                            "hidden": true,
+                            "default": true,
+                            "apply": "live"
+                        },
+                        {
+                            "key": "mapLayerWarnings",
+                            "type": "bool",
+                            "label": "Säävaroitukset",
+                            "hidden": true,
+                            "default": true,
+                            "apply": "live"
+                        },
+                        {
+                            "key": "mapLayerPlaces",
+                            "type": "bool",
+                            "label": "Paikannimet",
+                            "hidden": true,
+                            "default": true,
+                            "apply": "live"
                         }
                     ]
                 }

@@ -23,7 +23,7 @@ running system:
               reschedules / refetches where that is needed). Applied immediately.
   "restart" — no safe live path: the value is consumed once at construction to
               build something that cannot be rebuilt in place (APScheduler cron
-              jobs from timeZone, whether SpotPriceService has a run task at all
+              jobs from the zone, whether SpotPriceService has a run task at all
               from spotPrice.enabled).
               Written to config.json and picked up on the next process start.
 
@@ -36,13 +36,10 @@ import os
 import shutil
 import struct
 import time
-from datetime import datetime, timezone
-from functools import lru_cache
 from typing import Any, Callable
-from zoneinfo import ZoneInfo, available_timezones
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from ..utils import process, protocol
-from ..utils.config_parser import AUTO_TIMEZONE, system_timezone_name
 from ..utils.logger_configurator import LEVEL_CHOICES
 
 logger = logging.getLogger("config_service.config_service")
@@ -66,20 +63,6 @@ _REBOOT_TIMEOUT_SECONDS = 15.0
 # Each returns the coerced value, or raises ValueError with a message shown
 # verbatim in the frontend. Referenced by name from the schema's "validator" key.
 
-def _validate_place(value: str) -> str:
-    '''
-    Checks a non-empty FMI place name.  FMI itself decides whether the place
-    resolves; an unknown one makes the fetch return nothing, which the service
-    already treats as a failed cycle (it keeps the previous forecast).
-    Arguments:
-        value (str): Candidate place name, e.g. "Tampere".
-    '''
-    place = value.strip()
-    if not place:
-        raise ValueError("Paikkakunta ei voi olla tyhjä")
-    return place
-
-
 def _validate_spotify_device_id(value: str) -> str:
     '''
     Refuses an empty Spotify Connect device id.  Unlike the config.json-only
@@ -99,80 +82,41 @@ def _validate_spotify_device_id(value: str) -> str:
 
 
 _VALIDATORS: dict[str, Callable[[str], str]] = {
-    "place": _validate_place,
     "spotify_device_id": _validate_spotify_device_id,
 }
 
-
-# ── Timezone choices ──────────────────────────────────────────────────────────
-# The timeZone enum: "auto" first, then UTC, then every zone in these tz database
-# areas. Left out: the legacy aliases (EET, US/Eastern, …), Etc/GMT±N — whose
-# sign is the reverse of what its name suggests — and tzdata oddities such as
-# Factory and localtime.
-_TIMEZONE_AREAS = frozenset((
-    "Africa", "America", "Antarctica", "Arctic", "Asia", "Atlantic",
-    "Australia", "Europe", "Indian", "Pacific",
-))
+# The longest address kept: Nominatim's display names run to ~150 characters.
+_ADDRESS_MAX = 200
 
 
-@lru_cache(maxsize=1)
-def _timezone_zones() -> dict[str, ZoneInfo]:
+def _validate_location(value: Any) -> dict:
     '''
-    The zones offered in the timeZone list, alphabetically by name.  Cached —
-    zones included — because available_timezones() opens every file under the
-    zoneinfo directory, ZoneInfo only weakly caches what nobody holds, and the
-    schema is rebuilt on every connect and every write.  The tz database only
-    changes with a package upgrade, which a restart picks up.
-    '''
-    return {
-        name: ZoneInfo(name)
-        for name in sorted(available_timezones())
-        if name.split("/", 1)[0] in _TIMEZONE_AREAS
-    }
-
-
-def _utc_offset_label(zone: ZoneInfo, now: datetime) -> str:
-    '''
-    Formats a zone's offset at `now` the way a phone lists it: "UTC+3",
-    "UTC-3", "UTC+5:30".  The offset is today's, so it follows daylight saving.
+    Checks a location from the Koti dialog: {address, lat, lon} and the zone FMI
+    gives the point (timeZone), which the dialog leaves out when FMI could not
+    say.  The zone must resolve: an "auto" timeZone follows it, and Config
+    refuses to load an unresolvable zone, so a bad one would restart-loop.
     Arguments:
-        zone (ZoneInfo): The zone whose offset is shown.
-        now (datetime): Timezone-aware instant to take the offset at.
+        value (Any): The JSON-decoded value from the CONFIG_SET payload.
     '''
-    minutes = int(now.astimezone(zone).utcoffset().total_seconds() // 60)
-    hours, rest = divmod(abs(minutes), 60)
-    sign = "-" if minutes < 0 else "+"
-    return f"UTC{sign}{hours}" + (f":{rest:02d}" if rest else "")
-
-
-def _timezone_options(current: str) -> list[dict]:
-    '''
-    Builds the timeZone enum choices, each labelled with its current UTC offset.
-    Membership in this list is what keeps an unresolvable zone out of
-    config.json: Config refuses to load one, and timeZone being restart-tier,
-    the restart would go straight into that failure — a restart loop.
-    Arguments:
-        current (str): The value in config.json now.  Included even when it is
-            not in the list (a legacy alias written by hand) so the row still
-            shows it; it resolved when Config loaded, so it is safe to keep.
-    '''
-    now = datetime.now(timezone.utc)
-
-    def label(name: str, zone: ZoneInfo) -> str:
-        return f"{name.replace('_', ' ')} ({_utc_offset_label(zone, now)})"
-
-    system = system_timezone_name()
-    offset = _utc_offset_label(ZoneInfo(system), now)
-    options = [
-        {"value": AUTO_TIMEZONE,
-         "label": f"Automaattinen ({system.replace('_', ' ')}, {offset})"},
-        {"value": "UTC", "label": "UTC"},
-    ]
-    zones = _timezone_zones()
-    if current not in (AUTO_TIMEZONE, "UTC") and current not in zones:
-        options.append({"value": current, "label": label(current, ZoneInfo(current))})
-    options.extend({"value": name, "label": label(name, zone)} for name, zone in zones.items())
-    return options
+    if not isinstance(value, dict):
+        raise ValueError("Odotettiin sijaintia")
+    address = value.get("address")
+    if not isinstance(address, str) or not address.strip():
+        raise ValueError("Osoite puuttuu")
+    for name, bound in (("lat", 90), ("lon", 180)):
+        v = value.get(name)
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or not -bound <= v <= bound:
+            raise ValueError("Virheelliset koordinaatit")
+    location = {"address": address.strip()[:_ADDRESS_MAX],
+                "lat": float(value["lat"]), "lon": float(value["lon"])}
+    zone = value.get("timeZone")
+    if zone is not None:
+        try:
+            ZoneInfo(zone)
+        except (ZoneInfoNotFoundError, ValueError, TypeError) as e:
+            raise ValueError(f"Tuntematon aikavyöhyke: {zone}") from e
+        location["timeZone"] = zone
+    return location
 
 
 # ── The schema ────────────────────────────────────────────────────────────────
@@ -196,7 +140,8 @@ def _timezone_options(current: str) -> list[dict]:
 #
 # Per-setting keys:
 #   key       dotted path into config.json ("myenergi.pollIntervalSeconds")
-#   type      bool | int | float | string | enum
+#   type      bool | int | float | string | enum | location (an {address, lat,
+#             lon, timeZone} object, edited in its own dialog; see _validate_location)
 #   label     Finnish row label
 #   help      Finnish one-liner shown under the row (optional)
 #   unit      suffix rendered after the value (optional)
@@ -257,25 +202,23 @@ SETTINGS_SCHEMA: list[dict] = [
         "sections": [
             {
                 "id": "location",
-                "label": "Sijainti ja aika",
+                "label": "Sijainti",
                 "settings": [
                     {
-                        "key": "weatherPlace",
-                        "type": "string",
-                        "label": "Sääpaikkakunta",
-                        "validator": "place",
+                        # Set in the Koti dialog (address search or a point on a
+                        # map); the button opens it. The weather is for it, and an
+                        # "auto" timeZone follows its zone — from the next start,
+                        # since the schedulers are built once (runtime says when).
+                        "key": "home",
+                        "type": "location",
+                        "label": "Koti",
+                        "actionLabel": "Muuta",
+                        "confirm": False,
+                        "requiresConnection": True,
+                        "details": "homeLocation",
+                        "nullable": True,
                         "apply": "hook",
                         "hooks": ["weather"],
-                    },
-                    {
-                        # "auto" follows the host's own zone; the choices come
-                        # from _timezone_options, registered in ConfigService.
-                        "key": "timeZone",
-                        "type": "enum",
-                        "label": "Aikavyöhyke",
-                        "options": "dynamic",
-                        "apply": "restart",
-                        "hooks": [],
                     },
                 ],
             },
@@ -726,10 +669,11 @@ class ConfigService:
         # that entry as "runtime" (the DEBUG log's end time).  Facts that change
         # with the value but are no setting themselves.
         self.__runtime_providers: dict[str, Callable[[], dict]] = {}
-        # The one enum this service owns itself: the zone is Config's, not any
-        # other service's.
-        self.register_options(
-            "timeZone", lambda: _timezone_options(self.__current_value("timeZone")))
+        # The zone this process built its schedulers in, and the one the next
+        # start will: they differ after a home in another zone is saved.
+        self.__zone_at_start = config.timezone
+        self.register_runtime("home", lambda: {"zoneInEffect": self.__zone_at_start,
+                                               "zoneNext": self.__config.timezone})
         # guard name -> callable(key, value), raising ValueError to REJECT a write
         # that could not take effect.  Distinct from a hook: a hook runs after the
         # value is already on disk and its failure is swallowed, so a guard is the
@@ -882,7 +826,7 @@ class ConfigService:
         '''
         Resolves an enum whose choices are built at schema time rather than
         listed in the schema, through the provider its service registered
-        (register_options), such as audio.outputDevice and timeZone.
+        (register_options), such as audio.outputDevice.
         Arguments:
             key (str): The setting key whose options are being built.
         '''
@@ -935,6 +879,9 @@ class ConfigService:
                 raise ValueError("Odotettiin tekstiä")
             validator = _VALIDATORS.get(setting.get("validator", ""))
             return validator(value) if validator else value.strip()
+
+        if kind == "location":
+            return _validate_location(value)
 
         if kind == "enum":
             # Dynamic options are not in the static schema, so their membership is

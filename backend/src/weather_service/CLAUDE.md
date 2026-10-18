@@ -11,6 +11,15 @@ needed). `__fetch_observation` walks observation slots newest→oldest and uses 
 with a valid air-temperature reading (avoiding the all-NaN padding slots fmiopendata returns).
 **Talks to:** FMI open data, `Server`.
 
+**The location is FMI query arguments** (`Config.weather_location`): the home's coordinates
+(`{"latlon": "61.44970,23.85860"}`) once one is set in the Options view, else the `weatherPlace`
+name (`{"place": "Tampere"}`). FMI takes coordinates as they are — the timeseries service, the
+harmonie WFS forecast — and names the point after its nearest place (*Hervanta*), which becomes the
+document's `meta.place`. The one exception is the WFS observation query, which answers coordinates
+with nothing: with a home, that query is skipped and the frozen frontend's banner uses the
+forecast's current hour, as it does whenever no observation arrives. The home's write runs
+`apply_config()`, which refetches at once.
+
 **The hour's rain needs its own query.** harmonie's default `PrecipitationAmount` is the rain
 **accumulated since the model run started** — it only ever grows — not the hour's, so the forecast
 is two queries run together: the default fields, and `parameters=Precipitation1h`, whose value
@@ -46,7 +55,7 @@ few minutes after their slot — under the same scheduler rules as the forecast 
 `_VIEW_DEADLINE_SECONDS` around the whole build and `_FMI_TIMEOUT` on every request.
 
 - **Source: FMI's `timeseries` service (JSON), not WFS**, so no fmiopendata parse. The parts, fetched
-  in parallel: the place (name, coordinates, its own zone — cached per place), observations
+  in parallel: the place (name, coordinates, its own zone — cached per location), observations
   (`numberofstations=5`, `maxdistance=50 km`, each field from the nearest station reporting it — the
   place's own station rarely measures everything), the **edited** forecast (~230 h, what
   ilmatieteenlaitos.fi shows), HARMONIE's `RadiationGlobal` for the hour, sun and moon, and the CAP
@@ -56,9 +65,14 @@ few minutes after their slot — under the same scheduler rules as the forecast 
   liikennesää: Kainuu sekä paikoin maan keskiosa* covers Tampere through Pirkanmaa, its sixth area —
   so the Weather view's strip shows `hereAreas`, and a tap opens every warning that applies, whole
   (`frontend_v2/items/weather/WeatherWarningsPopup.qml`). `areas` keeps only the first four.
-- **A failed part keeps its last good value**; parts are dropped when the place changes. A forecast
+- **A warning carries its areas for the map** (`shapes`: rings of `[lat, lon]`), which the Kartta
+  view draws (`frontend_v2/items/weather/WarningAreas.qml`). FMI's polygons run to ~16 000 points
+  over seven warnings; Douglas–Peucker at ~0.5 km and rounding to ~100 m (`_simplify`,
+  `_SHAPE_*`) leave ~4 000 points, ~70 KB of the document. The full polygons stay server-side for
+  `hereAreas`.
+- **A failed part keeps its last good value**; parts are dropped when the location changes. A forecast
   kept from an earlier cycle is trimmed to start at the current hour. No forecast hours at all → no
-  frame, the previous one stays (the forecast job's rule). A build that finishes after the place
+  frame, the previous one stays (the forecast job's rule). A build that finishes after the location
   changed is discarded.
 - **The UV index is an estimate** — FMI publishes none: Madronich's clear-sky index from the sun's
   elevation × HARMONIE's radiation against a Haurwitz clear-sky model. Not radiation alone, which

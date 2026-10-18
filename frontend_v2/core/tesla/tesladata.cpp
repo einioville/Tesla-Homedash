@@ -15,6 +15,15 @@ const Logger logger = Logger::get("tesla");
 TeslaData::TeslaData(ServerClient *server, QObject *parent)
     : TeslaDataGen(parent), m_server(server) {
     connect(server, &ServerClient::packetReceived, this, &TeslaData::onPacket);
+    connect(this, &TeslaDataGen::vehicleOnlineChanged, this, &TeslaData::trackSleep);
+}
+
+void TeslaData::trackSleep() {
+    const qint64 since = vehicleOnline() ? 0 : (m_asleepSince ? m_asleepSince : m_packetTime);
+    if (since != m_asleepSince) {
+        m_asleepSince = since;
+        emit asleepSinceChanged();
+    }
 }
 
 void TeslaData::switchClimate() {
@@ -65,6 +74,7 @@ void TeslaData::onPacket(quint8 type, const QByteArray &payload) {
             stream >> value;
             quint64 timestamp;
             stream >> timestamp;
+            m_packetTime = static_cast<qint64>(timestamp);
             applyValue(streamId, value);
             break;
         }
@@ -81,6 +91,7 @@ void TeslaData::onPacket(quint8 type, const QByteArray &payload) {
             stream.readRawData(raw.data(), length);
             quint64 timestamp;
             stream >> timestamp;
+            m_packetTime = static_cast<qint64>(timestamp);
             applyValue(streamId, QString::fromUtf8(raw));
             break;
         }
@@ -89,6 +100,7 @@ void TeslaData::onPacket(quint8 type, const QByteArray &payload) {
             stream >> raw;
             quint64 timestamp;
             stream >> timestamp;
+            m_packetTime = static_cast<qint64>(timestamp);
             applyValue(streamId, raw == 1);
             break;
         }
@@ -99,6 +111,7 @@ void TeslaData::onPacket(quint8 type, const QByteArray &payload) {
             stream >> longitude;
             quint64 timestamp;
             stream >> timestamp;
+            m_packetTime = static_cast<qint64>(timestamp);
             QVariantMap location;
             location.insert(QStringLiteral("latitude"), latitude);
             location.insert(QStringLiteral("longitude"), longitude);

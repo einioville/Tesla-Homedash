@@ -1,9 +1,11 @@
 import QtQuick
 import frontend_v2
 
-// Full-screen map view: the dashboard's TeslaMap blown up to fill the whole
-// surface. Corners are left square (roundedCorners: false) — the map IS the
-// view, so there's no surrounding card for rounded corners to blend into.
+// Full-screen map view (*Kartta*): the dashboard's TeslaMap blown up to fill the whole
+// surface, with layers switched from the menu in the bottom-right corner (MapLayerMenu): the
+// live data card in the bottom-left, the drive under way, OSM place names, and FMI's radar
+// with its timeline upright on the left edge; zoom buttons sit over the layer button. Corners are left square (roundedCorners: false) — the map IS
+// the view, so there's no surrounding card for rounded corners to blend into.
 //
 // isCurrent is forwarded to the map so it freezes its follow animation + center
 // binding while this view is hidden: the ViewController keeps this view (and its
@@ -15,9 +17,124 @@ Rectangle {
     property bool isCurrent: false
     color: Theme.dashboardBackground
 
+    readonly property bool showStats: Settings.values.mapLayerStats === true
+    readonly property bool showRadar: Settings.values.mapLayerRadar === true
+    readonly property bool showRoute: Settings.values.mapLayerRoute === true
+    readonly property bool showPlaces: Settings.values.mapLayerPlaces === true
+    readonly property bool showWarnings: Settings.values.mapLayerWarnings === true
+    readonly property bool showCameras: Settings.values.mapLayerCameras === true
+    readonly property var warnings: (Weather.view.warnings || []).filter(w => (w.shapes || []).length > 0)
+
+    onIsCurrentChanged: {
+        if (!isCurrent) {
+            layerMenu.open = false
+            warningsPopup.close()
+            cameraPopup.close()
+        }
+    }
+
     TeslaMap {
+        id: map
         anchors.fill: parent
         roundedCorners: false
         isCurrent: view.isCurrent
+        showRadar: view.showRadar
+        showWarnings: view.showWarnings
+        showCameras: view.showCameras
+        radarLatestOnly: Settings.values.mapRadarLatestOnly === true
+        onCameraOpened: (stationId) => cameraPopup.open(stationId)
+        showRoute: view.showRoute
+        showPlaceNames: view.showPlaces
+        interactive: !cameraPopup.visible && !warningsPopup.visible
+    }
+
+    // The frosted glass of every panel over the map, made once.
+    FrostLayer {
+        id: frost
+        sourceItem: map
+        live: view.isCurrent
+    }
+
+    // Over the live data card when it shows, in the corner otherwise.
+    WeatherRadarControls {
+        anchors.left: parent.left
+        anchors.leftMargin: 20
+        anchors.bottom: stats.visible ? stats.top : parent.bottom
+        anchors.bottomMargin: stats.visible ? 12 : 20
+        vertical: true
+        latestOnlyKey: "mapRadarLatestOnly"
+        visible: map.radar !== null
+        radar: map.radar
+        backdrop: map
+        frost: frost
+        rimWidth: 0.75
+        highlight: false
+    }
+
+    MapLiveStats {
+        id: stats
+        anchors.left: parent.left
+        anchors.bottom: parent.bottom
+        anchors.margins: 20
+        visible: view.showStats
+        active: view.isCurrent && visible
+        backdrop: map
+        frost: frost
+    }
+
+    WarningLegend {
+        anchors.left: parent.left
+        anchors.top: parent.top
+        anchors.margins: 20
+        visible: view.showWarnings && view.warnings.length > 0
+        active: view.isCurrent && visible
+        warnings: view.warnings
+        backdrop: map
+        frost: frost
+        onTapped: warningsPopup.open()
+    }
+
+    // Over the layer button. The layer menu opens over both.
+    MapZoomButtons {
+        x: layerMenu.toggleButton.x + (layerMenu.toggleButton.width - width) / 2
+        y: layerMenu.toggleButton.y - height - 12
+        teslaMap: map
+        frost: frost
+    }
+
+    MapLayerMenu {
+        id: layerMenu
+        anchors.fill: parent
+        backdrop: map
+        frost: frost
+        layers: [
+            { key: "mapLayerStats", label: qsTr("Ajotiedot") },
+            { key: "mapLayerRoute", label: qsTr("Ajettu reitti") },
+            { key: "mapLayerPlaces", label: qsTr("Paikannimet") },
+            { key: "mapLayerCameras", label: qsTr("Kelikamerat") },
+            { key: "mapLayerRadar", label: qsTr("Sadetutka") },
+            { key: "mapLayerWarnings", label: qsTr("Säävaroitukset") }
+        ]
+    }
+
+    // The dialog's glass blurs further than the panels', so it has a frost of its own.
+    FrostLayer {
+        id: popupFrost
+        sourceItem: map
+        live: view.isCurrent && cameraPopup.visible
+        blurMax: Theme.dialogFrostBlur
+        brightness: Theme.dialogFrostBrightness
+    }
+
+    RoadCameraPopup {
+        id: cameraPopup
+        backdrop: map
+        frost: popupFrost
+    }
+
+    WeatherWarningsPopup {
+        id: warningsPopup
+        anchors.fill: parent
+        warnings: view.warnings
     }
 }

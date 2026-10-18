@@ -45,6 +45,24 @@ Item {
     // background-coloured corner overlay would have nothing to blend into.
     property bool roundedCorners: true
 
+    // The map's layers, as the Kartta view's menu sets them (the dashboard's card leaves out
+    // the warnings): FMI's radar and lightning under everything else, FMI's warning areas, the drive under way (CurrentDrive) drawn behind the car, and
+    // OSM place names (PlaceLabels) and Fintraffic's road cameras (RoadCameras). `radar` is
+    // the RadarLayer while it is shown, for its controls.
+    property bool showRadar: false
+    property bool showWarnings: false
+    property bool showRoute: false
+    property bool showPlaceNames: false
+    property bool showCameras: false
+    // The radar shows only its newest frame (the Kartta view's *Vain uusin*).
+    property bool radarLatestOnly: false
+    // Holds CurrentDrive's requests while this map draws the route on screen.
+    readonly property bool watchingDrive: showRoute && isCurrent
+    onWatchingDriveChanged: watchingDrive ? CurrentDrive.retain() : CurrentDrive.release()
+    Component.onCompleted: if (watchingDrive) CurrentDrive.retain()
+    Component.onDestruction: if (watchingDrive) CurrentDrive.release()
+    readonly property Item radar: radarLoader.item
+
     // Frozen while the owning view is hidden. The dashboard keeps this map alive in
     // memory (so returning is instant — no tile reload), but a hidden map must not
     // animate or re-center on every telemetry tick. DashboardView binds this to its
@@ -71,12 +89,60 @@ Item {
         RotationAnimation { duration: 999; easing.type: Easing.Linear; direction: RotationAnimation.Shortest }
     }
 
+    // Off while a dialog lies over the map: pointer handlers beneath an item that took the press
+    // still see it, so a drag on the dialog's scrim would pan the map.
+    property bool interactive: true
+
+    // Any press, wheel or pinch on the map — MapZoomButtons shows itself on it.
+    signal touched()
+    // A road camera's marker tapped (RoadCameras).
+    signal cameraOpened(string stationId)
+
+    // The bounds of the mapDefaultZoom setting, which a zoom step writes.
+    readonly property int minimumDefaultZoom: 10
+    readonly property int maximumDefaultZoom: 19
+
+    // One whole zoom level in or out from where the map is (or is heading), made the default
+    // zoom, so the snap-back after a gesture returns there and the other map follows
+    // (onDefaultZoomChanged).
+    function stepZoom(direction) {
+        var from = zoomAnim.running ? zoomAnim.to : Math.round(map.zoomLevel)
+        var to = Math.max(minimumDefaultZoom, Math.min(maximumDefaultZoom, from + direction))
+        zoomAnim.to = to
+        zoomAnim.restart()
+        Settings.setValue("mapDefaultZoom", to)
+    }
+
+    // A new default from a zoom step on either map. The map that took the step is already
+    // easing there; one in the middle of a gesture returns there with its snap-back; a hidden
+    // one jumps, since nobody sees it.
+    onDefaultZoomChanged: {
+        if ((zoomAnim.running && zoomAnim.to === defaultZoom) || userControlled)
+            return
+        if (isCurrent) {
+            zoomAnim.to = defaultZoom
+            zoomAnim.restart()
+        } else {
+            map.zoomLevel = defaultZoom
+        }
+    }
+
+    NumberAnimation {
+        id: zoomAnim
+        target: map
+        property: "zoomLevel"
+        duration: 300
+        easing.type: Easing.OutCubic
+    }
+
     function handleGestureActive(active) {
         if (active) {
+            root.touched()
             userControlled = true
             returnTimer.stop()
             returnAnim.stop()
             warpAnim.stop()
+            zoomAnim.stop()
         } else {
             returnTimer.restart()
         }
@@ -320,6 +386,7 @@ Item {
 
         DragHandler {
             id: panHandler
+            enabled: root.interactive
             target: null
             minimumPointCount: 1
             maximumPointCount: 1
@@ -368,8 +435,16 @@ Item {
             }
         }
 
+        // Any press at all, moved or not. A passive grab, so the pan and pinch handlers
+        // still take the gesture.
+        PointHandler {
+            enabled: root.interactive
+            onActiveChanged: if (active) root.touched()
+        }
+
         WheelHandler {
             id: wheelHandler
+            enabled: root.interactive
             acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
             onWheel: function(event) {
                 root.handleGestureActive(true)
@@ -380,6 +455,7 @@ Item {
 
         PinchHandler {
             id: pinchHandler
+            enabled: root.interactive
             target: null
             minimumPointCount: 2
 
@@ -395,9 +471,78 @@ Item {
             }
         }
 
+        // Children of the Map, so they lie over the imagery and under the car; the z values
+        // order them (equal ones by declaration), since PlaceLabels adds its items after
+        // everything declared here.
+        Loader {
+            id: radarLoader
+            anchors.fill: parent
+            z: 1
+            active: root.showRadar
+            sourceComponent: RadarLayer {
+                geoMap: map
+                active: root.isCurrent
+                // A following map keeps moving, so it fetches a margin and frames no finer than
+                // the composite's own cells.
+                margin: 0.25
+                minMetresPerPixel: 150
+                maxImageSize: 1024
+                dim: 0
+                // The last quarter hour, played slowly: a glance at what is coming, not
+                // the hour of history the Weather card loops.
+                frameCount: 4
+                frameMs: 1500
+                newestFrameMs: 3500
+                latestOnly: root.radarLatestOnly
+                holdFetch: panHandler.active || pinchHandler.active
+            }
+        }
+
+        // Over the radar, under the route.
+        Loader {
+            anchors.fill: parent
+            z: 1
+            active: root.showWarnings
+            sourceComponent: WarningAreas {
+                geoMap: map
+            }
+        }
+
+        // The drive so far, coloured by speed, and on from its last fix to the car arrow as
+        // it eases toward the newest: the line grows behind the car, never ahead of it. While
+        // parked, the last trip, whole.
+        Loader {
+            anchors.fill: parent
+            z: 2
+            active: root.showRoute && CurrentDrive.active
+            sourceComponent: DriveRoute {
+                geoMap: map
+            }
+        }
+        MapPolyline {
+            z: 2
+            visible: root.showRoute && CurrentDrive.live && CurrentDrive.tailStart.isValid
+            path: visible ? [CurrentDrive.tailStart, QtPositioning.coordinate(root.latitude, root.longitude)]
+                          : []
+            line.width: Theme.mapDriveRouteWidth
+            line.color: Theme.speedColor(Tesla.vehicleSpeed)
+        }
+
+        PlaceLabels {
+            geoMap: map
+            active: root.showPlaceNames && root.isCurrent
+        }
+
+        RoadCameras {
+            geoMap: map
+            active: root.showCameras && root.isCurrent
+            onOpened: (stationId) => root.cameraOpened(stationId)
+        }
+
         MapQuickItem {
             id: vehicle
             objectName: "vehicle"
+            z: 10
 
             coordinate: QtPositioning.coordinate(root.latitude, root.longitude)
             // MapQuickItem renders SCREEN-ALIGNED while its own zoomLevel is

@@ -52,6 +52,7 @@ Rectangle {
             spotlight.dismiss()
             debugPopup.close()
             logClearPopup.close()
+            homePopup.close()
             System.closeLog()
         } else {
             // The device checks in SettingsIssues read this; throttled in C++.
@@ -130,6 +131,8 @@ Rectangle {
                 logClearPopup.open()
             else if (key === "backendLogin")
                 Server.showLoginPrompt()
+            else if (key === "home")
+                homePopup.open()
         }
 
         function onWriteFailed(key, message) {
@@ -162,7 +165,7 @@ Rectangle {
 
         layer.enabled: devicePopup.visible || usbImportPopup.visible || issuesPopup.visible
                        || spotlight.active || debugPopup.visible || logClearPopup.visible
-                       || logPopup.visible
+                       || logPopup.visible || homePopup.visible
         layer.effect: MultiEffect {
             blurEnabled: true
             blur: 1.0
@@ -400,6 +403,14 @@ Rectangle {
 
     SystemLogPopup {
         id: logPopup
+        anchors.fill: parent
+    }
+
+    // --- Location -------------------------------------------------------------
+    // The Koti row's dialog: the home by address or from the map. Same placement rule
+    // and reasons as the dialogs above.
+    HomeLocationPopup {
+        id: homePopup
         anchors.fill: parent
     }
 

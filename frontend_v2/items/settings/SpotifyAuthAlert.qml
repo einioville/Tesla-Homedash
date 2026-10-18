@@ -35,12 +35,11 @@ ModalDialog {
         height: 34
         z: 1
 
-        Text {
+        TintedIcon {
             anchors.centerIn: parent
-            text: "✕"
-            font.family: Theme.fontFamily
-            font.pixelSize: 15
-            color: closeArea.pressed ? Theme.dataLabelValue : Theme.dataLabelTitle
+            iconSize: 18
+            source: "qrc:/resources/icons/xmark.svg"
+            tint: closeArea.pressed ? Theme.dataLabelValue : Theme.dataLabelTitle
         }
 
         MouseArea {

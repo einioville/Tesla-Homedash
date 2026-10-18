@@ -48,7 +48,8 @@ knobs it deliberately mirrors — its *Eleherkkyys* (`mapGestureSensitivity` →
 uses the graph's levels through ONE table, `Theme.gestureSensitivityLevels`, so a level feels the
 same on both, and `mapFollowResumeSec` sits where `graphSettleDelay` does. Seven schema entries plus
 seven `Theme.map*` bindings, with **no protocol or C++ side**: everything is consumed by
-`items/tesla/TeslaMap.qml` (the dashboard card AND the full-screen `MapView`).
+`items/tesla/TeslaMap.qml` (the dashboard card AND the full-screen `MapView`, whose layers are
+below).
 `Theme.mapSensitivity` also reaches `items/trip/TripMap.qml`, which carries the same
 pan/pinch/wheel handlers, and the Weather view's radar map, which carries them too and also returns
 home after `mapFollowResumeSec` (`items/weather/WeatherRadarMap.qml`). The basemap
@@ -97,3 +98,124 @@ per-frame ticks) and NOT off heading — a bend would otherwise re-centre contin
 turning car is a moving one anyway. The `warpAnim.running` guard is what stops a 700 ms ease
 being restarted on each of the ~42 frames it spans, and a car more than one viewport away (a
 first fix, a reconnect, a telemetry jump) is snapped rather than eased across half of Finland.
+
+## The Kartta view's layers — `views/MapView.qml`
+
+The full-screen map carries four layers, each switched from the menu behind the round button in
+the bottom-right corner (`MapLayerMenu.qml`; a press outside the open menu closes it and goes no
+further). Their states are **hidden local settings** in the Kartta card (`mapLayerStats`,
+`mapLayerRadar`, `mapLayerRoute`, `mapLayerPlaces`), written straight from the menu, so a choice
+outlasts a restart without a row in the Options view. **The dashboard's card has its own** menu and
+switches (`homeMapLayer*`) for the radar, the route, the names and the cameras — not the warnings or
+the data card, which need the full screen — with no radar timeline: its loop plays on its own, and a
+camera's tap opens the same dialog over the dashboard. Each view names its rows (`MapLayerMenu.layers`);
+the menu sits in its map's corner, full-screen or the card. `TeslaMap`'s `show*` default off.
+
+- **Ajotiedot** — `MapLiveStats.qml` in the bottom-left: speed, battery, range and outside
+  temperature on frosted glass, read straight off `Tesla`. The car reports the outside temperature
+  only while it is awake, so an hour after it went offline (`Tesla.asleepSince`, the backend's state
+  event time, which a repeated offline event does not move) the temperature is FMI's for the place —
+  the weather document's `now.temp` — captioned *ULKONA · FMI*, until the car is back online.
+- **Sadetutka** — `items/weather/RadarLayer.qml`, the Weather view's radar loop and lightning, over
+  this map too, undimmed, with `WeatherRadarControls` upright on the left edge above the data card.
+  The loop is the last quarter hour (four frames, 1.5 s each, the newest held 3.5 s) rather than the
+  Weather card's hour. A *Vain uusin* checkbox on the bar (`mapRadarLatestOnly`; the Weather card has
+  its own, `weatherRadarLatestOnly`) holds the newest frame — `RadarLayer.latestOnly` stops the loop
+  and fetches no older frame — and leaves the bar only that frame's time, the play button, track
+  and relative age gone. Its header is the reference; two more things differ from the Weather card. This map turns heading-up, so each frame is fetched for the
+  bounding box of all four screen corners and turned with the map (`Image.rotation`), and the
+  lightning is painted in screen pixels and carried the same way. And it keeps moving while it
+  follows the car, so it fetches a 25 % margin round the view, no finer than 150 m a pixel
+  (the composite's cells are about 500 m) and at most 1024 px a side — all thirteen frames stay
+  decoded, so the size is the memory.
+- **Ajettu reitti** — the drive under way, or while the car is parked the last trip, whole (no
+  tail), from `CurrentDrive` (`core/trip/currentdrive.hh`),
+  which asks the backend only while a map on screen draws it — each `TeslaMap` holds it with
+  `retain()` / `release()`, since the dashboard's and the Kartta view's overlap while one view is
+  built and the other left. The backend's `TRIP_GET_CURRENT` finds it with the Trips view's own
+  detection, a drive counting from the first metres (no minimum distance), and each live fix is
+  added to a drive with the speed of the moment; the car leaving Park clears the last trip for
+  the next drive. It is **coloured by speed on the Trips map's scale** (`Theme.speedColor`)
+  and drawn in two parts: `path`, which ends at the fix before the newest, and a two-point
+  `MapPolyline` tail from there to the car arrow's eased position, in the current speed's colour.
+  The arrow takes a second to glide to each new fix, so a line through the newest fix would run
+  ahead of the car. **`path` is not a `MapPolyline`**: one is rebuilt (projected, clipped to the
+  view, triangulated) on every camera change
+  (`QDeclarativePolylineMapItemPrivateCPU::afterViewportChanged`), which a following map makes
+  every frame, and colouring would take a line per speed band. `DriveRoute.qml` is one `Shape` in
+  EPSG:3857 metres from the first fix — a `ShapePath` per 15 km/h band holding that band's runs —
+  moved, scaled and turned with the map, so a frame costs one projection and the paths are
+  rebuilt only when the zoom changes the stroke width or a fix arrives (a `GeoFrame`, below). A fix
+  extends the runs of its band only; a reply that replaces the path (`CurrentDrive.generation`)
+  starts them over.
+- **Paikannimet** — `PlaceLabels.qml` over the `PlaceNames` store (below), issue #54's first step.
+- **Kelikamerat** — Fintraffic's road weather cameras (Digitraffic, CC BY 4.0, credited in the README
+  and the dialog), `RoadCameras.qml`: the station list (`RoadCameraStations.qml`, ~800 cameras, 37 kB
+  gzipped) fetched straight from `tie.digitraffic.fi` when the layer comes on and every six hours, and
+  a marker for each camera in view from zoom 9 — at most 60, none within 30 px of another. A tap opens `RoadCameraPopup.qml`:
+  the station's pictures, one per direction it looks (a tab each), and the nearest road weather
+  station's readings (`nearestWeatherStationId`: road condition, road and air temperature, wind,
+  rain, visibility, humidity), all fetched when it opens. Pictures are taken every ten minutes; the
+  time is in the image URL so a new one is not served from the cache. Requests carry the
+  `Digitraffic-User` header Digitraffic asks for. The dialog is centred, on frosted glass over its
+  view (the dashboard frosts all of itself, `surface`, through a FrostLayer made while the dialog
+  shows; Kartta's dialog has one of its own beside the panels' shared one, since a dialog's frost
+  is stronger), and the map under it takes no gesture while it is open (`interactive`).
+  The Weather view's *Nyt* card has a *Kelikamerat* button that opens the same dialog on the ten
+  cameras nearest the weather document's place (`RoadCameraStations.nearest`, great-circle
+  distance), nearest first, stepped through with the arrows in its corner and each one's distance
+  under its name; the view holds that list and the dialog (`views/WeatherView.qml`), frosting the
+  whole dashboard, whose radar map takes no gesture meanwhile.
+- **Säävaroitukset** (a demo, on by default) — FMI's warnings in force as areas,
+  `items/weather/WarningAreas.qml`: each warning's regions from the weather document's `shapes`
+  (`backend/src/weather_service/CLAUDE.md`), filled faintly in its colour and outlined, in a
+  `GeoFrame` from the middle of Finland. `WarningLegend.qml` in the top-left corner names them, and
+  a tap opens them whole in the Weather view's `WeatherWarningsPopup`.
+
+**`GeoFrame.qml` carries drawing in metres with the map.** Its coordinates are EPSG:3857 metres from
+an origin; it is moved, scaled and turned with the camera, so a `Shape` in it is triangulated once
+and then only transformed — a frame costs one projection, where a `MapPolyline` is rebuilt every
+camera change. A stroke takes `px / pixelsPerMetre` and is rebuilt only when the zoom changes.
+`DriveRoute` and `WarningAreas` draw in one.
+
+**Zoom buttons** — `MapZoomButtons.qml`, + over − on a glass pill, over the layer button on both
+maps. On the dashboard's card the two are out of sight until the map is touched (`MapTouchReveal`:
+`TeslaMap.touched` comes from a passive `PointHandler`, so a press that never moves counts too and
+the pan still gets the gesture), fading 4 s after the last touch — held while the layer menu is
+open. A step is `TeslaMap.stepZoom`: a whole level from where the map is, **written as
+`mapDefaultZoom`**, so the snap-back after a gesture returns there and the other map follows
+(`onDefaultZoomChanged`: eased if it is on screen, set if hidden, left alone mid-gesture). Steps
+stay within the setting's 10–19.
+
+**Inside the `Map`, the layers are ordered by `z`**: the radar's Loader 1, the warnings 1 (declared
+after it), the route 2, the names 3, the cameras 4, the car arrow 10.
+
+**`MapCameraWatch.qml` is the one cue to redo work that depends on the view**: it fires once the
+map has rested and every so often while it keeps moving (RadarLayer 0.4 s / 1.5 s, PlaceLabels and
+RoadCameras 0.5 s / 2 s), so a map that follows the car does not refetch or re-choose every frame. Plain items declared inside a `Map` are its children and draw over the tiles,
+but `PlaceLabels` (a `MapItemView`) adds its items after everything declared, so declaration order
+alone would put the names over the car.
+
+### Place names — `core/map/placenames.{hh,cpp}`, `PlaceLabels.qml`
+
+The imagery has no labels, so OSM's `place=*` names are fetched from the Overpass API (keyless,
+ODbL) **per slippy-map tile at three tile zooms** — cities and towns per z6 tile, villages, suburbs
+and islands per z9, hamlets, neighbourhoods and smaller per z12 — each kind labelled from its own
+map zoom (`kKinds`). A tile is one request, ever: it is kept on disk
+(`~/.cache/Tesla-Homedash/place-names/<z>-<x>-<y>.json`, an empty tile too) and refreshed after half
+a year, so a daily route costs nothing after the first drive. **Overpass is slow and shared** —
+measured 30–60 s for one tile from overpass-api.de, which answers a second request soon after with
+a 502 — so the store asks one tile at a time, two seconds apart, the newest view's tiles first, and
+drops a tile no view has wanted for two minutes. A failed request moves on to the next of three
+public servers (`kServers`; maps.mail.ru answered the same tile in 15 s), and only when all three
+have failed in a row does the queue pause, 30 s doubling to 10 min. Requests are GETs because
+overpass.kumi.systems answers a POST with a 500. A new area's names therefore appear within a
+minute or so of the map first showing it.
+
+`PlaceLabels` asks the store for the area a little beyond the screen when the map rests, every 2 s
+while it moves and when a tile arrives (`PlaceNames.revision` — a `Q_INVOKABLE` binds to nothing),
+then places names most important first and leaves out one whose box would overlap a name already
+placed, 40 at most. Each is a `MapQuickItem` with no `zoomLevel`, so it stays upright when the map
+turns heading-up (the car arrow's fact above) — the reason for drawing names rather than laying a
+label tile layer over the imagery. Not done yet (#54): the Trips map, water and road names, and an
+OSM credit somewhere (the map hides its copyright notice).

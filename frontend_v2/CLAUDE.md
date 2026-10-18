@@ -13,20 +13,32 @@ main.cpp        # construction order matters — Settings before AppConfig (core
 app/            # Theme.qml (design tokens + the settings façade), ViewController.qml, Format.js
 config/         # settings.json (bundled Options-view schema), notifications.json
 core/           # C++: ServerClient, protocol.hh, Logger, AppConfig, dotenv, the QML singletons
-  tesla/ media/ weather/ charging/ trip/ notification/   # per-domain data models
+  tesla/ media/ weather/ charging/ trip/ map/ notification/   # per-domain data models
 items/          # QML components by domain (charging history luna media settings tesla trip util weather)
 views/          # one screen per view: Dashboard Map Weather Media History Trips Charging Settings
 resources/      # fonts, icons, styles, Luna, shaders (ShaderEffect .frag, compiled by qt_add_shaders)
 ```
+
+## Icons
+
+Every UI icon is from the **Dazzle Line** set (svgrepo.com, Dazzle UI, CC BY 4.0 — credited in the
+README): 24 px grid, 2 px round strokes, no fill, recoloured white in `resources/icons/` with the
+source name in a comment, and tinted where needed with `items/util/TintedIcon.qml`. A button or
+marker draws an icon, never a text glyph (▶, ✕, ⚠, ›). Where the set has nothing to fit, the icon is
+drawn in its style and says so in its comment (`seat.svg`, `steering.svg`). The exceptions are the
+weather symbols, FMI's SmartSymbols (`resources/icons/weather/smartsymbol/`), the car marker
+`arrow.svg`, and the media transport's filled round buttons (`media_*.svg`, Spotify's look, kept by
+choice). svgrepo refuses scripted downloads (a JavaScript checkpoint); the whole set is
+mirrored on freeicons.org.
 
 ## Where the detailed notes live
 
 | Working on | Read |
 |---|---|
 | The connection and the login — `ServerClient` (`Server`), `PairedDisplays` | `core/CLAUDE.md`; the exchange in `backend/src/auth_service/CLAUDE.md` |
-| A `core/` singleton — `Settings`, `Probe`, `Photos`, `UsbImport`, `Display`, `System`, `SystemHistory`, `Logs`, `TeslaFields`, `SpotifyAuth`, `SpotifyDevice`, `Updater` | `core/CLAUDE.md` |
+| A `core/` singleton — `Settings`, `Geocoder`, `Probe`, `Photos`, `UsbImport`, `Display`, `System`, `SystemHistory`, `Logs`, `TeslaFields`, `SpotifyAuth`, `SpotifyDevice`, `Updater` | `core/CLAUDE.md` |
 | The Options view's QML — layout, schema keys, delegates, status widgets, the USB photo import | `items/settings/CLAUDE.md` |
-| The map — `items/tesla/TeslaMap.qml` (full-screen in `views/MapView.qml`; `items/trip/TripMap.qml` shares its gesture handlers) | `items/tesla/CLAUDE.md` |
+| The map — `items/tesla/TeslaMap.qml` (full-screen in `views/MapView.qml` with its layers: the radar, the drive under way — `CurrentDrive` — and OSM place names — `PlaceNames`; `items/trip/TripMap.qml` shares its gesture handlers) | `items/tesla/CLAUDE.md` |
 | A graph — every one is `items/history/HistoryGraph.qml`; its multi-line additions (`extraSeries`, fixed range, `wheelZoom`) | `items/settings/CLAUDE.md`, *Järjestelmän tila* |
 | `items/util/ScreenSaver.qml` | `items/util/CLAUDE.md` |
 | A new control or anything that moves — reuse `ToggleSwitch`, `Reveal`, `ElasticFlickable`, `WheelStepArea`, `HoldRepeatArea`, `ReleaseVelocity` (timings are `Theme` *Motion* tokens) | `items/util/CLAUDE.md` |

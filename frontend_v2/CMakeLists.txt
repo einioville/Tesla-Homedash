@@ -92,6 +92,12 @@ qt_add_executable(appfrontend_v2
     core/tesla/teslafieldeditor.cpp
     core/trip/tripsdata.hh
     core/trip/tripsdata.cpp
+    core/trip/currentdrive.hh
+    core/trip/currentdrive.cpp
+    core/map/placenames.hh
+    core/map/placenames.cpp
+    core/map/geocoder.hh
+    core/map/geocoder.cpp
     core/charging/chargingdata.hh
     core/charging/chargingdata.cpp
     core/media/mediaimagecache.hh
@@ -160,6 +166,8 @@ qt_add_qml_module(appfrontend_v2
         items/settings/UsbImportPopup.qml
         items/settings/SpotifyButton.qml
         items/settings/DialogButton.qml
+        items/settings/HomeLocationDetails.qml
+        items/settings/HomeLocationPopup.qml
         items/settings/ModalDialog.qml
         items/settings/SpotifyAuthAlert.qml
         items/settings/BackendLoginPrompt.qml
@@ -196,6 +204,7 @@ qt_add_qml_module(appfrontend_v2
         items/util/ElasticFlickable.qml
         items/util/RoundedImage.qml
         items/util/GlassPanel.qml
+        items/util/FrostLayer.qml
         items/util/NotificationLayer.qml
         items/util/ScreenSaver.qml
         items/util/NightSchedule.qml
@@ -208,6 +217,17 @@ qt_add_qml_module(appfrontend_v2
         items/tesla/SteeringWidget.qml
         items/tesla/ClimateCard.qml
         items/tesla/TeslaMap.qml
+        items/tesla/PlaceLabels.qml
+        items/tesla/MapLayerMenu.qml
+        items/tesla/MapLiveStats.qml
+        items/tesla/MapZoomButtons.qml
+        items/tesla/MapTouchReveal.qml
+        items/tesla/DriveRoute.qml
+        items/tesla/GeoFrame.qml
+        items/tesla/MapCameraWatch.qml
+        items/tesla/RoadCameras.qml
+        items/tesla/RoadCameraPopup.qml
+        items/tesla/RoadCameraStations.qml
         items/media/MediaPlayerCard.qml
         items/media/MediaBackdrop.qml
         items/media/MediaSpectrum.qml
@@ -218,6 +238,9 @@ qt_add_qml_module(appfrontend_v2
         items/weather/WeatherUtil.js
         items/weather/WeatherWindArrow.qml
         items/weather/WeatherRadarMap.qml
+        items/weather/RadarLayer.qml
+        items/weather/WarningAreas.qml
+        items/weather/WarningLegend.qml
         items/weather/WeatherRadarControls.qml
         items/weather/WeatherSunArc.qml
         items/weather/WeatherMoon.qml
@@ -295,31 +318,36 @@ qt_add_resources(appfrontend_v2 "app_resources"
         resources/icons/arrow.svg
         resources/icons/arrow_left.svg
         resources/icons/arrow_right.svg
+        resources/icons/camera.svg
+        resources/icons/check.svg
         resources/icons/charger.svg
+        resources/icons/dots.svg
         resources/icons/chart_line.svg
+        resources/icons/exclamation.svg
         resources/icons/pulse.svg
-        resources/icons/folder.svg
-        resources/icons/cooling.png
-        resources/icons/greenshadow.png
+        resources/icons/rotate_left.svg
         resources/icons/heating.png
         resources/icons/home.svg
+        resources/icons/layers.svg
         resources/icons/link.svg
         resources/icons/location.svg
+        resources/icons/media_pause.svg
+        resources/icons/media_play.svg
+        resources/icons/media_skip_backward.svg
+        resources/icons/media_skip_forward.svg
         resources/icons/music.svg
         resources/icons/minus.svg
         resources/icons/pause.svg
         resources/icons/play.svg
         resources/icons/price.svg
         resources/icons/plus.svg
-        resources/icons/redshadow.png
         resources/icons/seat.svg
         resources/icons/settings.svg
-        resources/icons/skip_backward.svg
-        resources/icons/skip_forward.svg
         resources/icons/steering.svg
         resources/icons/terminal.svg
         resources/icons/trip.svg
-        resources/icons/yellowshadow.png
+        resources/icons/warning.svg
+        resources/icons/xmark.svg
         resources/icons/weather/clouds.svg
         resources/Luna/stationary.png
         resources/Luna/eating_1.png
@@ -349,6 +377,7 @@ qt_add_shaders(appfrontend_v2 "shaders"
         resources/shaders/climatesurface.frag
         resources/shaders/climatewater.frag
         resources/shaders/climatewave.frag
+        resources/shaders/glassfrost.frag
 )
 
 # Developer convenience: regenerate the Tesla data layer from the registry.

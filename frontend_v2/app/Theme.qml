@@ -223,11 +223,19 @@ QtObject {
     readonly property real notificationFrostSaturation: -0.1
 
     // --- Trips view -------------------------------------------------------
-    // Speed at which the route line reaches the top of the colour ramp (red).
+    // Speed at which a route line reaches the top of the colour ramp (red).
     // The gradient runs dark green (0 km/h) → red / dark red (this value); speeds
-    // above it clamp to the top colour. TripMap.colorForSpeed reads this. Not a
-    // user setting: it is a colour-scale endpoint, not a preference.
+    // above it clamp to the top colour. Not a user setting: it is a colour-scale
+    // endpoint, not a preference.
     readonly property real tripMaxSpeedKmh: 150.0
+    // A route's colour at a speed: the Trips map's and the Kartta view's drive. The value
+    // dips toward the top, so the fast end reads as a darker red.
+    function speedColor(kmh) {
+        var t = Math.max(0, Math.min(1, kmh / tripMaxSpeedKmh))
+        var hue = 0.333 * (1 - t)      // 120deg green -> 0deg red (Qt.hsva hue is 0..1)
+        var val = 0.72 - 0.18 * t      // dark-ish green -> dark red
+        return Qt.hsva(hue, 1.0, val, 1.0)
+    }
     // Coloured route line width (px) and its dark casing underneath (for legibility
     // over satellite imagery / bright tiles).
     readonly property real tripRouteWidth: 4
@@ -252,6 +260,10 @@ QtObject {
     // green→red speed gradient of the route line (the pin shape disambiguates).
     readonly property color tripMarkerColor: "#ff3b30"
 
+    // --- Kartta view -----------------------------------------------------
+    // The drive under way, drawn on the map behind the car (TeslaMap's route layer).
+    readonly property real mapDriveRouteWidth: 5
+
     // Minimalistic detail cards (the stat tiles, the selector box and the map/graph
     // frames): a translucent grey fill with a whiteish border and softer corners than
     // the dashboard's dark-gradient cards.
@@ -263,6 +275,12 @@ QtObject {
     // most of the separating; at 0xcc the frosted backdrop is invisible and the
     // effect pure cost.
     readonly property color dialogScrim: "#99000000"
+    // A dialog on frosted glass (ModalDialog's `backdrop`): darker than the notification glass,
+    // and its FrostLayer blurs further, so what lies behind cannot be read through it.
+    readonly property color dialogGlassTop: "#99101016"
+    readonly property color dialogGlassBottom: "#b30a0a0e"
+    readonly property real dialogFrostBlur: 64
+    readonly property real dialogFrostBrightness: -0.3
 
     // --- Screensaver ------------------------------------------------------
     // Printed-photo pile on a black background: each photo sits in a white frame

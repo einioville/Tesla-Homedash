@@ -18,7 +18,7 @@ from fmiopendata.wfs import STORED_QUERY_URL
 from ..server.server import Server
 from ..utils import protocol
 from ..utils.config_parser import Config
-from .weather_view import WeatherViewBuilder
+from .weather_view import WeatherViewBuilder, describe
 
 logger = logging.getLogger("weather_service.weather_service")
 
@@ -140,13 +140,14 @@ class WeatherService:
         '''
         self.__loop = asyncio.get_running_loop()
         self.__server = server
-        # Retained so apply_config() can re-read the place after the Options view
-        # writes it; the scheduler timezone is NOT re-read (see apply_config).
+        # Retained so apply_config() can re-read the location after the Options view
+        # writes the home; the scheduler timezone is NOT re-read (see apply_config).
         self.__config = config
         self.__zone_info = config.zone_info
         self.__scheduler = AsyncIOScheduler(timezone=self.__zone_info)
-        # Observation and forecast place — configure via "weatherPlace" in config.json
-        self.__place: str = config.weather_place
+        # Where the weather is for: the home's coordinates, or the weatherPlace name.
+        self.__where: dict[str, str] = config.weather_location
+        self.__where_name: str = config.weather_location_name
         # Most recent framed forecast packet, replayed verbatim to any newly
         # connecting client so its weather UI populates immediately without
         # waiting for the next 15-minute cron tick.
@@ -162,16 +163,17 @@ class WeatherService:
         Re-reads the runtime-editable settings this service owns and refreshes
         immediately, so the change is visible without waiting up to 15 minutes for
         the next cron tick.  Called by ConfigService after the Options view writes
-        "weatherPlace"; safe to call at any time.
+        "home"; safe to call at any time.
 
-        Only the place is re-read.  The scheduler's timezone is fixed at
-        construction, which is why "timeZone" is a restart-tier setting.
+        Only the location is re-read.  The scheduler's timezone is fixed at
+        construction: a home in another zone takes effect on the next start.
         '''
-        new_place = self.__config.weather_place
-        if new_place == self.__place:
+        self.__where_name = self.__config.weather_location_name
+        new_where = self.__config.weather_location
+        if new_where == self.__where:
             return
-        logger.info("Weather place changed: %s -> %s", self.__place, new_place)
-        self.__place = new_place
+        logger.info("Weather location changed: %s -> %s", describe(self.__where), describe(new_where))
+        self.__where = new_where
         # Drop the cached frame: it describes the OLD place, and replaying it to a
         # client that connects before the refetch lands would show the wrong city.
         self.__last_forecast = None
@@ -185,7 +187,7 @@ class WeatherService:
         performs an initial combined fetch (current-hour observation + upcoming
         forecast).
         '''
-        logger.info("Weather service starting: place=%s", self.__place)
+        logger.info("Weather service starting: %s", describe(self.__where))
         # Schedule BEFORE the initial fetch: the periodic refresh must exist even
         # if the first fetch fails or runs long, otherwise a bad start leaves the
         # service with no job at all and weather never recovers.  Overlapping the
@@ -214,11 +216,11 @@ class WeatherService:
     def health(self) -> dict:
         '''
         Reports forecast health for the status view: "warn" until a forecast
-        frame is cached (at startup, or right after a place change).  A refresh
+        frame is cached (at startup, or right after a location change).  A refresh
         that stalls after that keeps the old frame, so the Päivitetty row's age
         is what shows it (weather_service/CLAUDE.md).
         '''
-        config = [["Paikkakunta", self.__place], ["Päivitysväli", "10 min"],
+        config = [["Sijainti", self.__where_name], ["Päivitysväli", "10 min"],
                   ["Lähde", "Ilmatieteen laitos"]]
         if self.__view_updated_ms is not None:
             config.append(["Päivitetty", {"time": self.__view_updated_ms}])
@@ -302,22 +304,22 @@ class WeatherService:
         Builds the Weather view's document and broadcasts it as a WEATHER_VIEW frame.
         A cycle that yields no document keeps the previous frame, as the forecast does.
         '''
-        place = self.__place
+        where = self.__where
         try:
             document = await asyncio.wait_for(
-                self.__view_builder.build(place), _VIEW_DEADLINE_SECONDS
+                self.__view_builder.build(where), _VIEW_DEADLINE_SECONDS
             )
         except asyncio.TimeoutError:
             logger.warning(
-                "Weather view fetch timed out for place=%s (deadline %ds)",
-                place, _VIEW_DEADLINE_SECONDS,
+                "Weather view fetch timed out for %s (deadline %ds)",
+                describe(where), _VIEW_DEADLINE_SECONDS,
             )
             return
         if document is None:
             return
-        # The place changed while this was in flight: the cycle the change started
-        # describes the new place, and this one must not land after it.
-        if place != self.__place:
+        # The location changed while this was in flight: the cycle the change started
+        # describes the new one, and this one must not land after it.
+        if where != self.__where:
             return
         self.__last_view = protocol.json_frame(
             protocol.WEATHER_VIEW, protocol.CONFIG_STATUS_OK, document
@@ -345,7 +347,7 @@ class WeatherService:
         fmiopendata implicitly.
         Arguments:
             query_id (str): FMI stored query id.
-            params (dict[str, str]): Query arguments (starttime/endtime/place).
+            params (dict[str, str]): Query arguments (starttime/endtime and the location).
             label (str): Human-readable query name used in log messages.
         '''
         try:
@@ -356,16 +358,16 @@ class WeatherService:
             # Must precede the OSError clause: on Python 3.11+ asyncio.TimeoutError
             # is the builtin TimeoutError, which is an OSError subclass.
             logger.warning(
-                "FMI %s fetch timed out for place=%s (deadline %ds)",
-                label, self.__place, _FETCH_DEADLINE_SECONDS,
+                "FMI %s fetch timed out for %s (deadline %ds)",
+                label, describe(self.__where), _FETCH_DEADLINE_SECONDS,
             )
             return None
         except (aiohttp.ClientError, OSError, ParseError, ValueError, KeyError, IndexError) as e:
             # ClientError/OSError → network + HTTP failures; ParseError/ValueError →
             # malformed or defused XML; KeyError/IndexError → unexpected response shape.
             logger.warning(
-                "FMI %s fetch failed for place=%s: %s: %s",
-                label, self.__place, type(e).__name__, e,
+                "FMI %s fetch failed for %s: %s: %s",
+                label, describe(self.__where), type(e).__name__, e,
             )
             return None
 
@@ -375,7 +377,7 @@ class WeatherService:
         failure; __download_stored_query owns the error handling.
         Arguments:
             query_id (str): FMI stored query id.
-            params (dict[str, str]): Query arguments (starttime/endtime/place).
+            params (dict[str, str]): Query arguments (starttime/endtime and the location).
         '''
         async with aiohttp.ClientSession(timeout=_FMI_TIMEOUT) as session:
             async with session.get(STORED_QUERY_URL + query_id, params=params) as response:
@@ -401,10 +403,14 @@ class WeatherService:
         '''
         Fetches the most recent FMI surface observation within the current hour
         and returns it as a ForecastHour.  Returns None when the query fails or
-        produces no usable data.
+        produces no usable data — and for coordinates, which this stored query does
+        not take (FMI answers it with nothing); the banner then uses the forecast's
+        current hour, as it does when no observation arrives.
         Arguments:
             now_local (datetime): Timezone-aware current local time.
         '''
+        if "place" not in self.__where:
+            return None
         current_hour_start = now_local.replace(minute=0, second=0, microsecond=0)
         # Request the full current-hour window; the API only returns data that
         # already exists, so requesting up to the next hour is safe.
@@ -419,7 +425,7 @@ class WeatherService:
             params={
                 "starttime": start_str,
                 "endtime": end_str,
-                "place": self.__place,
+                **self.__where,
             },
             label="observation",
         )
@@ -468,7 +474,7 @@ class WeatherService:
 
         if not normalized:
             logger.debug(
-                "FMI observation returned no usable fields for place=%s", self.__place
+                "FMI observation returned no usable fields for %s", describe(self.__where)
             )
             return None
 
@@ -500,7 +506,7 @@ class WeatherService:
         # The default fields' "PrecipitationAmount" is the rain ACCUMULATED since
         # the model run started (it only ever grows), not the hour's. The hour's is
         # "Precipitation1h", fetched alongside and put in its place.
-        params = {"starttime": start_str, "endtime": end_str, "place": self.__place}
+        params = {"starttime": start_str, "endtime": end_str, **self.__where}
         data, hourly_rain = await asyncio.gather(
             self.__download_stored_query(
                 query_id=_HARMONIE_QUERY, params=params, label="forecast"

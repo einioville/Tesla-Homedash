@@ -8,6 +8,7 @@ Item {
     id: root
 
     property alias source: img.source
+    readonly property alias status: img.status
     property int radius: 5
     property int fillMode: Image.PreserveAspectFit
 

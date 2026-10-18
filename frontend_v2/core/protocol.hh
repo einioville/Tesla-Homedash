@@ -97,6 +97,9 @@ inline constexpr quint8 TRIP_GET_SUMMARY = 0x7A;  // F->B: start_ms(8B) + end_ms
 inline constexpr quint8 TRIP_SUMMARY = 0x7B;      // B->F: trip_id(8B) + status(1B) + start_ms(8B) + end_ms(8B) + 7*double(8B): distance_km, avg_speed, max_speed, energy_wh, wh_per_km, start_soc, end_soc
 inline constexpr quint8 TRIP_GET_SERIES = 0x7C;   // F->B: start_ms(8B) + end_ms(8B) + id(len(2B)+UTF-8)
 inline constexpr quint8 TRIP_SERIES = 0x7D;       // B->F: trip_id(8B) + id(len(2B)+UTF-8) + status(1B) + count(4B) + count*(ts_ms(8B)+value(8B double))
+// The drive under way (the Kartta view's route layer): trip_id 0 = none.
+inline constexpr quint8 TRIP_GET_CURRENT = 0x7E;  // F->B: (empty)
+inline constexpr quint8 TRIP_CURRENT = 0x7F;      // B->F: TRIP_DETAIL's body
 
 // MyEnergi (Zappi) charger live stream (backend -> frontend broadcast). A sequence of
 // (sub_id(1B) + value) pairs; each fixed-width sub_id implies its value width. The one

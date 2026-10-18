@@ -25,6 +25,11 @@ Item {
 
     property var wx: ({})
     property bool active: true
+    // Off while a dialog of the view's lies over this (the radar map's gestures).
+    property bool interactive: true
+
+    // The Nyt card's camera button: the view opens the road cameras nearest the place.
+    signal camerasRequested()
 
     readonly property var now: wx.now || ({})
     readonly property var here: (wx.warnings || []).filter(w => w.appliesHere)
@@ -92,6 +97,7 @@ Item {
         note: root.now.time ? qsTr("havainto ") + root.now.time : ""
 
         ColumnLayout {
+            id: nowLayout
             anchors.fill: parent
             anchors.margins: 14
             anchors.topMargin: 36
@@ -107,12 +113,21 @@ Item {
                 radius: 8
                 color: root.here.length ? U.warnColor(root.here[0].color) : "transparent"
                 opacity: warningTap.pressed ? 0.8 : 1
-                Text {
+                TintedIcon {
+                    id: warnIcon
                     anchors.left: parent.left
+                    anchors.leftMargin: 10
+                    anchors.verticalCenter: parent.verticalCenter
+                    iconSize: 16
+                    source: "qrc:/resources/icons/warning.svg"
+                    tint: "#1a1400"
+                }
+                Text {
+                    anchors.left: warnIcon.right
                     anchors.right: more.left
                     anchors.top: parent.top
                     anchors.bottom: parent.bottom
-                    anchors.leftMargin: 10
+                    anchors.leftMargin: 8
                     anchors.rightMargin: 6
                     verticalAlignment: Text.AlignVCenter
                     elide: Text.ElideRight
@@ -126,22 +141,33 @@ Item {
                         const when = U.warnWhen(w)
                         if (when)
                             parts.push(when)
-                        return "⚠  " + parts.join(" · ")
+                        return parts.join(" · ")
                     }
                     color: "#1a1400"
                     font.family: Theme.fontFamily
                     font.pixelSize: 13
                 }
-                Text {
+                Row {
                     id: more
                     anchors.right: parent.right
-                    anchors.rightMargin: 10
+                    anchors.rightMargin: 8
                     anchors.verticalCenter: parent.verticalCenter
-                    text: (root.here.length > 1 ? "+" + (root.here.length - 1) + "  " : "") + "›"
-                    color: "#1a1400"
-                    font.family: Theme.fontFamily
-                    font.pixelSize: 15
-                    font.bold: true
+                    spacing: 4
+                    Text {
+                        anchors.verticalCenter: parent.verticalCenter
+                        visible: root.here.length > 1
+                        text: "+" + (root.here.length - 1)
+                        color: "#1a1400"
+                        font.family: Theme.fontFamily
+                        font.pixelSize: 15
+                        font.bold: true
+                    }
+                    TintedIcon {
+                        anchors.verticalCenter: parent.verticalCenter
+                        iconSize: 16
+                        source: "qrc:/resources/icons/arrow_right.svg"
+                        tint: "#1a1400"
+                    }
                 }
                 MouseArea {
                     id: warningTap
@@ -152,6 +178,7 @@ Item {
             }
 
             RowLayout {
+                id: symbolRow
                 Layout.fillWidth: true
                 spacing: 12
                 Image {
@@ -233,6 +260,43 @@ Item {
 
             Item { Layout.fillHeight: true }
         }
+
+        // Beside the temperature, clear of the condition's text below it.
+        Rectangle {
+            anchors.right: parent.right
+            anchors.rightMargin: 14
+            y: nowLayout.y + symbolRow.y + 6
+            width: cameraLabel.implicitWidth + 24
+            height: 34
+            radius: 17
+            color: cameraTap.pressed ? "#33ffffff" : "#1fffffff"
+            border.color: "#33ffffff"
+            border.width: 1
+
+            Row {
+                id: cameraLabel
+                anchors.centerIn: parent
+                spacing: 6
+                TintedIcon {
+                    anchors.verticalCenter: parent.verticalCenter
+                    iconSize: 16
+                    source: "qrc:/resources/icons/camera.svg"
+                }
+                Text {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: qsTr("Kelikamerat")
+                    color: "white"
+                    font.family: Theme.fontFamily
+                    font.pixelSize: 13
+                }
+            }
+            MouseArea {
+                id: cameraTap
+                anchors.fill: parent
+                anchors.margins: -6
+                onClicked: root.camerasRequested()
+            }
+        }
     }
 
     // Sun and moon, side by side under the current weather.
@@ -304,6 +368,8 @@ Item {
             zoom: 8.0
             placeOffset: Qt.point(0, -20)
             active: root.active
+            interactive: root.interactive && !warningsPopup.visible
+            latestOnly: Settings.values.weatherRadarLatestOnly === true
         }
         Text {
             x: 14; y: 10
@@ -319,7 +385,9 @@ Item {
             anchors.horizontalCenter: parent.horizontalCenter
             anchors.bottom: parent.bottom
             anchors.bottomMargin: 12
-            radar: radar
+            radar: radar.radarLayer
+            backdrop: radar
+            latestOnlyKey: "weatherRadarLatestOnly"
             rimWidth: 0.75
             highlight: false
             frostBrightness: -0.05
