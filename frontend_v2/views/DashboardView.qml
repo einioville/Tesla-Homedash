@@ -14,6 +14,8 @@ Rectangle {
 
     color: Theme.dashboardBackground
 
+    onIsCurrentChanged: if (!isCurrent) cameraPopup.close()
+
     readonly property real gridMargin: Theme.gridMargin
     readonly property real gridSpacing: 10
     readonly property real cellW: (width - 2 * gridMargin - 15 * gridSpacing) / 16
@@ -58,12 +60,19 @@ Rectangle {
         }
     }
 
+    // The Kartta view's layers as its menu sets them, but for the warnings, which need the
+    // full screen to read; the radar loops on its own, with no timeline to work it.
     TeslaMap {
         id: map
         x: view.cellX(0); y: view.cellY(0)
         width: view.spanW(8); height: view.spanH(6)
         isCurrent: view.isCurrent
         background: background
+        showRadar: Settings.values.mapLayerRadar === true
+        showRoute: Settings.values.mapLayerRoute === true
+        showPlaceNames: Settings.values.mapLayerPlaces === true
+        showCameras: Settings.values.mapLayerCameras === true
+        onCameraOpened: (stationId) => cameraPopup.open(stationId)
     }
 
     // Out of sight until the map is touched.
@@ -131,5 +140,9 @@ Rectangle {
         Luna {
             running: view.isCurrent && Theme.lunaEnabled
         }
+    }
+
+    RoadCameraPopup {
+        id: cameraPopup
     }
 }

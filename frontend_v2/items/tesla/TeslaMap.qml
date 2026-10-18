@@ -45,8 +45,8 @@ Item {
     // background-coloured corner overlay would have nothing to blend into.
     property bool roundedCorners: true
 
-    // The Kartta view's layers, all off on the dashboard card: FMI's radar and lightning
-    // under everything else, FMI's warning areas, the drive under way (CurrentDrive) drawn behind the car, and
+    // The map's layers, as the Kartta view's menu sets them (the dashboard's card leaves out
+    // the warnings): FMI's radar and lightning under everything else, FMI's warning areas, the drive under way (CurrentDrive) drawn behind the car, and
     // OSM place names (PlaceLabels) and Fintraffic's road cameras (RoadCameras). `radar` is
     // the RadarLayer while it is shown, for its controls.
     property bool showRadar: false
@@ -54,6 +54,11 @@ Item {
     property bool showRoute: false
     property bool showPlaceNames: false
     property bool showCameras: false
+    // Holds CurrentDrive's requests while this map draws the route on screen.
+    readonly property bool watchingDrive: showRoute && isCurrent
+    onWatchingDriveChanged: watchingDrive ? CurrentDrive.retain() : CurrentDrive.release()
+    Component.onCompleted: if (watchingDrive) CurrentDrive.retain()
+    Component.onDestruction: if (watchingDrive) CurrentDrive.release()
     readonly property Item radar: radarLoader.item
 
     // Frozen while the owning view is hidden. The dashboard keeps this map alive in

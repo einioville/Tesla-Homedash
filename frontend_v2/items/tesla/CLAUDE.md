@@ -105,8 +105,10 @@ The full-screen map carries four layers, each switched from the menu behind the 
 the bottom-right corner (`MapLayerMenu.qml`; a press outside the open menu closes it and goes no
 further). Their states are **hidden local settings** in the Kartta card (`mapLayerStats`,
 `mapLayerRadar`, `mapLayerRoute`, `mapLayerPlaces`), written straight from the menu, so a choice
-outlasts a restart without a row in the Options view. The dashboard's card shows none of them —
-`TeslaMap`'s `showRadar` / `showRoute` / `showPlaceNames` default off.
+outlasts a restart without a row in the Options view. **The dashboard's card follows the same
+switches** for the radar, the route, the names and the cameras — not the warnings or the data card,
+which need the full screen — with no radar timeline: its loop plays on its own, and a camera's tap
+opens the same dialog over the dashboard. `TeslaMap`'s `show*` default off.
 
 - **Ajotiedot** — `MapLiveStats.qml` in the bottom-left: speed, battery, range and outside
   temperature on frosted glass, read straight off `Tesla`.
@@ -119,8 +121,10 @@ outlasts a restart without a row in the Options view. The dashboard's card shows
   follows the car, so it fetches a 25 % margin round the view, no finer than 150 m a pixel
   (the composite's cells are about 500 m) and at most 1024 px a side — all thirteen frames stay
   decoded, so the size is the memory.
-- **Ajettu reitti** — the drive under way, from `CurrentDrive` (`core/trip/currentdrive.hh`): the
-  backend's `TRIP_GET_CURRENT` finds it with the Trips view's own detection (the last trip of the
+- **Ajettu reitti** — the drive under way, from `CurrentDrive` (`core/trip/currentdrive.hh`),
+  which asks the backend only while a map on screen draws it — each `TeslaMap` holds it with
+  `retain()` / `release()`, since the dashboard's and the Kartta view's overlap while one view is
+  built and the other left. The backend's `TRIP_GET_CURRENT` finds it with the Trips view's own detection (the last trip of the
   past day, unless parked longer than `min_stop_minutes`), and each live fix is added to it with the
   speed of the moment. It is **coloured by speed on the Trips map's scale** (`Theme.speedColor`)
   and drawn in two parts: `path`, which ends at the fix before the newest, and a two-point

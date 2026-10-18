@@ -11,7 +11,7 @@ class ServerClient;
 class TeslaData;
 
 /**
- * CurrentDrive — the drive under way, for the Kartta view's route layer (QML `CurrentDrive`).
+ * CurrentDrive — the drive under way, for the maps' route layer (QML `CurrentDrive`).
  * The backend finds it with the Trips view's own detection (TRIP_GET_CURRENT: the last trip
  * of the past day, unless the car has been parked longer than a stop merged into a trip);
  * this side adds each live fix to it, so the line grows behind the car between requests.
@@ -25,12 +25,15 @@ class TeslaData;
  *    of Park — a drive shorter than the backend's minimum distance is not a trip yet, but it
  *    is being driven, and its fixes are kept from the moment it shifted.
  *
- * Asked only while `watched`: on becoming watched, on reconnect, a moment after the gear
- * changes, and every minute while a drive is active, which is how its end is noticed.
+ * Asked only while `watched` — while a map on screen draws the route, each holding it with
+ * retain() and letting go with release(), since the dashboard's map and the Kartta view's can
+ * overlap as one view is built and another left. Asked on becoming watched, on reconnect, a
+ * moment after the gear changes, and every minute while a drive is active, which is how its end
+ * is noticed.
  */
 class CurrentDrive : public QObject {
     Q_OBJECT
-    Q_PROPERTY(bool watched READ watched WRITE setWatched NOTIFY watchedChanged)
+    Q_PROPERTY(bool watched READ watched NOTIFY watchedChanged)
     Q_PROPERTY(bool active READ active NOTIFY activeChanged)
     Q_PROPERTY(QList<QGeoCoordinate> path READ path NOTIFY pathChanged)
     Q_PROPERTY(QList<qreal> speeds READ speeds NOTIFY pathChanged)
@@ -41,7 +44,8 @@ public:
     CurrentDrive(ServerClient *server, TeslaData *tesla, QObject *parent = nullptr);
 
     bool watched() const { return m_watched; }
-    void setWatched(bool watched);
+    Q_INVOKABLE void retain();
+    Q_INVOKABLE void release();
     bool active() const { return m_active; }
     QList<QGeoCoordinate> path() const { return m_path; }
     QList<qreal> speeds() const { return m_speeds; }
@@ -54,6 +58,7 @@ signals:
     void pathChanged();
 
 private:
+    void setWatched(bool watched);
     void request();
     void onPacket(quint8 type, const QByteArray &payload);
     void onLocation();
@@ -69,6 +74,7 @@ private:
     ServerClient *m_server;
     TeslaData *m_tesla;
     bool m_watched = false;
+    int m_watchers = 0;
     // The last reply named a drive.
     bool m_backendDrive = false;
     bool m_active = false;

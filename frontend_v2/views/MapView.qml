@@ -33,12 +33,6 @@ Rectangle {
         }
     }
 
-    Binding {
-        target: CurrentDrive
-        property: "watched"
-        value: view.isCurrent && view.showRoute
-    }
-
     TeslaMap {
         id: map
         anchors.fill: parent

@@ -41,6 +41,18 @@ CurrentDrive::CurrentDrive(ServerClient *server, TeslaData *tesla, QObject *pare
     connect(tesla, &TeslaData::gearChanged, this, &CurrentDrive::onGear);
 }
 
+void CurrentDrive::retain() {
+    setWatched(++m_watchers > 0);
+}
+
+void CurrentDrive::release() {
+    if (m_watchers == 0) {
+        logger.warning(QStringLiteral("release() without a matching retain()"));
+        return;
+    }
+    setWatched(--m_watchers > 0);
+}
+
 void CurrentDrive::setWatched(bool watched) {
     if (watched == m_watched)
         return;
