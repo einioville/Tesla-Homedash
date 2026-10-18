@@ -215,37 +215,15 @@ Item {
 
     onFrameChanged: strikeLayer.repaint()
     onStrikesChanged: strikeLayer.repaint()
-    onHoldFetchChanged: if (!holdFetch) settle.restart()
+    onHoldFetchChanged: if (!holdFetch) watch.moved()
     // Coming live refreshes the frame list: it is as old as the last refresh, and a view is
     // built in the background long before it is first opened.
     onActiveChanged: if (active) { refreshFrames(); check() }
 
-    Connections {
-        target: root.geoMap
-        function onCenterChanged() { root.cameraMoved() }
-        function onZoomLevelChanged() { root.cameraMoved() }
-        function onBearingChanged() { root.cameraMoved() }
-        function onWidthChanged() { root.cameraMoved() }
-        function onHeightChanged() { root.cameraMoved() }
-        function onMapReadyChanged() { root.check() }
-    }
-
-    function cameraMoved() {
-        settle.restart()
-        if (!pace.running)
-            pace.start()
-    }
-
-    Timer {
-        id: settle
-        interval: 400
-        onTriggered: root.check()
-    }
-
-    Timer {
-        id: pace
-        interval: 1500
-        onTriggered: root.check()
+    MapCameraWatch {
+        id: watch
+        geoMap: root.geoMap
+        onChanged: root.check()
     }
 
     Rectangle {

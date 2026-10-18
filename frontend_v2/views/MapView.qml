@@ -22,12 +22,14 @@ Rectangle {
     readonly property bool showRoute: Settings.values.mapLayerRoute === true
     readonly property bool showPlaces: Settings.values.mapLayerPlaces === true
     readonly property bool showWarnings: Settings.values.mapLayerWarnings === true
+    readonly property bool showCameras: Settings.values.mapLayerCameras === true
     readonly property var warnings: (Weather.view.warnings || []).filter(w => (w.shapes || []).length > 0)
 
     onIsCurrentChanged: {
         if (!isCurrent) {
             layerMenu.open = false
             warningsPopup.close()
+            cameraPopup.close()
         }
     }
 
@@ -44,6 +46,8 @@ Rectangle {
         isCurrent: view.isCurrent
         showRadar: view.showRadar
         showWarnings: view.showWarnings
+        showCameras: view.showCameras
+        onCameraOpened: (stationId) => cameraPopup.open(stationId)
         showRoute: view.showRoute
         showPlaceNames: view.showPlaces
     }
@@ -94,6 +98,10 @@ Rectangle {
         id: layerMenu
         anchors.fill: parent
         backdrop: map
+    }
+
+    RoadCameraPopup {
+        id: cameraPopup
     }
 
     WeatherWarningsPopup {

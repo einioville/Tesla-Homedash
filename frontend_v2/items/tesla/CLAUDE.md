@@ -136,6 +136,15 @@ outlasts a restart without a row in the Options view. The dashboard's card shows
   extends the runs of its band only; a reply that replaces the path (`CurrentDrive.generation`)
   starts them over.
 - **Paikannimet** — `PlaceLabels.qml` over the `PlaceNames` store (below), issue #54's first step.
+- **Kelikamerat** — Fintraffic's road weather cameras (Digitraffic, CC BY 4.0, credited in the README
+  and the dialog), `RoadCameras.qml`: the station list (~800 cameras, 37 kB gzipped) fetched straight
+  from `tie.digitraffic.fi` when the layer comes on and every six hours, and a marker for each camera
+  in view from zoom 9 — at most 60, none within 30 px of another. A tap opens `RoadCameraPopup.qml`:
+  the station's pictures, one per direction it looks (a tab each), and the nearest road weather
+  station's readings (`nearestWeatherStationId`: road condition, road and air temperature, wind,
+  rain, visibility, humidity), all fetched when it opens. Pictures are taken every ten minutes; the
+  time is in the image URL so a new one is not served from the cache. Requests carry the
+  `Digitraffic-User` header Digitraffic asks for.
 - **Säävaroitukset** (a demo, on by default) — FMI's warnings in force as areas,
   `items/weather/WarningAreas.qml`: each warning's regions from the weather document's `shapes`
   (`backend/src/weather_service/CLAUDE.md`), filled faintly in its colour and outlined, in a
@@ -157,7 +166,11 @@ touch. A step is `TeslaMap.stepZoom`: a whole level from where the map is, **wri
 stay within the setting's 10–19.
 
 **Inside the `Map`, the layers are ordered by `z`**: the radar's Loader 1, the warnings 1 (declared
-after it), the route 2, the names 3, the car arrow 10. Plain items declared inside a `Map` are its children and draw over the tiles,
+after it), the route 2, the names 3, the cameras 4, the car arrow 10.
+
+**`MapCameraWatch.qml` is the one cue to redo work that depends on the view**: it fires once the
+map has rested and every so often while it keeps moving (RadarLayer 0.4 s / 1.5 s, PlaceLabels and
+RoadCameras 0.5 s / 2 s), so a map that follows the car does not refetch or re-choose every frame. Plain items declared inside a `Map` are its children and draw over the tiles,
 but `PlaceLabels` (a `MapItemView`) adds its items after everything declared, so declaration order
 alone would put the names over the car.
 

@@ -47,12 +47,13 @@ Item {
 
     // The Kartta view's layers, all off on the dashboard card: FMI's radar and lightning
     // under everything else, FMI's warning areas, the drive under way (CurrentDrive) drawn behind the car, and
-    // OSM place names (PlaceLabels). `radar` is the RadarLayer while it is shown, for its
-    // controls.
+    // OSM place names (PlaceLabels) and Fintraffic's road cameras (RoadCameras). `radar` is
+    // the RadarLayer while it is shown, for its controls.
     property bool showRadar: false
     property bool showWarnings: false
     property bool showRoute: false
     property bool showPlaceNames: false
+    property bool showCameras: false
     readonly property Item radar: radarLoader.item
 
     // Frozen while the owning view is hidden. The dashboard keeps this map alive in
@@ -83,6 +84,8 @@ Item {
 
     // Any press, wheel or pinch on the map — MapZoomButtons shows itself on it.
     signal touched()
+    // A road camera's marker tapped (RoadCameras).
+    signal cameraOpened(string stationId)
 
     // The bounds of the mapDefaultZoom setting, which a zoom step writes.
     readonly property int minimumDefaultZoom: 10
@@ -511,6 +514,12 @@ Item {
         PlaceLabels {
             geoMap: map
             active: root.showPlaceNames && root.isCurrent
+        }
+
+        RoadCameras {
+            geoMap: map
+            active: root.showCameras && root.isCurrent
+            onOpened: (stationId) => root.cameraOpened(stationId)
         }
 
         MapQuickItem {

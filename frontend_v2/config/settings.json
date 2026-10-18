@@ -566,6 +566,14 @@
                             "apply": "live"
                         },
                         {
+                            "key": "mapLayerCameras",
+                            "type": "bool",
+                            "label": "Kelikamerat",
+                            "hidden": true,
+                            "default": true,
+                            "apply": "live"
+                        },
+                        {
                             "key": "mapLayerWarnings",
                             "type": "bool",
                             "label": "Säävaroitukset",

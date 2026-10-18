@@ -104,14 +104,12 @@ MapItemView {
         font.pixelSize: 100
     }
 
-    property Connections camera: Connections {
-        target: root.geoMap
-        function onCenterChanged() { root.cameraMoved() }
-        function onZoomLevelChanged() { root.cameraMoved() }
-        function onBearingChanged() { root.cameraMoved() }
-        function onWidthChanged() { root.cameraMoved() }
-        function onHeightChanged() { root.cameraMoved() }
-        function onMapReadyChanged() { root.relayout() }
+    property MapCameraWatch watch: MapCameraWatch {
+        geoMap: root.geoMap
+        active: root.active
+        restMs: 500
+        paceMs: 2000
+        onChanged: root.relayout()
     }
 
     property Connections store: Connections {
@@ -119,23 +117,4 @@ MapItemView {
         function onRevisionChanged() { root.relayout() }
     }
 
-    function cameraMoved() {
-        if (!active)
-            return
-        settle.restart()
-        if (!pace.running)
-            pace.start()
-    }
-
-    property Timer settle: Timer {
-        id: settle
-        interval: 500
-        onTriggered: root.relayout()
-    }
-
-    property Timer pace: Timer {
-        id: pace
-        interval: 2000
-        onTriggered: root.relayout()
-    }
 }

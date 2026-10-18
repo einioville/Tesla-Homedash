@@ -15,6 +15,8 @@ Tesla-Homedash is a desktop dashboard that brings live vehicle telemetry, music,
 
 > Interface icons are from the [Dazzle Line Icons](https://www.svgrepo.com/collection/dazzle-line-icons/) collection by [Dazzle UI](https://www.svgrepo.com/author/Dazzle%20UI/), provided through [SVG Repo](https://www.svgrepo.com/) under the [Creative Commons Attribution License](https://creativecommons.org/licenses/by/4.0/); the seat and steering-wheel icons are drawn for this project in the same style. Thanks to Dazzle UI for the icons! ❤️
 
+> Road weather cameras and road weather data on the map: Fintraffic / [digitraffic.fi](https://www.digitraffic.fi/), licensed [CC 4.0 BY](https://creativecommons.org/licenses/by/4.0/).
+
 ## Dependencies
 
 ### Needed subscriptions

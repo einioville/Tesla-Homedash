@@ -218,6 +218,9 @@ qt_add_qml_module(appfrontend_v2
         items/tesla/MapZoomButtons.qml
         items/tesla/DriveRoute.qml
         items/tesla/GeoFrame.qml
+        items/tesla/MapCameraWatch.qml
+        items/tesla/RoadCameras.qml
+        items/tesla/RoadCameraPopup.qml
         items/media/MediaPlayerCard.qml
         items/media/MediaBackdrop.qml
         items/media/MediaSpectrum.qml
@@ -308,6 +311,7 @@ qt_add_resources(appfrontend_v2 "app_resources"
         resources/icons/arrow.svg
         resources/icons/arrow_left.svg
         resources/icons/arrow_right.svg
+        resources/icons/camera.svg
         resources/icons/check.svg
         resources/icons/charger.svg
         resources/icons/dots.svg
