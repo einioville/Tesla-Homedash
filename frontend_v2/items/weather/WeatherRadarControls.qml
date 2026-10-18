@@ -2,18 +2,20 @@ import QtQuick
 import QtQuick.Shapes
 import frontend_v2
 
-// Play/pause, the frame's time and a scrub track for a WeatherRadarMap.
-// Frosted glass over the radar behind it (the app's GlassPanel, as the notification pill has).
+// Play/pause, the frame's time and a scrub track for a RadarLayer.
+// Frosted glass over the map behind it (the app's GlassPanel, as the notification pill has).
 GlassPanel {
     id: bar
 
     property Item radar: null
+    // What the glass frosts: the map under the radar, a sibling of this bar.
+    property Item backdrop: null
 
     implicitWidth: row.implicitWidth + 24
     implicitHeight: 44
     radius: 12
-    backdropSource: bar.radar
-    backdropOrigin: Qt.point(bar.x - (bar.radar ? bar.radar.x : 0), bar.y - (bar.radar ? bar.radar.y : 0))
+    backdropSource: bar.backdrop
+    backdropOrigin: Qt.point(bar.x - (bar.backdrop ? bar.backdrop.x : 0), bar.y - (bar.backdrop ? bar.backdrop.y : 0))
     active: bar.radar ? bar.radar.active : false
 
     Row {

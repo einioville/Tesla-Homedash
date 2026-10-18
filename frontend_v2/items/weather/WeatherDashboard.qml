@@ -319,7 +319,8 @@ Item {
             anchors.horizontalCenter: parent.horizontalCenter
             anchors.bottom: parent.bottom
             anchors.bottomMargin: 12
-            radar: radar
+            radar: radar.radarLayer
+            backdrop: radar
             rimWidth: 0.75
             highlight: false
             frostBrightness: -0.05
