@@ -66,6 +66,9 @@ class TripLoader:
     '''
 
     GEAR_ID = "Gear"
+    # How far back current_trip looks for the drive under way. A drive that started
+    # earlier is cut at this boundary, and none lasts that long.
+    CURRENT_LOOKBACK_MS = 24 * 60 * 60 * 1000
 
     def __init__(self, influx_handler, config):
         self.__influx = influx_handler
@@ -166,6 +169,25 @@ class TripLoader:
             "Detected %d trip(s) in [%s, %s]", len(trips), start_ms, end_ms
         )
         return trips
+
+    async def current_trip(self, now_ms: int) -> Trip | None:
+        '''
+        Returns the drive under way, by the same detection as list_trips: the last trip
+        of the past CURRENT_LOOKBACK_MS, if the car is still driving or has been parked
+        for less than the Park merge threshold (a stop that short would still be merged
+        into it). A drive too short to pass min_trip_distance_km is not one yet.
+        Arguments:
+            now_ms (int): The present moment, epoch-ms UTC.
+        Returns:
+            Trip | None: The drive, its end the window end, or None when parked.
+        '''
+        trips = await self.list_trips(now_ms - self.CURRENT_LOOKBACK_MS, now_ms)
+        if not trips:
+            return None
+        last = trips[-1]
+        if last.in_progress or now_ms - last.end_ms < self.__min_stop_ms:
+            return last
+        return None
 
     async def load_route(self, start_ms: int, end_ms: int) -> list:
         '''

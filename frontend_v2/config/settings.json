@@ -540,6 +540,38 @@
                                 "key": "mapFollowMode",
                                 "equals": "warp"
                             }
+                        },
+                        {
+                            "key": "mapLayerStats",
+                            "type": "bool",
+                            "label": "Ajotiedot",
+                            "hidden": true,
+                            "default": true,
+                            "apply": "live"
+                        },
+                        {
+                            "key": "mapLayerRadar",
+                            "type": "bool",
+                            "label": "Sadetutka",
+                            "hidden": true,
+                            "default": false,
+                            "apply": "live"
+                        },
+                        {
+                            "key": "mapLayerRoute",
+                            "type": "bool",
+                            "label": "Ajettu reitti",
+                            "hidden": true,
+                            "default": true,
+                            "apply": "live"
+                        },
+                        {
+                            "key": "mapLayerPlaces",
+                            "type": "bool",
+                            "label": "Paikannimet",
+                            "hidden": true,
+                            "default": true,
+                            "apply": "live"
                         }
                     ]
                 }

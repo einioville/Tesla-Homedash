@@ -138,8 +138,11 @@ with inbound messages capped at `MAX_PREAUTH_MSG_SIZE` (4 KB) — `../auth_servi
 | `0xF7` | AUTH_DISPLAYS | B→F | `status(1B, always OK) + len(4B) + JSON` — `{displays[{id, name, address, created, lastSeen, connected}]}`; to the requester, and **broadcast** on any change |
 | `0xF8` | AUTH_REVOKE | F→B | `len(4B) + JSON` — `{id}`; forgets that login and closes its connections |
 
-(Trip codes `0x74`–`0x7D` — the Trips view — are omitted from this table; they mirror the History
-request/response shape. See the `frontend_v2` memory.)
+(Trip codes `0x74`–`0x7F` — the Trips view, and `TRIP_GET_CURRENT`/`TRIP_CURRENT` for the Kartta
+view's route layer — are omitted from this table; they mirror the History request/response shape and
+their layouts are in `protocol.py`. `TRIP_CURRENT` is `TRIP_DETAIL`'s body for the drive under way,
+trip id 0 when there is none: `TripLoader.current_trip`, the last trip of the past day unless the car
+has been parked longer than `min_stop_minutes`.)
 
 The `0x70`–`0x73` pair is **request/response** (the History view): the backend replies to the
 requesting client only (`send_to`), never a broadcast, and `TESLA_HISTORY` echoes the requested id so

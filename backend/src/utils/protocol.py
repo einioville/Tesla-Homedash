@@ -108,6 +108,10 @@ TRIP_SUMMARY = 0x7B      # B->F: trip_id(8B) + status(1B) + start_ms(8B) + end_m
 TRIP_GET_SERIES = 0x7C   # F->B: start_ms(8B) + end_ms(8B) + id(len(2B)+UTF-8)  — one property over the trip
 TRIP_SERIES = 0x7D       # B->F: trip_id(8B) + id(len(2B)+UTF-8) + status(1B) + count(4B)
                          #       + count*(ts_ms(8B) + value(8B double))
+# The drive under way (the Kartta view's route layer): TRIP_DETAIL's body for the last
+# trip the Trips detection finds, up to now. trip_id 0 means no drive is under way.
+TRIP_GET_CURRENT = 0x7E  # F->B: (empty)
+TRIP_CURRENT = 0x7F      # B->F: trip_id/start_ms(8B) + status(1B) + count(4B) + TRIP_DETAIL's records
 
 # MyEnergi (Zappi) charger live stream (backend -> frontend). Like the weather
 # frame, a CHARGER_STREAM packet is a sequence of (sub_id(1B) + value) pairs; each

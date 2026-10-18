@@ -4,10 +4,12 @@ Unit tests for the trip-detection core (issue #5).
 Covers the pure segmentation logic — collapse_transitions and segment_trips — with
 synthetic Gear timelines: single trips, short-stop merging, long-stop splitting,
 in-progress trips, boundary-spanning trips (driving at the window edge), reverse/neutral
-counting as driving, and the all-parked and trailing-short-stop edge cases.
+counting as driving, and the all-parked and trailing-short-stop edge cases; and which trip
+TripLoader.current_trip calls the drive under way, over a fake InfluxDB.
 
 Runs under pytest, or standalone: `python backend/tests/test_trip_loader.py`.
 '''
+import asyncio
 import math
 import os
 import sys
@@ -19,6 +21,7 @@ import numpy as np
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from src.trip_service.trip_loader import (  # noqa: E402
+    TripLoader,
     _window_distance,
     collapse_transitions,
     segment_trips,
@@ -136,6 +139,57 @@ def test_window_distance_single_sample_is_zero():
     # A window holding exactly one sample has a zero delta (matches the per-trip read).
     odo = _odo([0, 20, 50], [100, 150, 200])
     assert _window_distance(odo, m(15), m(25)) == 0.0
+
+
+class _FakeInflux:
+    '''
+    The three reads list_trips makes, answered from a Gear timeline; the Odometer reads no
+    distance (NaN), which list_trips keeps rather than drops.
+    Arguments:
+        gear (list): [(timestamp_ms, state), ...] ascending.
+    '''
+
+    def __init__(self, gear: list):
+        self.gear = gear
+
+    async def read_value_string_history(self, _field, _start_iso, _end_iso):
+        return self.gear
+
+    async def read_last_string_before(self, _field, _start_iso):
+        return None
+
+    async def read_tesla_data_property(self, _field, _start_iso, _end_iso):
+        return None
+
+
+class _FakeConfig:
+    '''The trip tunables TripLoader reads: a 10-minute Park merge, no minimum distance.'''
+    trip_config = {"min_stop_minutes": 10, "min_trip_distance_km": 0.0}
+
+
+def _current(gear: list, now_minutes: int):
+    '''TripLoader.current_trip over a Gear timeline, at T0 + now_minutes.'''
+    loader = TripLoader(_FakeInflux(gear), _FakeConfig())
+    return asyncio.run(loader.current_trip(m(now_minutes)))
+
+
+def test_current_trip_while_driving():
+    trip = _current([(m(10), DRIVE)], 30)
+    assert trip is not None and trip.start_ms == m(10) and trip.in_progress
+
+
+def test_current_trip_through_a_short_stop():
+    # Parked 5 min of a 10 min merge threshold: still the same drive.
+    trip = _current([(m(10), DRIVE), (m(25), PARK)], 30)
+    assert trip is not None and trip.start_ms == m(10)
+
+
+def test_no_current_trip_once_parked_past_the_threshold():
+    assert _current([(m(10), DRIVE), (m(25), PARK)], 40) is None
+
+
+def test_no_current_trip_when_never_driven():
+    assert _current([(m(10), PARK)], 40) is None
 
 
 if __name__ == "__main__":

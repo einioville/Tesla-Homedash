@@ -240,27 +240,29 @@ def _build_window_list_frame(msg_type: int, req_start_ms: int, req_end_ms: int,
     return protocol.frame(msg_type, body)
 
 
-def _build_trip_detail_frame(trip_id: int, route: list) -> bytes:
+def _build_route_frame(msg_type: int, trip_id: int, route: list) -> bytes:
     '''
-    Builds a TRIP_DETAIL response frame. The echoed trip_id (== start_ms) lets the
-    frontend drop a reply for a trip it has already switched away from; status is 0
-    (no data) for an empty route, else 1. Points are raw (lat, lon, speed) — the
-    frontend decimates by zoom and colours each segment by average speed.
+    Builds a TRIP_DETAIL or TRIP_CURRENT response frame. The trip_id (== start_ms) lets
+    the frontend drop a reply for a trip it has already switched away from, and is 0 in
+    a TRIP_CURRENT with no drive under way; status is 0 (no data) for an empty route,
+    else 1. Points are raw (lat, lon, speed) — the frontend decimates by zoom and
+    colours each segment by average speed.
     Arguments:
-        trip_id (int): The requested trip's start_ms, echoed back.
+        msg_type (int): protocol.TRIP_DETAIL or protocol.TRIP_CURRENT.
+        trip_id (int): The trip's start_ms.
         route (list): [(ts_ms, latitude, longitude, speed_kmh), ...], or empty.
     '''
     body = struct.pack("!q", int(trip_id))
     if not route:
         body += struct.pack("!B", 0) + struct.pack("!I", 0)
-        return protocol.frame(protocol.TRIP_DETAIL, body)
+        return protocol.frame(msg_type, body)
     body += struct.pack("!B", 1) + struct.pack("!I", len(route))
     for ts_ms, latitude, longitude, speed in route:
         body += struct.pack("!q", int(ts_ms))
         body += struct.pack("!d", float(latitude))
         body += struct.pack("!d", float(longitude))
         body += struct.pack("!d", float(speed))
-    return protocol.frame(protocol.TRIP_DETAIL, body)
+    return protocol.frame(msg_type, body)
 
 
 def _build_week_counts_frame(weeks: list) -> bytes:
@@ -473,7 +475,25 @@ def _register_handlers(
             route = await trip_loader.load_route(start_ms, end_ms)
         except Exception as e:
             logger.warning("TRIP_GET_DETAIL failed: %s: %s", type(e).__name__, e)
-        await server.send_to(writer, _build_trip_detail_frame(start_ms, route))
+        await server.send_to(writer, _build_route_frame(protocol.TRIP_DETAIL, start_ms, route))
+
+    async def _get_current_trip(_payload: bytes, writer) -> None:
+        '''
+        Finds the drive under way and replies with its route so far, to the requesting
+        client only. No drive, or an unreachable InfluxDB, replies trip_id 0 rather
+        than no reply, so the map's route layer clears instead of holding a stale drive.
+        '''
+        trip_id = 0
+        route = []
+        try:
+            now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+            trip = await trip_loader.current_trip(now_ms)
+            if trip is not None:
+                trip_id = trip.start_ms
+                route = await trip_loader.load_route(trip.start_ms, now_ms)
+        except Exception as e:
+            logger.warning("TRIP_GET_CURRENT failed: %s: %s", type(e).__name__, e)
+        await server.send_to(writer, _build_route_frame(protocol.TRIP_CURRENT, trip_id, route))
 
     async def _get_week_counts(payload: bytes, writer) -> None:
         '''
@@ -680,6 +700,7 @@ def _register_handlers(
     server.register_handler(protocol.TRIP_GET_WEEK_COUNTS,       _get_week_counts)
     server.register_handler(protocol.TRIP_GET_SUMMARY,           _get_trip_summary)
     server.register_handler(protocol.TRIP_GET_SERIES,            _get_trip_series)
+    server.register_handler(protocol.TRIP_GET_CURRENT,           _get_current_trip)
     server.register_handler(protocol.CHARGING_GET_LIST,          _get_charging_list)
     server.register_handler(protocol.CHARGING_GET_SUMMARY,       _get_charging_summary)
     server.register_handler(protocol.CHARGING_GET_MONTH,         _get_charging_month)

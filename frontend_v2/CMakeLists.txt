@@ -92,6 +92,10 @@ qt_add_executable(appfrontend_v2
     core/tesla/teslafieldeditor.cpp
     core/trip/tripsdata.hh
     core/trip/tripsdata.cpp
+    core/trip/currentdrive.hh
+    core/trip/currentdrive.cpp
+    core/map/placenames.hh
+    core/map/placenames.cpp
     core/charging/chargingdata.hh
     core/charging/chargingdata.cpp
     core/media/mediaimagecache.hh
@@ -208,6 +212,9 @@ qt_add_qml_module(appfrontend_v2
         items/tesla/SteeringWidget.qml
         items/tesla/ClimateCard.qml
         items/tesla/TeslaMap.qml
+        items/tesla/PlaceLabels.qml
+        items/tesla/MapLayerMenu.qml
+        items/tesla/MapLiveStats.qml
         items/media/MediaPlayerCard.qml
         items/media/MediaBackdrop.qml
         items/media/MediaSpectrum.qml
@@ -304,6 +311,7 @@ qt_add_resources(appfrontend_v2 "app_resources"
         resources/icons/greenshadow.png
         resources/icons/heating.png
         resources/icons/home.svg
+        resources/icons/layers.svg
         resources/icons/link.svg
         resources/icons/location.svg
         resources/icons/music.svg

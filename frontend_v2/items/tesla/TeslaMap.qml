@@ -45,6 +45,15 @@ Item {
     // background-coloured corner overlay would have nothing to blend into.
     property bool roundedCorners: true
 
+    // The Kartta view's layers, all off on the dashboard card: FMI's radar and lightning
+    // under everything else, the drive under way (CurrentDrive) drawn behind the car, and
+    // OSM place names (PlaceLabels). `radar` is the RadarLayer while it is shown, for its
+    // controls.
+    property bool showRadar: false
+    property bool showRoute: false
+    property bool showPlaceNames: false
+    readonly property Item radar: radarLoader.item
+
     // Frozen while the owning view is hidden. The dashboard keeps this map alive in
     // memory (so returning is instant — no tile reload), but a hidden map must not
     // animate or re-center on every telemetry tick. DashboardView binds this to its
@@ -395,9 +404,53 @@ Item {
             }
         }
 
+        // Children of the Map, so they lie over the imagery and under the car; the z values
+        // order them, since PlaceLabels adds its items after everything declared here.
+        Loader {
+            id: radarLoader
+            anchors.fill: parent
+            z: 1
+            active: root.showRadar
+            sourceComponent: RadarLayer {
+                geoMap: map
+                active: root.isCurrent
+                // A following map keeps moving, so it fetches a margin and frames no finer than
+                // the composite's own cells.
+                margin: 0.25
+                minMetresPerPixel: 150
+                maxImageSize: 1024
+                dim: 0
+                holdFetch: panHandler.active || pinchHandler.active
+            }
+        }
+
+        // The drive so far, and on from its last fix to the car arrow as it eases toward
+        // the newest: the line grows behind the car, never ahead of it.
+        MapPolyline {
+            z: 2
+            visible: root.showRoute && CurrentDrive.active
+            path: CurrentDrive.path
+            line.width: Theme.mapDriveRouteWidth
+            line.color: Theme.mapDriveRoute
+        }
+        MapPolyline {
+            z: 2
+            visible: root.showRoute && CurrentDrive.active && CurrentDrive.tailStart.isValid
+            path: visible ? [CurrentDrive.tailStart, QtPositioning.coordinate(root.latitude, root.longitude)]
+                          : []
+            line.width: Theme.mapDriveRouteWidth
+            line.color: Theme.mapDriveRoute
+        }
+
+        PlaceLabels {
+            geoMap: map
+            active: root.showPlaceNames && root.isCurrent
+        }
+
         MapQuickItem {
             id: vehicle
             objectName: "vehicle"
+            z: 10
 
             coordinate: QtPositioning.coordinate(root.latitude, root.longitude)
             // MapQuickItem renders SCREEN-ALIGNED while its own zoomLevel is

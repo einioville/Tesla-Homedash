@@ -14,6 +14,7 @@
 #include "core/screensaverphotos.hh"
 #include "core/screenpower.hh"
 #include "core/logger.hh"
+#include "core/map/placenames.hh"
 #include "core/media/mediadata.hh"
 #include "core/media/mediaimageprovider.hh"
 #include "core/notification/notificationhandler.hh"
@@ -29,6 +30,7 @@
 #include "core/tesla/tesladata.hh"
 #include "core/tesla/teslafieldeditor.hh"
 #include "core/tesla/teslahistory.hh"
+#include "core/trip/currentdrive.hh"
 #include "core/trip/tripsdata.hh"
 #include "core/weather/weatherdata.hh"
 
@@ -117,6 +119,10 @@ int main(int argc, char* argv[]) {
     // Trip viewer: request/response over the same socket (TRIP_* codes). No live
     // data, so it only needs the ServerClient.
     TripsData tripsData(&serverClient);
+    // The Kartta view's route layer: the drive under way, grown by the live fixes.
+    CurrentDrive currentDrive(&serverClient, &teslaData);
+    // OSM place names over the map imagery, fetched once per tile and kept on disk.
+    PlaceNames placeNames;
     // Charging view: live CHARGER_STREAM (myenergi) + charger-history / month
     // request-response over the same socket.
     ChargingData chargingData(&serverClient);
@@ -201,6 +207,8 @@ int main(int argc, char* argv[]) {
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "Tesla", &teslaData);
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "History", &teslaHistory);
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "Trips", &tripsData);
+    qmlRegisterSingletonInstance("frontend_v2", 1, 0, "CurrentDrive", &currentDrive);
+    qmlRegisterSingletonInstance("frontend_v2", 1, 0, "PlaceNames", &placeNames);
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "Charging", &chargingData);
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "Media", &mediaData);
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "Weather", &weatherData);

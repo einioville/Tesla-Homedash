@@ -114,7 +114,7 @@ frontend_v2/                      # ★ Qt Quick/QML frontend — the live targe
   app/                            # Theme.qml (design tokens + settings façade), ViewController.qml, Format.js
   config/                         # settings.json (bundled Options-view schema), notifications.json
   core/                           # ★ C++: ServerClient, protocol.hh, Logger, AppConfig, Settings + QML singletons
-    tesla/ media/ weather/ charging/ trip/ notification/   # per-domain data models
+    tesla/ media/ weather/ charging/ trip/ map/ notification/   # per-domain data models
   items/                          # QML components by domain
     settings/                     # ★ the Options view
     tesla/                        # ★ Tesla cards + the map
@@ -492,7 +492,11 @@ its bottom edge, pill bars or a line (Media › Spektri), drawn from what the ho
 (`backend/src/audio_service/CLAUDE.md`), and the same spectrum behind Media › *Taajuuskorjain*'s
 curve, recorded after the equalizer so a knob shows what it does to the sound; and the Weather
 view's warning strip naming the area that covers the place, a tap opening the warnings whole, and
-its radar refreshing the moment the view opens.
+its radar refreshing the moment the view opens — plus the Kartta view's layers (#76), switched from
+a menu in its corner: a live data card, the radar (the Weather card's loop, now a shared
+`RadarLayer` that also turns with a heading-up map), the drive under way drawn behind the car
+(`TRIP_GET_CURRENT`, the Trips view's detection) and OSM place names fetched from Overpass and kept
+on disk per tile (#54's first step; `items/tesla/CLAUDE.md`).
 When you land a change that touches documented behaviour, update this line.
 
 ### 7.8 Keeping the code clean

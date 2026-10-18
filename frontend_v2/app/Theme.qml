@@ -252,6 +252,11 @@ QtObject {
     // green→red speed gradient of the route line (the pin shape disambiguates).
     readonly property color tripMarkerColor: "#ff3b30"
 
+    // --- Kartta view -----------------------------------------------------
+    // The drive under way, drawn on the map behind the car (TeslaMap's route layer).
+    readonly property color mapDriveRoute: "#4aa8ff"
+    readonly property real mapDriveRouteWidth: 5
+
     // Minimalistic detail cards (the stat tiles, the selector box and the map/graph
     // frames): a translucent grey fill with a whiteish border and softer corners than
     // the dashboard's dark-gradient cards.

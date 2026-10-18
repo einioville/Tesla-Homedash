@@ -216,6 +216,12 @@ backend's. The two come back as **one `finished(ok, message)`** with the bytes f
 the frontend's half done and says so. `ServerClient` meanwhile exposes `localAddress` / `localPort`,
 how the server card's client list marks *tämä näyttö*.
 
+## `CurrentDrive`, `PlaceNames` — `trip/currentdrive.{hh,cpp}`, `map/placenames.{hh,cpp}`
+
+The Kartta view's route layer (the drive under way, `TRIP_GET_CURRENT` plus the live fixes) and the
+OSM place names over the map imagery (Overpass, cached per tile on disk). Both are written up with
+the map's layers in `../items/tesla/CLAUDE.md`.
+
 ## `TeslaFields` — `tesla/teslafieldeditor.{hh,cpp}`
 
 **The telemetry-field table** (issue #29) is `core/tesla/teslafieldeditor.{hh,cpp}`, the QML

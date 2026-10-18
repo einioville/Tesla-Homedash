@@ -48,7 +48,8 @@ knobs it deliberately mirrors — its *Eleherkkyys* (`mapGestureSensitivity` →
 uses the graph's levels through ONE table, `Theme.gestureSensitivityLevels`, so a level feels the
 same on both, and `mapFollowResumeSec` sits where `graphSettleDelay` does. Seven schema entries plus
 seven `Theme.map*` bindings, with **no protocol or C++ side**: everything is consumed by
-`items/tesla/TeslaMap.qml` (the dashboard card AND the full-screen `MapView`).
+`items/tesla/TeslaMap.qml` (the dashboard card AND the full-screen `MapView`, whose layers are
+below).
 `Theme.mapSensitivity` also reaches `items/trip/TripMap.qml`, which carries the same
 pan/pinch/wheel handlers, and the Weather view's radar map, which carries them too and also returns
 home after `mapFollowResumeSec` (`items/weather/WeatherRadarMap.qml`). The basemap
@@ -97,3 +98,62 @@ per-frame ticks) and NOT off heading — a bend would otherwise re-centre contin
 turning car is a moving one anyway. The `warpAnim.running` guard is what stops a 700 ms ease
 being restarted on each of the ~42 frames it spans, and a car more than one viewport away (a
 first fix, a reconnect, a telemetry jump) is snapped rather than eased across half of Finland.
+
+## The Kartta view's layers — `views/MapView.qml`
+
+The full-screen map carries four layers, each switched from the menu behind the round button in
+the bottom-right corner (`MapLayerMenu.qml`; a press outside the open menu closes it and goes no
+further). Their states are **hidden local settings** in the Kartta card (`mapLayerStats`,
+`mapLayerRadar`, `mapLayerRoute`, `mapLayerPlaces`), written straight from the menu, so a choice
+outlasts a restart without a row in the Options view. The dashboard's card shows none of them —
+`TeslaMap`'s `showRadar` / `showRoute` / `showPlaceNames` default off.
+
+- **Ajotiedot** — `MapLiveStats.qml` in the bottom-left: speed, battery, range and outside
+  temperature on frosted glass, read straight off `Tesla`.
+- **Sadetutka** — `items/weather/RadarLayer.qml`, the Weather view's radar loop and lightning, over
+  this map too, with `WeatherRadarControls` at the top. Its header is the reference; two things
+  differ from the Weather card. This map turns heading-up, so each frame is fetched for the
+  bounding box of all four screen corners and turned with the map (`Image.rotation`), and the
+  lightning is painted in screen pixels and carried the same way. And it keeps moving while it
+  follows the car, so it fetches a 25 % margin round the view, no finer than 150 m a pixel
+  (the composite's cells are about 500 m) and at most 1024 px a side — all thirteen frames stay
+  decoded, so the size is the memory.
+- **Ajettu reitti** — the drive under way, from `CurrentDrive` (`core/trip/currentdrive.hh`): the
+  backend's `TRIP_GET_CURRENT` finds it with the Trips view's own detection (the last trip of the
+  past day, unless parked longer than `min_stop_minutes`), and each live fix is added to it. It is
+  **drawn as two `MapPolyline`s**: `path`, which ends at the fix before the newest, and a two-point
+  tail from there to the car arrow's eased position. The arrow takes a second to glide to each new
+  fix, so a single line through the newest fix would run ahead of the car. A `MapPolyline` is
+  rebuilt (projected, clipped to the view, triangulated) on every camera change
+  (`QDeclarativePolylineMapItemPrivateCPU::afterViewportChanged`), which is why the tail — the part
+  that changes every frame — is its own two-point line.
+- **Paikannimet** — `PlaceLabels.qml` over the `PlaceNames` store (below), issue #54's first step.
+
+**Inside the `Map`, the layers are ordered by `z`**: the radar's Loader 1, the route 2, the names
+3, the car arrow 10. Plain items declared inside a `Map` are its children and draw over the tiles,
+but `PlaceLabels` (a `MapItemView`) adds its items after everything declared, so declaration order
+alone would put the names over the car.
+
+### Place names — `core/map/placenames.{hh,cpp}`, `PlaceLabels.qml`
+
+The imagery has no labels, so OSM's `place=*` names are fetched from the Overpass API (keyless,
+ODbL) **per slippy-map tile at three tile zooms** — cities and towns per z6 tile, villages, suburbs
+and islands per z9, hamlets, neighbourhoods and smaller per z12 — each kind labelled from its own
+map zoom (`kKinds`). A tile is one request, ever: it is kept on disk
+(`~/.cache/Tesla-Homedash/place-names/<z>-<x>-<y>.json`, an empty tile too) and refreshed after half
+a year, so a daily route costs nothing after the first drive. **Overpass is slow and shared** —
+measured 30–60 s for one tile from overpass-api.de, which answers a second request soon after with
+a 502 — so the store asks one tile at a time, two seconds apart, the newest view's tiles first, and
+drops a tile no view has wanted for two minutes. A failed request moves on to the next of three
+public servers (`kServers`; maps.mail.ru answered the same tile in 15 s), and only when all three
+have failed in a row does the queue pause, 30 s doubling to 10 min. Requests are GETs because
+overpass.kumi.systems answers a POST with a 500. A new area's names therefore appear within a
+minute or so of the map first showing it.
+
+`PlaceLabels` asks the store for the area a little beyond the screen when the map rests, every 2 s
+while it moves and when a tile arrives (`PlaceNames.revision` — a `Q_INVOKABLE` binds to nothing),
+then places names most important first and leaves out one whose box would overlap a name already
+placed, 40 at most. Each is a `MapQuickItem` with no `zoomLevel`, so it stays upright when the map
+turns heading-up (the car arrow's fact above) — the reason for drawing names rather than laying a
+label tile layer over the imagery. Not done yet (#54): the Trips map, water and road names, and an
+OSM credit somewhere (the map hides its copyright notice).
