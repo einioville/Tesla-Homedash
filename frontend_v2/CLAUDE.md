@@ -19,6 +19,17 @@ views/          # one screen per view: Dashboard Map Weather Media History Trips
 resources/      # fonts, icons, styles, Luna, shaders (ShaderEffect .frag, compiled by qt_add_shaders)
 ```
 
+## Icons
+
+Every UI icon is from the **Dazzle Line** set (svgrepo.com, Dazzle UI, CC BY 4.0 — credited in the
+README): 24 px grid, 2 px round strokes, no fill, recoloured white in `resources/icons/` with the
+source name in a comment, and tinted where needed with `items/util/TintedIcon.qml`. A button or
+marker draws an icon, never a text glyph (▶, ✕, ⚠, ›). Where the set has nothing to fit, the icon is
+drawn in its style and says so in its comment (`seat.svg`, `steering.svg`). The exceptions are the
+weather symbols, FMI's SmartSymbols (`resources/icons/weather/smartsymbol/`), and the car marker
+`arrow.svg`. svgrepo refuses scripted downloads (a JavaScript checkpoint); the whole set is
+mirrored on freeicons.org.
+
 ## Where the detailed notes live
 
 | Working on | Read |

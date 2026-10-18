@@ -303,12 +303,13 @@ qt_add_resources(appfrontend_v2 "app_resources"
         resources/icons/arrow.svg
         resources/icons/arrow_left.svg
         resources/icons/arrow_right.svg
+        resources/icons/check.svg
         resources/icons/charger.svg
+        resources/icons/dots.svg
         resources/icons/chart_line.svg
+        resources/icons/exclamation.svg
         resources/icons/pulse.svg
-        resources/icons/folder.svg
-        resources/icons/cooling.png
-        resources/icons/greenshadow.png
+        resources/icons/rotate_left.svg
         resources/icons/heating.png
         resources/icons/home.svg
         resources/icons/layers.svg
@@ -320,7 +321,6 @@ qt_add_resources(appfrontend_v2 "app_resources"
         resources/icons/play.svg
         resources/icons/price.svg
         resources/icons/plus.svg
-        resources/icons/redshadow.png
         resources/icons/seat.svg
         resources/icons/settings.svg
         resources/icons/skip_backward.svg
@@ -328,7 +328,8 @@ qt_add_resources(appfrontend_v2 "app_resources"
         resources/icons/steering.svg
         resources/icons/terminal.svg
         resources/icons/trip.svg
-        resources/icons/yellowshadow.png
+        resources/icons/warning.svg
+        resources/icons/xmark.svg
         resources/icons/weather/clouds.svg
         resources/Luna/stationary.png
         resources/Luna/eating_1.png

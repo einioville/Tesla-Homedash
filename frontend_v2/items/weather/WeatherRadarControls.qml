@@ -30,11 +30,11 @@ GlassPanel {
             color: "#26ffffff"
             anchors.verticalCenter: parent.verticalCenter
 
-            Text {
+            TintedIcon {
                 anchors.centerIn: parent
-                text: bar.radar && bar.radar.playing ? "❚❚" : "▶"
-                color: "white"
-                font.pixelSize: 13
+                iconSize: 16
+                source: bar.radar && bar.radar.playing ? "qrc:/resources/icons/pause.svg"
+                                                       : "qrc:/resources/icons/play.svg"
             }
             MouseArea {
                 anchors.fill: parent

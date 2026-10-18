@@ -180,15 +180,15 @@ Item {
             visible: row.warned
             spacing: 6
 
-            Text {
+            TintedIcon {
                 anchors.verticalCenter: parent.verticalCenter
-                text: "⚠"
-                font.pixelSize: 12
-                color: "#ffb020"
+                iconSize: 14
+                source: "qrc:/resources/icons/warning.svg"
+                tint: "#ffb020"
             }
 
             Text {
-                width: labelColumn.width - 18
+                width: labelColumn.width - 20
                 text: row.setting.warnMessage !== undefined ? row.setting.warnMessage : ""
                 font.family: Theme.fontFamily
                 font.pixelSize: 12

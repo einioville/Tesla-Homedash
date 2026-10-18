@@ -40,15 +40,24 @@ Card {
         anchors.right: parent.right
         anchors.rightMargin: 10
         y: 5
-        width: backText.implicitWidth + 24; height: 24; radius: 12
+        width: backRow.implicitWidth + 24; height: 24; radius: 12
         color: "#26ffffff"
-        Text {
-            id: backText
+        Row {
+            id: backRow
             anchors.centerIn: parent
-            text: qsTr("↺ Nyt")
-            color: "white"
-            font.family: Theme.fontFamily
-            font.pixelSize: 12
+            spacing: 4
+            TintedIcon {
+                anchors.verticalCenter: parent.verticalCenter
+                iconSize: 13
+                source: "qrc:/resources/icons/rotate_left.svg"
+            }
+            Text {
+                anchors.verticalCenter: parent.verticalCenter
+                text: qsTr("Nyt")
+                color: "white"
+                font.family: Theme.fontFamily
+                font.pixelSize: 12
+            }
         }
         MouseArea {
             anchors.fill: parent

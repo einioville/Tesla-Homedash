@@ -87,7 +87,7 @@ Item {
                 Rectangle {
                     implicitWidth: 36; implicitHeight: 36; radius: 8
                     color: prevTap.pressed ? "#3a4150" : "#2a2f3a"
-                    Text { anchors.centerIn: parent; text: "‹"; color: "#ffffff"; font.pixelSize: 20 }
+                    TintedIcon { anchors.centerIn: parent; iconSize: 20; source: "qrc:/resources/icons/arrow_left.svg" }
                     TapHandler { id: prevTap; onTapped: popup.shiftMonth(-1) }
                 }
                 Text {
@@ -101,7 +101,7 @@ Item {
                 Rectangle {
                     implicitWidth: 36; implicitHeight: 36; radius: 8
                     color: nextTap.pressed ? "#3a4150" : "#2a2f3a"
-                    Text { anchors.centerIn: parent; text: "›"; color: "#ffffff"; font.pixelSize: 20 }
+                    TintedIcon { anchors.centerIn: parent; iconSize: 20; source: "qrc:/resources/icons/arrow_right.svg" }
                     TapHandler { id: nextTap; onTapped: popup.shiftMonth(1) }
                 }
             }

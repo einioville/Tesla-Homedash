@@ -107,12 +107,21 @@ Item {
                 radius: 8
                 color: root.here.length ? U.warnColor(root.here[0].color) : "transparent"
                 opacity: warningTap.pressed ? 0.8 : 1
-                Text {
+                TintedIcon {
+                    id: warnIcon
                     anchors.left: parent.left
+                    anchors.leftMargin: 10
+                    anchors.verticalCenter: parent.verticalCenter
+                    iconSize: 16
+                    source: "qrc:/resources/icons/warning.svg"
+                    tint: "#1a1400"
+                }
+                Text {
+                    anchors.left: warnIcon.right
                     anchors.right: more.left
                     anchors.top: parent.top
                     anchors.bottom: parent.bottom
-                    anchors.leftMargin: 10
+                    anchors.leftMargin: 8
                     anchors.rightMargin: 6
                     verticalAlignment: Text.AlignVCenter
                     elide: Text.ElideRight
@@ -126,22 +135,33 @@ Item {
                         const when = U.warnWhen(w)
                         if (when)
                             parts.push(when)
-                        return "⚠  " + parts.join(" · ")
+                        return parts.join(" · ")
                     }
                     color: "#1a1400"
                     font.family: Theme.fontFamily
                     font.pixelSize: 13
                 }
-                Text {
+                Row {
                     id: more
                     anchors.right: parent.right
-                    anchors.rightMargin: 10
+                    anchors.rightMargin: 8
                     anchors.verticalCenter: parent.verticalCenter
-                    text: (root.here.length > 1 ? "+" + (root.here.length - 1) + "  " : "") + "›"
-                    color: "#1a1400"
-                    font.family: Theme.fontFamily
-                    font.pixelSize: 15
-                    font.bold: true
+                    spacing: 4
+                    Text {
+                        anchors.verticalCenter: parent.verticalCenter
+                        visible: root.here.length > 1
+                        text: "+" + (root.here.length - 1)
+                        color: "#1a1400"
+                        font.family: Theme.fontFamily
+                        font.pixelSize: 15
+                        font.bold: true
+                    }
+                    TintedIcon {
+                        anchors.verticalCenter: parent.verticalCenter
+                        iconSize: 16
+                        source: "qrc:/resources/icons/arrow_right.svg"
+                        tint: "#1a1400"
+                    }
                 }
                 MouseArea {
                     id: warningTap
