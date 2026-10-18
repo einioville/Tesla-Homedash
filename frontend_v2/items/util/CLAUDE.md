@@ -105,10 +105,12 @@ Five pieces exist so every future control moves and responds the same way. Their
 
 A `GlassPanel` frosts the backdrop behind it by capturing its own region (`ShaderEffectSource`),
 blurring it (`MultiEffect`, several passes into textures of its own) and masking it round. Over a
-map that follows the car, that re-renders every frame, for every panel: on the Kartta view the
-panels needed a few dozen render targets updated per frame, and the user saw the glass turn nearly
-clear at random on the device (2026-10-18) — a capture or blur pass that came out empty for a while.
-**Panels over a map take their frost from one `FrostLayer`** instead (`GlassPanel.frost`): the map
+map that follows the car, that re-renders every frame, for every panel — a few dozen render targets
+on the Kartta view, all inside a view the view switch renders through a layer of its own while it
+moves. **The glass has turned nearly clear at random** on the user's display, a few times, after no
+action they could name (2026-10-18). It was never reproduced offscreen, so the cause is unconfirmed;
+those nested per-panel passes are the suspect. **Panels over a map take their frost from one
+`FrostLayer`** instead (`GlassPanel.frost`): the map
 captured at a quarter of its size and blurred once, in the notification glass's tone, from which
 each panel cuts its part with `resources/shaders/glassfrost.frag` (the rounded rectangle, a
 one-pixel soft edge). That is three render targets for the whole view, and each panel's frost is a
