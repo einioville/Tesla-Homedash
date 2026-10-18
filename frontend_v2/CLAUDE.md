@@ -26,8 +26,9 @@ README): 24 px grid, 2 px round strokes, no fill, recoloured white in `resources
 source name in a comment, and tinted where needed with `items/util/TintedIcon.qml`. A button or
 marker draws an icon, never a text glyph (▶, ✕, ⚠, ›). Where the set has nothing to fit, the icon is
 drawn in its style and says so in its comment (`seat.svg`, `steering.svg`). The exceptions are the
-weather symbols, FMI's SmartSymbols (`resources/icons/weather/smartsymbol/`), and the car marker
-`arrow.svg`. svgrepo refuses scripted downloads (a JavaScript checkpoint); the whole set is
+weather symbols, FMI's SmartSymbols (`resources/icons/weather/smartsymbol/`), the car marker
+`arrow.svg`, and the media transport's filled round buttons (`media_*.svg`, Spotify's look, kept by
+choice). svgrepo refuses scripted downloads (a JavaScript checkpoint); the whole set is
 mirrored on freeicons.org.
 
 ## Where the detailed notes live

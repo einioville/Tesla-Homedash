@@ -324,6 +324,10 @@ qt_add_resources(appfrontend_v2 "app_resources"
         resources/icons/layers.svg
         resources/icons/link.svg
         resources/icons/location.svg
+        resources/icons/media_pause.svg
+        resources/icons/media_play.svg
+        resources/icons/media_skip_backward.svg
+        resources/icons/media_skip_forward.svg
         resources/icons/music.svg
         resources/icons/minus.svg
         resources/icons/pause.svg
@@ -332,8 +336,6 @@ qt_add_resources(appfrontend_v2 "app_resources"
         resources/icons/plus.svg
         resources/icons/seat.svg
         resources/icons/settings.svg
-        resources/icons/skip_backward.svg
-        resources/icons/skip_forward.svg
         resources/icons/steering.svg
         resources/icons/terminal.svg
         resources/icons/trip.svg
