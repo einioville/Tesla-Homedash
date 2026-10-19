@@ -305,7 +305,7 @@ either is present.
 ./scripts/build-frontend.sh --config Release
 ```
 
-It looks for a Qt kit in `$QTDIR`, then in `~/Qt/*/gcc_64` and `~/Qt/*/gcc_arm64`. If your
+It looks for a Qt kit in `$QTDIR`, then in `~/Qt/*/gcc_64` and `~/Qt/*/gcc_arm64`, and takes the first one that is at least the Qt version the frontend needs. If your
 installer put it somewhere else, point at it explicitly:
 
 ```bash

@@ -8,6 +8,11 @@
   `CLAUDE.md` before changing it.
 - It globs **both** `~/Qt/*/gcc_64` and `~/Qt/*/gcc_arm64` (the Raspberry Pi's kit name) and uses
   Ninja only when installed, because the Pi's setup does not install it.
+- **A kit counts only if it is at least the Qt that `frontend_v2/CMakeLists.txt` requires** (its
+  `qt_standard_project_setup(REQUIRES x.y)`, read each run, so a Qt bump needs no script change; the
+  version from the kit's `qmake6 -query QT_VERSION`). A `QTDIR` left at an older or removed kit — any
+  shell opened before a Qt upgrade — is reported and skipped for the newest kit that qualifies; an
+  explicit `--qt-prefix` that does not qualify stops the build with the reason.
 - **`--qml-preview` (`-QmlPreview`) is passed to CMake on every configure, ON or OFF**, never left to
   the cache: it builds in the QML debug service for the live preview (`frontend_v2/CLAUDE.md`,
   *QML live preview*), which must not survive into a later plain build — least of all on the Pi.

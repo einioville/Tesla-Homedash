@@ -592,7 +592,8 @@ the main checkout or any worktree.
   It imports the MSVC env and finds the newest Qt `msvc2022_64` kit.
 - **Linux / WSL2:** `./scripts/build-frontend.sh --run` (add `--clean`, `--config Release`,
   `--fullscreen`, `--qml-preview` for the live preview; `--help` lists everything). No MSVC environment to import — it takes the kit from
-  `--qt-prefix`, else `$QTDIR`, else the newest `~/Qt/*/gcc_64`. A cold build is 163 targets; an
+  `--qt-prefix`, else `$QTDIR`, else the newest `~/Qt/*/gcc_64`, each only when it is at least the Qt
+  version `CMakeLists.txt` requires (`scripts/CLAUDE.md`). A cold build is 163 targets; an
   incremental re-run is ~6s.
 
 Open Qt Creator only when you need the debugger / QML profiler / designer. A **compiler cache** is
