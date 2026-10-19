@@ -8,6 +8,9 @@
   `CLAUDE.md` before changing it.
 - It globs **both** `~/Qt/*/gcc_64` and `~/Qt/*/gcc_arm64` (the Raspberry Pi's kit name) and uses
   Ninja only when installed, because the Pi's setup does not install it.
+- `gen-map-coverage.py` writes `frontend_v2/items/tesla/MapCoverage.js`, where MML's orthophoto has
+  imagery (`frontend_v2/items/tesla/CLAUDE.md`, *The basemap*). Run once, by hand, with shapely and
+  pyproj (`uv run --with`); its header has the steps.
 
 ## WSL2 GPU environment under `--run`
 

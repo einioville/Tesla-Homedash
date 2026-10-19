@@ -78,8 +78,9 @@ All optional; defaults match the embedded target.
 - `TESLA_HOMEDASH_SCREENSAVER_DIR` — not read: the screensaver's photos live in a fixed folder
   (`core/CLAUDE.md`, under `Photos`), and a startup warning names that folder if this is set.
 - `TESLA_HOMEDASH_MAP_API_KEY` — the MML open-data key, read by `AppConfig` straight from the
-  environment / `.env` (a deployment secret, not an Options-view setting). With it the map uses
-  MML's 0.5 m orthophoto; without it, the keyless EOX Sentinel-2 imagery plus a startup warning.
+  environment / `.env` (a deployment secret, not an Options-view setting). With it the maps use
+  MML's 0.5 m orthophoto within Finland and the keyless EOX Sentinel-2 imagery outside it
+  (`items/tesla/CLAUDE.md`, *The basemap*); without it, EOX everywhere plus a startup warning.
   Takes a restart — the OSM plugin reads its tile host once.
 
 **Frontend settings file.** `frontend_v2/config/settings.json` is the *bundled schema*

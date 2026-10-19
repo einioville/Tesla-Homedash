@@ -219,6 +219,9 @@ qt_add_qml_module(appfrontend_v2
         items/tesla/TeslaMap.qml
         items/tesla/PlaceLabels.qml
         items/tesla/HomeMarker.qml
+        items/tesla/BasemapPlugin.qml
+        items/tesla/BasemapSwitch.qml
+        items/tesla/MapCoverage.js
         items/tesla/MapLayerMenu.qml
         items/tesla/MapLiveStats.qml
         items/tesla/MapZoomButtons.qml
@@ -367,6 +370,7 @@ qt_add_resources(appfrontend_v2 "app_resources"
         resources/Luna/walking_5.png
         config/notifications.json
         config/settings.json
+        config/map-providers/satellite
 )
 
 # ShaderEffect shaders, compiled to .qsb at build time and served at

@@ -270,14 +270,8 @@ ModalDialog {
         color: "#14181d"
         clip: true
 
-        Plugin {
+        BasemapPlugin {
             id: osmPlugin
-            name: "osm"
-            PluginParameter { name: "osm.useragent"; value: "Tesla-Homedash/1.0" }
-            PluginParameter { name: "osm.mapping.providersrepository.disabled"; value: true }
-            // The app's own imagery (AppConfig: the MML orthophoto or Sentinel-2).
-            PluginParameter { name: "osm.mapping.host"; value: App.mapTilesUrl }
-            PluginParameter { name: "osm.mapping.custom.mapcopyright"; value: App.mapAttribution }
         }
 
         Map {
@@ -297,16 +291,10 @@ ModalDialog {
                 zoomLevel = Math.max(minZoom, Math.min(maxZoom, level))
             }
 
-            function selectCustomMapType() {
-                for (var i = 0; i < supportedMapTypes.length; i++) {
-                    if (supportedMapTypes[i].style === MapType.CustomMap) {
-                        activeMapType = supportedMapTypes[i]
-                        return
-                    }
-                }
+            BasemapSwitch {
+                geoMap: map
+                active: popup.shown
             }
-            Component.onCompleted: selectCustomMapType()
-            onSupportedMapTypesChanged: selectCustomMapType()
 
             // A tap places the home; its address is looked up.
             TapHandler {

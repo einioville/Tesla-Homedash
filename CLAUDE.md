@@ -512,7 +512,8 @@ glass at reading height in every view, and the warnings that have ended left out
 plus the map back on the car after a view switch and a stopped car centred in Liukuva (#55) —
 plus snow and sleet in the weather charts and cards, snow in estimated cm (#68), the Sää status
 card reporting a failed or partly stale refresh (#61), and the OSM place names on the Trips map with
-the home marked on every map (#54).
+the home marked on every map (#54), and EOX's imagery wherever a map looks past MML's coverage
+in place of its blank white tiles (#59).
 When you land a change that touches documented behaviour, update this line.
 
 ### 7.8 Keeping the code clean

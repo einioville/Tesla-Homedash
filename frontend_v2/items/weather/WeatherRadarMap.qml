@@ -1,5 +1,4 @@
 import QtQuick
-import QtCore as QC
 import QtLocation
 import QtPositioning
 import frontend_v2
@@ -14,12 +13,9 @@ import frontend_v2
 // glides back to the place on its own once left alone for the *Keskitysviive*
 // (Theme.mapFollowResumeSec), and is back there whenever the view is opened again.
 //
-// The basemap here is EOX Sentinel-2, not the app's MML orthophoto: MML covers Finland only
-// and answers everywhere else (sea, Sweden, Estonia) with a blank white tile, which a
-// regional radar view runs into near any coast. At radar zoom, Sentinel-2's 10 m is plenty.
-// It needs a tile cache of its own: the OSM plugin names cached tiles by plugin, map type
-// and tile number but not by host, so sharing TeslaMap's would hand each map the other's
-// imagery.
+// The basemap here is always EOX Sentinel-2 (BasemapPlugin's satellite type), not the app's
+// MML orthophoto: a regional radar view reaches past MML's coverage near any coast, and at
+// radar zoom Sentinel-2's 10 m is plenty.
 Item {
     id: root
 
@@ -38,15 +34,6 @@ Item {
     // Off while a dialog lies over the map (TeslaMap.interactive says why).
     property bool interactive: true
     readonly property alias radarLayer: radarLayer
-    property string tilesUrl: "https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2024_3857/default/"
-                              + "GoogleMapsCompatible/%z/%y/%x.jpg"
-    readonly property string tileCacheDir: {
-        var base = QC.StandardPaths.writableLocation(QC.StandardPaths.GenericCacheLocation).toString()
-        base = decodeURIComponent(base.replace(/^file:\/\//, ""))
-        if (Qt.platform.os === "windows")
-            base = base.replace(/^\//, "")
-        return base + "/Tesla-Homedash/tiles-weather-radar"
-    }
     // The radars' reach, about: the map's centre stays inside it, so a pan cannot leave the
     // radar behind.
     readonly property var coverage: ({ south: 59.5, north: 69.5, west: 20, east: 31 })
@@ -121,14 +108,8 @@ Item {
         homeAnim.start()
     }
 
-    Plugin {
+    BasemapPlugin {
         id: osmPlugin
-        name: "osm"
-        PluginParameter { name: "osm.useragent"; value: "Tesla-Homedash/1.0" }
-        PluginParameter { name: "osm.mapping.providersrepository.disabled"; value: true }
-        PluginParameter { name: "osm.mapping.host"; value: root.tilesUrl }
-        PluginParameter { name: "osm.mapping.custom.mapcopyright"; value: "Sentinel-2 cloudless (s2maps.eu) by EOX" }
-        PluginParameter { name: "osm.mapping.cache.directory"; value: root.tileCacheDir }
     }
 
     Map {
@@ -142,17 +123,13 @@ Item {
         copyrightsVisible: false
         center: QtPositioning.coordinate(root.latitude, root.longitude)
 
-        function selectCustomMapType() {
-            for (var i = 0; i < supportedMapTypes.length; i++) {
-                if (supportedMapTypes[i].style === MapType.CustomMap) {
-                    activeMapType = supportedMapTypes[i]
-                    return
-                }
-            }
-        }
-        Component.onCompleted: selectCustomMapType()
-        onSupportedMapTypesChanged: selectCustomMapType()
         onMapReadyChanged: Qt.callLater(root.goHome)
+
+        // EOX's imagery always, the same tiles the other maps show outside Finland.
+        BasemapSwitch {
+            geoMap: map
+            allowMml: false
+        }
 
         DragHandler {
             id: panHandler

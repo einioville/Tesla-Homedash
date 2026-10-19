@@ -51,15 +51,8 @@ Item {
     property var inspectPoint: (inspecting && rawRoute.length > 0)
                                ? positionAtTime(inspectTime) : null
 
-    Plugin {
+    BasemapPlugin {
         id: osmPlugin
-        name: "osm"
-        PluginParameter { name: "osm.useragent"; value: "Tesla-Homedash/1.0" }
-        PluginParameter { name: "osm.mapping.providersrepository.disabled"; value: true }
-        // Same custom tile host as the dashboard/full-screen map (AppConfig serves
-        // the MML orthophoto or the keyless Sentinel-2 fallback).
-        PluginParameter { name: "osm.mapping.host"; value: App.mapTilesUrl }
-        PluginParameter { name: "osm.mapping.custom.mapcopyright"; value: App.mapAttribution }
     }
 
     Map {
@@ -75,18 +68,6 @@ Item {
         bearing: 0
         center: QtPositioning.coordinate(61.497063, 23.750078)
 
-        // Select the custom (imagery) map type by style, not a fixed index — the
-        // supported list loads async and its order is provider-dependent.
-        function selectCustomMapType() {
-            for (var i = 0; i < supportedMapTypes.length; i++) {
-                if (supportedMapTypes[i].style === MapType.CustomMap) {
-                    activeMapType = supportedMapTypes[i]
-                    return
-                }
-            }
-        }
-        Component.onCompleted: selectCustomMapType()
-        onSupportedMapTypesChanged: selectCustomMapType()
 
         // Repaint the route as the view moves; a zoom change also re-decimates
         // (resolution follows zoom). fromCoordinate only works once mapReady, so a
@@ -148,6 +129,11 @@ Item {
             active: root.isCurrent
         }
         HomeMarker {}
+
+        BasemapSwitch {
+            geoMap: map
+            active: root.isCurrent
+        }
 
         // Start / end pins at the route's first + last fix. Map items, so they pan
         // and zoom with the map natively. Shown only when a route is drawn.

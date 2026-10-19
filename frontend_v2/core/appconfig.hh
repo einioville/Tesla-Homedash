@@ -25,9 +25,9 @@ class Settings;
  *                                (debug|info|warning|error|critical)
  *   TESLA_HOMEDASH_MAP_API_KEY   (string)  a National Land Survey of Finland
  *                                (Maanmittauslaitos) open-data api-key. With it the
- *                                map uses MML's 0.5 m orthophoto; without it, the
- *                                keyless EOX Sentinel-2 basemap (and a startup
- *                                warning). A deployment secret: the environment or
+ *                                map uses MML's 0.5 m orthophoto within Finland;
+ *                                without it, the keyless EOX Sentinel-2 basemap
+ *                                everywhere (and a startup warning). A deployment secret: the environment or
  *                                .env only, never the committed QML or the Options
  *                                view.
  *   TESLA_HOMEDASH_SCREENSAVER_TIMEOUT_MIN (int)     minutes of inactivity before
@@ -36,13 +36,13 @@ class Settings;
  *                                Options-view setting, which takes precedence.
  *
  * Registered with the QML engine as the singleton `App` (see main.cpp), which
- * is how items/tesla/TeslaMap.qml and items/trip/TripMap.qml read mapTilesUrl /
- * mapAttribution.
+ * is how items/tesla/BasemapPlugin.qml reads mapTilesUrl / mapAttribution.
  */
 class AppConfig : public QObject {
     Q_OBJECT
-    // The basemap tile URL + on-screen attribution for the maps' custom tile
-    // host. Both are decided once at construction.
+    // MML's tile URL (with its key) + attribution for the maps' custom tile host
+    // (items/tesla/BasemapPlugin.qml), decided once at construction; both empty
+    // without a key, when the maps show EOX's imagery only.
     Q_PROPERTY(QString mapTilesUrl READ mapTilesUrl CONSTANT)
     Q_PROPERTY(QString mapAttribution READ mapAttribution CONSTANT)
 

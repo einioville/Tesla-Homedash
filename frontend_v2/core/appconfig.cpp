@@ -10,19 +10,12 @@
 namespace {
 const Logger logger = Logger::get("app");
 
-// Basemap tile providers. The OSM plugin substitutes %x/%y/%z positionally
+// The basemap's keyed tile provider; the keyless one, EOX, is the provider file
+// config/map-providers/satellite. The OSM plugin substitutes %x/%y/%z positionally
 // anywhere in the URL (Qt 6.7+), so a z/y/x provider is driven by ordering the
 // tokens %z/%y/%x; the literal %x also suppresses the plugin's default
 // "%z/%x/%y.png" postfix. Tiles must be EPSG:3857 Web Mercator. Consumed by
-// TeslaMap.qml and TripMap.qml via the App singleton.
-
-// EOX Sentinel-2 cloudless — no API key, ~10 m. Keyless default so the map
-// works out of the box.
-const QString kEoxTilesUrl = QStringLiteral(
-    "https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2024_3857/default/"
-    "GoogleMapsCompatible/%z/%y/%x.jpg");
-const QString kEoxAttribution = QStringLiteral(
-    "Sentinel-2 cloudless (s2maps.eu) by EOX — modified Copernicus Sentinel data");
+// items/tesla/BasemapPlugin.qml via the App singleton.
 
 // MML (National Land Survey of Finland) open orthophoto — 0.5 m aerial of
 // Finland, CC BY 4.0. Needs a free api-key (the %1). Web-Mercator variant so it
@@ -76,17 +69,15 @@ AppConfig::AppConfig(const Settings* settings, QObject* parent) : QObject(parent
     // Map basemap: MML's 0.5 m orthophoto, keyed by TESLA_HOMEDASH_MAP_API_KEY from
     // the environment or .env — a deployment secret like the backend's keys, so it
     // is not an Options-view setting. The OSM plugin reads its tile host once, when
-    // the map is created, so a changed key needs a restart. Without a key the map
-    // falls back to the keyless EOX Sentinel-2 imagery (~10 m) rather than going
-    // blank, and says so.
+    // the map is created, so a changed key needs a restart. Without a key the maps
+    // show only the keyless EOX Sentinel-2 imagery (~10 m), which they also show
+    // outside MML's coverage (items/tesla/BasemapSwitch.qml), and the log says so.
     const QString mapApiKey = dotenv::valueOr("TESLA_HOMEDASH_MAP_API_KEY", QString()).trimmed();
     if (!mapApiKey.isEmpty()) {
         m_mapTilesUrl = kMmlTilesUrlTemplate.arg(mapApiKey);
         m_mapAttribution = kMmlAttribution;
         logger.info(QStringLiteral("Map basemap: MML orthophoto (0.5 m, keyed)"));
     } else {
-        m_mapTilesUrl = kEoxTilesUrl;
-        m_mapAttribution = kEoxAttribution;
         logger.warning(QStringLiteral("Map basemap: EOX Sentinel-2 (keyless fallback); set "
                                       "TESLA_HOMEDASH_MAP_API_KEY in .env for MML's 0.5 m imagery"));
     }

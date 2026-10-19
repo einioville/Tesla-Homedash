@@ -199,7 +199,7 @@ dialog finds the home by address through `Geocoder` (`../../core/CLAUDE.md`) —
 never per keystroke, Nominatim's rule — or by a tap on its map, whose address is looked up the same
 way; *Tallenna* asks FMI for the point's zone and writes the whole object with `Settings.setValue`.
 It is hung from the top so the field and the hits stay above the keyboard, and Enter closes the
-keyboard so the map shows. The map is a plain `Map` on the app's imagery (`App.mapTilesUrl`) with
+keyboard so the map shows. The map is a plain `Map` on the app's imagery (`BasemapPlugin`) with
 pan, pinch, wheel and tap handlers of its own: a picker shares nothing else with the car's map.
 The pin is `location.svg`'s two paths in one even-odd `Shape` path, filled red and outlined in black
 with the inner circle left hollow — a tinted icon has one colour.

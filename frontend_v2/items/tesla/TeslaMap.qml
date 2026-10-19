@@ -324,29 +324,8 @@ Item {
         onTriggered: returnAnim.start()
     }
 
-    Plugin {
+    BasemapPlugin {
         id: osmPlugin
-        name: "osm"
-
-        PluginParameter { name: "osm.useragent"; value: "Tesla-Homedash/1.0" }
-
-        // We only use the custom tile host below, so skip fetching the remote
-        // provider repository (maps-redirect.qt.io) for the built-in map types.
-        // That drops a startup network dependency and silences the "Tileserver
-        // disabled …/satellite" warning plus the HTTP/2 stream errors from that
-        // fetch. The hardcoded built-ins it falls back to are unused; CustomMap is
-        // created from osm.mapping.host independently, so it's unaffected.
-        PluginParameter { name: "osm.mapping.providersrepository.disabled"; value: true }
-
-        // Custom tile host = our satellite/aerial basemap (the MapType.CustomMap
-        // type). The URL + attribution come from AppConfig (the App singleton),
-        // which serves MML's 0.5 m orthophoto when a TESLA_HOMEDASH_MAP_API_KEY is
-        // configured (env or .env) and the keyless EOX Sentinel-2 fallback
-        // otherwise — so the api-key never lives in this committed file. The OSM
-        // plugin substitutes %x/%y/%z positionally, so the z/y/x providers use a
-        // %z/%y/%x template; tiles are EPSG:3857 Web Mercator.
-        PluginParameter { name: "osm.mapping.host"; value: App.mapTilesUrl }
-        PluginParameter { name: "osm.mapping.custom.mapcopyright"; value: App.mapAttribution }
     }
 
     Map {
@@ -378,7 +357,7 @@ Item {
         bearing: root.headingUp ? root.heading : 0.001
 
         // Hide the on-map provider attribution for a cleaner dashboard. The text
-        // is still configured (osm.mapping.custom.mapcopyright above), so flip
+        // is still configured (BasemapPlugin and its EOX provider file), so flip
         // this to true to restore the "© Maanmittauslaitos" / Sentinel-2 credit.
         // Note: MML (CC BY 4.0) and EOX/Copernicus licenses request attribution.
         copyrightsVisible: false
@@ -389,23 +368,6 @@ Item {
         // claimCenterForWarp.
         center: QtPositioning.coordinate(root.latitude, root.longitude)
 
-        // Imagery comes in via the custom tile host (osm.mapping.host) as the
-        // MapType.CustomMap entry. supportedMapTypes loads asynchronously and its
-        // length/order depend on which OSM providers are live, so a fixed index is
-        // fragile — one that falls off the list assigns undefined and logs
-        // "Unable to assign [undefined] to QGeoMapType". Select CustomMap by style
-        // instead.
-        function selectCustomMapType() {
-            for (var i = 0; i < supportedMapTypes.length; i++) {
-                if (supportedMapTypes[i].style === MapType.CustomMap) {
-                    activeMapType = supportedMapTypes[i]
-                    return
-                }
-            }
-        }
-
-        Component.onCompleted: selectCustomMapType()
-        onSupportedMapTypesChanged: selectCustomMapType()
         // Projection is unavailable until the map is ready, so warp can only
         // take ownership of the centre from here.
         onMapReadyChanged: if (mapReady) { root.claimCenterForWarp(); root.warpStep() }
@@ -566,6 +528,11 @@ Item {
         }
 
         HomeMarker {}
+
+        BasemapSwitch {
+            geoMap: map
+            active: root.isCurrent
+        }
 
         MapQuickItem {
             id: vehicle
