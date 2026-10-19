@@ -93,6 +93,18 @@ Three details in the follow logic are load-bearing, and the first two are traps:
   computed in pixels at the old zoom would land wrong in geo terms; warp re-applies its own
   offset a moment later, the first time the car leaves the zone.
 
+Two more ways back to the car, both ending in that snap-back (#55):
+- **A view switch in the idle window is an unfinished gesture.** Leaving keeps `userControlled`;
+  on return the snap-back runs at once if `returnDueMs` passed while away, else after a fresh
+  *Keskitysviive*. Dropping back to follow on leaving instead left Lukittu's zoom where the user
+  put it and Liukuva's centre too — a parked car sends no position tick to wake `warpStep()`.
+- **Liukuva centres a stopped car.** A timer runs while the car's speed is not above 0 (unknown
+  counts as stopped — speed, because a parked car's GPS jitters), the map is current and nobody
+  is touching it; after *Keskitysviive* it starts the snap-back. It runs once per stop: a
+  `running` binding restarts it only when a condition changes.
+- `handleGestureActive(true)` stops the snap-back **before** it sets `userControlled`: the
+  animation's `onStopped` clears it, and a wheel turn has no active handler to keep it.
+
 `warpStep()` is driven off latitude/longitude changes (which the position Behaviors smooth to
 per-frame ticks) and NOT off heading — a bend would otherwise re-centre continuously, and a
 turning car is a moving one anyway. The `warpAnim.running` guard is what stops a 700 ms ease

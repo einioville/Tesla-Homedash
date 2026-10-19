@@ -32,6 +32,9 @@ Item {
     // follow is suspended in this state.
     property bool userControlled: false
     property int idleReturnMs: Theme.mapFollowResumeSec * 1000
+    // When the snap-back after the last gesture is due (ms since the epoch), so a
+    // view switch in the idle window can finish it on return.
+    property real returnDueMs: 0
     property real defaultZoom: Theme.mapDefaultZoom
 
     // Multiplier on every gesture. At 1.0 a drag is exact 1:1 (the grabbed point
@@ -67,17 +70,25 @@ Item {
     // memory (so returning is instant — no tile reload), but a hidden map must not
     // animate or re-center on every telemetry tick. DashboardView binds this to its
     // isCurrent; the follow animations and the center binding below gate on it.
-    // Leaving also cancels any in-flight snap-back and drops back to follow mode so
-    // the car is re-centered on return.
+    // A snap-back still pending when the view is left is an unfinished gesture, not
+    // follow mode: it is finished on return — at once if it fell due while away, else
+    // after a fresh idle window — so centre and zoom both come back (#55).
     property bool isCurrent: true
     onIsCurrentChanged: {
         if (!isCurrent) {
+            const pending = userControlled
             returnTimer.stop()
-            returnAnim.stop()
+            returnAnim.stop()   // its onStopped clears userControlled
             warpAnim.stop()
-            userControlled = false
+            userControlled = pending
         } else {
             claimCenterForWarp()
+            if (userControlled) {
+                if (Date.now() >= returnDueMs)
+                    returnAnim.start()
+                else
+                    returnTimer.restart()
+            }
             warpStep()
         }
     }
@@ -138,12 +149,15 @@ Item {
     function handleGestureActive(active) {
         if (active) {
             root.touched()
-            userControlled = true
             returnTimer.stop()
+            // Before userControlled is set: its onStopped clears it, and a wheel turn has no
+            // active handler to keep it.
             returnAnim.stop()
             warpAnim.stop()
             zoomAnim.stop()
+            userControlled = true
         } else {
+            returnDueMs = Date.now() + idleReturnMs
             returnTimer.restart()
         }
     }
@@ -297,6 +311,18 @@ Item {
         warpStep()
     }
     onUserControlledChanged: warpStep()
+
+    // Warp re-centres only when the car leaves the free area, so a car that stops off
+    // centre would stay there: once it has stood still for the idle window, the snap-back
+    // brings it to the exact centre at the default zoom. Speed, not an unchanged position,
+    // says stopped — a parked car's GPS jitters. Unknown counts as stopped. The timer runs
+    // once per stop: it starts again only when one of the conditions changes.
+    Timer {
+        interval: root.idleReturnMs
+        running: root.warpFollow && root.isCurrent && !root.userControlled
+                 && !(Tesla.vehicleSpeed > 0)
+        onTriggered: returnAnim.start()
+    }
 
     Plugin {
         id: osmPlugin
