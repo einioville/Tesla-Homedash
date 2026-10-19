@@ -64,7 +64,15 @@ few minutes after their slot — under the same scheduler rules as the forecast 
   The headline names the warning's whole region and can lead with one far away — *Keltainen
   liikennesää: Kainuu sekä paikoin maan keskiosa* covers Tampere through Pirkanmaa, its sixth area —
   so the Weather view's strip shows `hereAreas`, and a tap opens every warning that applies, whole
-  (`frontend_v2/items/weather/WeatherWarningsPopup.qml`). `areas` keeps only the first four.
+  (`frontend_v2/items/weather/WeatherWarningsPopup.qml`, which the dashboard's hour badges open
+  too). `areas` keeps only the first four.
+- **Only warnings still in force are sent.** The feed keeps one for a while after its `expires` (a
+  *Liikennesää* that ended at 10.00 was still there at 11.27), so the builder drops those; the onset
+  and expiry go as text (`onset`, `expires`), the times kept server-side for the hour marks below.
+- **Each forecast hour a warning covering the place is in force in carries its colour** (`warning`:
+  the strongest, yellow < orange < red; absent otherwise) — the dashboard's hourly card draws a badge
+  on those hours (`frontend_v2/items/weather/WeatherChart.qml`, `warningBadges`). An hour counts if
+  the warning overlaps any of it.
 - **A warning carries its areas for the map** (`shapes`: rings of `[lat, lon]`), which the Kartta
   view draws (`frontend_v2/items/weather/WarningAreas.qml`). FMI's polygons run to ~16 000 points
   over seven warnings; Douglas–Peucker at ~0.5 km and rounding to ~100 m (`_simplify`,

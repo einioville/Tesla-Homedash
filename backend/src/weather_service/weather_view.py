@@ -241,15 +241,18 @@ class WeatherViewBuilder:
         # The UV estimate is for this hour only, so radiation from another hour is not used.
         radiation_now = (self.__radiation[1] if self.__radiation
                          and self.__radiation[0] == hour0.isoformat() else None)
+        # The feed keeps a warning for a while after it ends.
+        in_force = [w for w in self.__warnings or [] if w["span"][1] is None or w["span"][1] > now]
+        warnings = self.__mark_warnings(in_force, self.__location["lat"], self.__location["lon"])
+        here = [w for w, sent in zip(in_force, warnings) if sent["appliesHere"]]
         return {
             "meta": {"place": self.__location["name"], "lat": self.__location["lat"],
                      "lon": self.__location["lon"], "fetchedMs": int(now.timestamp() * 1000)},
             "now": self.__now_block(hours[0], radiation_now),
-            "hourly": hours,
+            "hourly": self.__warned_hours(hours, here),
             "daily": self.__daily(hours),
             "astro": self.__astro or {},
-            "warnings": self.__mark_warnings(self.__warnings or [], self.__location["lat"],
-                                             self.__location["lon"]),
+            "warnings": warnings,
         }
 
     async def __part(self, label: str, fetch):
@@ -445,11 +448,11 @@ class WeatherViewBuilder:
         Arguments:
             xml (bytes): The feed as fetched.
         '''
-        def when(s):
-            if not s:
-                return None
-            t = datetime.fromisoformat(s).astimezone(self.__zone)
-            return f"{_WEEKDAYS[t.weekday()]} {t.hour}.{t.minute:02d}"
+        def at(s):
+            return datetime.fromisoformat(s).astimezone(self.__zone) if s else None
+
+        def when(t):
+            return f"{_WEEKDAYS[t.weekday()]} {t.hour}.{t.minute:02d}" if t else None
 
         warnings, seen = [], set()
         for alert in ElementTree.fromstring(xml).iter():
@@ -474,13 +477,13 @@ class WeatherViewBuilder:
                     if len(polygon) > 2:
                         polygons.append((name, polygon))
             severity = info.findtext(ns + "severity") or ""
+            onset, expires = at(info.findtext(ns + "onset")), at(info.findtext(ns + "expires"))
             warnings.append({
                 "event": info.findtext(ns + "event"), "severity": severity,
                 "color": _WARNING_COLORS.get(severity, "yellow"), "headline": headline,
-                "areas": areas[:4], "onset": when(info.findtext(ns + "onset")),
-                "expires": when(info.findtext(ns + "expires")),
+                "areas": areas[:4], "onset": when(onset), "expires": when(expires),
                 "description": (info.findtext(ns + "description") or "").strip(),
-                "polygons": polygons,
+                "polygons": polygons, "span": (onset, expires),
                 "shapes": [
                     [[round(lat, _SHAPE_DECIMALS), round(lon, _SHAPE_DECIMALS)]
                      for lat, lon in ring]
@@ -496,7 +499,7 @@ class WeatherViewBuilder:
         The warnings as sent: each with the areas that cover the place (`hereAreas`; the
         headline names the warning's whole region, which can lead with one far away) and
         whether any does, and without the full polygons, which only that test needs — the
-        map draws the simplified `shapes`.
+        map draws the simplified `shapes` — or the times, which go as text.
         Arguments:
             warnings (list[dict]): Parsed warnings, polygons included.
             lat (float): The place's latitude.
@@ -504,11 +507,30 @@ class WeatherViewBuilder:
         '''
         marked = []
         for w in warnings:
-            entry = {k: v for k, v in w.items() if k != "polygons"}
+            entry = {k: v for k, v in w.items() if k not in ("polygons", "span")}
             here = [name for name, p in w["polygons"] if _inside(p, lat, lon)]
             entry["hereAreas"] = list(dict.fromkeys(here))
             entry["appliesHere"] = bool(here)
             marked.append(entry)
+        return marked
+
+    def __warned_hours(self, hours: list[dict], warnings: list[dict]) -> list[dict]:
+        '''
+        The hours as sent: each hour a warning covering the place is in force in carries the
+        strongest such warning's colour (`warning`), which the dashboard's hourly card marks.
+        Arguments:
+            hours (list[dict]): The forecast hours from the current one.
+            warnings (list[dict]): The parsed warnings in force that cover the place.
+        '''
+        levels = list(_WARNING_COLORS.values())
+        marked = []
+        for h in hours:
+            start = datetime.fromisoformat(h["iso"]).replace(tzinfo=self.__zone)
+            end = start + timedelta(hours=1)
+            colors = [w["color"] for w in warnings
+                      if (w["span"][0] is None or w["span"][0] < end)
+                      and (w["span"][1] is None or w["span"][1] > start)]
+            marked.append({**h, "warning": max(colors, key=levels.index)} if colors else h)
         return marked
 
     def __now_block(self, hour: dict, radiation) -> dict:

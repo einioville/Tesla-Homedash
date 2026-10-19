@@ -506,7 +506,9 @@ glass with the maps still under any dialog (`TeslaMap.interactive`), Kartta's ou
 from FMI an hour into the car's sleep (`Tesla.asleepSince`), the Weather view's *Kelikamerat* button
 on the cameras nearest the place, and the home location — *Yleinen › Sijainti › Koti*, an address or
 a point on a map (`Geocoder`, Nominatim) — that the weather and the timezone follow, in place of the
-place and timezone rows.
+place and timezone rows — plus the dashboard's hourly card marking each hour a warning covering the
+place is in force in with a badge on its symbol, a tap opening the warnings, whose dialog is frosted
+glass at reading height in every view, and the warnings that have ended left out of the document.
 When you land a change that touches documented behaviour, update this line.
 
 ### 7.8 Keeping the code clean

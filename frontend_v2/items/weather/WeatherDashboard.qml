@@ -30,6 +30,8 @@ Item {
 
     // The Nyt card's camera button: the view opens the road cameras nearest the place.
     signal camerasRequested()
+    // The Nyt card's warning strip: the view opens the warnings that apply here (`here`).
+    signal warningsRequested()
 
     readonly property var now: wx.now || ({})
     readonly property var here: (wx.warnings || []).filter(w => w.appliesHere)
@@ -104,7 +106,7 @@ Item {
             spacing: 8
 
             // The first warning that covers the place, by the area that covers it rather
-            // than the headline's region, which can lead with one far away. A tap opens
+            // than the headline's region, which can lead with one far away. A tap asks for
             // them all, whole.
             Rectangle {
                 visible: root.here.length > 0
@@ -173,7 +175,7 @@ Item {
                     id: warningTap
                     anchors.fill: parent
                     anchors.margins: -6
-                    onClicked: warningsPopup.open()
+                    onClicked: root.warningsRequested()
                 }
             }
 
@@ -368,7 +370,7 @@ Item {
             zoom: 8.0
             placeOffset: Qt.point(0, -20)
             active: root.active
-            interactive: root.interactive && !warningsPopup.visible
+            interactive: root.interactive
             latestOnly: Settings.values.weatherRadarLatestOnly === true
         }
         Text {
@@ -622,12 +624,4 @@ Item {
             }
         }
     }
-
-    // Last, so it covers the cards. A dialog left open would still be there on the way
-    // back to a view that has moved on.
-    WeatherWarningsPopup {
-        id: warningsPopup
-        warnings: root.here
-    }
-    onActiveChanged: if (!active) warningsPopup.close()
 }

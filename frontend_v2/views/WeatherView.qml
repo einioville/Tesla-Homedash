@@ -4,8 +4,8 @@ import frontend_v2
 // The Weather view ("Sää"), over the backend's WEATHER_VIEW document (`Weather.view`,
 // refreshed every 10 minutes); the radar loop and its lightning come straight from FMI.
 // Until the first document arrives there is nothing to lay out, so the dashboard waits.
-// The Nyt card's camera button opens the road cameras nearest the document's place, on
-// frosted glass over the dashboard.
+// The Nyt card's camera button opens the road cameras nearest the document's place, and its
+// warning strip the warnings that apply there, both on frosted glass over the dashboard.
 Rectangle {
     id: view
 
@@ -32,6 +32,7 @@ Rectangle {
         if (!isCurrent) {
             camerasWanted = false
             cameraPopup.close()
+            warningsPopup.close()
         }
     }
 
@@ -42,8 +43,9 @@ Rectangle {
         sourceComponent: WeatherDashboard {
             wx: Weather.view
             active: view.isCurrent
-            interactive: !cameraPopup.visible
+            interactive: !cameraPopup.visible && !warningsPopup.visible
             onCamerasRequested: view.openCameras()
+            onWarningsRequested: warningsPopup.open()
         }
     }
 
@@ -65,7 +67,7 @@ Rectangle {
     FrostLayer {
         id: frost
         sourceItem: dashboard
-        live: view.isCurrent && cameraPopup.visible
+        live: view.isCurrent && (cameraPopup.visible || warningsPopup.visible)
         blurMax: Theme.dialogFrostBlur
         brightness: Theme.dialogFrostBrightness
     }
@@ -74,5 +76,13 @@ Rectangle {
         id: cameraPopup
         backdrop: dashboard
         frost: frost
+    }
+
+    WeatherWarningsPopup {
+        id: warningsPopup
+        backdrop: dashboard
+        frost: frost
+        place: Weather.view.meta ? Weather.view.meta.place : ""
+        warnings: dashboard.item ? dashboard.item.here : []
     }
 }

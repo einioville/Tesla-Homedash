@@ -4,7 +4,8 @@ import frontend_v2
 // The hourly chart in its card: `hoursVisible` hours across, scrollable through
 // all of `hours`. The title names the hours on screen ("SEURAAVAT 24 TUNTIA" at the start,
 // their span once scrolled) unless `heading` overrides it, and "↺ Nyt" glides back to now.
-// Used by the Weather view and the dashboard's weather panel.
+// Used by the Weather view and the dashboard's weather panel, which marks the hours
+// warnings are in force in (`warningBadges`).
 Card {
     id: card
 
@@ -13,11 +14,14 @@ Card {
     property int labelEvery: 2
     // Replaces the title while set (the Weather view's selected day).
     property string heading: ""
+    property bool warningBadges: false
 
     // "↺ Nyt" was tapped; the chart is already gliding back.
     signal backToNow
     // The user dragged or flicked the chart.
     signal userScrolled
+    // A warning badge was tapped.
+    signal warningsRequested
 
     function scrollToHour(index) {
         chart.scrollToHour(index)
@@ -78,6 +82,8 @@ Card {
         hours: card.hours
         hoursVisible: card.hoursVisible
         labelEvery: card.labelEvery
+        warningBadges: card.warningBadges
         onUserScrolled: card.userScrolled()
+        onWarningTapped: card.warningsRequested()
     }
 }

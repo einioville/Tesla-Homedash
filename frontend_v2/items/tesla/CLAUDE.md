@@ -170,7 +170,9 @@ the menu sits in its map's corner, full-screen or the card. `TeslaMap`'s `show*`
   `items/weather/WarningAreas.qml`: each warning's regions from the weather document's `shapes`
   (`backend/src/weather_service/CLAUDE.md`), filled faintly in its colour and outlined, in a
   `GeoFrame` from the middle of Finland. `WarningLegend.qml` in the top-left corner names them, and
-  a tap opens them whole in the Weather view's `WeatherWarningsPopup`.
+  a tap opens them whole in `WeatherWarningsPopup` — the dialog the Weather view's strip and the
+  dashboard's hour badges open too, each view hosting its own on frosted glass as the camera dialog
+  is, but at reading height (centred on 40 % of the height) rather than centred.
 
 **`GeoFrame.qml` carries drawing in metres with the map.** Its coordinates are EPSG:3857 metres from
 an origin; it is moved, scaled and turned with the camera, so a `Shape` in it is triangulated once

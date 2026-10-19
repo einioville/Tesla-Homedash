@@ -5,7 +5,9 @@ import "WeatherUtil.js" as U
 
 // Every forecast hour on one horizontally scrollable chart, `hoursVisible` of
 // them across the width: the temperature curve, rain bars with their amount on top, and a
-// symbol / temperature / hour every `labelEvery` hours.
+// symbol / temperature / hour every `labelEvery` hours. With `warningBadges`, an hour a
+// warning covering the place is in force in (its `warning` colour, from the backend) carries
+// a badge, and a tap on one asks for the warnings.
 //
 // A ListView with one delegate per hour, so only the visible hours exist. Each delegate
 // draws its own piece of the curve, from the midpoint with the previous hour through its
@@ -18,6 +20,7 @@ Item {
     property var hours: []
     property int hoursVisible: 24
     property int labelEvery: 2
+    property bool warningBadges: false
 
     readonly property real colW: width / hoursVisible
     readonly property int firstVisible: Math.max(0, Math.min(hours.length - 1, Math.round(list.contentX / colW)))
@@ -25,6 +28,7 @@ Item {
 
     // The user dragged or flicked (scrollToHour's animation does not count).
     signal userScrolled
+    signal warningTapped
 
     property real tMin: 0
     property real tMax: 10
@@ -188,6 +192,33 @@ Item {
                 sourceSize: Qt.size(60, 60)
                 source: col.labelled ? U.icon(col.modelData.symbol) : ""
             }
+            // The Weather view's warning strip in small, on the symbol's lower corner: clear of the
+            // temperatures, and of the rain bars, which a warning's hours often have.
+            Rectangle {
+                id: badge
+                visible: root.warningBadges && !!col.modelData.warning
+                x: parent.width / 2 + 3
+                y: 15
+                width: 18; height: 18; radius: 9
+                color: U.warnColor(col.modelData.warning)
+                border.width: 1.5
+                border.color: "#0b0e12"
+                TintedIcon {
+                    anchors.centerIn: parent
+                    anchors.verticalCenterOffset: -0.5
+                    iconSize: 12
+                    source: "qrc:/resources/icons/warning.svg"
+                    tint: "#1a1400"
+                }
+            }
+            // The badge is too small for a finger: the whole top of the hour takes the tap.
+            MouseArea {
+                enabled: badge.visible
+                width: parent.width
+                height: 46
+                onClicked: root.warningTapped()
+            }
+
             Text {
                 visible: col.labelled
                 anchors.horizontalCenter: parent.horizontalCenter

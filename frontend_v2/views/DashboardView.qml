@@ -17,6 +17,7 @@ Rectangle {
     onIsCurrentChanged: {
         if (!isCurrent) {
             cameraPopup.close()
+            warningsPopup.close()
             homeLayers.open = false
         }
     }
@@ -31,7 +32,7 @@ Rectangle {
     function spanW(span) { return span * cellW + (span - 1) * gridSpacing }
     function spanH(span) { return span * cellH + (span - 1) * gridSpacing }
 
-    // The dashboard itself, which the camera popup frosts: everything but the popup and Luna.
+    // The dashboard itself, which the dialogs frost: everything but them and Luna.
     Item {
         id: surface
         anchors.fill: parent
@@ -84,7 +85,7 @@ Rectangle {
             showPlaceNames: Settings.values.homeMapLayerPlaces === true
             showCameras: Settings.values.homeMapLayerCameras === true
             onCameraOpened: (stationId) => cameraPopup.open(stationId)
-            interactive: !cameraPopup.visible
+            interactive: !cameraPopup.visible && !warningsPopup.visible
         }
 
         // The map's controls, out of sight until the map is touched.
@@ -157,6 +158,7 @@ Rectangle {
         MainWeather {
             x: view.cellX(4); y: view.cellY(6)
             width: view.spanW(8); height: view.spanH(4)
+            onWarningsRequested: warningsPopup.open()
         }
 
         ClimateCard {
@@ -188,7 +190,7 @@ Rectangle {
     FrostLayer {
         id: popupFrost
         sourceItem: surface
-        live: view.isCurrent && cameraPopup.visible
+        live: view.isCurrent && (cameraPopup.visible || warningsPopup.visible)
         blurMax: Theme.dialogFrostBlur
         brightness: Theme.dialogFrostBrightness
     }
@@ -197,5 +199,13 @@ Rectangle {
         id: cameraPopup
         backdrop: surface
         frost: popupFrost
+    }
+
+    WeatherWarningsPopup {
+        id: warningsPopup
+        backdrop: surface
+        frost: popupFrost
+        place: Weather.view.meta ? Weather.view.meta.place : ""
+        warnings: (Weather.view.warnings || []).filter(w => w.appliesHere)
     }
 }

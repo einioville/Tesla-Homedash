@@ -117,11 +117,11 @@ Rectangle {
         ]
     }
 
-    // The dialog's glass blurs further than the panels', so it has a frost of its own.
+    // The dialogs' glass blurs further than the panels', so they have a frost of their own.
     FrostLayer {
         id: popupFrost
         sourceItem: map
-        live: view.isCurrent && cameraPopup.visible
+        live: view.isCurrent && (cameraPopup.visible || warningsPopup.visible)
         blurMax: Theme.dialogFrostBlur
         brightness: Theme.dialogFrostBrightness
     }
@@ -134,7 +134,8 @@ Rectangle {
 
     WeatherWarningsPopup {
         id: warningsPopup
-        anchors.fill: parent
+        backdrop: map
+        frost: popupFrost
         warnings: view.warnings
     }
 }
