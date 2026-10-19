@@ -490,6 +490,7 @@ setting you change in the Asetukset view wins over `.env` from then on.
 | Map tiles blank | Qt Location networking, not WSL — check `TESLA_HOMEDASH_MAP_API_KEY` and connectivity. |
 | No radio audio | libVLC present? WSLg PulseAudio running? `pactl info` should answer. |
 | Frontend connects to nothing | Backend running in the *same* WSL distro? `ss -ltnp \| grep 6969`. |
+| Huge mouse cursor over the window (Windows display scaling above 100%) | With no `XDG_SESSION_TYPE`, Qt picks xcb, and WSLg upscales XWayland windows by the scale factor, cursor included. Adwaita's smallest cursor is 24 px, so lowering `XCURSOR_SIZE` alone does nothing. Run Qt as a native Wayland client, which is scale-aware and asks for `XCURSOR_SIZE` × scale: add `export QT_QPA_PLATFORM=wayland` and `export XCURSOR_SIZE=12` to `~/.bashrc` (12 suited 200 % scaling; try 16 at 150 %). The window also stops being upscaled, so it renders sharper. The scale in effect: `grep 'scale:' /mnt/wslg/weston.log`. |
 
 The map, the `Graphs` history view and the screensaver are the three surfaces worth
 eyeballing after the first successful build — they are the GPU-heaviest and the most
