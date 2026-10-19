@@ -40,7 +40,7 @@ Tesla-Homedash is a desktop dashboard that brings live vehicle telemetry, music,
 - [teslemetry-stream](https://pypi.org/project/teslemetry-stream/) — Teslemetry WebSocket client.
 
 ### C++
-- [Qt 6](https://www.qt.io/) — the frontend is a Qt 6 Quick (QML) application, using the `Quick`, `QuickControls2`, `Network`, `Concurrent`, `Svg`, `Location`, `Positioning`, `Graphs`, `Core5Compat`, `LabsFolderListModel` and `VirtualKeyboard` modules, and Qt Shader Tools to build its shaders.
+- [Qt 6](https://www.qt.io/) — the frontend is a Qt 6 Quick (QML) application, using the `Quick`, `QuickControls2`, `Network`, `Concurrent`, `Svg`, `Location`, `Positioning`, `Graphs`, `Core5Compat`, `LabsFolderListModel`, `VirtualKeyboard` and `CanvasPainter` modules (Qt 6.12 or newer), and Qt Shader Tools to build its shaders.
 - [CMake](https://cmake.org/) 3.16 or newer — the frontend's build system.
 - A C++20-capable compiler (MSVC 2019 16.10+, GCC 10+, or Clang 12+).
 
@@ -79,7 +79,7 @@ Qt 6 is installed separately via the official Qt installer — see the next subs
 
 ### Qt 6
 
-Install Qt 6 with the official [Qt online installer](https://www.qt.io/download-qt-installer) — a free Qt account is required. Pick a recent Qt 6 release.
+Install Qt 6 with the official [Qt online installer](https://www.qt.io/download-qt-installer) — a free Qt account is required. Pick Qt 6.12 or newer: the frontend needs 6.12.
 
 In the installer's **Additional Libraries** step, make sure the following modules are checked:
 
@@ -88,12 +88,14 @@ In the installer's **Additional Libraries** step, make sure the following module
 - **Qt Graphs**
 - **Qt 5 Compatibility Module** — `Qt5Compat.GraphicalEffects`, used by the icon tinting
 - **Qt Virtual Keyboard** — the on-screen keyboard for typing into the Options view on the touch panel
+- **Qt Multimedia** — loaded by the on-screen keyboard at run time
+- **Qt Canvas Painter** — draws the Trips map's route on the GPU
 
 The other Qt modules the frontend links against — `Core`, `Gui`, `Network`, `Quick`, `QuickControls2`, `Svg`, `Concurrent` and `LabsFolderListModel` — are part of the default Qt 6 install and don't need to be enabled separately.
 
-All five of the modules above are `REQUIRED` in `frontend_v2/CMakeLists.txt`, so leaving one unchecked makes `cmake` fail at configure time rather than at build time. So is **Qt Shader Tools**, which compiles the climate animation's shaders; it needs no box of its own, because the installer selects it with Qt Graphs.
+All of the modules above but Qt Multimedia are `REQUIRED` in `frontend_v2/CMakeLists.txt`, so leaving one unchecked makes `cmake` fail at configure time rather than at build time; without Qt Multimedia the on-screen keyboard fails to load at run time. So is **Qt Shader Tools**, which compiles the climate animation's shaders; it needs no box of its own, because the installer selects it with Qt Graphs.
 
-Take note of the install path the installer reports when it finishes (for example `~/Qt/6.8.0/gcc_arm64/` on the Pi). You'll pass it to CMake when building the frontend later.
+Take note of the install path the installer reports when it finishes (for example `~/Qt/6.12.0/gcc_arm64/` on the Pi). You'll pass it to CMake when building the frontend later.
 
 ### InfluxDB
 
@@ -307,7 +309,7 @@ It looks for a Qt kit in `$QTDIR`, then in `~/Qt/*/gcc_64` and `~/Qt/*/gcc_arm64
 installer put it somewhere else, point at it explicitly:
 
 ```bash
-./scripts/build-frontend.sh --config Release --qt-prefix ~/Qt/6.8.0/gcc_arm64
+./scripts/build-frontend.sh --config Release --qt-prefix ~/Qt/6.12.0/gcc_arm64
 ```
 
 This produces the `appfrontend_v2` binary at `frontend_v2/build/appfrontend_v2`. (The equivalent
@@ -445,7 +447,7 @@ Environment=WAYLAND_DISPLAY=wayland-1
 # runs that build (its card is out of the Options view for now, see #56). A --user unit inherits none of your login shell's
 # environment, so point it at the Qt kit you installed. Drop this line only if
 # the kit is in ~/Qt/<version>/gcc_arm64, which is found automatically.
-Environment=QTDIR=%h/Qt/6.8.0/gcc_arm64
+Environment=QTDIR=%h/Qt/6.12.0/gcc_arm64
 Restart=on-failure
 RestartSec=5
 

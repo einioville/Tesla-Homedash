@@ -125,6 +125,20 @@ fullscreen with no keyboard — which is also why no bare "quit" is offered.
 `QJsonValue::fromVariant` would turn into null — the home location's write would clear it.
 `setValue` converts it to a `QVariantMap` first.
 
+## `App` — `appconfig.{hh,cpp}`
+
+Startup configuration from the environment / `.env` (its header lists the variables), and one
+decision made before any window exists: **the OpenGL context Canvas2D needs.** Qt Canvas Painter
+has shaders for OpenGL 3+, OpenGL ES 3+ and the other graphics APIs only, while Qt asks OpenGL for
+2.0 by default, which Mesa answers with 2.1 (the dev box, and the Pi 4's desktop GL); a Canvas2D on
+that context crashes the app. So the constructor sets the default surface format to desktop 3.3
+core, else ES 3.0 (the Pi 4's V3D gives ES 3.1), each accepted only once a context made with it
+is current on an offscreen surface, and logs which (`OpenGL: core 3.3 context for Canvas2D`).
+`App.gpuCanvas` says whether it worked; without it the Trips route is a Qt Quick Canvas
+(`items/trip/TripMap.qml`). Direct3D, Vulkan and Metal pass as they are; the software renderer
+never gets Canvas2D. `TESLA_HOMEDASH_GPU_CANVAS=0` skips all of it. Every view was checked on the
+dev box's 3.3 core context; the Pi's ES 3.0 path is not yet run on the device.
+
 ## `Geocoder` — `map/geocoder.{hh,cpp}`
 
 Address search and lookup for the Options view's *Koti* dialog (`../items/settings/CLAUDE.md`):

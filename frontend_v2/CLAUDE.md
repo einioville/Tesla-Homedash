@@ -1,6 +1,6 @@
 # `frontend_v2/` — the QML frontend (live target)
 
-The production dashboard: Qt 6.11 Quick/QML over a C++20 core, built with
+The production dashboard: Qt 6.12 Quick/QML over a C++20 core, built with
 `scripts/build-frontend.sh` / `.ps1` (root `CLAUDE.md` §3.2). All feature work happens here;
 `frontend/` is the frozen Widgets predecessor. The root `CLAUDE.md` is always loaded alongside this
 file, so nothing here repeats it.
@@ -82,6 +82,9 @@ All optional; defaults match the embedded target.
   MML's 0.5 m orthophoto within Finland and the keyless EOX Sentinel-2 imagery outside it
   (`items/tesla/CLAUDE.md`, *The basemap*); without it, EOX everywhere plus a startup warning.
   Takes a restart — the OSM plugin reads its tile host once.
+- `TESLA_HOMEDASH_GPU_CANVAS` — `0` keeps Qt's default OpenGL context, and with it the Trips
+  route on a Qt Quick Canvas (`core/CLAUDE.md`, *App*). The escape hatch for a device whose
+  3.x context misbehaves; default on.
 
 **Frontend settings file.** `frontend_v2/config/settings.json` is the *bundled schema*
 (defaults, types, bounds, Finnish labels) compiled into the binary; the user's overrides are
@@ -171,7 +174,7 @@ module installed. The only locale is `fi_FI`, which drops the language-switch ke
   keyboard's top edge, so the press still reaches the button or field under it (and a drag still
   scrolls — the keyboard just goes first). A passive-grab `TapHandler` would be the natural fit
   (dismiss on tap, not press) but in Qt 6.11 it still accepts a *mouse* press and starves every item
-  beneath it (QTBUG-145896); the touch half of that fix may be missing from the Pi's 6.10.
+  beneath it (QTBUG-145896).
 - **Enter closes it too, but keeps focus** (`onAccepted: Qt.inputMethod.hide()` in the field
   delegates). Clearing focus there would emit `editingFinished` a second time and send the write
   twice. Tapping the still-focused field reopens it.
@@ -217,7 +220,7 @@ invisible) a switch is instant and an open menu closes.
 - **Moving, each view on screen is a layer** drawn through a perspective `Matrix4x4` built in
   `poseAt` (z flattened to 0). Live views under a perspective matrix cannot be batched — a draw call
   per item, for every view in sight — while a still layer renders once. `Rotation.distanceToPlane`
-  would do the perspective but is 6.11-only, and the Pi runs 6.10. Views out of sight are hidden,
+  (Qt 6.11+) would do the perspective as well. Views out of sight are hidden,
   because Qt Quick does not cull.
 - **One view is live** — its `isCurrent` on, so the map follows the car, the media ticker runs and
   the live graphs feed: the current view, and in the menu the one settled at the front for

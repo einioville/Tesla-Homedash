@@ -146,12 +146,12 @@ The backend is an asyncio app managed with [uv](https://docs.astral.sh/uv/). Run
 
 ### 3.2 Frontend (CMake)
 
-**Two dev environments are supported, both on Qt 6.11.1.** Use whichever box you are on:
+**Two dev environments are supported, both on Qt 6.12.0** (the build requires 6.12). Use whichever box you are on:
 
 | | Windows | Linux / WSL2 |
 |---|---|---|
 | Toolchain | MSVC 2022 (`vcvars64.bat` via `vswhere`) | `g++` from `build-essential` |
-| Qt kit | `D:\Qt\6.11.1\msvc2022_64` | `~/Qt/6.11.1/gcc_64` |
+| Qt kit | `D:\Qt\6.12.0\msvc2022_64` | `~/Qt/6.12.0/gcc_64` |
 | CMake | ships with Qt: `D:\Qt\Tools\CMake_64\bin\cmake.exe` | `cmake` from apt |
 | `frontend_v2` script | `scripts\build-frontend.ps1` | `scripts/build-frontend.sh` |
 | Compiler cache | `sccache` | `ccache` (CMakeLists probes for either) |
@@ -518,7 +518,9 @@ plus snow and sleet in the weather charts and cards, snow in estimated cm (#68),
 card reporting a failed or partly stale refresh (#61), and the OSM place names on the Trips map with
 the home marked on every map (#54), and EOX's imagery wherever a map looks past MML's coverage
 in place of its blank white tiles (#59) — plus map tiles a Qt Location bug left blank requested
-again (`BasemapSwitch`), with the shared tile cache at 300 MiB, room for EOX's tiles beside MML's.
+again (`BasemapSwitch`), with the shared tile cache at 300 MiB, room for EOX's tiles beside MML's —
+and Qt 6.12, with the Trips map's route drawn by Canvas2D on the GPU behind an OpenGL 3 guard
+(`App.gpuCanvas`, `frontend_v2/core/CLAUDE.md`).
 When you land a change that touches documented behaviour, update this line.
 
 ### 7.8 Keeping the code clean

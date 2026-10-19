@@ -27,9 +27,11 @@ class Settings;
  *                                (Maanmittauslaitos) open-data api-key. With it the
  *                                map uses MML's 0.5 m orthophoto within Finland;
  *                                without it, the keyless EOX Sentinel-2 basemap
- *                                everywhere (and a startup warning). A deployment secret: the environment or
- *                                .env only, never the committed QML or the Options
- *                                view.
+ *                                everywhere (and a startup warning). A deployment
+ *                                secret: the environment or .env only, never the
+ *                                committed QML or the Options view.
+ *   TESLA_HOMEDASH_GPU_CANVAS    (bool)    default on. 0 keeps Qt's default OpenGL
+ *                                context and the CPU-drawn Trips route (gpuCanvas).
  *   TESLA_HOMEDASH_SCREENSAVER_TIMEOUT_MIN (int)     minutes of inactivity before
  *                                the screensaver appears (default 30). main()
  *                                seeds the IdleWatcher with it. Also an
@@ -45,6 +47,13 @@ class AppConfig : public QObject {
     // without a key, when the maps show EOX's imagery only.
     Q_PROPERTY(QString mapTilesUrl READ mapTilesUrl CONSTANT)
     Q_PROPERTY(QString mapAttribution READ mapAttribution CONSTANT)
+    // Whether Canvas2D (Qt Canvas Painter) can draw: it has shaders only for OpenGL 3+,
+    // OpenGL ES 3+ and the other graphics APIs, and Qt asks OpenGL for 2.0 by default,
+    // which Mesa answers with 2.1 — on the dev box and as the Pi's desktop GL — and on
+    // which a Canvas2D crashes the app. So the constructor makes the default surface
+    // format one the driver gives at 3+ (desktop 3.3 core, else ES 3.0, the Pi's), before
+    // any window exists, and says whether it could. The Trips route reads it.
+    Q_PROPERTY(bool gpuCanvas READ gpuCanvas CONSTANT)
 
 public:
     // `settings` is optional but normally supplied: main.cpp constructs Settings
@@ -61,6 +70,7 @@ public:
     // Exposed to QML via the Q_PROPERTYs above.
     const QString& mapTilesUrl() const { return m_mapTilesUrl; }
     const QString& mapAttribution() const { return m_mapAttribution; }
+    bool gpuCanvas() const { return m_gpuCanvas; }
 
 private:
     QString m_backendHost;
@@ -69,6 +79,7 @@ private:
     QString m_mapTilesUrl;
     QString m_mapAttribution;
     int m_screensaverTimeoutMs = 30 * 60 * 1000;
+    bool m_gpuCanvas = false;
 };
 
 #endif  // FRONTEND_V2_APPCONFIG_HH
