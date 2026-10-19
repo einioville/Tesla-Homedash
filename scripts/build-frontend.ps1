@@ -26,6 +26,10 @@
 .PARAMETER Clean
     Delete the build directory first (forces a full reconfigure + rebuild).
 
+.PARAMETER QmlPreview
+    Build for QML live preview (QT_QML_DEBUG; development only, never for the Pi).
+    Off unless given, every time.
+
 .EXAMPLE
     .\scripts\build-frontend.ps1 -Run
 .EXAMPLE
@@ -38,7 +42,8 @@ param(
     [string]$QtPrefix,
     [switch]$Run,
     [switch]$Fullscreen,
-    [switch]$Clean
+    [switch]$Clean,
+    [switch]$QmlPreview
 )
 
 $ErrorActionPreference = 'Stop'
@@ -95,7 +100,8 @@ if ($Clean -and (Test-Path $build)) {
 
 # --- Configure (CMake no-ops if already configured and unchanged) ---
 $cfgArgs = @('-S', $src, '-B', $build, '-G', 'Ninja',
-             "-DCMAKE_PREFIX_PATH=$QtPrefix", "-DCMAKE_BUILD_TYPE=$Config")
+             "-DCMAKE_PREFIX_PATH=$QtPrefix", "-DCMAKE_BUILD_TYPE=$Config",
+             "-DFRONTEND_V2_QML_PREVIEW=$(if ($QmlPreview) { 'ON' } else { 'OFF' })")
 if (Test-Path $ninja) { $cfgArgs += "-DCMAKE_MAKE_PROGRAM=$ninja" }
 Write-Host "Configuring ($Config) ..." -ForegroundColor Cyan
 & $cmake @cfgArgs

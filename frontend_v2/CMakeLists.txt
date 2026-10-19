@@ -300,6 +300,15 @@ target_link_libraries(appfrontend_v2
             Qt6::VirtualKeyboard
 )
 
+# QML live preview (qmlpreview, or the QmlPreview MCP server an agent drives; Qt 6.12+) needs
+# the QML debug service, which can load arbitrary QML into the process. So it is an explicit
+# opt-in, never tied to Debug — the build scripts' default, and what a manual build on the Pi
+# gets — and the scripts pass it on every configure, so it never lingers in the cache.
+option(FRONTEND_V2_QML_PREVIEW "Build with QT_QML_DEBUG for QML live preview (development only)" OFF)
+if(FRONTEND_V2_QML_PREVIEW)
+    target_compile_definitions(appfrontend_v2 PRIVATE QT_QML_DEBUG)
+endif()
+
 # Static resources (font + icons) exposed at :/resources/... — the same paths
 # the Widgets frontend uses, so QML references qrc:/resources/icons/... and the
 # application font (main.cpp) loads identically. Kept out of the QML module so

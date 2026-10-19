@@ -14,6 +14,8 @@
 #   -r, --run               Launch appfrontend_v2 after a successful build
 #   -f, --fullscreen        With --run, start fullscreen (TESLA_HOMEDASH_FULLSCREEN=1)
 #       --clean             Delete the build directory first (full reconfigure)
+#       --qml-preview       Build for QML live preview (QT_QML_DEBUG; development
+#                           only, never for the Pi). Off unless given, every time.
 #   -h, --help              Show this help
 #
 # Examples:
@@ -25,9 +27,10 @@ CONFIG=Debug
 RUN=0
 FULLSCREEN=0
 CLEAN=0
+QML_PREVIEW=OFF
 QT_PREFIX="${QTDIR:-}"
 
-usage() { sed -n '3,21p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '3,23p' "$0" | sed 's/^# \{0,1\}//'; }
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -36,6 +39,7 @@ while [[ $# -gt 0 ]]; do
         -r|--run)        RUN=1; shift ;;
         -f|--fullscreen) FULLSCREEN=1; shift ;;
         --clean)         CLEAN=1; shift ;;
+        --qml-preview)   QML_PREVIEW=ON; shift ;;
         -h|--help)       usage; exit 0 ;;
         *) echo "unknown option: $1" >&2; usage >&2; exit 1 ;;
     esac
@@ -114,7 +118,8 @@ fi
 
 cmake -S "$SRC" -B "$BUILD" "${GENERATOR[@]}" \
       -DCMAKE_PREFIX_PATH="$QT_PREFIX" \
-      -DCMAKE_BUILD_TYPE="$CONFIG"
+      -DCMAKE_BUILD_TYPE="$CONFIG" \
+      -DFRONTEND_V2_QML_PREVIEW="$QML_PREVIEW"
 # A job count, not a bare --parallel. Ninja ignores the flag (it picks its own
 # default), but on the Makefiles path CMake turns it into `make -j` with NO
 # limit — one compiler per ready target at once. A Qt Quick translation unit

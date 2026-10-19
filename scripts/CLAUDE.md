@@ -8,6 +8,9 @@
   `CLAUDE.md` before changing it.
 - It globs **both** `~/Qt/*/gcc_64` and `~/Qt/*/gcc_arm64` (the Raspberry Pi's kit name) and uses
   Ninja only when installed, because the Pi's setup does not install it.
+- **`--qml-preview` (`-QmlPreview`) is passed to CMake on every configure, ON or OFF**, never left to
+  the cache: it builds in the QML debug service for the live preview (`frontend_v2/CLAUDE.md`,
+  *QML live preview*), which must not survive into a later plain build — least of all on the Pi.
 - **It wipes the build directory when the generator or the Qt kit changed** since the last
   configure (`CMAKE_GENERATOR`, `Qt6_DIR` in the cache): CMake refuses a new generator outright, and
   a new kit would otherwise go on building against the cached old one. A box that installs a newer

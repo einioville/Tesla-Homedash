@@ -366,6 +366,10 @@ on the user's next manual build. Use the platform's build script (§8) after fro
 incremental and compiler-cached, so a rebuild after a small edit is cheap. Report build failures with
 the compiler output. Running the built binary is still the user's call (it needs the 1280×800 display
 and a live backend), so report what to look for at runtime rather than launching it.
+**For visual QML work — layout, sizes, colours, states, motion — offer the QML live preview**: Qt's
+QmlPreview MCP server patches saved QML into the running app with no rebuild, with the user watching
+(`frontend_v2/CLAUDE.md`, *QML live preview*). It launches the app, so it is offered and started only
+on a yes.
 **Ignore clangd "file not found" / "unknown type" diagnostics on Qt headers** in the editor — the real
 CMake build resolves them. For the backend: don't start long-running services; `python -m compileall
 backend/src` is the syntax check and the user runs the live stack.
@@ -580,11 +584,11 @@ for your platform; both configure + build `appfrontend_v2` into `frontend_v2/bui
 the main checkout or any worktree.
 
 - **Windows:** `powershell -ExecutionPolicy Bypass -File scripts\build-frontend.ps1 -Run`
-  (add `-Clean`, `-Config Release`, `-Fullscreen`). From **cmd.exe** use the `.cmd` shim:
+  (add `-Clean`, `-Config Release`, `-Fullscreen`, `-QmlPreview`). From **cmd.exe** use the `.cmd` shim:
   `scripts\build-frontend.cmd -Run` (same for `new-session.cmd` / `finish-session.cmd`).
   It imports the MSVC env and finds the newest Qt `msvc2022_64` kit.
 - **Linux / WSL2:** `./scripts/build-frontend.sh --run` (add `--clean`, `--config Release`,
-  `--fullscreen`; `--help` lists everything). No MSVC environment to import — it takes the kit from
+  `--fullscreen`, `--qml-preview` for the live preview; `--help` lists everything). No MSVC environment to import — it takes the kit from
   `--qt-prefix`, else `$QTDIR`, else the newest `~/Qt/*/gcc_64`. A cold build is 163 targets; an
   incremental re-run is ~6s.
 

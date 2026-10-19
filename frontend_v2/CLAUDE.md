@@ -93,6 +93,44 @@ and `_SCREENSAVER_TIMEOUT_MIN` are wired this way. `AppConfig`, which consumes t
 startup, applies the same precedence itself: the saved override from `Settings::savedValue()`,
 else the environment / `.env` (`core/dotenv`), else its own default.
 
+## QML live preview — the QmlPreview MCP server (Qt 6.12+)
+
+For tuning how a screen looks or moves — layout, sizes, colours, states, animation, a `Theme`
+token — a live preview beats the rebuild-and-relaunch loop. Qt's **QmlPreview MCP server**
+(Qt installer: *Agentic Development Tools › QmlPreview MCP Server*, a binary in the kit's `bin`)
+gives an agent one tool, **`run_qmlPreview(executable_path)`**: it launches the built app under
+`qmlpreview`, and every QML file saved to disk is patched into the running app — no rebuild, no
+relaunch, no finding the view again. Qt's `qt-qml` agent skill knows the workflow.
+
+- **The build has to allow it**: `scripts/build-frontend.sh --qml-preview` (`-QmlPreview` in the
+  PowerShell script) sets `FRONTEND_V2_QML_PREVIEW`, which defines `QT_QML_DEBUG` on
+  `appfrontend_v2`. That opens the QML debug service, which can load arbitrary QML into the process,
+  so it is off unless asked for on that very build — not tied to Debug, the scripts' default and
+  what a manual build on the Pi gets — and **a build for the Pi never has it**. Switching it
+  recompiles everything once.
+- **Register the server once per machine** with Claude Code — the binary is `QmlPreviewMcpServer` in
+  the kit's `bin` (`QmlPreviewMcpServer.exe` under `msvc2022_64\bin` on Windows):
+  `claude mcp add --scope user qml-preview -- ~/Qt/6.12.0/gcc_64/bin/QmlPreviewMcpServer`. The path
+  names the Qt version, so a new kit means registering it again; a new session picks it up.
+- **Offer it, never start it unasked**: it opens the app's window on the user's desktop (WSLg on the
+  dev box) and connects to the shared backend like any run (root `CLAUDE.md` §8). On a yes, start it
+  once per session with the binary's absolute path (`<checkout>/frontend_v2/build/appfrontend_v2`),
+  then edit and save; say what changed and let the user say what they see — the agent cannot see that
+  window, so never claim the UI updated. Restart it only when edits stop appearing.
+- **What patches live**: edits to existing QML and JS files. **What needs a rebuild** — say so before
+  editing: any C++; `CMakeLists.txt`; a new QML or JS file (the module compiles QML into its
+  resources); importing a module the binary does not link; `qmldir` and singleton registration.
+  Turning a value into a binding, or moving a binding to another property, may apply but lose state.
+- **It needs one QML engine and QML from a module**, which the app has: one `QQmlApplicationEngine`
+  in `main.cpp`, loading `Main` from the `frontend_v2` module. A second engine, or QML loaded on a
+  worker thread, would make the preview unreliable.
+- **It does not replace the offscreen screenshots.** Those are how the agent sees a result itself
+  and hands the user pictures; the preview is for tuning together, live.
+- **Go through the server, not `qmlpreview` by hand.** The server starts `qmlpreview` and the app
+  and relays the app's output; run by hand on the dev box, `qmlpreview` often never got the app
+  past startup, for no reason found. Through the server it works: a title edited in
+  `WeatherHourlyCard.qml` showed in the running app within seconds, compiled QML module and all.
+
 ## `app/Theme.qml` — the settings façade
 
 Tokens that are user-tunable are bound (`readonly property bool
