@@ -27,7 +27,6 @@ const Logger logger = Logger::get("map");
 // kumi.systems answers a POST with a 500.
 const char *const kServers[] = {
     "https://overpass-api.de/api/interpreter",
-    "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
     "https://overpass.kumi.systems/api/interpreter",
 };
 

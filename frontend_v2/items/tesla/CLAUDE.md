@@ -264,11 +264,12 @@ map zoom (`kKinds`). A tile is one request, ever: it is kept on disk
 a year, so a daily route costs nothing after the first drive. **Overpass is slow and shared** —
 measured 30–60 s for one tile from overpass-api.de, which answers a second request soon after with
 a 502 — so the store asks one tile at a time, two seconds apart, the newest view's tiles first, and
-drops a tile no view has wanted for two minutes. A failed request moves on to the next of three
-public servers (`kServers`; maps.mail.ru answered the same tile in 15 s), and only when all three
-have failed in a row does the queue pause, 30 s doubling to 10 min. Requests are GETs because
-overpass.kumi.systems answers a POST with a 500. A new area's names therefore appear within a
-minute or so of the map first showing it.
+drops a tile no view has wanted for two minutes. A failed request moves on to the other of two
+public servers (`kServers`), and only when both have failed in a row does the queue pause, 30 s
+doubling to 10 min. **Don't add maps.mail.ru back**: it is VK's (Russian-operated) mirror, and every
+query hands it the area being viewed — around the home and the car — plus the IP; the user had it
+removed. Requests are GETs because overpass.kumi.systems answers a POST with a 500. A new area's
+names therefore appear within a minute or so of the map first showing it.
 
 `PlaceLabels` asks the store for the area a little beyond the screen when the map rests, every 2 s
 while it moves and when a tile arrives (`PlaceNames.revision` — a `Q_INVOKABLE` binds to nothing),

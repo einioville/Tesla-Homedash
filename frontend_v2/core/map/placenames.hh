@@ -27,7 +27,7 @@ class QNetworkReply;
  * Overpass is shared and slow — 30 to 60 s for a busy request is normal — so requests go
  * one at a time, two seconds apart, the tiles of the newest view first; a tile no view has
  * wanted for two minutes is dropped from the queue. A failed request goes to the next of
- * three public servers, and once all three have failed in a row the queue pauses (30 s,
+ * two public servers, and once both have failed in a row the queue pauses (30 s,
  * doubling to 10 min) rather than retrying in a loop.
  *
  * `query()` answers from what is cached and queues the rest; `revision` changes when a
