@@ -215,6 +215,15 @@ class WeatherViewBuilder:
         self.__radiation: tuple[str, float | None] | None = None
         self.__astro: dict | None = None
         self.__warnings: list[dict] | None = None
+        self.__failed: list[str] = []
+
+    @property
+    def failed_parts(self) -> list[str]:
+        '''
+        The parts whose fetch failed in the latest build, by their log labels; the document
+        carried their last good values.
+        '''
+        return list(self.__failed)
 
     async def build(self, where: dict) -> dict | None:
         '''
@@ -231,6 +240,7 @@ class WeatherViewBuilder:
 
         now = datetime.now(self.__zone)
         hour0 = now.replace(minute=0, second=0, microsecond=0)
+        self.__failed = []
         async with aiohttp.ClientSession(timeout=self.__timeout) as session:
             if self.__location is None:
                 self.__location = await self.__part("location", self.__fetch_location(session, where))
@@ -292,6 +302,7 @@ class WeatherViewBuilder:
         except _FETCH_ERRORS as e:
             logger.warning("Weather view %s fetch failed for %s: %s: %s",
                            label, describe(self.__where), type(e).__name__, e)
+            self.__failed.append(label)
             return None
 
     async def __timeseries(self, session: aiohttp.ClientSession, params: dict) -> list[dict]:

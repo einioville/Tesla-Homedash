@@ -78,6 +78,10 @@ few minutes after their slot — under the same scheduler rules as the forecast 
   over seven warnings; Douglas–Peucker at ~0.5 km and rounding to ~100 m (`_simplify`,
   `_SHAPE_*`) leave ~4 000 points, ~70 KB of the document. The full polygons stay server-side for
   `hereAreas`.
+- **The Sää status card reports the latest cycle** (`WeatherService.health`, #61): `warn` while the
+  last view cycle timed out or produced no document, or left parts at their last good values
+  (`WeatherViewBuilder.failed_parts`, named in Finnish by `_PART_NAMES`), `ok` again after the
+  next good one. The old frames stay on screen meanwhile; *Päivitetty* says how old they are.
 - **A failed part keeps its last good value**; parts are dropped when the location changes. A forecast
   kept from an earlier cycle is trimmed to start at the current hour. No forecast hours at all → no
   frame, the previous one stays (the forecast job's rule). A build that finishes after the location

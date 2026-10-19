@@ -48,6 +48,10 @@ _MISFIRE_GRACE_SECONDS = 300
 # this bounds the whole build the way _FETCH_DEADLINE_SECONDS bounds one query.
 _VIEW_DEADLINE_SECONDS = 90
 
+# The view's parts (WeatherViewBuilder's log labels) as the status card names them.
+_PART_NAMES = {"location": "paikka", "observation": "havainnot", "forecast": "ennuste",
+               "radiation": "UV-arvio", "sun and moon": "aurinko ja kuu", "warnings": "varoitukset"}
+
 _HARMONIE_QUERY = "fmi::forecast::harmonie::surface::point::multipointcoverage"
 
 
@@ -157,6 +161,8 @@ class WeatherService:
         self.__view_builder = WeatherViewBuilder(self.__zone_info, _FMI_TIMEOUT)
         self.__last_view: bytes | None = None
         self.__view_updated_ms: int | None = None
+        # Why the latest view cycle sent nothing, or None after one that did.
+        self.__view_failure: str | None = None
 
     def apply_config(self) -> None:
         '''
@@ -215,10 +221,11 @@ class WeatherService:
 
     def health(self) -> dict:
         '''
-        Reports forecast health for the status view: "warn" until a forecast
-        frame is cached (at startup, or right after a location change).  A refresh
-        that stalls after that keeps the old frame, so the Päivitetty row's age
-        is what shows it (weather_service/CLAUDE.md).
+        Reports weather health for the status view as it stands now: "warn" until
+        the first frames are cached (at startup, or right after a location change),
+        and again while the latest view cycle failed or left parts at their last good
+        values — the old frames stay on screen meanwhile, and the Päivitetty row says
+        how old they are. The next good cycle reports "ok" again.
         '''
         config = [["Sijainti", self.__where_name], ["Päivitysväli", "10 min"],
                   ["Lähde", "Ilmatieteen laitos"]]
@@ -228,6 +235,11 @@ class WeatherService:
             return {"state": "warn", "detail": "Ei säätietoja", "config": config}
         if self.__last_forecast is None:
             return {"state": "warn", "detail": "Ei tuntiennustetta", "config": config}
+        if self.__view_failure:
+            return {"state": "warn", "detail": self.__view_failure, "config": config}
+        stale = [_PART_NAMES.get(p, p) for p in self.__view_builder.failed_parts]
+        if stale:
+            return {"state": "warn", "detail": "Ei päivittynyt: " + ", ".join(stale), "config": config}
         return {"state": "ok", "detail": "Säätiedot haettu", "config": config}
 
     def get_run_task(self) -> asyncio.Task:
@@ -314,8 +326,10 @@ class WeatherService:
                 "Weather view fetch timed out for %s (deadline %ds)",
                 describe(where), _VIEW_DEADLINE_SECONDS,
             )
+            self.__view_failure = "Viimeisin päivitys aikakatkaistiin"
             return
         if document is None:
+            self.__view_failure = "Viimeisin päivitys ei tuottanut ennustetta"
             return
         # The location changed while this was in flight: the cycle the change started
         # describes the new one, and this one must not land after it.
@@ -325,6 +339,7 @@ class WeatherService:
             protocol.WEATHER_VIEW, protocol.CONFIG_STATUS_OK, document
         )
         self.__view_updated_ms = int(datetime.now().timestamp() * 1000)
+        self.__view_failure = None
         logger.info(
             "Broadcasting weather view: %d hours, observed %s",
             len(document["hourly"]), document["now"]["time"] or "-",
