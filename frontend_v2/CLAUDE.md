@@ -1,6 +1,6 @@
 # `frontend_v2/` — the QML frontend (live target)
 
-The production dashboard: Qt 6.11 Quick/QML over a C++20 core, built with
+The production dashboard: Qt 6.12 Quick/QML over a C++20 core, built with
 `scripts/build-frontend.sh` / `.ps1` (root `CLAUDE.md` §3.2). All feature work happens here;
 `frontend/` is the frozen Widgets predecessor. The root `CLAUDE.md` is always loaded alongside this
 file, so nothing here repeats it.
@@ -82,6 +82,9 @@ All optional; defaults match the embedded target.
   MML's 0.5 m orthophoto within Finland and the keyless EOX Sentinel-2 imagery outside it
   (`items/tesla/CLAUDE.md`, *The basemap*); without it, EOX everywhere plus a startup warning.
   Takes a restart — the OSM plugin reads its tile host once.
+- `TESLA_HOMEDASH_GPU_CANVAS` — `0` keeps Qt's default OpenGL context, and with it the Trips
+  route on a Qt Quick Canvas (`core/CLAUDE.md`, *App*). The escape hatch for a device whose
+  3.x context misbehaves; default on.
 
 **Frontend settings file.** `frontend_v2/config/settings.json` is the *bundled schema*
 (defaults, types, bounds, Finnish labels) compiled into the binary; the user's overrides are
@@ -92,6 +95,44 @@ working until the user changes the setting on-device. `TESLA_HOMEDASH_BACKEND_HO
 and `_SCREENSAVER_TIMEOUT_MIN` are wired this way. `AppConfig`, which consumes those three at
 startup, applies the same precedence itself: the saved override from `Settings::savedValue()`,
 else the environment / `.env` (`core/dotenv`), else its own default.
+
+## QML live preview — the QmlPreview MCP server (Qt 6.12+)
+
+For tuning how a screen looks or moves — layout, sizes, colours, states, animation, a `Theme`
+token — a live preview beats the rebuild-and-relaunch loop. Qt's **QmlPreview MCP server**
+(Qt installer: *Agentic Development Tools › QmlPreview MCP Server*, a binary in the kit's `bin`)
+gives an agent one tool, **`run_qmlPreview(executable_path)`**: it launches the built app under
+`qmlpreview`, and every QML file saved to disk is patched into the running app — no rebuild, no
+relaunch, no finding the view again. Qt's `qt-qml` agent skill knows the workflow.
+
+- **The build has to allow it**: `scripts/build-frontend.sh --qml-preview` (`-QmlPreview` in the
+  PowerShell script) sets `FRONTEND_V2_QML_PREVIEW`, which defines `QT_QML_DEBUG` on
+  `appfrontend_v2`. That opens the QML debug service, which can load arbitrary QML into the process,
+  so it is off unless asked for on that very build — not tied to Debug, the scripts' default and
+  what a manual build on the Pi gets — and **a build for the Pi never has it**. Switching it
+  recompiles everything once.
+- **Register the server once per machine** with Claude Code — the binary is `QmlPreviewMcpServer` in
+  the kit's `bin` (`QmlPreviewMcpServer.exe` under `msvc2022_64\bin` on Windows):
+  `claude mcp add --scope user qml-preview -- ~/Qt/6.12.0/gcc_64/bin/QmlPreviewMcpServer`. The path
+  names the Qt version, so a new kit means registering it again; a new session picks it up.
+- **Offer it, never start it unasked**: it opens the app's window on the user's desktop (WSLg on the
+  dev box) and connects to the shared backend like any run (root `CLAUDE.md` §8). On a yes, start it
+  once per session with the binary's absolute path (`<checkout>/frontend_v2/build/appfrontend_v2`),
+  then edit and save; say what changed and let the user say what they see — the agent cannot see that
+  window, so never claim the UI updated. Restart it only when edits stop appearing.
+- **What patches live**: edits to existing QML and JS files. **What needs a rebuild** — say so before
+  editing: any C++; `CMakeLists.txt`; a new QML or JS file (the module compiles QML into its
+  resources); importing a module the binary does not link; `qmldir` and singleton registration.
+  Turning a value into a binding, or moving a binding to another property, may apply but lose state.
+- **It needs one QML engine and QML from a module**, which the app has: one `QQmlApplicationEngine`
+  in `main.cpp`, loading `Main` from the `frontend_v2` module. A second engine, or QML loaded on a
+  worker thread, would make the preview unreliable.
+- **It does not replace the offscreen screenshots.** Those are how the agent sees a result itself
+  and hands the user pictures; the preview is for tuning together, live.
+- **Go through the server, not `qmlpreview` by hand.** The server starts `qmlpreview` and the app
+  and relays the app's output; run by hand on the dev box, `qmlpreview` often never got the app
+  past startup, for no reason found. Through the server it works: a title edited in
+  `WeatherHourlyCard.qml` showed in the running app within seconds, compiled QML module and all.
 
 ## `app/Theme.qml` — the settings façade
 
@@ -133,7 +174,7 @@ module installed. The only locale is `fi_FI`, which drops the language-switch ke
   keyboard's top edge, so the press still reaches the button or field under it (and a drag still
   scrolls — the keyboard just goes first). A passive-grab `TapHandler` would be the natural fit
   (dismiss on tap, not press) but in Qt 6.11 it still accepts a *mouse* press and starves every item
-  beneath it (QTBUG-145896); the touch half of that fix may be missing from the Pi's 6.10.
+  beneath it (QTBUG-145896).
 - **Enter closes it too, but keeps focus** (`onAccepted: Qt.inputMethod.hide()` in the field
   delegates). Clearing focus there would emit `editingFinished` a second time and send the write
   twice. Tapping the still-focused field reopens it.
@@ -179,7 +220,7 @@ invisible) a switch is instant and an open menu closes.
 - **Moving, each view on screen is a layer** drawn through a perspective `Matrix4x4` built in
   `poseAt` (z flattened to 0). Live views under a perspective matrix cannot be batched — a draw call
   per item, for every view in sight — while a still layer renders once. `Rotation.distanceToPlane`
-  would do the perspective but is 6.11-only, and the Pi runs 6.10. Views out of sight are hidden,
+  (Qt 6.11+) would do the perspective as well. Views out of sight are hidden,
   because Qt Quick does not cull.
 - **One view is live** — its `isCurrent` on, so the map follows the car, the media ticker runs and
   the live graphs feed: the current view, and in the menu the one settled at the front for

@@ -146,12 +146,12 @@ The backend is an asyncio app managed with [uv](https://docs.astral.sh/uv/). Run
 
 ### 3.2 Frontend (CMake)
 
-**Two dev environments are supported, both on Qt 6.11.1.** Use whichever box you are on:
+**Two dev environments are supported, both on Qt 6.12.0** (the build requires 6.12). Use whichever box you are on:
 
 | | Windows | Linux / WSL2 |
 |---|---|---|
 | Toolchain | MSVC 2022 (`vcvars64.bat` via `vswhere`) | `g++` from `build-essential` |
-| Qt kit | `D:\Qt\6.11.1\msvc2022_64` | `~/Qt/6.11.1/gcc_64` |
+| Qt kit | `D:\Qt\6.12.0\msvc2022_64` | `~/Qt/6.12.0/gcc_64` |
 | CMake | ships with Qt: `D:\Qt\Tools\CMake_64\bin\cmake.exe` | `cmake` from apt |
 | `frontend_v2` script | `scripts\build-frontend.ps1` | `scripts/build-frontend.sh` |
 | Compiler cache | `sccache` | `ccache` (CMakeLists probes for either) |
@@ -366,6 +366,10 @@ on the user's next manual build. Use the platform's build script (§8) after fro
 incremental and compiler-cached, so a rebuild after a small edit is cheap. Report build failures with
 the compiler output. Running the built binary is still the user's call (it needs the 1280×800 display
 and a live backend), so report what to look for at runtime rather than launching it.
+**For visual QML work — layout, sizes, colours, states, motion — offer the QML live preview**: Qt's
+QmlPreview MCP server patches saved QML into the running app with no rebuild, with the user watching
+(`frontend_v2/CLAUDE.md`, *QML live preview*). It launches the app, so it is offered and started only
+on a yes.
 **Ignore clangd "file not found" / "unknown type" diagnostics on Qt headers** in the editor — the real
 CMake build resolves them. For the backend: don't start long-running services; `python -m compileall
 backend/src` is the syntax check and the user runs the live stack.
@@ -513,7 +517,10 @@ plus the map back on the car after a view switch and a stopped car centred in Li
 plus snow and sleet in the weather charts and cards, snow in estimated cm (#68), the Sää status
 card reporting a failed or partly stale refresh (#61), and the OSM place names on the Trips map with
 the home marked on every map (#54), and EOX's imagery wherever a map looks past MML's coverage
-in place of its blank white tiles (#59).
+in place of its blank white tiles (#59) — plus map tiles a Qt Location bug left blank requested
+again (`BasemapSwitch`), with the shared tile cache at 300 MiB, room for EOX's tiles beside MML's —
+and Qt 6.12, with the Trips map's route drawn by Canvas2D on the GPU behind an OpenGL 3 guard
+(`App.gpuCanvas`, `frontend_v2/core/CLAUDE.md`).
 When you land a change that touches documented behaviour, update this line.
 
 ### 7.8 Keeping the code clean
@@ -580,12 +587,13 @@ for your platform; both configure + build `appfrontend_v2` into `frontend_v2/bui
 the main checkout or any worktree.
 
 - **Windows:** `powershell -ExecutionPolicy Bypass -File scripts\build-frontend.ps1 -Run`
-  (add `-Clean`, `-Config Release`, `-Fullscreen`). From **cmd.exe** use the `.cmd` shim:
+  (add `-Clean`, `-Config Release`, `-Fullscreen`, `-QmlPreview`). From **cmd.exe** use the `.cmd` shim:
   `scripts\build-frontend.cmd -Run` (same for `new-session.cmd` / `finish-session.cmd`).
   It imports the MSVC env and finds the newest Qt `msvc2022_64` kit.
 - **Linux / WSL2:** `./scripts/build-frontend.sh --run` (add `--clean`, `--config Release`,
-  `--fullscreen`; `--help` lists everything). No MSVC environment to import — it takes the kit from
-  `--qt-prefix`, else `$QTDIR`, else the newest `~/Qt/*/gcc_64`. A cold build is 163 targets; an
+  `--fullscreen`, `--qml-preview` for the live preview; `--help` lists everything). No MSVC environment to import — it takes the kit from
+  `--qt-prefix`, else `$QTDIR`, else the newest `~/Qt/*/gcc_64`, each only when it is at least the Qt
+  version `CMakeLists.txt` requires (`scripts/CLAUDE.md`). A cold build is 163 targets; an
   incremental re-run is ~6s.
 
 Open Qt Creator only when you need the debugger / QML profiler / designer. A **compiler cache** is

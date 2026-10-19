@@ -25,7 +25,7 @@
 
 1. **Clone into the WSL filesystem (`~/dev/Tesla-Homedash`), never `/mnt/p/`.** Building
    over the 9p mount is an order of magnitude slower and it fights you over line endings.
-2. **Qt must be ≥ 6.11** — `frontend_v2/CMakeLists.txt` says so, and apt's Qt6 is far
+2. **Qt must be ≥ 6.12** — `frontend_v2/CMakeLists.txt` says so, and apt's Qt6 is far
    older. Use `aqtinstall`.
 3. **`.env` and `config.json` are gitignored** — they do *not* arrive with `git pull`.
    Copy them by hand and rewrite the Windows paths inside them.
@@ -40,7 +40,7 @@
 | Concern | Windows today | WSL equivalent |
 |---|---|---|
 | Compiler | MSVC 2022 (`vcvars64.bat` via `vswhere`) | `g++` from `build-essential` (C++20 — GCC 13 on 24.04 is fine) |
-| Qt kit | `D:\Qt\6.11.1\msvc2022_64` | `~/Qt/6.11.1/gcc_64` (`aqt` or the online installer) |
+| Qt kit | `D:\Qt\6.12.0\msvc2022_64` | `~/Qt/6.12.0/gcc_64` (`aqt` or the online installer) |
 | Frontend build | `scripts\build-frontend.ps1` | `scripts/build-frontend.sh` (§7.2) |
 | Compiler cache | `sccache` | `ccache` (`apt install ccache`) — `CMakeLists.txt` already probes for both |
 | Binary | `frontend_v2\build\appfrontend_v2.exe` | `frontend_v2/build/appfrontend_v2` |
@@ -172,10 +172,10 @@ Note there is no `qt6-*` package in that list, deliberately — see the next sec
 
 ---
 
-## 4. Qt 6.11 (for `frontend_v2`)
+## 4. Qt 6.12 (for `frontend_v2`)
 
 **apt cannot be used.** `frontend_v2/CMakeLists.txt` declares
-`qt_standard_project_setup(REQUIRES 6.11)`, while Ubuntu 24.04 packages Qt 6.4.x. The
+`qt_standard_project_setup(REQUIRES 6.12)`, while Ubuntu 24.04 packages Qt 6.4.x. The
 project also needs **Qt Graphs**, which is not in Ubuntu's archives at all.
 
 ### 4.1 The modules `frontend_v2` actually needs
@@ -186,7 +186,8 @@ from the README's list, which describes the old Widgets frontend:
 ```cmake
 find_package(Qt6 REQUIRED COMPONENTS
     Quick Network Concurrent Svg Location Positioning
-    QuickControls2 Core5Compat Graphs LabsFolderListModel VirtualKeyboard ShaderTools)
+    QuickControls2 Core5Compat Graphs LabsFolderListModel VirtualKeyboard ShaderTools
+    CanvasPainter)
 ```
 
 | CMake component | Comes from | Used by |
@@ -200,6 +201,8 @@ find_package(Qt6 REQUIRED COMPONENTS
 | `Core5Compat` | `-m qt5compat` | retained Qt5 APIs in `core/` |
 | `VirtualKeyboard` | `-m qtvirtualkeyboard` | the in-app on-screen keyboard (`Main.qml`) |
 | `ShaderTools` | `-m qtshadertools` (the online installer adds it with Qt Graphs) | `qt_add_shaders`, the climate wave's shaders (`resources/shaders/`) |
+| `CanvasPainter` | `-m qtcanvaspainter` | the Trips map's route, drawn with Canvas2D (`items/trip/TripMap.qml`) |
+| (none) | `-m qtmultimedia` | not a CMake component, but the Virtual Keyboard plugin links it: without it the keyboard fails to load at run time |
 
 `Widgets` and `QuickWidgets` are **not** needed — those belong to the frozen
 `frontend/`. If you ever build that one too, add them.
@@ -208,12 +211,13 @@ find_package(Qt6 REQUIRED COMPONENTS
 
 ```bash
 python3 -m pip install --user aqtinstall     # or: pipx install aqtinstall
-python3 -m aqt install-qt linux desktop 6.11.1 linux_gcc_64 \
-    -m qtlocation qtpositioning qtgraphs qt5compat qtvirtualkeyboard qtshadertools qtwayland \
+python3 -m aqt install-qt linux desktop 6.12.0 linux_gcc_64 \
+    -m qtlocation qtpositioning qtgraphs qt5compat qtvirtualkeyboard qtshadertools \
+       qtcanvaspainter qtmultimedia qtwayland \
     -O ~/Qt
 ```
 
-That lands the kit at `~/Qt/6.11.1/gcc_64`. Match the Windows side's **6.11.1** so both
+That lands the kit at `~/Qt/6.12.0/gcc_64`. Match the Windows side's **6.12.0** so both
 environments compile against the same Qt.
 
 `qtwayland` is not a CMake component — it supplies the Wayland *platform plugin* so the
@@ -222,18 +226,19 @@ ever reports a missing Qt6 component, re-run `aqt` with that module appended to 
 
 ### 4.3 Alternative: the official online installer
 
-Pick Qt **6.11.1** and tick **Qt Location**, **Qt Positioning** and **Qt Graphs** under
+Pick Qt **6.12.0** and tick **Qt Location**, **Qt Positioning**, **Qt Graphs**, **Qt 5
+Compatibility Module**, **Qt Virtual Keyboard**, **Qt Multimedia** and **Qt Canvas Painter** under
 Additional Libraries. Needs a free Qt account and a GUI (WSLg provides one). Slower,
 but it also gives you Qt Creator, the debugger and the QML profiler.
 
 ### 4.4 Make the kit discoverable
 
 ```bash
-echo 'export QTDIR=$HOME/Qt/6.11.1/gcc_64'  >> ~/.bashrc
+echo 'export QTDIR=$HOME/Qt/6.12.0/gcc_64'  >> ~/.bashrc
 echo 'export PATH=$QTDIR/bin:$PATH'         >> ~/.bashrc
 echo 'export CMAKE_PREFIX_PATH=$QTDIR'      >> ~/.bashrc
 source ~/.bashrc
-qmake6 --version    # sanity check → 6.11.1
+qmake6 --version    # sanity check → 6.12.0
 ```
 
 ---
@@ -602,7 +607,7 @@ You are fully migrated when all of these pass in WSL:
 # 1. toolchain
 which python && python --version          # /usr/bin/python, 3.x
 cmake --version && ninja --version && g++ --version
-qmake6 --version                          # 6.11.1
+qmake6 --version                          # 6.12.0
 
 # 2. backend syntax gate (CLAUDE.md §3.3)
 cd ~/dev/Tesla-Homedash && python -m compileall backend/src

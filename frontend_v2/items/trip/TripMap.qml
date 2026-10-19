@@ -1,4 +1,5 @@
 import QtQuick
+import QtCanvas2D
 import QtLocation
 import QtPositioning
 import frontend_v2
@@ -9,10 +10,13 @@ import frontend_v2
 // singleton ({ latitude, longitude, speed, ts } per fix); the map fits its viewport to
 // the route when one arrives.
 //
-// The line is drawn on a Canvas overlaid on the map (a sibling on top, like the
+// The line is drawn on a Canvas2D overlaid on the map (a sibling on top, like the
 // TeslaMap corner overlay — no input handlers, so pan/pinch/wheel fall through to
-// the Map). Each segment is coloured by the mean speed of its two endpoints, from
-// dark green (slow) to dark red (Theme.tripMaxSpeedKmh, default 150 km/h). No dots
+// the Map), which paints on the GPU: a pan or pinch repaints it every frame, which
+// a Qt Quick Canvas would rasterise on the CPU and upload again each time. Without
+// an OpenGL 3+ context (App.gpuCanvas) it is a Qt Quick Canvas after all. Each
+// segment is coloured by the mean speed of its two endpoints, from dark green (slow)
+// to dark red (Theme.tripMaxSpeedKmh, default 150 km/h). No dots
 // are drawn on the fixes — just the connecting lines.
 //
 // Resolution follows the zoom level: the route is decimated so kept fixes sit
@@ -25,7 +29,7 @@ Item {
 
     // Clip so the inspect-arrow overlay (a plain Image projected from a geo-coordinate)
     // can never paint outside the map card and over the neighbouring view items when the
-    // inspected fix sits off the current viewport. The Map + route Canvas fill root
+    // inspected fix sits off the current viewport. The Map + route Canvas2D fill root
     // exactly, so clipping them is a no-op.
     clip: true
 
@@ -72,12 +76,12 @@ Item {
         // Repaint the route as the view moves; a zoom change also re-decimates
         // (resolution follows zoom). fromCoordinate only works once mapReady, so a
         // route that arrived earlier is fitted + drawn when the map becomes ready.
-        onCenterChanged: routeCanvas.requestPaint()
-        onZoomLevelChanged: { root.rebuildDecimation(); routeCanvas.requestPaint() }
+        onCenterChanged: root.repaintRoute()
+        onZoomLevelChanged: { root.rebuildDecimation(); root.repaintRoute() }
         onMapReadyChanged: if (mapReady) {
             root.fitToRoute()
             root.rebuildDecimation()
-            routeCanvas.requestPaint()
+            root.repaintRoute()
         }
 
         // Free pan (1:1 in map coordinates, DPR-correct — see TeslaMap), scaled
@@ -123,7 +127,7 @@ Item {
             }
         }
 
-        // Under the route, which the Canvas above the map draws, and the pins (TripMarker).
+        // Under the route, which the Canvas2D above the map draws, and the pins (TripMarker).
         PlaceLabels {
             geoMap: map
             active: root.isCurrent
@@ -156,21 +160,44 @@ Item {
 
     // Route overlay. Sibling on top of the map (no input handlers -> gestures fall
     // through). Fills the same rect as the map, so map.fromCoordinate (relative to
-    // the map item) maps 1:1 into canvas coordinates.
-    Canvas {
-        id: routeCanvas
+    // the map item) maps 1:1 into canvas coordinates. Both canvases run paintRoute().
+    Loader {
+        id: routeLoader
         anchors.fill: parent
         z: 5
-        onPaint: root.paintRoute()
-        onWidthChanged: requestPaint()
-        onHeightChanged: requestPaint()
+        sourceComponent: App.gpuCanvas ? gpuRoute : cpuRoute
+    }
+    // Cleared every frame, to the transparent fill colour over the map.
+    Component {
+        id: gpuRoute
+        Canvas2D {
+            fillColor: "transparent"
+            alphaBlending: true
+            onPaint: root.paintRoute()
+            onWidthChanged: requestPaint()
+            onHeightChanged: requestPaint()
+        }
+    }
+    // Keeps what it drew: paintRoute clears it first.
+    Component {
+        id: cpuRoute
+        Canvas {
+            onPaint: root.paintRoute()
+            onWidthChanged: requestPaint()
+            onHeightChanged: requestPaint()
+        }
+    }
+
+    function repaintRoute() {
+        if (routeLoader.item)
+            routeLoader.item.requestPaint()
     }
 
     // Graph-inspect marker: a heading arrow (same asset as the dashboard car marker) at
     // the route position for the time the user is inspecting on the speed graph, rotated
-    // to the direction of travel. Rendered as an overlay ABOVE the route Canvas (z 6 >
-    // the Canvas's z 5) so it sits ON TOP of the drawn path — a MapQuickItem would draw
-    // as part of the map, under the Canvas overlay. Projected via map.fromCoordinate
+    // to the direction of travel. Rendered as an overlay ABOVE the route Canvas2D (z 6 >
+    // its z 5) so it sits ON TOP of the drawn path — a MapQuickItem would draw as part
+    // of the map, under the route overlay. Projected via map.fromCoordinate
     // (which references map.center + zoomLevel so it re-projects on every pan/zoom).
     // The map follows it (dead-zone pan, see followInspect) so it stays on-screen.
     Image {
@@ -193,7 +220,7 @@ Item {
 
         // Screen position of the inspected fix. Referencing map.center + map.zoomLevel
         // makes this re-evaluate as the map moves (fromCoordinate alone is not a tracked
-        // dependency), matching how the route Canvas repaints on view changes. Kept
+        // dependency), matching how the route Canvas2D repaints on view changes. Kept
         // independent of `visible` (which reads it back) to avoid a binding loop.
         property point projected: {
             var c = map.center
@@ -268,7 +295,7 @@ Item {
             root.snapshotRoute()
             root.rebuildDecimation()
             root.fitToRoute()
-            routeCanvas.requestPaint()
+            root.repaintRoute()
         }
     }
 
@@ -288,7 +315,7 @@ Item {
     // Redraw when returning to the view (in case GL state was released while hidden).
     onIsCurrentChanged: {
         if (isCurrent)
-            routeCanvas.requestPaint()
+            root.repaintRoute()
         else
             followAnim.stop()
     }
@@ -404,13 +431,15 @@ Item {
     }
 
     function paintRoute() {
-        var ctx = routeCanvas.getContext("2d")
-        ctx.clearRect(0, 0, routeCanvas.width, routeCanvas.height)
+        var canvas = routeLoader.item
+        var ctx = canvas.getContext("2d")
+        if (!App.gpuCanvas)
+            ctx.clearRect(0, 0, canvas.width, canvas.height)
         var d = root.decimated
         if (!d || d.length < 2 || !map.mapReady)
             return
 
-        var w = routeCanvas.width, h = routeCanvas.height
+        var w = canvas.width, h = canvas.height
 
         // Viewport geo-box (from the map corners) inflated by 30% each side, so we
         // only project + stroke the on-screen part of the route. The survivor list
