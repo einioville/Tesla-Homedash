@@ -202,7 +202,11 @@ open. A step is `TeslaMap.stepZoom`: a whole level from where the map is, **writ
 stay within the setting's 10–19.
 
 **Inside the `Map`, the layers are ordered by `z`**: the radar's Loader 1, the warnings 1 (declared
-after it), the route 2, the names 3, the cameras 4, the car arrow 10.
+after it), the route 2, the names 3, the cameras 4, the home 5, the car arrow 10.
+
+**The home** — `HomeMarker.qml`, the home icon in a dark disc with *Koti* under it, at the
+*Yleinen › Sijainti › Koti* location (`Settings.valueOf("home")`, a backend setting), on both
+`TeslaMap`s and the Trips map, always, while a home is set. It is no layer: there is one of it.
 
 **`MapCameraWatch.qml` is the one cue to redo work that depends on the view**: it fires once the
 map has rested and every so often while it keeps moving (RadarLayer 0.4 s / 1.5 s, PlaceLabels and
@@ -231,5 +235,7 @@ while it moves and when a tile arrives (`PlaceNames.revision` — a `Q_INVOKABLE
 then places names most important first and leaves out one whose box would overlap a name already
 placed, 40 at most. Each is a `MapQuickItem` with no `zoomLevel`, so it stays upright when the map
 turns heading-up (the car arrow's fact above) — the reason for drawing names rather than laying a
-label tile layer over the imagery. Not done yet (#54): the Trips map, water and road names, and an
-OSM credit somewhere (the map hides its copyright notice).
+label tile layer over the imagery. The Trips map draws them too, always, under its route and pins
+(`items/trip/TripMap.qml`). OSM is credited in the README, not on the map: OSMF's attribution
+guidelines ask for it only where a map is used publicly, and the dashboard is a private display.
+Water and road names are not drawn.

@@ -17,6 +17,8 @@ Tesla-Homedash is a desktop dashboard that brings live vehicle telemetry, music,
 
 > Road weather cameras and road weather data on the map: Fintraffic / [digitraffic.fi](https://www.digitraffic.fi/), licensed [CC 4.0 BY](https://creativecommons.org/licenses/by/4.0/).
 
+> Place names on the maps and the home address search: © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors, available under the [Open Database License](https://opendatacommons.org/licenses/odbl/), fetched through the Overpass API and Nominatim. Weather, warnings and radar: [Finnish Meteorological Institute](https://en.ilmatieteenlaitos.fi/open-data), licensed [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+
 ## Dependencies
 
 ### Needed subscriptions

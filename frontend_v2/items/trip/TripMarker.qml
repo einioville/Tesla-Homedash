@@ -12,6 +12,8 @@ MapQuickItem {
     property color pinColor: Theme.tripMarkerColor
     property int pinSize: 34
 
+    // Over the place names and the home (TripMap).
+    z: 6
     anchorPoint.x: content.width / 2
     anchorPoint.y: content.height   // tip ≈ bottom-centre of the pin
 

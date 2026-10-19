@@ -218,6 +218,7 @@ qt_add_qml_module(appfrontend_v2
         items/tesla/ClimateCard.qml
         items/tesla/TeslaMap.qml
         items/tesla/PlaceLabels.qml
+        items/tesla/HomeMarker.qml
         items/tesla/MapLayerMenu.qml
         items/tesla/MapLiveStats.qml
         items/tesla/MapZoomButtons.qml

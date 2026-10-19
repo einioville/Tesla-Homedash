@@ -4,7 +4,8 @@ import QtPositioning
 import frontend_v2
 
 // Trips-view map: a free-pan/zoom OSM map (no car-follow) that draws the selected
-// trip's GPS path as a colour-graded polyline. The route comes from the Trips
+// trip's GPS path as a colour-graded polyline, over the OSM place names and the home
+// (as on the Kartta view). The route comes from the Trips
 // singleton ({ latitude, longitude, speed, ts } per fix); the map fits its viewport to
 // the route when one arrives.
 //
@@ -140,6 +141,13 @@ Item {
                 map.zoomLevel = startZoom + Math.log2(activeScale) * Theme.mapSensitivity
             }
         }
+
+        // Under the route, which the Canvas above the map draws, and the pins (TripMarker).
+        PlaceLabels {
+            geoMap: map
+            active: root.isCurrent
+        }
+        HomeMarker {}
 
         // Start / end pins at the route's first + last fix. Map items, so they pan
         // and zoom with the map natively. Shown only when a route is drawn.

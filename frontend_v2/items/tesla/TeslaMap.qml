@@ -565,6 +565,8 @@ Item {
             onOpened: (stationId) => root.cameraOpened(stationId)
         }
 
+        HomeMarker {}
+
         MapQuickItem {
             id: vehicle
             objectName: "vehicle"
