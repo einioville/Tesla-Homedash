@@ -116,9 +116,25 @@ radar map — is built on `BasemapPlugin`, an OSM plugin with two map types: **M
 orthophoto as the custom type** (`App.mapTilesUrl`, with the key from `TESLA_HOMEDASH_MAP_API_KEY`;
 empty without one) and **EOX's Sentinel-2 cloudless as the satellite type**, from the provider file
 `config/map-providers/satellite` that the plugin reads through `qrc:` (keyless, the whole world,
-zoom 18 at most). The plugin looks for every built-in type's file there; the six missing ones mark
-those types invalid quietly, with no network fetch. The two types' tiles are cached apart, since
-the plugin names a cached tile by its type's id.
+zoom 18 at most). The plugin looks for every built-in type's file there; the six missing ones fall
+back to Qt's built-in servers (openstreetmap.org and others), so those types stay valid but are
+never picked. The two types' tiles are cached apart, since the plugin names a cached tile by its
+type's id, but in one folder (`~/.cache/QtLocation/5.8/tiles/osm`) that every map's cache reads
+whole when it starts and deletes down to its own size, first in name order. EOX's files (type 2)
+sort ahead of MML's (8), so at Qt's default 50 MiB the MML imagery deleted EOX's tiles on every
+start; the plugin sets 300 MiB.
+
+**A Qt Location bug can leave a tile blank, and `BasemapSwitch` works around it** (report drafted
+upstream; no QTBUG number yet). When the satellite type is chosen before its provider file has
+loaded (always on the radar map, and on any other map that starts on EOX), the type changes as
+the file loads, Qt puts the map on its first type (Street) and `choose()` puts it back. That cancels
+the tiles in flight and requests them again, and `QGeoTileFetcher::finished()` matches a reply to
+its tile, not to its request: a cancelled reply that arrives late completes the new request with
+no data, and the real tile is thrown away. The tile stays blank until the camera next moves (on
+the radar map, the tile under the place, on every start). So when `choose()` changes the type in
+answer to `supportedMapTypesChanged`, a second later `refetch` pans the map a pixel and back,
+which requests any tile left out. The brief Street fetches nothing: its tiles are cancelled before
+the fetcher sends them.
 
 `BasemapSwitch` picks the type: **MML while all of the view lies inside MML's coverage, EOX
 otherwise.** MML answers outside it with an opaque blank white tile (exactly 668 bytes; tiles off

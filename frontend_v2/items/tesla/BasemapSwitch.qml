@@ -37,26 +37,48 @@ Item {
         return true
     }
 
+    // True when it changed the map's type.
     function choose() {
         if (!geoMap)
-            return
+            return false
         var style = hasMml && covered() ? MapType.CustomMap : MapType.SatelliteMapDay
         if (geoMap.activeMapType.style === style)
-            return
+            return false
         var types = geoMap.supportedMapTypes
         for (var i = 0; i < types.length; i++) {
             if (types[i].style === style) {
                 geoMap.activeMapType = types[i]
-                return
+                return true
             }
         }
+        return false
     }
 
     Component.onCompleted: choose()
 
+    // When EOX's provider file loads after its type was chosen, the type changes under Qt
+    // Location and it puts the map on its first type (Street) until choose() puts it back. That
+    // cancels the tiles in flight and requests them again, and Qt can let a cancelled reply
+    // complete the new request empty (QGeoTileFetcher::finished() matches a reply by tile only):
+    // the tile stays blank until the camera next moves. So a moment later it moves a pixel and
+    // back, which requests any tile left out.
     Connections {
         target: root.geoMap
-        function onSupportedMapTypesChanged() { root.choose() }
+        function onSupportedMapTypesChanged() {
+            if (root.choose())
+                refetch.restart()
+        }
+    }
+
+    Timer {
+        id: refetch
+        interval: 1000
+        onTriggered: {
+            if (!root.geoMap.mapReady)
+                return
+            root.geoMap.pan(1, 0)
+            root.geoMap.pan(-1, 0)
+        }
     }
 
     MapCameraWatch {

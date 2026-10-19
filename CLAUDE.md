@@ -517,7 +517,8 @@ plus the map back on the car after a view switch and a stopped car centred in Li
 plus snow and sleet in the weather charts and cards, snow in estimated cm (#68), the Sää status
 card reporting a failed or partly stale refresh (#61), and the OSM place names on the Trips map with
 the home marked on every map (#54), and EOX's imagery wherever a map looks past MML's coverage
-in place of its blank white tiles (#59).
+in place of its blank white tiles (#59) — plus map tiles a Qt Location bug left blank requested
+again (`BasemapSwitch`), with the shared tile cache at 300 MiB, room for EOX's tiles beside MML's.
 When you land a change that touches documented behaviour, update this line.
 
 ### 7.8 Keeping the code clean
