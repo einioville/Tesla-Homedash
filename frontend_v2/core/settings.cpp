@@ -210,7 +210,7 @@ void Settings::loadLocalSchema() {
                 // `action` entries are buttons, not values, so they get no map
                 // entry (and are never persisted or restored).
                 if (entry.value(QStringLiteral("type")).toString() != QLatin1String("action")) {
-                    m_values.insert(key, resolved.value(QStringLiteral("default")).toVariant());
+                    m_values->insert(key, resolved.value(QStringLiteral("default")).toVariant());
                 }
                 settings.append(resolved.toVariantMap());
             }
@@ -274,7 +274,7 @@ void Settings::loadSavedValues() {
                 QStringLiteral("Saved setting %1 rejected: %2").arg(it.key(), coerceError));
             continue;
         }
-        m_values.insert(it.key(), coerced);
+        m_values->insert(it.key(), coerced);
         m_overridden.insert(it.key());
     }
     logger.info(QStringLiteral("Loaded %1 saved settings from %2")
@@ -293,7 +293,7 @@ void Settings::saveLocalValues() {
     // default in a later release still reaches installs that never touched it.
     QJsonObject out;
     for (const QString &key : m_overridden) {
-        out.insert(key, QJsonValue::fromVariant(m_values.value(key)));
+        out.insert(key, QJsonValue::fromVariant(m_values->value(key)));
     }
 
     // QSaveFile writes to a temp file and renames on commit, so a power cut
@@ -314,7 +314,7 @@ QVariant Settings::savedValue(const QString &key) const {
     if (!m_overridden.contains(key)) {
         return {};
     }
-    return m_values.value(key);
+    return m_values->value(key);
 }
 
 // ── Validation ───────────────────────────────────────────────────────────────
@@ -379,7 +379,7 @@ QVariant Settings::coerceLocal(const QJsonObject &setting, const QVariant &value
 
 QVariant Settings::valueOf(const QString &key) const {
     if (m_localSchema.contains(key)) {
-        return m_values.value(key);
+        return m_values->value(key);
     }
     return m_backendValues.value(key);
 }
@@ -437,7 +437,7 @@ void Settings::captureLocalRestartBaseline() {
     m_localRestartBaseline.clear();
     for (auto it = m_localSchema.constBegin(); it != m_localSchema.constEnd(); ++it) {
         if (it.value().value(QStringLiteral("apply")).toString() == QLatin1String("restart")) {
-            m_localRestartBaseline.insert(it.key(), m_values.value(it.key()));
+            m_localRestartBaseline.insert(it.key(), m_values->value(it.key()));
         }
     }
 }
@@ -446,7 +446,7 @@ void Settings::refreshAppRestartPending() {
     bool pending = false;
     for (auto it = m_localRestartBaseline.constBegin();
          it != m_localRestartBaseline.constEnd(); ++it) {
-        if (m_values.value(it.key()) != it.value()) {
+        if (m_values->value(it.key()) != it.value()) {
             pending = true;
             break;
         }
@@ -498,7 +498,7 @@ QVariantList Settings::decorateSections(const QVariantList &sections, bool local
             // into the schema it sends, so only the local half needs them here.
             if (local) {
                 const QString key = entry.value(QStringLiteral("key")).toString();
-                entry.insert(QStringLiteral("value"), m_values.value(key));
+                entry.insert(QStringLiteral("value"), m_values->value(key));
                 entry.insert(QStringLiteral("modified"), m_overridden.contains(key));
             }
             settings.append(entry);
@@ -581,7 +581,7 @@ void Settings::rebuildGroups() {
 // ── Writes ───────────────────────────────────────────────────────────────────
 
 void Settings::setLocal(const QString &key, const QVariant &value) {
-    m_values.insert(key, value);
+    m_values->insert(key, value);
     m_overridden.insert(key);
     saveLocalValues();
     rebuildGroups();

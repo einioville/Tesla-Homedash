@@ -8,6 +8,10 @@
   `CLAUDE.md` before changing it.
 - It globs **both** `~/Qt/*/gcc_64` and `~/Qt/*/gcc_arm64` (the Raspberry Pi's kit name) and uses
   Ninja only when installed, because the Pi's setup does not install it.
+- **It wipes the build directory when the generator or the Qt kit changed** since the last
+  configure (`CMAKE_GENERATOR`, `Qt6_DIR` in the cache): CMake refuses a new generator outright, and
+  a new kit would otherwise go on building against the cached old one. A box that installs a newer
+  Qt — picked by the glob — rebuilds from scratch once, the in-app updater included.
 - `gen-map-coverage.py` writes `frontend_v2/items/tesla/MapCoverage.js`, where MML's orthophoto has
   imagery (`frontend_v2/items/tesla/CLAUDE.md`, *The basemap*). Run once, by hand, with shapely and
   pyproj (`uv run --with`); its header has the steps.

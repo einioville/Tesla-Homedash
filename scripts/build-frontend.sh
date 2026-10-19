@@ -101,6 +101,16 @@ if [[ -f "$BUILD/CMakeCache.txt" ]]; then
         rm -rf "$BUILD"
     fi
 fi
+# The same for a new Qt kit: the cache keeps the old kit's Qt6_DIR, so a box that
+# installs a newer Qt (picked by the glob above) would go on building against the
+# old one, or against a mix of the two.
+if [[ -f "$BUILD/CMakeCache.txt" ]]; then
+    PREVIOUS="$(sed -n 's/^Qt6_DIR:[A-Z]*=//p' "$BUILD/CMakeCache.txt")"
+    if [[ -n "$PREVIOUS" && "$PREVIOUS" != "$QT_PREFIX"/* ]]; then
+        echo "Qt kit changed (${PREVIOUS%/lib/cmake/Qt6} -> $QT_PREFIX); reconfiguring from scratch"
+        rm -rf "$BUILD"
+    fi
+fi
 
 cmake -S "$SRC" -B "$BUILD" "${GENERATOR[@]}" \
       -DCMAKE_PREFIX_PATH="$QT_PREFIX" \

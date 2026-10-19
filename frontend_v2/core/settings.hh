@@ -77,7 +77,7 @@ class Settings : public QObject {
 public:
     explicit Settings(QObject *parent = nullptr);
 
-    QQmlPropertyMap *values() { return &m_values; }
+    QQmlPropertyMap *values() { return m_values; }
     QVariantList groups() const { return m_groups; }
     bool restartPending() const { return m_restartPending; }
     bool appRestartPending() const { return m_appRestartPending; }
@@ -155,7 +155,8 @@ private:
     void setLocal(const QString &key, const QVariant &value);
     QVariant coerceLocal(const QJsonObject &setting, const QVariant &value, QString *error) const;
 
-    QQmlPropertyMap m_values;
+    // create(), not a member object: the one-argument constructor is deprecated (Qt 6.11).
+    QQmlPropertyMap *m_values = QQmlPropertyMap::create(this);
     // Local schema groups, straight from the bundled JSON (defaults included).
     QVariantList m_localGroups;
     // Backend schema groups from the most recent CONFIG_SCHEMA.
