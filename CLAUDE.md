@@ -509,7 +509,8 @@ a point on a map (`Geocoder`, Nominatim) — that the weather and the timezone f
 place and timezone rows — plus the dashboard's hourly card marking each hour a warning covering the
 place is in force in with a badge on its symbol, a tap opening the warnings, whose dialog is frosted
 glass at reading height in every view, and the warnings that have ended left out of the document —
-plus the map back on the car after a view switch and a stopped car centred in Liukuva (#55).
+plus the map back on the car after a view switch and a stopped car centred in Liukuva (#55) —
+plus snow and sleet in the weather charts and cards, snow in estimated cm (#68).
 When you land a change that touches documented behaviour, update this line.
 
 ### 7.8 Keeping the code clean

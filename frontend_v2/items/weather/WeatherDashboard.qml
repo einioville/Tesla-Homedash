@@ -227,8 +227,10 @@ Item {
                 }
                 Metric {
                     Layout.fillWidth: true
-                    label: qsTr("Sade")
-                    value: U.num(root.now.precipRate) + " mm/h"
+                    readonly property bool snowing: root.now.precipForm === "snow" && root.now.precipRate > 0
+                    label: snowing ? qsTr("Lumisade") : qsTr("Sade")
+                    value: snowing ? U.precipAmount(root.now.precipRate, "snow") + " cm/h"
+                                   : U.num(root.now.precipRate) + " mm/h"
                     sub: root.now.wawaText || ""
                 }
                 Metric {
@@ -604,11 +606,27 @@ Item {
                         }
                     }
                     Item { width: 1; height: 4 }
-                    Text {
+                    // Rain and sleet in mm, snow in estimated cm in its own colour; "lunta" only
+                    // when it stands alone, or the two do not fit the column.
+                    Row {
+                        id: precipRow
+                        readonly property real snowMm: dayCol.modelData.snow || 0
+                        readonly property real rainMm: dayCol.modelData.precip - snowMm
                         anchors.horizontalCenter: parent.horizontalCenter
-                        text: dayCol.modelData.precip >= 0.1 ? U.num(dayCol.modelData.precip) + " mm" : qsTr("poutaa")
-                        color: dayCol.modelData.precip >= 0.1 ? "#6cb8ff" : "#6f7a86"
-                        font.family: Theme.fontFamily; font.pixelSize: 12
+                        spacing: 6
+                        Text {
+                            visible: precipRow.rainMm >= 0.1 || precipRow.snowMm < 0.1
+                            text: precipRow.rainMm >= 0.1 ? U.num(precipRow.rainMm) + " mm" : qsTr("poutaa")
+                            color: precipRow.rainMm >= 0.1 ? "#6cb8ff" : "#6f7a86"
+                            font.family: Theme.fontFamily; font.pixelSize: 12
+                        }
+                        Text {
+                            visible: precipRow.snowMm >= 0.1
+                            text: U.precipAmount(precipRow.snowMm, "snow") + " cm"
+                                  + (precipRow.rainMm >= 0.1 ? "" : qsTr(" lunta"))
+                            color: U.precipColors("snow")[1]
+                            font.family: Theme.fontFamily; font.pixelSize: 12
+                        }
                     }
                     Text {
                         anchors.horizontalCenter: parent.horizontalCenter

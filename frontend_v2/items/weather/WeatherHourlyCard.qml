@@ -36,7 +36,9 @@ Card {
         var b = hours[Math.min(hours.length - 1, chart.firstVisible + hoursVisible - 1)]
         return (a.wd + " " + a.date + " klo " + a.hour + " – " + b.wd + " " + b.date + " klo " + b.hour).toUpperCase()
     }
-    note: chart.atStart ? qsTr("lämpötila · sade (mm/h)") : ""
+    // Snow among the hours on screen at the start, where the note shows: its amounts are cm.
+    readonly property bool snowAhead: hours.slice(0, hoursVisible).some(h => h.precipForm === "snow" && h.precip > 0)
+    note: chart.atStart ? (snowAhead ? qsTr("lämpötila · sade mm/h · lumi cm/h") : qsTr("lämpötila · sade (mm/h)")) : ""
 
     Rectangle {
         visible: !chart.atStart

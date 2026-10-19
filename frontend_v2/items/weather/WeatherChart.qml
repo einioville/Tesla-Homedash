@@ -4,7 +4,8 @@ import frontend_v2
 import "WeatherUtil.js" as U
 
 // Every forecast hour on one horizontally scrollable chart, `hoursVisible` of
-// them across the width: the temperature curve, rain bars with their amount on top, and a
+// them across the width: the temperature curve, precipitation bars with their amount on top
+// (rain blue, sleet paler, snow white and in estimated cm), and a
 // symbol / temperature / hour every `labelEvery` hours. With `warningBadges`, an hour a
 // warning covering the place is in force in (its `warning` colour, from the backend) carries
 // a badge, and a tap on one asks for the warnings.
@@ -118,21 +119,23 @@ Item {
             width: root.colW
             height: root.height
 
-            // Rain, with its amount on top. The outline keeps the figure readable where the
-            // temperature curve dips into the bars.
+            // Precipitation, with its amount on top; the bar's height is the water whatever
+            // falls. The outline keeps the figure readable where the temperature curve dips
+            // into the bars.
+            readonly property var precipColors: U.precipColors(modelData.precipForm)
             Rectangle {
                 x: 2
                 width: parent.width - 4
                 y: root.barBase - height
                 height: root.barH(col.modelData.precip)
-                color: "#4aa8ff"
+                color: col.precipColors[0]
             }
             Text {
                 visible: col.modelData.precip > 0
                 anchors.horizontalCenter: parent.horizontalCenter
                 y: root.barBase - root.barH(col.modelData.precip) - height
-                text: U.num(col.modelData.precip, 1)
-                color: "#9dd0ff"
+                text: U.precipAmount(col.modelData.precip, col.modelData.precipForm)
+                color: col.precipColors[1]
                 style: Text.Outline
                 styleColor: "#0b0e12"
                 font.family: Theme.fontFamily

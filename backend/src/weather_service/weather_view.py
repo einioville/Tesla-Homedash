@@ -39,6 +39,15 @@ _WAWA_TEXTS = [
     ((85, 87), "lumikuuroja"), ((89, 89), "raekuuroja"),
 ]
 
+# FMI's potential precipitation form (0 drizzle, 1 rain, 2 sleet, 3 snow, 4 freezing drizzle,
+# 5 freezing rain, 6 hail) as the view tells them apart: sleet and snow by name, the rest as rain.
+_PRECIP_FORMS = {2: "sleet", 3: "snow"}
+
+# Present weather (WMO 4680) codes that say what is falling now, the same way; codes 40-42
+# ("precipitation", form unknown) are left to the forecast.
+_WAWA_FORMS = [((50, 66), "rain"), ((67, 68), "sleet"), ((70, 78), "snow"), ((80, 84), "rain"),
+               ((85, 87), "snow"), ((89, 89), "rain")]
+
 # CAP severities as the warning colours FMI uses.
 _WARNING_COLORS = {"Moderate": "yellow", "Severe": "orange", "Extreme": "red"}
 
@@ -61,6 +70,22 @@ def _wawa_text(code) -> str | None:
     for (lo, hi), text in _WAWA_TEXTS:
         if lo <= c <= hi:
             return text
+    return None
+
+
+def _wawa_form(code) -> str | None:
+    '''
+    Returns what a present-weather code says is falling ("rain", "sleet" or "snow"), or None
+    when it says nothing falls or not what.
+    Arguments:
+        code (float | None): WMO 4680 code as FMI reports it.
+    '''
+    if code is None:
+        return None
+    c = int(code)
+    for (lo, hi), form in _WAWA_FORMS:
+        if lo <= c <= hi:
+            return form
     return None
 
 
@@ -352,8 +377,8 @@ class WeatherViewBuilder:
             **where, "timesteps": _FORECAST_HOURS, "timestep": 60,
             "starttime": _utc(hour0),
             "param": "epochtime,temperature,feelslike,smartsymbol,smartsymboltext,pop,"
-                     "precipitation1h,windspeedms,winddirection,hourlymaximumgust,"
-                     "totalcloudcover,humidity,probabilitythunderstorm,sunelevation"})
+                     "precipitation1h,potentialprecipitationform,windspeedms,winddirection,"
+                     "hourlymaximumgust,totalcloudcover,humidity,probabilitythunderstorm,sunelevation"})
         hourly = []
         for r in rows:
             # The forecast's end is padded with empty hours.
@@ -365,6 +390,7 @@ class WeatherViewBuilder:
                 "hour": t.hour, "wd": _WEEKDAYS[t.weekday()], "date": f"{t.day}.{t.month}.",
                 "temp": r["temperature"], "feels": r["feelslike"], "symbol": int(r["smartsymbol"]),
                 "text": r["smartsymboltext"], "pop": r["pop"] or 0, "precip": r["precipitation1h"] or 0,
+                "precipForm": _PRECIP_FORMS.get(r["potentialprecipitationform"], "rain"),
                 "wind": r["windspeedms"], "windDir": r["winddirection"], "gust": r["hourlymaximumgust"],
                 "cloud": r["totalcloudcover"], "humidity": r["humidity"],
                 "thunder": r["probabilitythunderstorm"] or 0, "sunElev": r["sunelevation"],
@@ -551,6 +577,7 @@ class WeatherViewBuilder:
             "dewPoint": v.get("td"), "pressure": v.get("p_sea"), "visibility": v.get("vis"),
             "uvIndex": _uv_index(radiation, hour["sunElev"]),
             "precipRate": v.get("ri_10min"), "precip1h": v.get("r_1h"), "snowDepth": v.get("snow_aws"),
+            "precipForm": _wawa_form(v.get("wawa")) or hour["precipForm"],
             "wawa": v.get("wawa"), "wawaText": _wawa_text(v.get("wawa")),
             "symbol": hour["symbol"], "text": hour["text"], "sources": observed.get("sources", {}),
         }
@@ -558,8 +585,9 @@ class WeatherViewBuilder:
     @staticmethod
     def __daily(hours: list[dict]) -> list[dict]:
         '''
-        Folds the hourly forecast into days: low and high, the day's rain, the strongest
-        wind, and the symbol and text of the hour closest to 14:00.
+        Folds the hourly forecast into days: low and high, the day's precipitation and the
+        part of it that falls as snow (both mm of water), the strongest wind, and the symbol
+        and text of the hour closest to 14:00.
         Arguments:
             hours (list[dict]): The hourly forecast, oldest first.
         '''
@@ -577,6 +605,7 @@ class WeatherViewBuilder:
             d.update({
                 "min": min(h["temp"] for h in hs), "max": max(h["temp"] for h in hs),
                 "precip": round(sum(h["precip"] for h in hs), 1),
+                "snow": round(sum(h["precip"] for h in hs if h["precipForm"] == "snow"), 1),
                 "popMax": max(h["pop"] for h in hs),
                 "symbol": rep["symbol"] % 100 if daylight else rep["symbol"], "text": rep["text"],
                 "windMax": max(h["wind"] or 0 for h in hs), "gustMax": max(h["gust"] or 0 for h in hs),

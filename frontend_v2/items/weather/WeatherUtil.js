@@ -37,6 +37,22 @@ function visibility(m) {
     return m >= 1000 ? Math.round(m / 1000) + " km" : Math.round(m / 50) * 50 + " m"
 }
 
+// Fresh snow from its water, as FMI estimates it: a millimetre is about a centimetre.
+var SNOW_CM_PER_MM = 1
+
+// Precipitation by its form (the backend's `precipForm`): the bar's colour and its figure's.
+var PRECIP_COLORS = { rain: ["#4aa8ff", "#9dd0ff"], sleet: ["#8cb6e0", "#c8ddf2"],
+                      snow: ["#e4ecf5", "#ffffff"] }
+
+function precipColors(form) {
+    return PRECIP_COLORS[form] || PRECIP_COLORS.rain
+}
+
+// An amount as the chart labels it: snow in estimated cm, the rest in mm of water.
+function precipAmount(mm, form) {
+    return num(form === "snow" ? mm * SNOW_CM_PER_MM : mm, 1)
+}
+
 function warnColor(c) {
     return ({ yellow: "#f5c518", orange: "#ff8c1a", red: "#e53935" })[c] || "#f5c518"
 }

@@ -82,6 +82,12 @@ few minutes after their slot — under the same scheduler rules as the forecast 
   kept from an earlier cycle is trimmed to start at the current hour. No forecast hours at all → no
   frame, the previous one stays (the forecast job's rule). A build that finishes after the location
   changed is discarded.
+- **Precipitation says what falls** (#68): each hour's `precipForm` — `rain`, `sleet` or `snow` —
+  from FMI's `potentialprecipitationform` (drizzle, freezing rain and hail count as rain), each
+  day's `snow` (the mm of water its snow hours bring, beside the day's total `precip`), and the now
+  block's from the station's present-weather code when it says, else the forecast hour's. Amounts
+  stay mm of water; the frontend shows snow as estimated cm (`WeatherUtil.js`, `SNOW_CM_PER_MM`,
+  FMI's 1 mm ≈ 1 cm).
 - **The UV index is an estimate** — FMI publishes none: Madronich's clear-sky index from the sun's
   elevation × HARMONIE's radiation against a Haurwitz clear-sky model. Not radiation alone, which
   overstates a low spring or autumn sun two to three times.
