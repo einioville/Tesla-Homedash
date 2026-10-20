@@ -11,7 +11,6 @@ dependencies = [
     "APScheduler>=3.10,<4",
     "aiohttp>=3.9,<4",
     "cryptography>=42,<50",
-    "fmiopendata>=0.4",
     "influxdb-client>=1.43,<2",
     "numpy>=1.26,<3",
     "python-dotenv>=1.0,<2",

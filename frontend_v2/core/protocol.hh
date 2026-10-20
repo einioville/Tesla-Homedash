@@ -50,13 +50,6 @@ inline constexpr quint8 MEDIA_SPECTRUM = 0x20;
 inline constexpr quint8 MEDIA_TYPE_RADIO = 0x01;
 inline constexpr quint8 MEDIA_TYPE_SPOTIFY = 0x02;
 
-// Weather forecast frame + sub-field IDs: the frozen frontend's, ignored here.
-inline constexpr quint8 WEATHER_FORECAST = 0x30;
-inline constexpr quint8 FORECAST_TEMPERATURE = 0x31;
-inline constexpr quint8 FORECAST_WIND_SPEED = 0x32;
-inline constexpr quint8 FORECAST_PRECIPITATION = 0x33;
-inline constexpr quint8 FORECAST_TOTAL_CLOUD_COVER = 0x34;
-inline constexpr quint8 FORECAST_TIME = 0x35;
 // The Weather view's document: status(1B) + len(4B) + UTF-8 JSON (protocol.py).
 inline constexpr quint8 WEATHER_VIEW = 0x36;
 

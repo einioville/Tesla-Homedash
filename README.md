@@ -30,7 +30,6 @@ Tesla-Homedash is a desktop dashboard that brings live vehicle telemetry, music,
 - [APScheduler](https://apscheduler.readthedocs.io/) — periodic and cron-style jobs.
 - [aiohttp](https://docs.aiohttp.org/) — async HTTP client.
 - [aiocsv](https://github.com/MKuranowski/aiocsv) — async CSV reader.
-- [fmiopendata](https://github.com/pnuu/fmiopendata) — Finnish Meteorological Institute open-data client.
 - [influxdb-client](https://github.com/influxdata/influxdb-client-python) — InfluxDB read / write client.
 - [numpy](https://numpy.org/) — numerics for cover-art processing.
 - [python-dotenv](https://github.com/theskumar/python-dotenv) — loads `.env` secrets.

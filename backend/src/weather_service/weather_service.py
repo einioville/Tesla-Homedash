@@ -2,18 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import math
-import struct
-from datetime import datetime, timezone, timedelta
-from zoneinfo import ZoneInfo
-
-from xml.etree.ElementTree import ParseError
+from datetime import datetime
 
 import aiohttp
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
-from fmiopendata.multipoint import MultiPoint
-from fmiopendata.wfs import STORED_QUERY_URL
 
 from ..server.server import Server
 from ..utils import protocol
@@ -22,18 +15,11 @@ from .weather_view import WeatherViewBuilder, describe
 
 logger = logging.getLogger("weather_service.weather_service")
 
-# Hard per-request ceiling on an FMI WFS fetch, enforced at the socket layer.
-# The GET is issued here rather than through fmiopendata's own helper
-# (`wfs.download_stored_query` → `utils.read_url`), which calls
-# `requests.get(url)` with NO timeout and no way to pass one: a server that
-# accepts the connection, sends a partial body and then goes silent — no FIN,
-# no RST — parks the caller in read() forever (weather_service/CLAUDE.md).
+# Hard per-request ceiling on every FMI request, enforced at the socket layer: a
+# server that accepts the connection, sends a partial body and then goes silent —
+# no FIN, no RST — would otherwise park the request in read() forever
+# (weather_service/CLAUDE.md).
 _FMI_TIMEOUT = aiohttp.ClientTimeout(total=30, sock_connect=10, sock_read=20)
-
-# Belt-and-braces deadline around the whole fetch-and-parse coroutine, covering
-# anything _FMI_TIMEOUT does not (e.g. a pathological XML parse).  Must exceed
-# _FMI_TIMEOUT.total so a genuine network timeout reports as such.
-_FETCH_DEADLINE_SECONDS = 45
 
 # Scheduler resilience.  APScheduler's default max_instances=1 means a single
 # run that never returns refuses every subsequent tick for the process lifetime
@@ -45,101 +31,27 @@ _JOB_MAX_INSTANCES = 2
 _MISFIRE_GRACE_SECONDS = 300
 
 # The Weather view's document is several requests in parallel, each under _FMI_TIMEOUT;
-# this bounds the whole build the way _FETCH_DEADLINE_SECONDS bounds one query.
+# this bounds the whole build, covering anything _FMI_TIMEOUT does not (a pathological
+# parse). Must exceed _FMI_TIMEOUT.total so a genuine network timeout reports as such.
 _VIEW_DEADLINE_SECONDS = 90
 
 # The view's parts (WeatherViewBuilder's log labels) as the status card names them.
 _PART_NAMES = {"location": "paikka", "observation": "havainnot", "forecast": "ennuste",
                "radiation": "UV-arvio", "sun and moon": "aurinko ja kuu", "warnings": "varoitukset"}
 
-_HARMONIE_QUERY = "fmi::forecast::harmonie::surface::point::multipointcoverage"
-
-
-class ForecastMeasurement:
-    def __init__(self, value):
-        self.__value = value
-
-    def get_value(self):
-        '''
-        Returns the float value of this measurement.
-        Returns 0.0 for missing (None) or non-finite (NaN) values so the
-        binary packer always receives a valid double.
-        '''
-        if self.__value is None:
-            return 0.0
-        try:
-            v = float(self.__value)
-            # FMI occasionally encodes missing data as NaN
-            return v if not math.isnan(v) else 0.0
-        except (TypeError, ValueError):
-            return 0.0
-
-
-class ForecastHour:
-    def __init__(self, time: datetime, data: dict, display_tz: ZoneInfo):
-        '''
-        Stores one hour's worth of weather measurements.
-        Arguments:
-            time (datetime): UTC-naive (or UTC-aware) datetime for this hour.
-            data (dict): Mapping of field name → {"value": ..., "units": ...}.
-            display_tz (ZoneInfo): Timezone to express the forecast hour in
-                (the configured timeZone).
-        '''
-        self.__hours = time.replace(tzinfo=ZoneInfo("UTC")).astimezone(display_tz).hour
-
-        self.__data = {}
-        for name, value in data.items():
-            self.__data[name] = ForecastMeasurement(value["value"])
-
-    def get_value(self, key: str, default: float = 0.0) -> float:
-        '''
-        Returns the float value for the given field, or default if absent.
-        Arguments:
-            key (str): Field name (e.g. "Air temperature").
-            default (float): Fallback when the field is missing in this hour.
-        '''
-        if key not in self.__data:
-            return default
-        return self.__data[key].get_value()
-
-    def get_time(self) -> int:
-        return self.__hours
-
-    def get_measurement(self, key: str):
-        '''Returns the ForecastMeasurement for the given field, or None if absent.'''
-        return self.__data.get(key)
-
-    def set_measurement(self, key: str, measurement) -> None:
-        '''
-        Adds or replaces a measurement for the given field. Used to backfill the
-        current-hour observation banner with precipitation + cloud cover from the
-        model forecast, since the observation station does not report them.
-        Arguments:
-            key (str): Field name.
-            measurement (ForecastMeasurement | None): Stored as-is; ignored if None.
-        '''
-        if measurement is not None:
-            self.__data[key] = measurement
-
 
 class WeatherService:
-    # Maps FMI observation field names to the forecast-compatible names used
-    # throughout the rest of the service.  fmiopendata normally uses the same
-    # human-readable labels for both query types, but having an explicit map
-    # makes any future divergence easy to fix in one place.
-    _OBS_FIELD_MAP = {
-        "Air temperature": "Air temperature",
-        "Wind speed": "Wind speed",
-        "Precipitation amount": "Precipitation amount",
-        "Total cloud cover": "Total cloud cover",
-    }
+    '''
+    Keeps the Weather view's document (WEATHER_VIEW) current: builds it every 10
+    minutes, broadcasts it and replays the latest one to each new client.
+    '''
 
     def __init__(self, server: Server, config: Config):
         '''
         Initialises the service.  The scheduler is not started here; call
         get_run_task() to start the service as an asyncio Task.
         Arguments:
-            server (Server): TLS server used to broadcast forecast data.
+            server (Server): TLS server used to broadcast the weather document.
             config (Config): Shared in-memory configuration.
         '''
         self.__loop = asyncio.get_running_loop()
@@ -152,12 +64,8 @@ class WeatherService:
         # Where the weather is for: the home's coordinates, or the weatherPlace name.
         self.__where: dict[str, str] = config.weather_location
         self.__where_name: str = config.weather_location_name
-        # Most recent framed forecast packet, replayed verbatim to any newly
-        # connecting client so its weather UI populates immediately without
-        # waiting for the next 15-minute cron tick.
-        self.__last_forecast: bytes | None = None
-        # The Weather view's document (WEATHER_VIEW), refreshed every 10 minutes on its
-        # own job; framed and cached like the forecast, for new clients.
+        # The Weather view's document (WEATHER_VIEW), refreshed every 10 minutes; the
+        # last frame is replayed to every newly connecting client.
         self.__view_builder = WeatherViewBuilder(self.__zone_info, _FMI_TIMEOUT)
         self.__last_view: bytes | None = None
         self.__view_updated_ms: int | None = None
@@ -167,7 +75,7 @@ class WeatherService:
     def apply_config(self) -> None:
         '''
         Re-reads the runtime-editable settings this service owns and refreshes
-        immediately, so the change is visible without waiting up to 15 minutes for
+        immediately, so the change is visible without waiting up to 10 minutes for
         the next cron tick.  Called by ConfigService after the Options view writes
         "home"; safe to call at any time.
 
@@ -182,16 +90,13 @@ class WeatherService:
         self.__where = new_where
         # Drop the cached frame: it describes the OLD place, and replaying it to a
         # client that connects before the refetch lands would show the wrong city.
-        self.__last_forecast = None
         self.__last_view = None
-        self.__loop.create_task(self.__update_forecast())
         self.__loop.create_task(self.__update_view())
 
     async def run(self) -> None:
         '''
-        Starts the weather service: schedules the 15-minute refresh, then
-        performs an initial combined fetch (current-hour observation + upcoming
-        forecast).
+        Starts the weather service: schedules the 10-minute refresh, then builds
+        the first document.
         '''
         logger.info("Weather service starting: %s", describe(self.__where))
         # Schedule BEFORE the initial fetch: the periodic refresh must exist even
@@ -200,15 +105,8 @@ class WeatherService:
         # initial fetch with a cron tick is harmless — _JOB_MAX_INSTANCES allows
         # it and a broadcast is idempotent.
         self.__scheduler.start()
-        self.__scheduler.add_job(
-            func=self.__update_forecast,
-            trigger=CronTrigger(hour="*", minute="0,15,30,45", timezone=self.__zone_info),
-            max_instances=_JOB_MAX_INSTANCES,
-            misfire_grace_time=_MISFIRE_GRACE_SECONDS,
-            coalesce=True,
-        )
-        # The view's observations are 10-minute ones, published a few minutes after the
-        # slot, so its refresh runs every 10 minutes just after each lands.
+        # The observations are 10-minute ones, published a few minutes after the slot,
+        # so the refresh runs every 10 minutes just after each lands.
         self.__scheduler.add_job(
             func=self.__update_view,
             trigger=CronTrigger(hour="*", minute="4,14,24,34,44,54", timezone=self.__zone_info),
@@ -217,15 +115,15 @@ class WeatherService:
             coalesce=True,
         )
         logger.info("Performing initial weather fetch")
-        await asyncio.gather(self.__update_forecast(), self.__update_view())
+        await self.__update_view()
 
     def health(self) -> dict:
         '''
         Reports weather health for the status view as it stands now: "warn" until
-        the first frames are cached (at startup, or right after a location change),
-        and again while the latest view cycle failed or left parts at their last good
-        values — the old frames stay on screen meanwhile, and the Päivitetty row says
-        how old they are. The next good cycle reports "ok" again.
+        the first document is cached (at startup, or right after a location change),
+        and again while the latest cycle failed or left parts at their last good
+        values — the old document stays on screen meanwhile, and the Päivitetty row
+        says how old it is. The next good cycle reports "ok" again.
         '''
         config = [["Sijainti", self.__where_name], ["Päivitysväli", "10 min"],
                   ["Lähde", "Ilmatieteen laitos"]]
@@ -233,8 +131,6 @@ class WeatherService:
             config.append(["Päivitetty", {"time": self.__view_updated_ms}])
         if self.__last_view is None:
             return {"state": "warn", "detail": "Ei säätietoja", "config": config}
-        if self.__last_forecast is None:
-            return {"state": "warn", "detail": "Ei tuntiennustetta", "config": config}
         if self.__view_failure:
             return {"state": "warn", "detail": self.__view_failure, "config": config}
         stale = [_PART_NAMES.get(p, p) for p in self.__view_builder.failed_parts]
@@ -248,73 +144,10 @@ class WeatherService:
         '''
         return asyncio.create_task(self.run())
 
-    async def __update_forecast(self) -> None:
-        '''
-        Fetches the current-hour FMI observation and the following hours'
-        harmonie forecast, then broadcasts the merged result to all clients.
-        Current hour comes from real measurements; later hours from model data.
-        '''
-        logger.debug("Weather update cycle started")
-        now_local = datetime.now(self.__zone_info)
-
-        observation = await self.__fetch_observation(now_local)
-        if observation is not None:
-            logger.info("Observation fetched successfully")
-        forecast_hours = await self.__fetch_forecast(now_local)
-        if forecast_hours:
-            logger.info("Forecast fetched: %d hours", len(forecast_hours))
-
-        # The forecast starts at the current hour. Split off its current-hour
-        # row: it backfills the banner's precipitation + cloud cover (the
-        # observation station reports neither), while temperature + wind stay from
-        # the real observation. The remaining rows are the future forecast cards.
-        current_hour = now_local.hour
-        current_forecast: ForecastHour | None = None
-        future_hours: list[ForecastHour] = []
-        for forecast in forecast_hours:
-            if current_forecast is None and forecast.get_time() == current_hour:
-                current_forecast = forecast
-            else:
-                future_hours.append(forecast)
-
-        if observation is not None and current_forecast is not None:
-            for key in ("Precipitation amount", "Total cloud cover"):
-                observation.set_measurement(key, current_forecast.get_measurement(key))
-
-        # A cycle with no future hours is a FAILED cycle, not a partial one: the
-        # frontend replaces its whole forecast model per frame, so broadcasting a
-        # banner-only frame blanks all five forecast cards until the next good
-        # frame — and caches that blanked frame for every client that reconnects
-        # afterwards.  Keeping the previous frame degrades to stale-but-complete
-        # instead, and the warning makes an otherwise silent dead cycle visible.
-        if not future_hours:
-            logger.warning(
-                "Weather cycle produced no forecast hours (observation=%s, "
-                "forecast rows=%d) — keeping the previous frame",
-                "ok" if observation is not None else "missing",
-                len(forecast_hours),
-            )
-            return
-
-        forecasts: list[ForecastHour] = []
-        if observation is not None:
-            forecasts.append(observation)
-        elif current_forecast is not None:
-            # No live observation — fall back to the model's current-hour row.
-            forecasts.append(current_forecast)
-        forecasts.extend(future_hours)
-
-        logger.info("Broadcasting weather forecast to clients")
-        stream_data = await self.__get_stream_data(forecasts)
-        self.__last_forecast = protocol.frame(
-            protocol.WEATHER_FORECAST, b"".join(stream_data)
-        )
-        await self.__server.broadcast(self.__last_forecast)
-
     async def __update_view(self) -> None:
         '''
         Builds the Weather view's document and broadcasts it as a WEATHER_VIEW frame.
-        A cycle that yields no document keeps the previous frame, as the forecast does.
+        A cycle that yields no document keeps the previous frame.
         '''
         where = self.__where
         try:
@@ -346,250 +179,12 @@ class WeatherService:
         )
         await self.__server.broadcast(self.__last_view)
 
-    async def __download_stored_query(
-        self, query_id: str, params: dict[str, str], label: str
-    ):
-        '''
-        Downloads and parses an FMI WFS stored query, replacing
-        fmiopendata.wfs.download_stored_query so a socket-level timeout can be
-        enforced (see _FMI_TIMEOUT).  Returns a fmiopendata MultiPoint, or None
-        when the request or the parse fails — every failure is logged and
-        swallowed so one bad cycle never wedges the refresh job.
-
-        The URL is built exactly as fmiopendata builds it (STORED_QUERY_URL +
-        query_id + query args); passing the args as aiohttp params percent-encodes
-        non-ASCII place names (e.g. Ryttylä), which is what requests did for
-        fmiopendata implicitly.
-        Arguments:
-            query_id (str): FMI stored query id.
-            params (dict[str, str]): Query arguments (starttime/endtime and the location).
-            label (str): Human-readable query name used in log messages.
-        '''
-        try:
-            return await asyncio.wait_for(
-                self.__fetch_and_parse(query_id, params), _FETCH_DEADLINE_SECONDS
-            )
-        except asyncio.TimeoutError:
-            # Must precede the OSError clause: on Python 3.11+ asyncio.TimeoutError
-            # is the builtin TimeoutError, which is an OSError subclass.
-            logger.warning(
-                "FMI %s fetch timed out for %s (deadline %ds)",
-                label, describe(self.__where), _FETCH_DEADLINE_SECONDS,
-            )
-            return None
-        except (aiohttp.ClientError, OSError, ParseError, ValueError, KeyError, IndexError) as e:
-            # ClientError/OSError → network + HTTP failures; ParseError/ValueError →
-            # malformed or defused XML; KeyError/IndexError → unexpected response shape.
-            logger.warning(
-                "FMI %s fetch failed for %s: %s: %s",
-                label, describe(self.__where), type(e).__name__, e,
-            )
-            return None
-
-    async def __fetch_and_parse(self, query_id: str, params: dict[str, str]):
-        '''
-        Performs one FMI WFS request and parses the response.  Raises on any
-        failure; __download_stored_query owns the error handling.
-        Arguments:
-            query_id (str): FMI stored query id.
-            params (dict[str, str]): Query arguments (starttime/endtime and the location).
-        '''
-        async with aiohttp.ClientSession(timeout=_FMI_TIMEOUT) as session:
-            async with session.get(STORED_QUERY_URL + query_id, params=params) as response:
-                response.raise_for_status()
-                xml = await response.read()
-        # The XML parse is pure CPU and always terminates, but it is heavy enough
-        # (numpy-backed) to keep off the event loop.
-        return await self.__loop.run_in_executor(None, MultiPoint, xml, query_id)
-
     async def stream_everything(self, client) -> None:
         '''
-        Sends the most recent cached forecast to a single newly connected
-        client.  No-op until the first __update_forecast() cycle has run.
+        Sends the most recent cached document to a single newly connected client.
+        No-op until the first __update_view() cycle has produced one.
         Arguments:
             client: StreamWriter for the new connection.
         '''
-        if self.__last_forecast is not None:
-            await self.__server.send_to(client, self.__last_forecast)
         if self.__last_view is not None:
             await self.__server.send_to(client, self.__last_view)
-
-    async def __fetch_observation(self, now_local: datetime) -> ForecastHour | None:
-        '''
-        Fetches the most recent FMI surface observation within the current hour
-        and returns it as a ForecastHour.  Returns None when the query fails or
-        produces no usable data — and for coordinates, which this stored query does
-        not take (FMI answers it with nothing); the banner then uses the forecast's
-        current hour, as it does when no observation arrives.
-        Arguments:
-            now_local (datetime): Timezone-aware current local time.
-        '''
-        if "place" not in self.__where:
-            return None
-        current_hour_start = now_local.replace(minute=0, second=0, microsecond=0)
-        # Request the full current-hour window; the API only returns data that
-        # already exists, so requesting up to the next hour is safe.
-        end_time = current_hour_start + timedelta(hours=1)
-
-        start_str = current_hour_start.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
-        end_str = end_time.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
-
-        # Stored query for 10-minute surface weather observations.
-        data = await self.__download_stored_query(
-            query_id="fmi::observations::weather::multipointcoverage",
-            params={
-                "starttime": start_str,
-                "endtime": end_str,
-                **self.__where,
-            },
-            label="observation",
-        )
-
-        if not data or not data.data:
-            return None
-
-        def _has_value(entry) -> bool:
-            '''
-            Returns True when an FMI field entry holds a finite numeric value.
-            fmiopendata leaves the entry dict in place but stores NaN (or None)
-            for slots it has not measured, so presence of the entry alone is not
-            enough — the value itself must be checked.
-            Arguments:
-                entry: A {"value": ..., "units": ...} mapping, or None when the
-                    field is absent for this slot.
-            '''
-            if entry is None:
-                return False
-            value = entry.get("value")
-            if value is None:
-                return False
-            try:
-                return not math.isnan(float(value))
-            except (TypeError, ValueError):
-                return False
-
-        # fmiopendata's multipointcoverage pads the most recent 10-minute slot(s)
-        # with NaN — the coverage grid reaches the query end even before an
-        # observation exists — so max(keys) can be an all-NaN slot, which
-        # get_value() would turn into zeros on the banner. Walk the timestamps
-        # newest→oldest and use the most recent slot that actually carries a
-        # valid air-temperature reading.
-        normalized: dict = {}
-        for timestamp in sorted(data.data.keys(), reverse=True):
-            raw_location_data = next(iter(data.data[timestamp].values()))
-            candidate: dict = {}
-            for obs_key, forecast_key in WeatherService._OBS_FIELD_MAP.items():
-                entry = raw_location_data.get(obs_key)
-                if _has_value(entry):
-                    candidate[forecast_key] = entry
-            # A valid temperature signals a slot with real measurements.
-            if "Air temperature" in candidate:
-                normalized = candidate
-                break
-
-        if not normalized:
-            logger.debug(
-                "FMI observation returned no usable fields for %s", describe(self.__where)
-            )
-            return None
-
-        # ForecastHour expects a UTC-naive datetime; convert from local timezone
-        current_hour_utc = current_hour_start.astimezone(timezone.utc).replace(tzinfo=None)
-        return ForecastHour(current_hour_utc, normalized, self.__zone_info)
-
-    async def __fetch_forecast(self, now_local: datetime) -> list[ForecastHour]:
-        '''
-        Fetches harmonie hourly forecasts starting at the CURRENT hour. The model
-        retains the current hour (and several past hours), so its current-hour row
-        is used to backfill the banner's precipitation + cloud cover — fields the
-        observation station does not report — while the following rows are the
-        future forecast cards. The dashboard shows the current hour plus the next
-        five forecast hours; we request a couple of extra hours as margin. The
-        frontend displays the nearest five and ignores the surplus. Returns an
-        empty list on failure.
-        Arguments:
-            now_local (datetime): Timezone-aware current local time.
-        '''
-        current_hour = now_local.replace(minute=0, second=0, microsecond=0)
-        # Inclusive range with margin: current_hour .. current_hour+7 == up to 8
-        # points (1 current-hour backfill row + future card hours with spare).
-        end_time = current_hour + timedelta(hours=7)
-
-        start_str = current_hour.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
-        end_str = end_time.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
-
-        # The default fields' "PrecipitationAmount" is the rain ACCUMULATED since
-        # the model run started (it only ever grows), not the hour's. The hour's is
-        # "Precipitation1h", fetched alongside and put in its place.
-        params = {"starttime": start_str, "endtime": end_str, **self.__where}
-        data, hourly_rain = await asyncio.gather(
-            self.__download_stored_query(
-                query_id=_HARMONIE_QUERY, params=params, label="forecast"
-            ),
-            self.__download_stored_query(
-                query_id=_HARMONIE_QUERY,
-                params={**params, "parameters": "Precipitation1h"},
-                label="forecast hourly rain",
-            ),
-        )
-
-        if not data or not data.data:
-            return []
-
-        # One parameter asked for, so each row's only field is the hour's rain.
-        rain_by_time = {}
-        if hourly_rain and hourly_rain.data:
-            for time, value in hourly_rain.data.items():
-                fields = next(iter(value.values()), {})
-                if fields:
-                    rain_by_time[time] = next(iter(fields.values()))
-
-        # Sort by timestamp so the list is strictly chronological: the frontend
-        # shows the first five forecast rows as "the nearest five", which only
-        # holds if the rows are time-ordered (fmiopendata is normally ordered,
-        # but sorting makes the guarantee independent of its iteration order).
-        # Without the hour's rain an hour goes out with none rather than with the
-        # accumulated amount.
-        hours = []
-        for time, value in sorted(data.data.items()):
-            fields = dict(next(iter(value.values())))
-            fields.pop("Precipitation amount", None)
-            if time in rain_by_time:
-                fields["Precipitation amount"] = rain_by_time[time]
-            hours.append(ForecastHour(time, fields, self.__zone_info))
-        return hours
-
-    async def __get_stream_data(self, forecasts: list) -> list[bytes]:
-        '''
-        Serialises a list of ForecastHour objects into the binary wire format
-        expected by the frontend weather handler.
-        Arguments:
-            forecasts (list[ForecastHour]): Ordered list starting with the
-                current-hour observation followed by future forecast hours.
-        '''
-        data = []
-
-        for forecast in forecasts:
-            forecast_data = bytes()
-            forecast_data += struct.pack("!B", protocol.FORECAST_TIME)
-            forecast_data += struct.pack("!B", forecast.get_time())
-
-            temp = max(-128, min(127, round(forecast.get_value("Air temperature"))))
-            forecast_data += struct.pack("!B", protocol.FORECAST_TEMPERATURE)
-            forecast_data += struct.pack("!b", temp)
-
-            wind = max(0, min(255, round(forecast.get_value("Wind speed"))))
-            forecast_data += struct.pack("!B", protocol.FORECAST_WIND_SPEED)
-            forecast_data += struct.pack("!B", wind)
-
-            precip = max(0, min(255, round(forecast.get_value("Precipitation amount"))))
-            forecast_data += struct.pack("!B", protocol.FORECAST_PRECIPITATION)
-            forecast_data += struct.pack("!B", precip)
-
-            cloud = max(0, min(255, round(forecast.get_value("Total cloud cover"))))
-            forecast_data += struct.pack("!B", protocol.FORECAST_TOTAL_CLOUD_COVER)
-            forecast_data += struct.pack("!B", cloud)
-
-            data.append(forecast_data)
-
-        return data

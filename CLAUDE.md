@@ -64,7 +64,7 @@ backend/                          # ★ orchestration, service contracts, .env +
       spotify_device_service.py   # Device identification — scan playback, confirm, write spotifyDeviceId (0xA5-0xAB)
       spotify_oauth.py            # The one canonical SPOTIFY_SCOPE, the grant record + NonInteractiveSpotifyOAuth
     weather_service/              # ★
-      weather_service.py          # FMI WFS polling, forecast serialization, 15-min refresh
+      weather_service.py          # WeatherService — the 10-min refresh of the Weather view's document, its cache + health
       weather_view.py             # The Weather view's document (WEATHER_VIEW): stations, ~10 days, sun/moon, warnings
     trip_service/
       trip.py, trip_loader.py     # On-demand trip detection from stored telemetry (the Trips view)
@@ -318,8 +318,6 @@ second tap on the button → UPDATE_APPLY{channel, commit}
 
 **Weather refresh**
 ```
-APScheduler (15 min) → WeatherService.__update_forecast → FMI fetch (executor)
-  → serialize → protocol.frame(WEATHER_FORECAST, …) → Server.broadcast
 APScheduler (10 min) → WeatherService.__update_view → WeatherViewBuilder.build (FMI timeseries
   JSON + CAP warnings, parts in parallel) → protocol.frame(WEATHER_VIEW, JSON) → Server.broadcast
   → Weather.view (frontend_v2) → the Weather view + the dashboard's hourly panel
@@ -510,7 +508,8 @@ in place of its blank white tiles (#59) — plus map tiles a Qt Location bug lef
 again (`BasemapSwitch`), with the shared tile cache at 300 MiB, room for EOX's tiles beside MML's —
 and Qt 6.12, with the Trips map's route drawn by Canvas2D on the GPU behind an OpenGL 3 guard
 (`App.gpuCanvas`, `frontend_v2/core/CLAUDE.md`) — plus the Qt Widgets `frontend/` removed from the
-source tree (#65), `frontend_v2` the one frontend.
+source tree (#65), `frontend_v2` the one frontend, and with it the backend's `WEATHER_FORECAST` frame
+and its FMI WFS fetch, which only it read.
 When you land a change that touches documented behaviour, update this line.
 
 ### 7.8 Keeping the code clean

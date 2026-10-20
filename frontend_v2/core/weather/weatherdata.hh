@@ -11,7 +11,6 @@ class ServerClient;
  * WeatherData — the `Weather` singleton: the backend's WEATHER_VIEW document, read by the
  * Weather view and the dashboard panel that reuses its hourly card. Carried as the backend's
  * JSON, opaque here like SystemStatus's, so a field the view gains needs no C++ change.
- * WEATHER_FORECAST is the frozen frontend's and is ignored.
  */
 class WeatherData : public QObject {
     Q_OBJECT

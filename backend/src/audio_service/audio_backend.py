@@ -26,8 +26,8 @@ from ..utils import process
 logger = logging.getLogger("audio_service.audio_backend")
 
 # Every external call is bounded — the lesson weather_service/CLAUDE.md records
-# about fmiopendata, whose one untimed call cost 16 days of weather; pactl
-# against a half-dead server blocks on its socket the same way.
+# about FMI, where one untimed call cost 16 days of weather; pactl against a
+# half-dead server blocks on its socket the same way.
 _TIMEOUT_SECONDS = 2.0
 
 
