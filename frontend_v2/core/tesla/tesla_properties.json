@@ -1,5 +1,5 @@
 {
-    "_comment": "Single source of truth for the Tesla telemetry registry. Mirrors the backend config.json 'tesla data' entries and frontend/src/tesla/vehicle.cpp. streamId = the 2-byte id sent in MSG_STREAM (0x04). type: double|string|bool|location (protocol value_type 0|1|2|3). After editing, regenerate with: cmake --build <dir> --target regen_tesla_data (or run generate_tesladata.py).",
+    "_comment": "Single source of truth for the Tesla telemetry registry. Mirrors the backend config.json 'tesla data' entries. streamId = the 2-byte id sent in MSG_STREAM (0x04). type: double|string|bool|location (protocol value_type 0|1|2|3). After editing, regenerate with: cmake --build <dir> --target regen_tesla_data (or run generate_tesladata.py).",
     "properties": [
         { "name": "ACChargingPower", "streamId": 0, "type": "double", "unit": "W" },
         { "name": "BatteryLevel", "streamId": 1, "type": "double", "unit": "%" },

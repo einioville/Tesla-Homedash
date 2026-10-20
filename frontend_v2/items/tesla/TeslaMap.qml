@@ -600,10 +600,9 @@ Item {
         smooth: true
     }
 
-    // Rounded corners without masking the live map. The Widgets frontend clipped
-    // the map with a rounded-rect mask, but routing this constantly-repainting,
-    // interactive Map through a layer/MultiEffect mask would force a full-surface
-    // FBO texture copy every frame. Instead we paint what lies under the card back
+    // Rounded corners without masking the live map: routing this
+    // constantly-repainting, interactive Map through a layer/MultiEffect mask
+    // would force a full-surface FBO texture copy every frame. Instead we paint what lies under the card back
     // over the four corners: an odd-even Shape fills everything EXCEPT a rounded
     // interior, leaving only the corner slivers covered, filled from `underCard`.
     // A solid colour would show as dark squares on the moving backdrop. It costs

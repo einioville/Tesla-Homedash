@@ -61,7 +61,7 @@ QtObject {
     readonly property color homeIndicator: "#ffffffff"
     readonly property color viewLabel: "#e8edf5"
 
-    // Per-view backgrounds; the dashboard mirrors the Widgets frontend's #121212 base.
+    // Per-view backgrounds.
     readonly property color dashboardBackground: "#121212"
     readonly property color tripBackground: "#121212"
     readonly property color mediaBackground: "#121212"

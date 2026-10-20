@@ -28,9 +28,7 @@ protocol on TLS 1.3** (port 6969, password login first) to a **Qt 6 frontend**. 
 out to several frontends at once. Beyond the live dashboard there are History, Trips, Charging
 (myenergi Zappi + Nord Pool spot price) and Options (*Asetukset*) views.
 
-There are two frontends. **`frontend_v2/`** (Qt Quick/QML over a C++20 core) is the live target and
-gets all feature work. **`frontend/`** (Qt Widgets) is the frozen predecessor — kept building,
-rarely changed.
+The frontend is **`frontend_v2/`**: Qt Quick/QML over a C++20 core.
 
 ## 2. Project structure
 
@@ -110,7 +108,7 @@ backend/                          # ★ orchestration, service contracts, .env +
       timeline.py                 # collapse_transitions() + segment(): trips and charging sessions
       logger_configurator.py      # Shared stdout logging setup
 
-frontend_v2/                      # ★ Qt Quick/QML frontend — the live target (Main.qml, main.cpp)
+frontend_v2/                      # ★ the Qt Quick/QML frontend (Main.qml, main.cpp)
   app/                            # Theme.qml (design tokens + settings façade), ViewController.qml, Format.js
   config/                         # settings.json (bundled Options-view schema), notifications.json
   core/                           # ★ C++: ServerClient, protocol.hh, Logger, AppConfig, Settings + QML singletons
@@ -123,7 +121,6 @@ frontend_v2/                      # ★ Qt Quick/QML frontend — the live targe
   views/                          # one screen per view on the switcher
   resources/                      # fonts, icons, styles, Luna, shaders (ShaderEffect, compiled by qt_add_shaders)
 
-frontend/                         # ★ frozen Qt Widgets frontend (file layout in its CLAUDE.md)
 scripts/                          # ★ build-frontend.{sh,ps1,cmd}; Windows-only new-/finish-session
 docs/                             # wsl-dev-environment.md (WSL2 bootstrap), images/ (README screenshots)
 .claude/                          # settings.json (permissions + edit hook), hooks/check-edit.py (§7.3)
@@ -158,8 +155,7 @@ The backend is an asyncio app managed with [uv](https://docs.astral.sh/uv/). Run
 | `frontend_v2` binary | `frontend_v2\build\appfrontend_v2.exe` | `frontend_v2/build/appfrontend_v2` |
 
 For **`frontend_v2`**, use the build script for your platform (see §8) — each finds the Qt kit and
-runs the configure + build in one command (Ninja when installed), with compiler-cache reuse. The
-frozen `frontend/` has its own commands in `frontend/CLAUDE.md`.
+runs the configure + build in one command (Ninja when installed), with compiler-cache reuse.
 
 > **WSL2 setup** — a full bootstrap guide (system packages, Qt, InfluxDB, spotifyd, WSLg
 > troubleshooting) lives in **`docs/wsl-dev-environment.md`**. Two things bite hardest: Qt needs the
@@ -226,8 +222,8 @@ snapshot.
 2. `frontend_v2/core/tesla/tesla_properties.json` — the matching registry entry, then regenerate
    `tesladata_gen.{hh,cpp}` with the `regen_tesla_data` CMake target. The generated files are
    committed; never edit them by hand.
-3. The frozen `frontend/` only if it should show the field too — steps in `frontend/CLAUDE.md`.
-   `vehicle_data_property.py` needs no change unless a new value type is introduced.
+
+`vehicle_data_property.py` needs no change unless a new value type is introduced.
 
 **Adding a command (F→B)**:
 1. Add the type constant in `utils/protocol.py`.
@@ -251,27 +247,23 @@ invariants are in its directory's `CLAUDE.md`.
 
 In `frontend_v2`, `core/serverclient` reassembles frames and hands each packet to a per-domain C++
 data model or singleton that QML binds to, and user-tunable design tokens flow through
-`app/Theme.qml` — see `frontend_v2/CLAUDE.md`. The frozen `frontend/` routes packets through Qt
-Widgets datahandlers instead (`frontend/CLAUDE.md`).
+`app/Theme.qml` — see `frontend_v2/CLAUDE.md`.
 
 ## 6. Event flows
-
-Frontend class names in the telemetry, control and weather flows are the frozen `frontend/`'s; in
-`frontend_v2` the same packets land in the `core/` data models.
 
 **Live telemetry → UI**
 ```
 Teslemetry stream → TelemetryHandler → Vehicle.on_telemetry_event → Vehicle.__update
   → VehicleDataProperty.update (formula) + get_stream_data (serialize)
   → protocol.frame(MSG_STREAM, …) → Server.broadcast → (every client)
-  → ServerClient.onReadyRead → TeslaDataHandler.processStreamData → per-field signal
-  → TeslaDataWidget.updateDataXxx
+  → ServerClient.onReadyRead → packetReceived → TeslaData.onPacket → applyValue
+  → the registry property's NOTIFY signal → QML bindings on the Tesla singleton
   (logged fields are also written via InfluxDBHandler.write_tesla_data)
 ```
 
 **User control (HVAC ± / toggle, media transport)**
 ```
-Widget click → handler builds packet (QDataStream) → ServerClient.onSendMessageRequest → TCP
+QML tap (e.g. Tesla.switchClimate()) → protocol::frame(…) → ServerClient.sendPacket → TLS
   → Server.__read_loop → registered handler → Vehicle / MediaManager method
   → (effect streams back over MSG_STREAM / MEDIA_* and updates the UI)
 ```
@@ -328,7 +320,6 @@ second tap on the button → UPDATE_APPLY{channel, commit}
 ```
 APScheduler (15 min) → WeatherService.__update_forecast → FMI fetch (executor)
   → serialize → protocol.frame(WEATHER_FORECAST, …) → Server.broadcast
-  → WeatherDataHandler.onMainForecastUpdate → MainWeather → banner + 5 cards
 APScheduler (10 min) → WeatherService.__update_view → WeatherViewBuilder.build (FMI timeseries
   JSON + CAP warnings, parts in parallel) → protocol.frame(WEATHER_VIEW, JSON) → Server.broadcast
   → Weather.view (frontend_v2) → the Weather view + the dashboard's hourly panel
@@ -344,13 +335,11 @@ SpotifyPlayer poll → _update_state (under _state_lock) → device == target?
 ## 7. Conventions
 
 ### 7.1 Style
-- **Indentation**: 4 spaces everywhere (Python, C++, QML, QSS).
+- **Indentation**: 4 spaces everywhere (Python, C++, QML).
 - **Python**: PEP 8 — `snake_case` functions/modules, `PascalCase` classes; `async`/`await`
   throughout (the whole backend is asyncio).
 - **C++**: C++20; `.hh` headers / `.cpp` sources; `PascalCase` types, `camelCase` methods/members;
   Qt slot/signal naming (`onXxxUpdate`, `processXxx`).
-- **QSS**: scoped per widget in `frontend/resources/styles/`, selected by object name
-  (`#ClimateController`). Use the `:/resources/...` resource prefix (note the leading slash).
 - **UI language**: widget labels are **Finnish** (e.g. "Nopeus", "Akun Varaus", "Ilmastointi",
   "Sisä", "Ulko").
 - **Binary code**: always network byte order — `struct.pack("!...")` / `QDataStream::BigEndian`.
@@ -520,7 +509,8 @@ the home marked on every map (#54), and EOX's imagery wherever a map looks past 
 in place of its blank white tiles (#59) — plus map tiles a Qt Location bug left blank requested
 again (`BasemapSwitch`), with the shared tile cache at 300 MiB, room for EOX's tiles beside MML's —
 and Qt 6.12, with the Trips map's route drawn by Canvas2D on the GPU behind an OpenGL 3 guard
-(`App.gpuCanvas`, `frontend_v2/core/CLAUDE.md`).
+(`App.gpuCanvas`, `frontend_v2/core/CLAUDE.md`) — plus the Qt Widgets `frontend/` removed from the
+source tree (#65), `frontend_v2` the one frontend.
 When you land a change that touches documented behaviour, update this line.
 
 ### 7.8 Keeping the code clean
