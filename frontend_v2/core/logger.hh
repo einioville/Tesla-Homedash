@@ -5,8 +5,7 @@
 
 /**
  * Logger — frontend_v2 mirror of the Python backend's logger configurator
- * (backend/src/utils/logger_configurator.py) and the original Widgets
- * frontend's logger (frontend/src/utils/logger.{hh,cpp}).
+ * (backend/src/utils/logger_configurator.py).
  *
  * Same output format ("LEVEL | YYYY-MM-DD | HH:MM:SS | source | message"),
  * same five severity levels. The destinations are stdout (→ systemd/journald on

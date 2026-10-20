@@ -1,9 +1,8 @@
-# `frontend_v2/` — the QML frontend (live target)
+# `frontend_v2/` — the QML frontend
 
-The production dashboard: Qt 6.12 Quick/QML over a C++20 core, built with
-`scripts/build-frontend.sh` / `.ps1` (root `CLAUDE.md` §3.2). All feature work happens here;
-`frontend/` is the frozen Widgets predecessor. The root `CLAUDE.md` is always loaded alongside this
-file, so nothing here repeats it.
+The dashboard: Qt 6.12 Quick/QML over a C++20 core, built with `scripts/build-frontend.sh` / `.ps1`
+(root `CLAUDE.md` §3.2). The root `CLAUDE.md` is always loaded alongside this file, so nothing here
+repeats it.
 
 ## Layout
 

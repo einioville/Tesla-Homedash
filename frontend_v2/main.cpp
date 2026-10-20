@@ -54,7 +54,7 @@ int main(int argc, char* argv[]) {
     static const Logger logger = Logger::get("app");
 
     // Load Gotham Rounded Medium and make it the app-wide default so Qt Quick
-    // Text picks it up (mirrors the Widgets frontend's main.cpp).
+    // Text picks it up.
     const int fontId = QFontDatabase::addApplicationFont(
         QStringLiteral(":/resources/fonts/gothamrnd_medium.otf"));
     if (fontId != -1) {

@@ -10,14 +10,10 @@
 > architecture (x86-64 vs aarch64) and the touchscreen.
 
 > [!IMPORTANT]
-> **This document supersedes the README's Setup chapter for development.** That chapter
-> was written for the original Qt **Widgets** frontend in `frontend/`, which is frozen
-> and end-of-life. Its Qt module list (`Widgets`, `QuickWidgets`), its build commands
-> (`cmake -S frontend -B frontend/builddir`, producing `gui`) and its run instructions
-> all describe the wrong target. **All current work is `frontend_v2/`** — a QML
-> application with a different module set and a different binary. Everything below is
-> written against `frontend_v2` and the services as they exist on this branch, and is
-> self-contained: you should not need to cross-reference the README to follow it.
+> **For development, this document stands in for the README's Setup chapter**, which is
+> written for the Raspberry Pi deployment. Everything below is written against
+> `frontend_v2` and the services as they exist on this branch, and is self-contained: you
+> should not need to cross-reference the README to follow it.
 
 ---
 
@@ -180,8 +176,7 @@ project also needs **Qt Graphs**, which is not in Ubuntu's archives at all.
 
 ### 4.1 The modules `frontend_v2` actually needs
 
-Taken from the `find_package` line in `frontend_v2/CMakeLists.txt` — note this differs
-from the README's list, which describes the old Widgets frontend:
+Taken from the `find_package` line in `frontend_v2/CMakeLists.txt`:
 
 ```cmake
 find_package(Qt6 REQUIRED COMPONENTS
@@ -203,9 +198,6 @@ find_package(Qt6 REQUIRED COMPONENTS
 | `ShaderTools` | `-m qtshadertools` (the online installer adds it with Qt Graphs) | `qt_add_shaders`, the climate wave's shaders (`resources/shaders/`) |
 | `CanvasPainter` | `-m qtcanvaspainter` | the Trips map's route, drawn with Canvas2D (`items/trip/TripMap.qml`) |
 | (none) | `-m qtmultimedia` | not a CMake component, but the Virtual Keyboard plugin links it: without it the keyboard fails to load at run time |
-
-`Widgets` and `QuickWidgets` are **not** needed — those belong to the frozen
-`frontend/`. If you ever build that one too, add them.
 
 ### 4.2 Recommended: `aqtinstall` (scripted, no Qt account)
 
@@ -595,8 +587,6 @@ Not blockers, listed so they don't surprise you:
 | `scripts/new-session.ps1`, `finish-session.ps1` | unusable | port only if you actually use worktrees — per CLAUDE.md §8 the default is the main checkout |
 | `.claude/hooks/check-edit.py` | both checks work | fixed — finds `~/Qt/*/gcc_64/bin/qmllint` (§9.2) |
 | `CLAUDE.md` §3.2, §8 | describe MSVC / Ninja / PowerShell only | update once the Linux flow is proven (§7.6 requires it) |
-| `README.md` Setup chapter | describes the **frozen Widgets `frontend/`** | out of date for development; this document replaces it |
-| `frontend/` (Qt Widgets) | builds on Linux, but frozen | ignore — all work is `frontend_v2` |
 
 ---
 

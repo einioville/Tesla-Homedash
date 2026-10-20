@@ -1,7 +1,7 @@
 # `utils/` — config, protocol, logging
 
 - **`config_parser.py`**: `Config` validates + exposes `config.json`; `get_env` loads `.env` once.
-- **`protocol.py`**: every message-type byte, weather sub-id, `MAX_MSG_SIZE`, and `frame()`. The
+- **`protocol.py`**: every message-type byte, sub-id, `MAX_MSG_SIZE`, and `frame()`. The
   single source of truth — add new constants here, never on a class. Every JSON-bodied code goes
   through `json_frame()` (a `status(1B) + len(4B) + UTF-8 JSON` reply, raw UTF-8) and
   `parse_json_body()` (a `len(4B) + UTF-8 JSON` object request; raises `ValueError` with the
@@ -68,7 +68,6 @@ with inbound messages capped at `MAX_PREAUTH_MSG_SIZE` (4 KB) — `../auth_servi
 | `0x1E` | MEDIA_STREAM_TYPE | B→F | `media_type(1B)`: 0x01=radio, 0x02=spotify |
 | `0x1F` | MEDIA_SPECTRUM_WATCH | F→B | `on(1B)` — 1 while the display shows the spectrum, 0 when it stops; sent again after a reconnect (`../audio_service/CLAUDE.md`) |
 | `0x20` | MEDIA_SPECTRUM | B→F | `count(1B) + count × level(1B, 0–255)`, low to high frequency, ~30 a second to each watching display only, one flat frame when the sound stops |
-| `0x30` | WEATHER_FORECAST | B→F | repeated `sub_id(1B) + value` |
 | `0x36` | WEATHER_VIEW | B→F | `status(1B, always OK) + len(4B) + JSON` — `{meta, now, hourly, daily, astro, warnings}`, the Weather view's document (`../weather_service/CLAUDE.md`); **broadcast** every 10 min and in the on-connect snapshot |
 | `0x60` | TESLA_SWITCH_CLIMATE | F→B | (empty) |
 | `0x61` | TESLA_MINUS_TEMP | F→B | (empty) |
@@ -165,11 +164,8 @@ paths into `config.json` (`myenergi.pollIntervalSeconds`). `CONFIG_SET_RESULT.ap
 `hook` (a service re-snapshotted), `restart` (written but only live after a restart) or
 `unchanged` (the value already matched, so nothing was written or broadcast).
 
-**Weather sub-IDs**: `0x31` temperature `int8` °C; `0x32` wind `uint8` m/s;
-`0x33` precipitation `uint8` mm; `0x34` cloud cover `uint8` %; `0x35` hour `uint8`.
-
 **Charger (myenergi) protocol** — the Charging view. `CHARGER_STREAM` (`0x50`) is a **broadcast** of
-the Zappi's live state, a weather-style sequence of `sub_id(1B) + value` pairs: `0x51` status
+the Zappi's live state, a sequence of `sub_id(1B) + value` pairs: `0x51` status
 `uint8`, `0x52` plug `uint8`, `0x53` mode `uint8`, `0x54` charge power `float64` W, `0x55` session
 energy `float64` kWh, `0x56` supply voltage `uint16` V, `0x57` grid power `float64` W
 (+import/−export), `0x58` generated power `float64` W, `0x59` frequency `float64` Hz, `0x5A` L1

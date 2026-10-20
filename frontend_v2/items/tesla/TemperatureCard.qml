@@ -19,8 +19,7 @@ Column {
 
     // Round to one decimal so a raw double never stringifies to IEEE-754 noise
     // like "20.700000000000003", which would overflow the fixed-width field
-    // below. Whole degrees drop the trailing ".0", as the Widgets frontend's
-    // QString::number readout does (e.g. "21 °C", "21.5 °C").
+    // below. Whole degrees drop the trailing ".0" (e.g. "21 °C", "21.5 °C").
     function display(v) {
         var r = Math.round(v * 10) / 10
         return Number.isInteger(r) ? r.toFixed(0) : r.toFixed(1)

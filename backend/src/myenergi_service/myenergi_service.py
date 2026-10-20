@@ -139,7 +139,7 @@ class MyEnergiService:
         self.__consecutive_failures = 0
 
         # Most recent framed CHARGER_STREAM packet, replayed verbatim to a newly
-        # connecting client (same idea as WeatherService.__last_forecast).
+        # connecting client (same idea as WeatherService.__last_view).
         self.__last_frame: bytes | None = None
         # (charge_added_kwh, when) from the previous poll, used to derive an
         # instantaneous charge power for the live display (pymyenergi exposes no direct
@@ -396,11 +396,10 @@ class MyEnergiService:
     ) -> bytes:
         '''
         Serialises the Zappi's live state into a CHARGER_STREAM frame: a sequence of
-        (sub_id + value) pairs (the same extensible shape as WEATHER_FORECAST). The
-        fixed-width readings pack as their zero/UNKNOWN code when missing so the layout
-        is stable; the final CHARGER_RAW_JSON sub-id carries the complete raw myenergi
-        payload (length-prefixed) so every un-modelled field is still available frontend-
-        side without a protocol change.
+        (sub_id + value) pairs. The fixed-width readings pack as their zero/UNKNOWN code
+        when missing so the layout is stable; the final CHARGER_RAW_JSON sub-id carries
+        the complete raw myenergi payload (length-prefixed) so every un-modelled field
+        is still available frontend-side without a protocol change.
         Arguments:
             status / plug / mode: pymyenergi enum strings (mapped to byte codes).
             power (float): Derived charge power (W).

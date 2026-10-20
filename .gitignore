@@ -175,9 +175,8 @@ response_exmpl.txt
 # Local runtime config (contains device IDs and absolute paths)
 config.json
 
-# Local 3D model assets + design blueprints (large binaries, not for the repo)
+# Local design blueprint (a large binary, not for the repo)
 docs/images/model_3_bluaprint.png
-frontend/resources/models/
 
 # High-res Luna source art — kept locally as the master for the downscaled sprite,
 # but too large (~1 MB) to ship in the repo. The runtime uses stationary.png.

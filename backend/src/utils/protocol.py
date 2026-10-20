@@ -34,18 +34,8 @@ MEDIA_SPECTRUM = 0x20        # B->F: count(1B) + count*level(1B, 0-255), low to 
 MEDIA_TYPE_RADIO = 0x01
 MEDIA_TYPE_SPOTIFY = 0x02
 
-# Weather forecast frame and sub-field IDs
-WEATHER_FORECAST = 0x30
-FORECAST_TEMPERATURE = 0x31
-FORECAST_WIND_SPEED = 0x32
-FORECAST_PRECIPITATION = 0x33
-FORECAST_TOTAL_CLOUD_COVER = 0x34
-FORECAST_TIME = 0x35
-
 # The Weather view's whole document (B->F, broadcast every 10 min and on connect):
 # status(1B, always OK) + len(4B) + UTF-8 JSON {meta, now, hourly, daily, astro, warnings}.
-# A message of its own, not a WEATHER_FORECAST sub-id: the forecast frame is bytes per
-# value and stays as it is for the frozen frontend.
 WEATHER_VIEW = 0x36
 
 # Tesla command bytes (frontend -> backend)

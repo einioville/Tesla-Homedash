@@ -4,9 +4,7 @@ import frontend_v2
 // The dashboard: a 10×16 grid (10px margins, 10px gaps) holding the map, two
 // telemetry lists, the media card, the weather panel and the climate panel, over
 // a backdrop in the playing cover's colours (MediaBackdrop) that the climate
-// switch's wave runs across (ClimateWave). Cell
-// geometry is computed as the Widgets frontend's MainWindow QGridLayout does it,
-// so the six cards sit in the same positions on the fixed 1280×800 surface.
+// switch's wave runs across (ClimateWave).
 Rectangle {
     id: view
 

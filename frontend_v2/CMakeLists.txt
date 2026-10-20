@@ -310,10 +310,10 @@ if(FRONTEND_V2_QML_PREVIEW)
     target_compile_definitions(appfrontend_v2 PRIVATE QT_QML_DEBUG)
 endif()
 
-# Static resources (font + icons) exposed at :/resources/... — the same paths
-# the Widgets frontend uses, so QML references qrc:/resources/icons/... and the
-# application font (main.cpp) loads identically. Kept out of the QML module so
-# the prefix stays /resources rather than /qt/qml/frontend_v2.
+# Static resources (font + icons) exposed at :/resources/..., so QML references
+# qrc:/resources/icons/... and main.cpp loads the application font from there.
+# Kept out of the QML module so the prefix stays /resources rather than
+# /qt/qml/frontend_v2.
 #
 # FMI's SmartSymbol icon set (MIT, see its LICENCE.md); the file names are the
 # SmartSymbol values.
