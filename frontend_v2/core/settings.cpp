@@ -15,6 +15,7 @@
 #include <QtGlobal>
 #include <utility>
 
+#include "appconfig.hh"
 #include "dotenv.hh"
 #include "logger.hh"
 #include "protocol.hh"
@@ -646,6 +647,8 @@ void Settings::invokeAction(const QString &key) {
         requestBackendRestart();
     } else if (key == QLatin1String("rebootHost")) {
         requestHostReboot();
+    } else if (key == QLatin1String("clearMapCache")) {
+        clearMapCache();
     } else {
         // Not ours: something in QML owns this one. Nothing warns here — a key
         // with no listener at all is a schema mistake, not a runtime error, and
@@ -653,6 +656,20 @@ void Settings::invokeAction(const QString &key) {
         logger.info(QStringLiteral("Settings action delegated to the view: %1").arg(key));
         emit actionRequested(key);
     }
+}
+
+// Each map reads the tile folder once, when its plugin starts, and keeps the tiles it has shown
+// in memory, so a running app would go on showing the old ones: the clear restarts it.
+void Settings::clearMapCache() {
+    const QString dir = AppConfig::mapTileCacheDir();
+    if (!QDir(dir).removeRecursively()) {
+        logger.warning(QStringLiteral("Could not clear the map tile cache in %1").arg(dir));
+        emit writeFailed(QStringLiteral("clearMapCache"),
+                         QStringLiteral("Välimuistin tyhjennys epäonnistui"));
+        return;
+    }
+    logger.info(QStringLiteral("Cleared the map tile cache in %1").arg(dir));
+    restartApp();
 }
 
 void Settings::requestBackendRestart() {

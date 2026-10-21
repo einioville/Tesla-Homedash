@@ -137,6 +137,7 @@ signals:
     void actionRequested(const QString &key);
 
 private:
+    void clearMapCache();
     void migrateLegacyStorage();
     void loadLocalSchema();
     void loadSavedValues();

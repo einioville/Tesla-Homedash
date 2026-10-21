@@ -3,6 +3,7 @@
 #include <QOffscreenSurface>
 #include <QOpenGLContext>
 #include <QQuickWindow>
+#include <QStandardPaths>
 #include <QStringList>
 #include <QSurfaceFormat>
 #include <QVariant>
@@ -145,4 +146,11 @@ AppConfig::AppConfig(const Settings* settings, QObject* parent) : QObject(parent
     } else {
         m_gpuCanvas = requestGpuCanvasFormat();
     }
+}
+
+// Qt's own default folder for the OSM plugin's tiles (QAbstractGeoTileCache::
+// baseLocationCacheDirectory() + "osm"), named here so the maps and the cache clear use one path.
+QString AppConfig::mapTileCacheDir() {
+    return QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation) +
+           QStringLiteral("/QtLocation/5.8/tiles/osm");
 }

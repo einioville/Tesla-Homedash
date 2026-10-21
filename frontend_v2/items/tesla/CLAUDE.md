@@ -53,7 +53,8 @@ below).
 `Theme.mapSensitivity` also reaches `items/trip/TripMap.qml`, which carries the same
 pan/pinch/wheel handlers, and the Weather view's radar map, which carries them too and also returns
 home after `mapFollowResumeSec` (`items/weather/WeatherRadarMap.qml`). The basemap
-is not a setting either (*The basemap*, below). Two facts verified against the Qt 6.11.1 sources
+is not a setting either (*The basemap*, below); the card's one C++ side is its cache clear, an
+action described there. Two facts verified against the Qt 6.11.1 sources
 on disk, both load-bearing:
 - **`Map.bearing` works here only because the OSM plugin opts in.** The docs say changing it on
   a plugin that does not support bearing "will have no effect" — silently — and
@@ -119,10 +120,21 @@ empty without one) and **EOX's Sentinel-2 cloudless as the satellite type**, fro
 zoom 18 at most). The plugin looks for every built-in type's file there; the six missing ones fall
 back to Qt's built-in servers (openstreetmap.org and others), so those types stay valid but are
 never picked. The two types' tiles are cached apart, since the plugin names a cached tile by its
-type's id, but in one folder (`~/.cache/QtLocation/5.8/tiles/osm`) that every map's cache reads
+type's id, but in one folder (`App.mapTileCacheDir`, below) that every map's cache reads
 whole when it starts and deletes down to its own size, first in name order. EOX's files (type 2)
 sort ahead of MML's (8), so at Qt's default 50 MiB the MML imagery deleted EOX's tiles on every
 start; the plugin sets 300 MiB.
+
+**Qt never expires a cached tile, so the Kartta card has *Tyhjennä karttavälimuisti*** (`clearMapCache`,
+an action that asks for a second tap). A tile is kept under its type's id whatever server sent it,
+so imagery from a type's earlier server stays on screen until it is deleted: a build that served
+EOX as the custom type left blurry 10 m tiles among MML's 0.5 m ones. `Settings::clearMapCache`
+deletes the folder and restarts the app, because each map reads the folder once, when its plugin
+starts, and keeps the tiles it has shown in memory. The folder holds no index to go stale
+(`QGeoFileTileCache` writes its queue files only in code Qt disabled for QTBUG-60581), so an empty
+folder is a clean cache. The folder is `App.mapTileCacheDir` — Qt's own default,
+`~/.cache/QtLocation/5.8/tiles/osm` — passed to the plugin as `osm.mapping.cache.directory`, so the
+maps and the clear name one path.
 
 **A Qt Location bug can leave a tile blank, and `BasemapSwitch` works around it** (report drafted
 upstream; no QTBUG number yet). When the satellite type is chosen before its provider file has

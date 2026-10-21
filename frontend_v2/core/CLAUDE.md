@@ -119,7 +119,9 @@ uses, so the README's `Restart=on-failure` frontend unit relaunches it. It calls
 `QCoreApplication::exit()` rather than `os._exit`'s equivalent: unwinding `exec()` closes the
 socket and flushes cleanly, and unlike the backend there is no journal-traceback problem to
 avoid. On the embedded target this is the ONLY way to restart the dashboard — it runs
-fullscreen with no keyboard — which is also why no bare "quit" is offered.
+fullscreen with no keyboard — which is also why no bare "quit" is offered. The Kartta card's
+`clearMapCache` ends in it too, after deleting the map tile folder (`items/tesla/CLAUDE.md`,
+*The basemap*).
 
 **A JS object written from QML arrives as a `QJSValue`** inside `setValue`'s `QVariant`, which
 `QJsonValue::fromVariant` would turn into null — the home location's write would clear it.

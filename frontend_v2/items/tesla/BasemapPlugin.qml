@@ -22,4 +22,6 @@ Plugin {
     // starts and deletes down to its size, first in name order, and EOX's tiles (type 2) sort
     // ahead of MML's (8): at Qt's 50 MiB, MML's 0.5 m imagery deleted EOX's on every start.
     PluginParameter { name: "osm.mapping.cache.disk.size"; value: 300 * 1024 * 1024 }
+    // Qt never expires a cached tile; the Options view's cache clear deletes this folder.
+    PluginParameter { name: "osm.mapping.cache.directory"; value: App.mapTileCacheDir }
 }

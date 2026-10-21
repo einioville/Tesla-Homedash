@@ -509,7 +509,8 @@ again (`BasemapSwitch`), with the shared tile cache at 300 MiB, room for EOX's t
 and Qt 6.12, with the Trips map's route drawn by Canvas2D on the GPU behind an OpenGL 3 guard
 (`App.gpuCanvas`, `frontend_v2/core/CLAUDE.md`) — plus the Qt Widgets `frontend/` removed from the
 source tree (#65), `frontend_v2` the one frontend, and with it the backend's `WEATHER_FORECAST` frame
-and its FMI WFS fetch, which only it read.
+and its FMI WFS fetch, which only it read — plus the Kartta card's *Tyhjennä karttavälimuisti*,
+which deletes the map tile cache and restarts the app (`items/tesla/CLAUDE.md`).
 When you land a change that touches documented behaviour, update this line.
 
 ### 7.8 Keeping the code clean

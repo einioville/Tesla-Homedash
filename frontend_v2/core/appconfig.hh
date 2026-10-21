@@ -38,7 +38,8 @@ class Settings;
  *                                Options-view setting, which takes precedence.
  *
  * Registered with the QML engine as the singleton `App` (see main.cpp), which
- * is how items/tesla/BasemapPlugin.qml reads mapTilesUrl / mapAttribution.
+ * is how items/tesla/BasemapPlugin.qml reads mapTilesUrl / mapAttribution /
+ * mapTileCacheDir.
  */
 class AppConfig : public QObject {
     Q_OBJECT
@@ -47,6 +48,9 @@ class AppConfig : public QObject {
     // without a key, when the maps show EOX's imagery only.
     Q_PROPERTY(QString mapTilesUrl READ mapTilesUrl CONSTANT)
     Q_PROPERTY(QString mapAttribution READ mapAttribution CONSTANT)
+    // The folder every map caches its tiles in (BasemapPlugin's cache directory), which the
+    // Options view's *Tyhjennä karttavälimuisti* deletes (Settings::clearMapCache).
+    Q_PROPERTY(QString mapTileCacheDir READ mapTileCacheDir CONSTANT)
     // Whether Canvas2D (Qt Canvas Painter) can draw: it has shaders only for OpenGL 3+,
     // OpenGL ES 3+ and the other graphics APIs, and Qt asks OpenGL for 2.0 by default,
     // which Mesa answers with 2.1 — on the dev box and as the Pi's desktop GL — and on
@@ -70,6 +74,7 @@ public:
     // Exposed to QML via the Q_PROPERTYs above.
     const QString& mapTilesUrl() const { return m_mapTilesUrl; }
     const QString& mapAttribution() const { return m_mapAttribution; }
+    static QString mapTileCacheDir();
     bool gpuCanvas() const { return m_gpuCanvas; }
 
 private:

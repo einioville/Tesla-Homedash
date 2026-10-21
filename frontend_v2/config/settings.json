@@ -441,7 +441,7 @@
                 {
                     "id": "map",
                     "label": "Kartta",
-                    "help": "Kartan seuranta, suunta ja eleiden herkkyys.",
+                    "help": "Kartan seuranta, suunta, eleiden herkkyys ja välimuisti.",
                     "settings": [
                         {
                             "key": "mapDefaultZoom",
@@ -540,6 +540,14 @@
                                 "key": "mapFollowMode",
                                 "equals": "warp"
                             }
+                        },
+                        {
+                            "key": "clearMapCache",
+                            "type": "action",
+                            "label": "Tyhjennä karttavälimuisti",
+                            "help": "Poistaa tallennetut karttakuvat, jotka haetaan sitten uudelleen. Sovellus käynnistyy uudelleen.",
+                            "actionLabel": "Tyhjennä",
+                            "apply": "live"
                         },
                         {
                             "key": "mapLayerStats",
