@@ -82,27 +82,19 @@ Item {
                                          : v.toFixed(2) + (root.unit ? " " + root.unit : "")
     }
 
-    // --- Outer glow on the line itself (the bloom) ------------------------------
-    // A soft blurred halo behind the crisp line: a blurred copy of the stepped path (via
-    // MultiEffect — the same glow tech as GlowIcon / GlassPanel), drawn behind the real line.
-    // OFF by default, as it reads too blurry; a tighter look wants a smaller radius/width.
-    // lineGlowRadius is the blur reach in px, lineGlowStrength the overall opacity,
-    // lineGlowWidth the stroke fed into the blur (a wider source → a denser bloom).
-    property bool lineGlowEnabled: false
-    property real lineGlowRadius: 14
-    property real lineGlowStrength: 0.85
-    property real lineGlowWidth: 6
-
     // Horizontal gridline colour. ~25% white so the lines read over the plain dark card, not
     // just where the brighter gradient sits behind them (10% is invisible on the dark areas).
     property color gridLineColor: "#40ffffff"
 
     // Draw-in animation: on every fresh load the line (and its fill glow) is DRAWN from left to
-    // right over ~0.5 s, rather than fading in — revealFrac sweeps 0 → 1 and revealedData exposes
-    // steppedData up to that fraction of the built window. Driven by revealAnim, which reloadFull
-    // restarts; a live tick (advanceLive) deliberately does NOT restart it, so the rolling window
-    // keeps advancing smoothly instead of re-drawing. 1 = fully drawn (the resting state).
+    // right over ~0.5 s, rather than fading in — revealFrac sweeps 0 → 1 and the line and glow
+    // show up to revealX. Driven by revealAnim, which reloadFull restarts; a live tick
+    // (advanceLive) deliberately does NOT restart it, so the rolling window keeps advancing
+    // smoothly instead of re-drawing. 1 = fully drawn (the resting state).
     property real revealFrac: 1
+    // How far the draw-in has got, in data x; Infinity once fully drawn.
+    readonly property real revealX: revealFrac >= 1 ? Infinity
+                                  : buildMinX + revealFrac * (buildMaxX - buildMinX)
 
     // Live "now" marker: when true, a pulsing dot is drawn at the latest value (the rolling
     // right edge). Hosts set it for graphs whose newest point really is "now" — the History
@@ -114,8 +106,8 @@ Item {
     // Cached stepped path in DATA coordinates, rebuilt when the data changes or the zoom
     // window SETTLES (reloadFull / advanceLive / rebuildDecimated) — the same array handed to
     // the LineSeries. It is built from the DECIMATED set for the current window (see below),
-    // not the full raw series, so it stays small (~a few k points). glowPolyline maps it to
-    // plot-local pixels, so panning/zooming within the built window only remaps, never re-steps.
+    // not the full raw series, so it stays small (~a few k points). Panning/zooming within the
+    // built window only remaps it to the new axes, never re-steps it.
     property var steppedData: []
 
     // --- Viewport level-of-detail (LOD) decimation ----------------------------
@@ -161,18 +153,16 @@ Item {
     // sub-minute empty space, independent of the range's total length. clampWidth enforces it.
     property real minZoomSpanMs: Theme.graphMinZoomSpanMs
 
-    // The portion of steppedData revealed so far, left-to-right, driven by revealFrac (the
-    // draw-in). At rest (revealFrac = 1) this IS the whole steppedData; while the load animation
-    // runs it is the prefix up to revealX with an interpolated tip, so the line and its glow
-    // draw in from the left. glowPolyline maps THIS, and onRevealedDataChanged pushes it to the
-    // LineSeries — so line + fill grow together (and any mid-draw rebuild honours the reveal).
+    // The portion of steppedData revealed so far, left-to-right (the draw-in). At rest
+    // (revealFrac = 1) this IS the whole steppedData; while the load animation runs it is the
+    // prefix up to revealX with an interpolated tip, so the line draws in from the left.
+    // onRevealedDataChanged pushes it to the LineSeries (and any mid-draw rebuild honours the
+    // reveal); the glow is uncovered to the same x by glowClip.
     readonly property var revealedData: {
         const path = root.steppedData
         const n = path.length
-        if (n === 0 || root.revealFrac >= 1)
-            return path
-        const cutX = root.buildMinX + root.revealFrac * (root.buildMaxX - root.buildMinX)
-        if (cutX >= path[n - 1].x)
+        const cutX = root.revealX
+        if (n === 0 || cutX >= path[n - 1].x)
             return path
         const out = []
         for (let i = 0; i < n; ++i) {
@@ -192,44 +182,32 @@ Item {
         return out
     }
 
-    // The glow outline in plot-local pixels: the cached stepped points mapped through the
-    // current axis window + plot geometry, bracketed by two floor points so the filled Shape
-    // closes down to the baseline. Rebinds whenever the window (xAxis / yAxis), the plot area
-    // or the data changes, so the glow stays locked under the line through every pan / zoom.
-    readonly property var glowPolyline: {
-        const a = graph.plotArea
-        const src = root.revealedData
-        const n = src.length
-        const xspan = xAxis.max - xAxis.min
-        const yspan = yAxis.max - yAxis.min
-        if (n === 0 || a.width <= 0 || a.height <= 0 || xspan <= 0 || yspan <= 0)
-            return []
-        const w = a.width, h = a.height
-        const x0 = xAxis.min, yTop = yAxis.max
-        // Clamp mapped pixel coordinates to a bounded off-screen range. Points far outside
-        // the visible window (the full-extent endpoints, and any point many view-widths away)
-        // map to enormous pixels when zoomed in tight — and the fill Shape's CurveRenderer
-        // triangulates the WHOLE path (its clip is only a rasteriser scissor, not a geometry
-        // clip), which ASSERTS and aborts the app once a vertex exceeds 2^21 px
-        // (qtriangulator.cpp). LIM sits far off-screen — glowClip scissors it away, and the
-        // in/near-window points that shape the visible fill are never clamped — so the visible
-        // glow is unchanged; it only stops the off-screen tail from blowing past the limit.
-        const LIM = 1 << 15
-        function clamp(v) { return v < -LIM ? -LIM : (v > LIM ? LIM : v) }
-        function px(dx) { return clamp((dx - x0) / xspan * w) }
-        function py(dy) { return clamp((yTop - dy) / yspan * h) }
-        const out = []
-        out.push(Qt.point(px(src[0].x), h))
-        for (let i = 0; i < n; ++i)
-            out.push(Qt.point(px(src[i].x), py(src[i].y)))
-        out.push(Qt.point(px(src[n - 1].x), h))
-        return out
-    }
+    // The glow's outline, traced by buildGlow() each time steppedData is rebuilt — a load, a
+    // settled gesture, a live tick — in the plot pixels of that moment (glowBase), and not
+    // in between. The fill Shape triangulates its whole path on the GUI thread whenever the
+    // path changes, 20–80 ms for a few thousand points on the dev box; re-traced on every
+    // frame of a pan or the draw-in, it would stall the whole UI (#81). Between builds
+    // glowTransform carries the outline to the current axes instead: the curve renderer
+    // draws a moved or stretched path without triangulating it again.
+    property var glowPath: []
+    // The axes and plot size glowPath was traced in: { x0, xSpan, yTop, ySpan, w, h }.
+    property var glowBase: null
 
-    // The line-only outline in plot-local pixels: glowPolyline without its two floor-bracket
-    // points, i.e. just the stepped path the line traces. The (disabled) outer-glow Shape strokes this.
-    readonly property var linePolyline:
-        glowPolyline.length > 2 ? glowPolyline.slice(1, glowPolyline.length - 1) : []
+    // Built pixels → current plot pixels, from where the axes and the plot stand now.
+    readonly property var glowTransform: {
+        const b = root.glowBase
+        const a = graph.plotArea
+        const xSpan = xAxis.max - xAxis.min
+        const ySpan = yAxis.max - yAxis.min
+        if (b === null || xSpan <= 0 || ySpan <= 0 || a.width <= 0 || a.height <= 0)
+            return { sx: 1, sy: 1, tx: 0, ty: 0 }
+        return {
+            sx: b.xSpan * a.width / (b.w * xSpan),
+            tx: (b.x0 - xAxis.min) * a.width / xSpan,
+            sy: b.ySpan * a.height / (b.h * ySpan),
+            ty: (yAxis.max - b.yTop) * a.height / ySpan
+        }
+    }
 
     // The built-in card background: the same minimalistic translucent-grey card the Trips,
     // Charging and Järjestelmän tila graph cards draw, so every graph surface shares one look.
@@ -309,82 +287,57 @@ Item {
     // Gradient glow under the line, drawn as ONE clean filled Shape rather than a QtGraphs
     // AreaSeries — the area renderer triangulates our stepped path (points share x on every
     // vertical jump) into visible diagonal streaks. glowClip is pinned to the plot area and
-    // clips, so panned/zoomed content outside the window can't spill. The ShapePath traces
-    // the stepped path in plot-local pixels and closes down to the floor, filled with a
-    // vertical LinearGradient that fades to transparent. Declared BEFORE the GraphsView so
+    // clips, so panned/zoomed content outside the window can't spill; during the draw-in it
+    // ends at revealX, uncovering the glow with the line. The ShapePath traces glowPath,
+    // closed down to a floor far below, filled with a vertical LinearGradient that fades to
+    // transparent across the plot. Declared BEFORE the GraphsView so
     // the line — which the GraphsView draws over its transparent plot area — sits on top of
     // the glow. The inspect overlay is declared after the GraphsView, so it stays on top.
     Item {
         id: glowClip
-        visible: root.dataCount > 0 && root.glowPolyline.length > 0 && root.glowOpacity > 0
+        visible: root.dataCount > 0 && root.glowPath.length > 0 && root.glowOpacity > 0
         x: graph.plotArea.x
         y: graph.plotArea.y
-        width: graph.plotArea.width
+        width: isFinite(root.revealX)
+               ? Math.max(0, Math.min(graph.plotArea.width,
+                                      root.timeToPixel(root.revealX) - graph.plotArea.x))
+               : graph.plotArea.width
         height: graph.plotArea.height
         clip: true
 
         Shape {
-            anchors.fill: parent
+            width: graph.plotArea.width
+            height: graph.plotArea.height
             preferredRendererType: Shape.CurveRenderer
+            transform: [
+                Scale {
+                    xScale: root.glowTransform.sx
+                    yScale: root.glowTransform.sy
+                },
+                Translate {
+                    x: root.glowTransform.tx
+                    y: root.glowTransform.ty
+                }
+            ]
 
             ShapePath {
                 strokeWidth: 0
                 strokeColor: "transparent"
-                startX: root.glowPolyline.length > 0 ? root.glowPolyline[0].x : 0
-                startY: root.glowPolyline.length > 0 ? root.glowPolyline[0].y : 0
+                startX: root.glowPath.length > 0 ? root.glowPath[0].x : 0
+                startY: root.glowPath.length > 0 ? root.glowPath[0].y : 0
+                // From the plot's top to its bottom on screen, so in the path's own pixels
+                // through the inverse of the transform (a change here is no re-triangulation).
                 fillGradient: LinearGradient {
                     x1: 0
-                    y1: 0
+                    y1: -root.glowTransform.ty / root.glowTransform.sy
                     x2: 0
-                    y2: glowClip.height
+                    y2: (glowClip.height - root.glowTransform.ty) / root.glowTransform.sy
                     GradientStop { position: 0.0; color: Qt.rgba(root.glowColor.r, root.glowColor.g, root.glowColor.b, root.glowOpacity) }
                     GradientStop { position: 0.55; color: Qt.rgba(root.glowColor.r, root.glowColor.g, root.glowColor.b, root.glowOpacity * 0.22) }
                     GradientStop { position: 1.0; color: Qt.rgba(root.glowColor.r, root.glowColor.g, root.glowColor.b, 0.0) }
                 }
-                PathPolyline { path: root.glowPolyline }
+                PathPolyline { path: root.glowPath }
             }
-        }
-    }
-
-    // Outer glow on the line: a blurred copy of the stepped path, drawn behind the crisp line
-    // so the line reads as lit. The source Shape (hidden) strokes the same pixel polyline as
-    // the line; MultiEffect blurs it into a soft accent halo. blurEnabled (not shadowEnabled)
-    // renders ONLY the blurred version — no crisp second line to fight the real one on top.
-    // Same plot-area clip as the fill glow, and declared before the GraphsView so the crisp
-    // line sits on top. Reuses glowColor, so the fill glow, line and bloom stay one colour.
-    Item {
-        id: lineGlowClip
-        visible: root.lineGlowEnabled && root.dataCount > 0 && root.linePolyline.length > 1
-        x: graph.plotArea.x
-        y: graph.plotArea.y
-        width: graph.plotArea.width
-        height: graph.plotArea.height
-        clip: true
-
-        Shape {
-            id: lineGlowSource
-            anchors.fill: parent
-            visible: false
-            preferredRendererType: Shape.CurveRenderer
-
-            ShapePath {
-                strokeColor: root.glowColor
-                strokeWidth: root.lineGlowWidth
-                fillColor: "transparent"
-                capStyle: ShapePath.RoundCap
-                joinStyle: ShapePath.RoundJoin
-                PathPolyline { path: root.linePolyline }
-            }
-        }
-
-        MultiEffect {
-            anchors.fill: lineGlowSource
-            source: lineGlowSource
-            autoPaddingEnabled: false
-            blurEnabled: true
-            blur: 1.0
-            blurMax: root.lineGlowRadius
-            opacity: root.lineGlowStrength
         }
     }
 
@@ -494,13 +447,12 @@ Item {
     }
 
     onExtraSeriesChanged: refillExtras()
-    onRevealFracChanged: if (root.extraSeries.length > 0) refillExtras()
+    onRevealXChanged: if (root.extraSeries.length > 0) refillExtras()
 
     // Hands each extra line its points — cut at the draw-in's sweep while it runs,
     // so every line draws in together.
     function refillExtras() {
-        const cutX = root.revealFrac >= 1 ? Infinity
-                   : root.buildMinX + root.revealFrac * (root.buildMaxX - root.buildMinX)
+        const cutX = root.revealX
         for (let i = 0; i < extraLines.count; ++i) {
             const line = extraLines.objectAt(i)
             const entry = root.extraSeries[i]
@@ -1123,7 +1075,43 @@ Item {
         root.decimated = root.decimate(root.buildMinX, root.buildMaxX)
         root.steppedData = root.buildStepped(root.decimated)
         // The LineSeries is refilled by onRevealedDataChanged (steppedData → revealedData), so
-        // line + glow stay in sync and the draw-in reveal is honoured across a rebuild.
+        // the draw-in reveal is honoured across a rebuild.
+        root.buildGlow()
+    }
+
+    // Traces steppedData into glowPath in the plot pixels of the axes as they stand (the
+    // y-fit has just followed `decimated`), bracketed by two floor points so the fill closes
+    // downward. The floor sits at LIM, far below the plot, so that a y re-fit stretching the
+    // path before the next build cannot lift it into view.
+    function buildGlow() {
+        const a = graph.plotArea
+        const src = root.steppedData
+        const n = src.length
+        const xSpan = xAxis.max - xAxis.min
+        const ySpan = yAxis.max - yAxis.min
+        if (n === 0 || a.width <= 0 || a.height <= 0 || xSpan <= 0 || ySpan <= 0) {
+            root.glowBase = null
+            root.glowPath = []
+            return
+        }
+        const w = a.width, h = a.height
+        const x0 = xAxis.min, yTop = yAxis.max
+        // Clamp to a bounded off-screen range. A point far outside the visible y-range maps
+        // to an enormous pixel, and the Shape's CurveRenderer triangulates the WHOLE path
+        // (glowClip is only a rasteriser scissor, not a geometry clip), which ASSERTS and
+        // aborts the app once a vertex exceeds 2^21 px (qtriangulator.cpp). LIM sits far
+        // off-screen, so only the scissored-away tail is clamped.
+        const LIM = 1 << 18
+        function clamp(v) { return v < -LIM ? -LIM : (v > LIM ? LIM : v) }
+        function px(dx) { return clamp((dx - x0) / xSpan * w) }
+        function py(dy) { return clamp((yTop - dy) / ySpan * h) }
+        const out = []
+        out.push(Qt.point(px(src[0].x), LIM))
+        for (let i = 0; i < n; ++i)
+            out.push(Qt.point(px(src[i].x), py(src[i].y)))
+        out.push(Qt.point(px(src[n - 1].x), LIM))
+        root.glowBase = { x0: x0, xSpan: xSpan, yTop: yTop, ySpan: ySpan, w: w, h: h }
+        root.glowPath = out
     }
 
     // --- Pixel <-> data mapping (GraphsView has no built-in conversion) -------
