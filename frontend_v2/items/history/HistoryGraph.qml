@@ -104,10 +104,10 @@ Item {
     property bool live: false
 
     // Cached stepped path in DATA coordinates, rebuilt when the data changes or the zoom
-    // window SETTLES (reloadFull / advanceLive / rebuildDecimated) — the same array handed to
-    // the LineSeries. It is built from the DECIMATED set for the current window (see below),
-    // not the full raw series, so it stays small (~a few k points). Panning/zooming within the
-    // built window only remaps it to the new axes, never re-steps it.
+    // window SETTLES (reloadFull / advanceLive / rebuildDecimated) — what buildPaths traces
+    // the line and its glow from. It is built from the DECIMATED set for the current window
+    // (see below), not the full raw series, so it stays small (~a few k points).
+    // Panning/zooming within the built window only moves the traced paths, never re-steps it.
     property var steppedData: []
 
     // --- Viewport level-of-detail (LOD) decimation ----------------------------
@@ -153,49 +153,23 @@ Item {
     // sub-minute empty space, independent of the range's total length. clampWidth enforces it.
     property real minZoomSpanMs: Theme.graphMinZoomSpanMs
 
-    // The portion of steppedData revealed so far, left-to-right (the draw-in). At rest
-    // (revealFrac = 1) this IS the whole steppedData; while the load animation runs it is the
-    // prefix up to revealX with an interpolated tip, so the line draws in from the left.
-    // onRevealedDataChanged pushes it to the LineSeries (and any mid-draw rebuild honours the
-    // reveal); the glow is uncovered to the same x by glowClip.
-    readonly property var revealedData: {
-        const path = root.steppedData
-        const n = path.length
-        const cutX = root.revealX
-        if (n === 0 || cutX >= path[n - 1].x)
-            return path
-        const out = []
-        for (let i = 0; i < n; ++i) {
-            const p = path[i]
-            if (p.x <= cutX) {
-                out.push(p)
-            } else {
-                if (i > 0) {
-                    const a = path[i - 1]
-                    const span = p.x - a.x
-                    const y = span > 0 ? a.y + (p.y - a.y) * (cutX - a.x) / span : a.y
-                    out.push(Qt.point(cutX, y))
-                }
-                break
-            }
-        }
-        return out
-    }
-
-    // The glow's outline, traced by buildGlow() each time steppedData is rebuilt — a load, a
-    // settled gesture, a live tick — in the plot pixels of that moment (glowBase), and not
-    // in between. The fill Shape triangulates its whole path on the GUI thread whenever the
-    // path changes, 20–80 ms for a few thousand points on the dev box; re-traced on every
-    // frame of a pan or the draw-in, it would stall the whole UI (#81). Between builds
-    // glowTransform carries the outline to the current axes instead: the curve renderer
-    // draws a moved or stretched path without triangulating it again.
+    // The line and its glow, traced by buildPaths() each time steppedData is rebuilt — a
+    // load, a settled gesture, a live tick — in the plot pixels of that moment (the bases),
+    // and seldom in between. A Shape processes its whole path on the GUI thread whenever the
+    // path changes: on the dev box the glow's fill took 20–80 ms for a few thousand points,
+    // the line's stroke up to 60. Re-traced on every frame of a pan, a zoom or the draw-in,
+    // they would stall the whole UI (#81). Between builds a transform carries each to the
+    // current axes instead: the curve renderer draws a moved or stretched path without
+    // processing it again. The glow is a fill and stretches cleanly; the line is re-traced
+    // alone when it stretches unevenly (lineStretchLimit).
+    property var linePath: []
     property var glowPath: []
-    // The axes and plot size glowPath was traced in: { x0, xSpan, yTop, ySpan, w, h }.
+    // The axes and plot size each path was traced in: { x0, xSpan, yTop, ySpan, w, h }.
+    property var lineBase: null
     property var glowBase: null
 
-    // Built pixels → current plot pixels, from where the axes and the plot stand now.
-    readonly property var glowTransform: {
-        const b = root.glowBase
+    // Traced pixels → current plot pixels, from where the axes and the plot stand now.
+    function transformFor(b) {
         const a = graph.plotArea
         const xSpan = xAxis.max - xAxis.min
         const ySpan = yAxis.max - yAxis.min
@@ -208,6 +182,47 @@ Item {
             ty: (yAxis.max - b.yTop) * a.height / ySpan
         }
     }
+    readonly property var lineTransform: transformFor(lineBase)
+    readonly property var glowTransform: transformFor(glowBase)
+    Scale {
+        id: lineScale
+        xScale: root.lineTransform.sx
+        yScale: root.lineTransform.sy
+    }
+    Translate {
+        id: lineShift
+        x: root.lineTransform.tx
+        y: root.lineTransform.ty
+    }
+    Scale {
+        id: glowScale
+        xScale: root.glowTransform.sx
+        yScale: root.glowTransform.sy
+    }
+    Translate {
+        id: glowShift
+        x: root.glowTransform.tx
+        y: root.glowTransform.ty
+    }
+
+    // The line's cosmetic stroke keeps its 2 px under a uniform scale only: the curve
+    // renderer corrects it by one factor, the root of the transform's determinant, so a
+    // stretch of x against y widens the segments across it by the root of the ratio
+    // (vertical steps grow, flat runs thin as a pinch zooms in). Past this ratio — the
+    // width off by ~14 % — the line is traced again, on the next event-loop pass, so one
+    // pass of gesture steps costs one trace. A continuous pinch re-traces it every few
+    // frames; a pan, the draw-in and a uniform change never do.
+    readonly property real lineStretchLimit: 1.3
+    onLineTransformChanged: {
+        const r = lineTransform.sx / lineTransform.sy
+        if (r > lineStretchLimit || r < 1 / lineStretchLimit)
+            Qt.callLater(root.retraceLine)
+    }
+
+    // The plot's width up to the draw-in's sweep: the line and glow layers clip to it.
+    readonly property real revealWidth: isFinite(revealX)
+        ? Math.max(0, Math.min(graph.plotArea.width, timeToPixel(revealX) - graph.plotArea.x))
+        : graph.plotArea.width
 
     // The built-in card background: the same minimalistic translucent-grey card the Trips,
     // Charging and Järjestelmän tila graph cards draw, so every graph surface shares one look.
@@ -290,18 +305,14 @@ Item {
     // clips, so panned/zoomed content outside the window can't spill; during the draw-in it
     // ends at revealX, uncovering the glow with the line. The ShapePath traces glowPath,
     // closed down to a floor far below, filled with a vertical LinearGradient that fades to
-    // transparent across the plot. Declared BEFORE the GraphsView so
-    // the line — which the GraphsView draws over its transparent plot area — sits on top of
-    // the glow. The inspect overlay is declared after the GraphsView, so it stays on top.
+    // transparent across the plot. Declared BEFORE the GraphsView so its gridlines and the
+    // line (lineClip, after it) sit on top of the glow.
     Item {
         id: glowClip
         visible: root.dataCount > 0 && root.glowPath.length > 0 && root.glowOpacity > 0
         x: graph.plotArea.x
         y: graph.plotArea.y
-        width: isFinite(root.revealX)
-               ? Math.max(0, Math.min(graph.plotArea.width,
-                                      root.timeToPixel(root.revealX) - graph.plotArea.x))
-               : graph.plotArea.width
+        width: root.revealWidth
         height: graph.plotArea.height
         clip: true
 
@@ -309,16 +320,7 @@ Item {
             width: graph.plotArea.width
             height: graph.plotArea.height
             preferredRendererType: Shape.CurveRenderer
-            transform: [
-                Scale {
-                    xScale: root.glowTransform.sx
-                    yScale: root.glowTransform.sy
-                },
-                Translate {
-                    x: root.glowTransform.tx
-                    y: root.glowTransform.ty
-                }
-            ]
+            transform: [glowScale, glowShift]
 
             ShapePath {
                 strokeWidth: 0
@@ -353,8 +355,8 @@ Item {
         // translucent-grey Rectangle (History's built-in one, or the host's card). Without
         // this the default theme paints an opaque rectangle over the card, which reads
         // as "the card disappeared". Beyond the two background flags only the grid is
-        // styled; axis line / label colours keep the default theme. The LineSeries sets
-        // its own colour.
+        // styled; axis line / label colours keep the default theme. The lines set their
+        // own colours.
         theme: GraphsTheme {
             backgroundVisible: false
             plotAreaBackgroundVisible: false
@@ -406,19 +408,41 @@ Item {
             gridVisible: true
             subGridVisible: false
         }
+    }
 
-        LineSeries {
-            id: series
-            width: 2
-            color: root.lineColor
-            // The path geometry is built explicitly in buildStepped() per the property's
-            // lineMode, so the default straight-segment style renders exactly what we
-            // intend: "step" holds each reading then jumps (telemetry only sends on change,
-            // so a sampled value holds until the next instead of sloping toward it), while
-            // "linear" connects readings point-to-point for accumulators / continuous
-            // signals. Building the path ourselves avoids relying on any renderer line style.
-            // (A smooth spline is the wrong fit: it turns a genuinely flat/held value into a
-            // wobble, misrepresenting the data.)
+    // The main line: a Shape of our own rather than a LineSeries, which Qt Graphs would
+    // re-stroke on every frame the axes move. Over the GraphsView's gridlines and extra
+    // lines, clipped and moved like the glow. The path is the one buildStepped() makes per
+    // lineMode — "step" holds each reading then jumps (telemetry only sends on change),
+    // "linear" connects readings for accumulators — so straight segments draw exactly
+    // that. (A smooth spline is the wrong fit: it turns a flat, held value into a wobble.)
+    // The cap and join are a LineSeries' defaults.
+    Item {
+        id: lineClip
+        visible: root.dataCount > 0 && root.linePath.length > 0
+        x: graph.plotArea.x
+        y: graph.plotArea.y
+        width: root.revealWidth
+        height: graph.plotArea.height
+        clip: true
+
+        Shape {
+            width: graph.plotArea.width
+            height: graph.plotArea.height
+            preferredRendererType: Shape.CurveRenderer
+            transform: [lineScale, lineShift]
+
+            ShapePath {
+                strokeColor: root.lineColor
+                strokeWidth: 2
+                cosmeticStroke: true
+                fillColor: "transparent"
+                capStyle: ShapePath.SquareCap
+                joinStyle: ShapePath.BevelJoin
+                startX: root.linePath.length > 0 ? root.linePath[0].x : 0
+                startY: root.linePath.length > 0 ? root.linePath[0].y : 0
+                PathPolyline { path: root.linePath }
+            }
         }
     }
 
@@ -468,7 +492,7 @@ Item {
         }
     }
 
-    // A fresh load: reset the view to the full extent and refill the series. The
+    // A fresh load: reset the view to the full extent and rebuild the line. The
     // owning view calls this when its data source signals new data (History.onHistoryReady
     // / Trips.onSeriesReady).
     function reloadFull() {
@@ -490,11 +514,6 @@ Item {
         duration: 500
         easing.type: Easing.InOutQuad
     }
-    // Keep the LineSeries geometry in sync with the revealed portion. This drives BOTH the
-    // fresh-load draw-in (revealFrac sweeps) and every rebuild (rebuildDecimated updates
-    // steppedData, which flows through revealedData), so the line + glow never diverge and a
-    // rebuild landing mid-draw-in still only shows the revealed prefix.
-    onRevealedDataChanged: series.replace(root.revealedData)
     // Debounce for the detailed LOD rebuild. A zoom/pan step restarts it (via setView); when
     // the user pauses, it fires one rebuildDecimated() for the settled window. During the
     // gesture the margin-built path just remaps to the new axis, so no per-frame re-stepping.
@@ -871,6 +890,25 @@ Item {
         xAxis.min = min
         xAxis.max = max
         xAxis.tickInterval = root.xTickStep
+        xLabelsStale = true
+    }
+
+    // The same measurement offsets the x labels from the first tick, scaled by the tick
+    // spacing in pixels — and Qt Graphs takes that spacing from its last polish, not from
+    // the values just written. After a change of span every label lands outside the axis
+    // and is hidden (after a load the old spacing was the empty 0–1 window's, a million px
+    // a tick), and stays so until the axis is measured again. So once the polish that
+    // follows showWindow has run, the axis is measured again, with that polish's spacing.
+    property bool xLabelsStale: false
+    Connections {
+        target: root.Window.window
+        enabled: root.xLabelsStale
+        function onAfterAnimating() {
+            root.xLabelsStale = false
+            const step = xAxis.tickInterval
+            xAxis.tickInterval = 2 * step
+            xAxis.tickInterval = step
+        }
     }
     function resetView() {
         root.userControlled = false
@@ -1063,9 +1101,9 @@ Item {
         return out
     }
 
-    // The one place steppedData / the LineSeries geometry is regenerated: decimate the raw
-    // series to the current window (grown by the render margin), step it, and hand it to the
-    // series. Called immediately on programmatic view changes (load, live tick, viewFull) and
+    // The one place steppedData and the line's geometry are regenerated: decimate the raw
+    // series to the current window (grown by the render margin), step it, and trace the
+    // paths. Called immediately on programmatic view changes (load, live tick, viewFull) and
     // after a gesture settles (settleTimer) or ends.
     function rebuildDecimated() {
         const span = Math.max(0, root.viewMaxX - root.viewMinX)
@@ -1074,44 +1112,59 @@ Item {
         root.buildMaxX = Math.min(root.fullMaxX, root.viewMaxX + margin)
         root.decimated = root.decimate(root.buildMinX, root.buildMaxX)
         root.steppedData = root.buildStepped(root.decimated)
-        // The LineSeries is refilled by onRevealedDataChanged (steppedData → revealedData), so
-        // the draw-in reveal is honoured across a rebuild.
-        root.buildGlow()
+        root.buildPaths()
     }
 
-    // Traces steppedData into glowPath in the plot pixels of the axes as they stand (the
-    // y-fit has just followed `decimated`), bracketed by two floor points so the fill closes
-    // downward. The floor sits at LIM, far below the plot, so that a y re-fit stretching the
-    // path before the next build cannot lift it into view.
-    function buildGlow() {
+    // A bound on traced pixels, far off-screen. A point far outside the visible y-range
+    // maps to an enormous pixel, and the CurveRenderer triangulates the WHOLE path (the
+    // layers' clip is only a rasteriser scissor, not a geometry clip), which ASSERTS and
+    // aborts the app once a vertex exceeds 2^21 px (qtriangulator.cpp). Clamped to this,
+    // only the scissored-away tail changes.
+    readonly property real pathLimit: 1 << 18
+
+    // steppedData in the plot pixels of the axes as they stand, with that mapping as its
+    // base; null when there is nothing to trace.
+    function trace() {
         const a = graph.plotArea
         const src = root.steppedData
         const n = src.length
         const xSpan = xAxis.max - xAxis.min
         const ySpan = yAxis.max - yAxis.min
-        if (n === 0 || a.width <= 0 || a.height <= 0 || xSpan <= 0 || ySpan <= 0) {
-            root.glowBase = null
-            root.glowPath = []
-            return
-        }
+        if (n === 0 || a.width <= 0 || a.height <= 0 || xSpan <= 0 || ySpan <= 0)
+            return null
         const w = a.width, h = a.height
         const x0 = xAxis.min, yTop = yAxis.max
-        // Clamp to a bounded off-screen range. A point far outside the visible y-range maps
-        // to an enormous pixel, and the Shape's CurveRenderer triangulates the WHOLE path
-        // (glowClip is only a rasteriser scissor, not a geometry clip), which ASSERTS and
-        // aborts the app once a vertex exceeds 2^21 px (qtriangulator.cpp). LIM sits far
-        // off-screen, so only the scissored-away tail is clamped.
-        const LIM = 1 << 18
-        function clamp(v) { return v < -LIM ? -LIM : (v > LIM ? LIM : v) }
-        function px(dx) { return clamp((dx - x0) / xSpan * w) }
-        function py(dy) { return clamp((yTop - dy) / ySpan * h) }
-        const out = []
-        out.push(Qt.point(px(src[0].x), LIM))
+        const lim = root.pathLimit
+        function clamp(v) { return v < -lim ? -lim : (v > lim ? lim : v) }
+        const points = new Array(n)
         for (let i = 0; i < n; ++i)
-            out.push(Qt.point(px(src[i].x), py(src[i].y)))
-        out.push(Qt.point(px(src[n - 1].x), LIM))
-        root.glowBase = { x0: x0, xSpan: xSpan, yTop: yTop, ySpan: ySpan, w: w, h: h }
-        root.glowPath = out
+            points[i] = Qt.point(clamp((src[i].x - x0) / xSpan * w), clamp((yTop - src[i].y) / ySpan * h))
+        return { base: { x0: x0, xSpan: xSpan, yTop: yTop, ySpan: ySpan, w: w, h: h }, points: points }
+    }
+
+    // Both paths, once the y-fit has followed `decimated`: the line, and the glow — the
+    // line bracketed by two floor points so the fill closes downward. The floor sits at
+    // pathLimit, far below the plot, so that a y re-fit stretching the glow before the next
+    // build cannot lift it into view.
+    function buildPaths() {
+        const t = trace()
+        if (t === null) {
+            root.lineBase = root.glowBase = null
+            root.linePath = root.glowPath = []
+            return
+        }
+        const p = t.points
+        const floor = root.pathLimit
+        root.lineBase = root.glowBase = t.base
+        root.linePath = p
+        root.glowPath = [Qt.point(p[0].x, floor)].concat(p, [Qt.point(p[p.length - 1].x, floor)])
+    }
+
+    // The line alone, when the axes have stretched it unevenly (lineStretchLimit).
+    function retraceLine() {
+        const t = trace()
+        root.lineBase = t !== null ? t.base : null
+        root.linePath = t !== null ? t.points : []
     }
 
     // --- Pixel <-> data mapping (GraphsView has no built-in conversion) -------
@@ -1172,8 +1225,8 @@ Item {
     }
 
     // Expand the (decimated) readings into an explicit path in DATA coordinates, clamped to the
-    // built window [lo, hi], per root.lineMode — drawn with the straight line style so the
-    // path geometry we build IS what shows (no reliance on renderer step support). The inspect
+    // built window [lo, hi], per root.lineMode — drawn as straight segments, so the path
+    // geometry we build IS what shows (no reliance on renderer step support). The inspect
     // readout uses the RAW series (valueAt reads rawPoints), so it stays exact regardless of
     // decimation and branches on lineMode the same way.
     function buildStepped(pts) {
