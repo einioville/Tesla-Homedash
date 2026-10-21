@@ -5,8 +5,9 @@
 > nested `CLAUDE.md` beside the code** (★ in §2), which loads when you work in that directory —
 > read the nearest one before changing code there. Keep all of them current (§7.6).
 >
-> **At the start of a work session, follow §8** — work in the main checkout by default, and set up
-> an isolated worktree only when a second session has to run in parallel.
+> **At the start of a work session, follow §8** — first check the branch against GitHub (new
+> commits to bring in, or a branch already merged), then work in the main checkout by default, and
+> set up an isolated worktree only when a second session has to run in parallel.
 
 ## 1. What this project is
 
@@ -564,6 +565,25 @@ on WSL2). An isolated git worktree is only worth its setup cost when you genuine
 sessions running at the same time** — reach for one *only then*. Most sessions are sequential and
 stay in the main checkout with a warm build dir and incremental builds. Pure Q&A / exploration that
 changes no files needs neither.
+
+**Start — check the branch against GitHub before anything new.** A session that may change files
+begins with `git fetch origin --prune` and settles two things first, telling the user what it found
+and did:
+1. **The branch has commits on the remote it lacks** (`git status -sb` reads `behind N`). Bring them
+   in before any edit: `git merge --ff-only @{u}`. With uncommitted changes in the way, `git stash`,
+   fast-forward, `git stash pop`, resolve any conflict keeping both sides' content, and drop the
+   stash only once it is resolved. With local commits too (`ahead M, behind N`), `git pull
+   --rebase`. When the incoming commits touch `frontend_v2/`, rebuild before relying on the binary.
+   A branch with no upstream has nothing to bring in.
+2. **The branch is already merged.** PRs are squash-merged, so `git branch --merged` cannot tell;
+   ask GitHub (`gh pr list --head <branch> --state merged`) — an upstream that `git status -sb`
+   reports `[gone]` after the prune is the same sign. Do not build on it: a commit added to a
+   merged branch reaches `main` only through a new PR. `git checkout main && git pull`, and for new
+   work branch off it with a `<type>/<slug>` name (types as in the worktree steps below), carrying
+   any uncommitted changes across in a stash. Delete the merged local branch (`git branch -D`: a
+   squash merge leaves it unmerged by ancestry) only when its tip is the PR's head
+   (`gh pr view <branch> --json headRefOid`); commits past it never landed, so ask the user what
+   becomes of them before deleting anything.
 
 **Backend — run one, shared.** The frontend connects to whatever backend is on `127.0.0.1:6969`
 (`TESLA_HOMEDASH_BACKEND_HOST` / `_PORT` default there), and port 6969 is fixed so only **one**
