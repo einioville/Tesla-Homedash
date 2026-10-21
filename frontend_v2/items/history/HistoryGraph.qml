@@ -286,11 +286,10 @@ Item {
         Math.abs(viewMinX - fullMinX) < 1 && Math.abs(viewMaxX - fullMaxX) < 1
 
     // Adaptive x-axis (time) ticks over the visible window: ~5 marks snapped to nice clock
-    // boundaries. The step drives BOTH the axis tick spacing (xAxis.tickInterval) and the
-    // label format — a day-scale step shows a date, a smaller step a time — so labels can
-    // never duplicate. Anchored to local midnight so ticks land on round clock times.
+    // boundaries. The step drives BOTH the axis tick spacing (xAxis.tickInterval, set by
+    // showWindow) and the label format — a day-scale step shows a date, a smaller step a
+    // time — so labels can never duplicate.
     readonly property real xTickStep: niceTimeStep((viewMaxX - viewMinX) / 5)
-    readonly property real xTickAnchor: localMidnight(viewMinX)
 
     // Inspection state, exposed so a host can mirror the cursor elsewhere (the Trips
     // view drops a marker on the map at the inspected time). inspectTime is the epoch-ms
@@ -415,17 +414,14 @@ Item {
 
         axisX: ValueAxis {
             id: xAxis
-            min: root.viewMinX
-            max: root.viewMaxX
-            // Time axis. Tick MARKS sit on clock boundaries (tickInterval/tickAnchor); the
-            // labels are drawn by labelDelegate, which the axis positions natively UNDER
+            // Time axis; its range and ticks are written by showWindow(), never bound. Tick
+            // MARKS sit on clock boundaries (tickInterval/tickAnchor); the labels are drawn
+            // by labelDelegate, which the axis positions natively UNDER
             // each tick (no hand-placed overlay to misalign). labelFormat emits the raw
             // epoch-ms as a plain full-precision integer ("%.0f") that the delegate reparses
             // and formats as a time or date per the step — so labels never duplicate.
             labelsVisible: true
             labelFormat: "%.0f"
-            tickInterval: root.xTickStep
-            tickAnchor: root.xTickAnchor
             gridVisible: false     // no vertical gridlines (only the Y axis's faint horizontals)
             subGridVisible: false
             labelDelegate: Item {
@@ -571,19 +567,20 @@ Item {
     function advanceLive() {
         root.fullMinX = root.dataMinX
         root.fullMaxX = root.dataMaxX
-        if (!root.userControlled) {
-            root.viewMinX = root.dataMinX
-            root.viewMaxX = root.dataMaxX
-        }
+        if (!root.userControlled)
+            root.showWindow(root.dataMinX, root.dataMaxX)
         // Re-snapshot: the live roller appended/dropped points in pointsData. N stays small in
         // live mode (recomputeBounds rolls the window), so snapshot + decimate per tick is cheap.
-        // advanceLive sets viewMin/Max directly (not via setView), so it never trips the settle
-        // debounce; stop any pending settle since this rebuild supersedes it.
+        // advanceLive moves the window with showWindow, not setView, so it never trips the
+        // settle debounce; stop any pending settle since this rebuild supersedes it.
         root.snapshotPoints()
         settleTimer.stop()
         root.rebuildDecimated()
     }
-    Component.onCompleted: if (root.dataCount > 0) { resetView(); snapshotPoints(); revealFrac = 0; rebuildDecimated(); revealAnim.restart() }
+    Component.onCompleted: {
+        showWindow(viewMinX, viewMaxX)
+        if (root.dataCount > 0) { resetView(); snapshotPoints(); revealFrac = 0; rebuildDecimated(); revealAnim.restart() }
+    }
 
     // Interactive overlay: pointer handlers for inspect + pan/zoom. Sized to the
     // GraphsView so handler positions share the plotArea coordinate space.
@@ -906,18 +903,33 @@ Item {
     }
 
     // --- View management ------------------------------------------------------
+    // The one writer of the visible window and of the x-axis showing it. Qt Graphs
+    // re-measures an axis on every write to it, walking from tickAnchor to min one
+    // tickInterval at a time (AxisRenderer::updateAxisMeasurements in Qt 6.12). Bound one
+    // by one, the four values would meet half-updated: a graph's first load would move min
+    // from the 1970 placeholder window to now while the step was still 1 s — 1.8 billion
+    // steps, seconds of frozen UI (#81). Written here in this order, every walk is short:
+    // a step wider than any jump first, then the anchor (local midnight, so ticks land on
+    // round clock times) and the range, then the real step, within a day of its anchor.
+    function showWindow(min, max) {
+        viewMinX = min
+        viewMaxX = max
+        xAxis.tickInterval = 1e13   // ~300 years
+        xAxis.tickAnchor = localMidnight(min)
+        xAxis.min = min
+        xAxis.max = max
+        xAxis.tickInterval = root.xTickStep
+    }
     function resetView() {
         root.userControlled = false
         fullMinX = root.dataMinX
         fullMaxX = root.dataMaxX
-        viewMinX = root.dataMinX
-        viewMaxX = root.dataMaxX
+        showWindow(root.dataMinX, root.dataMaxX)
     }
     function viewFull() {
         // "Palauta" re-engages live auto-follow.
         root.userControlled = false
-        viewMinX = fullMinX
-        viewMaxX = fullMaxX
+        showWindow(fullMinX, fullMaxX)
         // Programmatic view change: rebuild detail immediately (rawPoints is already snapshotted).
         settleTimer.stop()
         root.rebuildDecimated()
@@ -933,16 +945,15 @@ Item {
         // The single funnel for every gesture (zoomAround / panByPixels / applyPinch). Arm the
         // settle debounce here so the detailed LOD rebuild fires once the user pauses; during
         // the gesture the margin-built path just remaps to the new axis window. Programmatic
-        // view changes (resetView / viewFull / advanceLive) set viewMin/Max directly, bypassing
+        // view changes (resetView / viewFull / advanceLive) call showWindow directly, bypassing
         // this, and rebuild immediately instead.
         settleTimer.restart()
         const fullSpan = fullMaxX - fullMinX
         const width = newMax - newMin
-        if (width >= fullSpan) { viewMinX = fullMinX; viewMaxX = fullMaxX; return }
+        if (width >= fullSpan) { showWindow(fullMinX, fullMaxX); return }
         if (newMin < fullMinX) { newMin = fullMinX; newMax = newMin + width }
         if (newMax > fullMaxX) { newMax = fullMaxX; newMin = newMax - width }
-        viewMinX = newMin
-        viewMaxX = newMax
+        showWindow(newMin, newMax)
     }
     function zoomAround(focalPx, factor) {
         root.userControlled = true
