@@ -181,8 +181,7 @@ Taken from the `find_package` line in `frontend_v2/CMakeLists.txt`:
 ```cmake
 find_package(Qt6 REQUIRED COMPONENTS
     Quick Network Concurrent Svg Location Positioning
-    QuickControls2 Core5Compat Graphs LabsFolderListModel VirtualKeyboard ShaderTools
-    CanvasPainter)
+    QuickControls2 Core5Compat Graphs LabsFolderListModel VirtualKeyboard ShaderTools)
 ```
 
 | CMake component | Comes from | Used by |
@@ -196,7 +195,6 @@ find_package(Qt6 REQUIRED COMPONENTS
 | `Core5Compat` | `-m qt5compat` | retained Qt5 APIs in `core/` |
 | `VirtualKeyboard` | `-m qtvirtualkeyboard` | the in-app on-screen keyboard (`Main.qml`) |
 | `ShaderTools` | `-m qtshadertools` (the online installer adds it with Qt Graphs) | `qt_add_shaders`, the climate wave's shaders (`resources/shaders/`) |
-| `CanvasPainter` | `-m qtcanvaspainter` | Canvas2D, linked though no item draws with it at present (`frontend_v2/core/CLAUDE.md`, *App*) |
 | (none) | `-m qtmultimedia` | not a CMake component, but the Virtual Keyboard plugin links it: without it the keyboard fails to load at run time |
 
 ### 4.2 Recommended: `aqtinstall` (scripted, no Qt account)
@@ -205,7 +203,7 @@ find_package(Qt6 REQUIRED COMPONENTS
 python3 -m pip install --user aqtinstall     # or: pipx install aqtinstall
 python3 -m aqt install-qt linux desktop 6.12.0 linux_gcc_64 \
     -m qtlocation qtpositioning qtgraphs qt5compat qtvirtualkeyboard qtshadertools \
-       qtcanvaspainter qtmultimedia qtwayland \
+       qtmultimedia qtwayland \
     -O ~/Qt
 ```
 
@@ -219,8 +217,8 @@ ever reports a missing Qt6 component, re-run `aqt` with that module appended to 
 ### 4.3 Alternative: the official online installer
 
 Pick Qt **6.12.0** and tick **Qt Location**, **Qt Positioning**, **Qt Graphs**, **Qt 5
-Compatibility Module**, **Qt Virtual Keyboard**, **Qt Multimedia** and **Qt Canvas Painter** under
-Additional Libraries. Needs a free Qt account and a GUI (WSLg provides one). Slower,
+Compatibility Module**, **Qt Virtual Keyboard** and **Qt Multimedia** under Additional
+Libraries. Needs a free Qt account and a GUI (WSLg provides one). Slower,
 but it also gives you Qt Creator, the debugger and the QML profiler.
 
 ### 4.4 Make the kit discoverable

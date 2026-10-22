@@ -39,7 +39,7 @@ Tesla-Homedash is a desktop dashboard that brings live vehicle telemetry, music,
 - [teslemetry-stream](https://pypi.org/project/teslemetry-stream/) — Teslemetry WebSocket client.
 
 ### C++
-- [Qt 6](https://www.qt.io/) — the frontend is a Qt 6 Quick (QML) application, using the `Quick`, `QuickControls2`, `Network`, `Concurrent`, `Svg`, `Location`, `Positioning`, `Graphs`, `Core5Compat`, `LabsFolderListModel`, `VirtualKeyboard` and `CanvasPainter` modules (Qt 6.12 or newer), and Qt Shader Tools to build its shaders.
+- [Qt 6](https://www.qt.io/) — the frontend is a Qt 6 Quick (QML) application, using the `Quick`, `QuickControls2`, `Network`, `Concurrent`, `Svg`, `Location`, `Positioning`, `Graphs`, `Core5Compat`, `LabsFolderListModel` and `VirtualKeyboard` modules (Qt 6.12 or newer), and Qt Shader Tools to build its shaders.
 - [CMake](https://cmake.org/) 3.16 or newer — the frontend's build system.
 - A C++20-capable compiler (MSVC 2019 16.10+, GCC 10+, or Clang 12+).
 
@@ -88,7 +88,6 @@ In the installer's **Additional Libraries** step, make sure the following module
 - **Qt 5 Compatibility Module** — `Qt5Compat.GraphicalEffects`, used by the icon tinting
 - **Qt Virtual Keyboard** — the on-screen keyboard for typing into the Options view on the touch panel
 - **Qt Multimedia** — loaded by the on-screen keyboard at run time
-- **Qt Canvas Painter** — draws the Trips map's route on the GPU
 
 The other Qt modules the frontend links against — `Core`, `Gui`, `Network`, `Quick`, `QuickControls2`, `Svg`, `Concurrent` and `LabsFolderListModel` — are part of the default Qt 6 install and don't need to be enabled separately.
 

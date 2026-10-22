@@ -1,11 +1,7 @@
 #include "appconfig.hh"
 
-#include <QOffscreenSurface>
-#include <QOpenGLContext>
-#include <QQuickWindow>
 #include <QStandardPaths>
 #include <QStringList>
-#include <QSurfaceFormat>
 #include <QVariant>
 #include <QtGlobal>
 
@@ -30,46 +26,6 @@ const QString kMmlTilesUrlTemplate = QStringLiteral(
     "default/WGS84_Pseudo-Mercator/%z/%y/%x.jpg?api-key=%1");
 const QString kMmlAttribution = QStringLiteral("© Maanmittauslaitos");
 
-// Makes the default surface format an OpenGL 3+ / OpenGL ES 3+ one the driver gives, for
-// Canvas2D (AppConfig::gpuCanvas), and says whether that worked. A candidate counts only once
-// a context made with it is current on a surface: one that merely exists proves nothing.
-bool requestGpuCanvasFormat() {
-    const QSGRendererInterface::GraphicsApi api = QQuickWindow::graphicsApi();
-    if (api == QSGRendererInterface::Software) {
-        return false;
-    }
-    if (api != QSGRendererInterface::OpenGL) {
-        return true;  // Direct3D, Vulkan, Metal: Canvas Painter has shaders for all of them.
-    }
-    QSurfaceFormat core = QSurfaceFormat::defaultFormat();
-    core.setVersion(3, 3);
-    core.setProfile(QSurfaceFormat::CoreProfile);
-    QSurfaceFormat es = QSurfaceFormat::defaultFormat();
-    es.setRenderableType(QSurfaceFormat::OpenGLES);
-    es.setVersion(3, 0);
-    for (const QSurfaceFormat& candidate : {core, es}) {
-        QOpenGLContext context;
-        context.setFormat(candidate);
-        if (!context.create() || context.format().majorVersion() < 3) {
-            continue;
-        }
-        QOffscreenSurface surface;
-        surface.setFormat(context.format());
-        surface.create();
-        if (!context.makeCurrent(&surface)) {
-            continue;
-        }
-        context.doneCurrent();
-        QSurfaceFormat::setDefaultFormat(candidate);
-        logger.info(QStringLiteral("OpenGL: %1 %2.%3 context for Canvas2D")
-                        .arg(context.isOpenGLES() ? QStringLiteral("ES") : QStringLiteral("core"))
-                        .arg(context.format().majorVersion())
-                        .arg(context.format().minorVersion()));
-        return true;
-    }
-    logger.warning(QStringLiteral("OpenGL: no 3.0+ context; Canvas2D cannot draw"));
-    return false;
-}
 
 }  // namespace
 
@@ -139,13 +95,6 @@ AppConfig::AppConfig(const Settings* settings, QObject* parent) : QObject(parent
     m_screensaverTimeoutMs = (minsOk && mins >= 1) ? mins * 60000 : 30 * 60 * 1000;
     logger.info(QStringLiteral("Screensaver inactivity timeout: %1 min")
                     .arg(m_screensaverTimeoutMs / 60000));
-
-    // The escape hatch for a device whose 3.x context misbehaves: back to Qt's default.
-    if (dotenv::valueOr("TESLA_HOMEDASH_GPU_CANVAS", QStringLiteral("1")).trimmed() == QStringLiteral("0")) {
-        logger.info(QStringLiteral("OpenGL: TESLA_HOMEDASH_GPU_CANVAS=0; Qt's default context"));
-    } else {
-        m_gpuCanvas = requestGpuCanvasFormat();
-    }
 }
 
 // Qt's own default folder for the OSM plugin's tiles (QAbstractGeoTileCache::

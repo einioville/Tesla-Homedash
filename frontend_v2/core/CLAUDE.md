@@ -151,19 +151,10 @@ fullscreen with no keyboard — which is also why no bare "quit" is offered. The
 
 ## `App` — `appconfig.{hh,cpp}`
 
-Startup configuration from the environment / `.env` (its header lists the variables), and one
-decision made before any window exists: **the OpenGL context Canvas2D needs.** Qt Canvas Painter
-has shaders for OpenGL 3+, OpenGL ES 3+ and the other graphics APIs only, while Qt asks OpenGL for
-2.0 by default, which Mesa answers with 2.1 (the dev box, and the Pi 4's desktop GL); a Canvas2D on
-that context crashes the app. So the constructor sets the default surface format to desktop 3.3
-core, else ES 3.0 (the Pi 4's V3D gives ES 3.1), each accepted only once a context made with it
-is current on an offscreen surface, and logs which (`OpenGL: core 3.3 context for Canvas2D`).
-`App.gpuCanvas` says whether it worked. Direct3D, Vulkan and Metal pass as they are; the software
-renderer never gets Canvas2D. `TESLA_HOMEDASH_GPU_CANVAS=0` skips all of it. Every view was checked
-on the dev box's 3.3 core context; the Pi's ES 3.0 path is not yet run on the device. **No item draws
-with Canvas2D at present** — the Trips route is a Shape (`RouteBands`, below) — so nothing reads
-`App.gpuCanvas`; the context request, the flag and the `CanvasPainter` link stay until it is
-decided whether they go (#83).
+Startup configuration from the environment / `.env` (its header lists the variables), and the
+maps' imagery source and tile cache folder for QML. It asks for no particular OpenGL context: Qt's
+default (2.0, which Mesa answers with 2.1 on the dev box and as the Pi 4's desktop GL) serves every
+item, and the climate wave is built for it (`../items/tesla/CLAUDE.md`).
 
 ## `Geocoder` — `map/geocoder.{hh,cpp}`
 

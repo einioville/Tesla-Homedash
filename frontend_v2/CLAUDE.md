@@ -81,9 +81,6 @@ All optional; defaults match the embedded target.
   MML's 0.5 m orthophoto within Finland and the keyless EOX Sentinel-2 imagery outside it
   (`items/tesla/CLAUDE.md`, *The basemap*); without it, EOX everywhere plus a startup warning.
   Takes a restart — the OSM plugin reads its tile host once.
-- `TESLA_HOMEDASH_GPU_CANVAS` — `0` keeps Qt's default OpenGL context instead of asking for the
-  3.x one Canvas2D needs (`core/CLAUDE.md`, *App*; no item draws with Canvas2D at present). The
-  escape hatch for a device whose 3.x context misbehaves; default on.
 
 **Frontend settings file.** `frontend_v2/config/settings.json` is the *bundled schema*
 (defaults, types, bounds, Finnish labels) compiled into the binary; the user's overrides are

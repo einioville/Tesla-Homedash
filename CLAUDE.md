@@ -507,8 +507,7 @@ card reporting a failed or partly stale refresh (#61), and the OSM place names o
 the home marked on every map (#54), and EOX's imagery wherever a map looks past MML's coverage
 in place of its blank white tiles (#59) — plus map tiles a Qt Location bug left blank requested
 again (`BasemapSwitch`), with the shared tile cache at 300 MiB, room for EOX's tiles beside MML's —
-and Qt 6.12, with an OpenGL 3 guard for Canvas2D (`App.gpuCanvas`, `frontend_v2/core/CLAUDE.md`;
-no item draws with it at present) — plus the Qt Widgets `frontend/` removed from the
+and Qt 6.12 — plus the Qt Widgets `frontend/` removed from the
 source tree (#65), `frontend_v2` the one frontend, and with it the backend's `WEATHER_FORECAST` frame
 and its FMI WFS fetch, which only it read — plus the Kartta card's *Tyhjennä karttavälimuisti*,
 which deletes the map tile cache and restarts the app (`items/tesla/CLAUDE.md`) — plus the media
@@ -517,7 +516,8 @@ scrolling every so often while the music plays (`items/util/MarqueeText.qml`) �
 data work in C++ (#83 A, `GraphSeries`): the series bound as point lists and decimated, stepped and
 traced with no per-point JavaScript, and the extra lines drawn as Shapes — and the Trips map's route
 drawn as the Kartta view's drive is (#83 B, `SpeedRoute`), its geometry built in C++ (`RouteBands`)
-in chunks, so a pan or zoom runs no per-point JavaScript and a live fix processes one short chunk.
+in chunks, so a pan or zoom runs no per-point JavaScript and a live fix processes one short chunk;
+with nothing left drawing with Canvas2D, Qt's default OpenGL context and no `CanvasPainter` module.
 When you land a change that touches documented behaviour, update this line.
 
 ### 7.8 Keeping the code clean

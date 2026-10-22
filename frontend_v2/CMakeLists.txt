@@ -10,10 +10,9 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # meta-object symbols. CMP0100 (CMake 3.18+) opts .hh/.h++ into AUTOMOC.
 cmake_policy(SET CMP0100 NEW)
 
-find_package(Qt6 REQUIRED COMPONENTS Quick Network Concurrent Svg Location Positioning QuickControls2 Core5Compat Graphs LabsFolderListModel VirtualKeyboard ShaderTools CanvasPainter)
+find_package(Qt6 REQUIRED COMPONENTS Quick Network Concurrent Svg Location Positioning QuickControls2 Core5Compat Graphs LabsFolderListModel VirtualKeyboard ShaderTools)
 
-# 6.12: Canvas2D (Qt Canvas Painter), which no item draws with at present — kept, with the
-# OpenGL 3 context AppConfig asks for it, until that is decided (#83).
+# 6.12: the kit every view is checked on, and the QML live preview's minimum (FRONTEND_V2_QML_PREVIEW).
 qt_standard_project_setup(REQUIRES 6.12)
 
 # The C++ data/transport layer in core/ uses Q_OBJECT / Q_PROPERTY — needs AUTOMOC.
@@ -304,7 +303,7 @@ set_source_files_properties(core/appupdate.cpp PROPERTIES
 target_link_libraries(appfrontend_v2
     PRIVATE Qt6::Quick Qt6::Network Qt6::Concurrent Qt6::Svg Qt6::Location Qt6::Positioning
             Qt6::QuickControls2 Qt6::Core5Compat Qt6::Graphs Qt6::LabsFolderListModel
-            Qt6::VirtualKeyboard Qt6::CanvasPainter
+            Qt6::VirtualKeyboard
 )
 
 # QML live preview (qmlpreview, or the QmlPreview MCP server an agent drives; Qt 6.12+) needs
