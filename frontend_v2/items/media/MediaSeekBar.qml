@@ -21,11 +21,16 @@ Item {
 
     implicitHeight: seekBar.height + 2 + timeRow.height
 
+    // "m:ss", or "h:mm:ss" from an hour up (podcasts, audiobooks).
     function msToClock(ms) {
         var total = Math.max(0, Math.floor(ms / 1000))
-        var minutes = Math.floor(total / 60)
+        var hours = Math.floor(total / 3600)
+        var minutes = Math.floor((total % 3600) / 60)
         var seconds = total % 60
-        return minutes + ":" + (seconds < 10 ? "0" : "") + seconds
+        var ss = (seconds < 10 ? "0" : "") + seconds
+        if (hours > 0)
+            return hours + ":" + (minutes < 10 ? "0" : "") + minutes + ":" + ss
+        return minutes + ":" + ss
     }
 
     Connections {
