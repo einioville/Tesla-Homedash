@@ -517,7 +517,9 @@ data work in C++ (#83 A, `GraphSeries`): the series bound as point lists and dec
 traced with no per-point JavaScript, and the extra lines drawn as Shapes — and the Trips map's route
 drawn as the Kartta view's drive is (#83 B, `SpeedRoute`), its geometry built in C++ (`RouteBands`)
 in chunks, so a pan or zoom runs no per-point JavaScript and a live fix processes one short chunk;
-with nothing left drawing with Canvas2D, Qt's default OpenGL context and no `CanvasPainter` module.
+with nothing left drawing with Canvas2D, Qt's default OpenGL context and no `CanvasPainter` module —
+and the spectrum's per-frame work in C++ (#83 C, `SpectrumLevels`): the smoothing, the blur and the
+line's path, with each bar fed its own level by a list model.
 When you land a change that touches documented behaviour, update this line.
 
 ### 7.8 Keeping the code clean

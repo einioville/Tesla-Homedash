@@ -102,7 +102,7 @@ void MediaData::onPacket(quint8 type, const QByteArray &payload) {
             if (!spectrumWatched() || payload.size() < 1 + count) {
                 break;
             }
-            QVariantList levels;
+            QList<qreal> levels;
             levels.reserve(count);
             for (int i = 1; i <= count; i++) {
                 levels.append(static_cast<quint8>(payload.at(i)) / 255.0);
@@ -256,7 +256,7 @@ void MediaData::setPalette(const QVariantList &value) {
     emit paletteChanged();
 }
 
-void MediaData::setSpectrum(const QVariantList &value) {
+void MediaData::setSpectrum(const QList<qreal> &value) {
     m_spectrum = value;
     emit spectrumChanged();
 }
@@ -265,7 +265,6 @@ void MediaData::retainSpectrum() {
     if (++m_spectrumWatchers > 1) {
         return;
     }
-    emit spectrumWatchedChanged();
     if (m_server->connected()) {
         sendSpectrumWatch();
     }
@@ -279,7 +278,6 @@ void MediaData::releaseSpectrum() {
     if (--m_spectrumWatchers > 0) {
         return;
     }
-    emit spectrumWatchedChanged();
     if (m_server->connected()) {
         sendSpectrumWatch();
     }

@@ -19,6 +19,7 @@
 #include "core/map/placenames.hh"
 #include "core/media/mediadata.hh"
 #include "core/media/mediaimageprovider.hh"
+#include "core/media/spectrumlevels.hh"
 #include "core/notification/notificationhandler.hh"
 #include "core/paireddisplays.hh"
 #include "core/serverclient.hh"
@@ -208,6 +209,7 @@ int main(int argc, char* argv[]) {
     engine.addImageProvider(QStringLiteral("media"), new MediaImageProvider(mediaCache));
 
     qmlRegisterType<GraphSeries>("frontend_v2", 1, 0, "GraphSeries");
+    qmlRegisterType<SpectrumLevels>("frontend_v2", 1, 0, "SpectrumLevels");
     qmlRegisterUncreatableType<RouteBands>("frontend_v2", 1, 0, "RouteBands",
                                            QStringLiteral("Trips.route and CurrentDrive.route hold one"));
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "App", &config);

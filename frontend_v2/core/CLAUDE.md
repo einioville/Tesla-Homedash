@@ -34,6 +34,22 @@ inspect lookups. QML keeps the gestures, axes, transforms and draw-in. Load-bear
   `QML_ELEMENT`: the generated registration includes the header by its bare name, which the
   `core/…` include path does not resolve.
 
+## `SpectrumLevels` — `media/spectrumlevels.{hh,cpp}`
+
+The data half of the spectrum (`../items/media/MediaSpectrum.qml`, issue #83), one per drawing — the
+Media view's and the equalizer's. While `live` it retains `Media`'s spectrum (`MediaData` counts its
+watchers, since one view's instance is going as the other's comes) and turns each frame into what is
+drawn: the rise and fall (`Theme.spectrumRise` / `spectrumFall`) and the 1-2-1 blur. Load-bearing:
+
+- **It is a list model, a row per band with its `level`**, so a frame updates each bar's own value
+  and no list crosses into QML. Measured at 120 frames a second on the dev box, a quarter less
+  GUI-thread time than bars indexing a list property.
+- **The line goes over as SVG cubics, built in C++** (`path`, for `PathSvg`), not as a polyline
+  sampled from the curve: the Shape took half as long again to process ~470 points as the 39 cubics,
+  and the polyline's joins speckled the translucent glow. Built only with `tracePath` (the line
+  style), and again on a resize.
+- `Media.spectrum` is C++ only (`QList<qreal>`), read here; no QML reads the frames.
+
 ## `ServerClient` — `serverclient.{hh,cpp}`, `scram.{hh,cpp}`, `credentialstore.{hh,cpp}`
 
 The one socket to the backend (QML `Server`), **TLS 1.3 with a login in front** (issue #64; the

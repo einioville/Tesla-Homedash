@@ -109,6 +109,8 @@ qt_add_executable(appfrontend_v2
     core/media/mediaimageprovider.hh
     core/media/mediadata.hh
     core/media/mediadata.cpp
+    core/media/spectrumlevels.hh
+    core/media/spectrumlevels.cpp
     core/weather/weatherdata.hh
     core/weather/weatherdata.cpp
     core/notification/notificationhandler.hh

@@ -470,8 +470,8 @@ slider row under it. Load-bearing:
   column of its knob — the bands are two octaves apart but the top one less, so no single scale
   hits all five. It is clipped, because the line style closes its fill outside itself. It records
   only while the Settings view is current (`SettingsPane.live`, the view's `isCurrent`) and this
-  card is built; `Media` counts its watchers (`retainSpectrum()` / `releaseSpectrum()`), since the
-  Media view's instance is going as this one comes.
+  card is built; `Media` counts its watchers (each instance's `SpectrumLevels`,
+  `../../core/CLAUDE.md`), since the Media view's instance is going as this one comes.
 
 ## USB photo import — `UsbImportPopup.qml`
 

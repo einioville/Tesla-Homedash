@@ -280,7 +280,7 @@ dashboard and the Media view (`items/media/MediaBackdrop.qml`) is the case: 22 f
 while music plays (its 20 and the seek bar's tick), none once paused. The spectrum
 (`items/media/MediaSpectrum.qml`, bars or line, in the Media view and behind the equalizer) redraws
 per frame the backend sends, about 30 a second: 34 with the backdrop on the dev box (measured with
-the line). The climate switch's water
+the line), with the per-frame work in C++ (`SpectrumLevels`, `core/CLAUDE.md`). The climate switch's water
 (`items/tesla/CLAUDE.md`) renders every frame while a switch shows, and only then. A media title
 too long for its place (`items/util/MarqueeText.qml`) renders every frame for the few seconds it
 scrolls, once every `marqueeRestDuration` while the music plays.
