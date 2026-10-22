@@ -20,7 +20,8 @@ import frontend_v2
 // first frame, fetched with the frames. Each frame draws its own 5-minute slot's strikes bright,
 // and the earlier ones of the loop fading with age, so a storm leaves its track; the newest
 // frame also takes the strikes since it, which arrive a few minutes before the radar does.
-// They are drawn at screen resolution, so they stay crisp over a frame fetched coarser.
+// They are drawn at screen resolution on the GPU (LightningLayer, core/weather/lightninglayer.hh),
+// so they stay crisp over a frame fetched coarser and a loop step redraws nothing on the CPU.
 Item {
     id: root
 
@@ -59,24 +60,9 @@ Item {
     // its pixel size and resolution, the map's zoom and metres per pixel when it was taken, and
     // `seen`, the part of it that was on screen.
     property var view: null
-    // Strikes over the whole coverage as { mx, my, t }: EPSG:3857 metres and epoch
-    // milliseconds; and those in the view, which are the ones counted.
-    property var allStrikes: []
-    readonly property var strikes: view ? allStrikes.filter(s => s.mx >= view.seen.x0 && s.mx <= view.seen.x1
-                                                                 && s.my >= view.seen.y0 && s.my <= view.seen.y1)
-                                        : []
-    // What strikeLayer draws for the shown frame.
-    readonly property int strikesShown: {
-        if (!frameTimes.length)
-            return 0
-        var end = frame === frameCount - 1 ? Infinity : frameTime.getTime()
-        var start = frameTimes[0].getTime() - frameStepMin * 60000
-        var n = 0
-        for (var i = 0; i < strikes.length; i++)
-            if (strikes[i].t <= end && strikes[i].t > start)
-                n++
-        return n
-    }
+    // Strikes in the view, which are the ones drawn and counted; and those the shown frame draws.
+    readonly property int strikeCount: strikeLayer.inArea
+    readonly property int strikesShown: strikeLayer.shown
     readonly property date frameTime: frameTimes.length > frame ? frameTimes[frame] : new Date()
 
     function ready() {
@@ -121,25 +107,11 @@ Item {
                 console.warn("Lightning fetch failed: HTTP", xhr.status)
                 return
             }
-            root.allStrikes = root.parseStrikes(xhr.responseText)
+            strikeLayer.load(xhr.responseText)
+            root.placeStrikes()
         }
         xhr.open("GET", url)
         xhr.send()
-    }
-
-    // gmlcov:positions holds one "lat lon epoch-seconds" triple per strike; a response with no
-    // strikes has no positions element at all.
-    function parseStrikes(xml) {
-        var m = /<gmlcov:positions>([\s\S]*?)<\/gmlcov:positions>/.exec(xml)
-        if (!m)
-            return []
-        var v = m[1].trim().split(/\s+/)
-        var list = []
-        for (var i = 0; i + 2 < v.length; i += 3) {
-            var p = merc({ latitude: Number(v[i]), longitude: Number(v[i + 1]) })
-            list.push({ mx: p.x, my: p.y, t: Number(v[i + 2]) * 1000 })
-        }
-        return list
     }
 
     function merc(c) {
@@ -194,7 +166,22 @@ Item {
         var p = plan()
         if (!serves(p))
             view = p
-        strikeLayer.repaint()
+        placeStrikes()
+    }
+
+    // Puts the strikes in the camera of the moment; until the next call they are carried with
+    // the map like a frame.
+    function placeStrikes() {
+        if (!ready() || !frameTimes.length) {
+            strikeLayer.placed = null
+            return
+        }
+        var w = geoMap.width
+        var a = screenMerc(0, 0)
+        var b = screenMerc(w, 0)
+        strikeLayer.project(a.x, a.y, b.x, b.y, w)
+        strikeLayer.placed = { coord: geoMap.toCoordinate(Qt.point(0, 0), false),
+                                zoom: geoMap.zoomLevel, bearing: geoMap.bearing }
     }
 
     // Where a box's top-left sits on screen now, and how it is scaled and turned since.
@@ -216,8 +203,6 @@ Item {
     }
 
     onLatestOnlyChanged: if (latestOnly) frame = frameCount - 1
-    onFrameChanged: strikeLayer.repaint()
-    onStrikesChanged: strikeLayer.repaint()
     onHoldFetchChanged: if (!holdFetch) watch.moved()
     // Coming live refreshes the frame list: it is as old as the last refresh, and a view is
     // built in the background long before it is first opened.
@@ -269,110 +254,36 @@ Item {
         }
     }
 
-    // Painted in screen pixels for the camera of the moment, then carried with the map like
-    // a frame until the next paint: at each check, and when the frame or the strikes change.
-    Canvas {
+    // Built in screen pixels for the camera of the moment (placeStrikes), then carried with the
+    // map like a frame until the next.
+    LightningLayer {
         id: strikeLayer
         width: root.width
         height: root.height
-        visible: root.strikes.length > 0
-        // The camera at the last paint: the coordinate under the top-left corner, the zoom
+        visible: inArea > 0 && placed !== null
+        area: root.view ? Qt.rect(root.view.seen.x0, root.view.seen.y0, root.view.seen.x1 - root.view.seen.x0,
+                                  root.view.seen.y1 - root.view.seen.y0)
+                        : Qt.rect(0, 0, 0, 0)
+        firstFrameMs: root.frameTimes.length ? root.frameTimes[0].getTime() : 0
+        stepMs: root.frameStepMin * 60000
+        frameCount: root.frameTimes.length
+        frame: root.frame
+        // The camera at the last placing: the coordinate under the top-left corner, the zoom
         // and the bearing.
-        property var painted: null
+        property var placed: null
         readonly property var place: {
-            if (!root.geoMap || !painted)
+            if (!root.geoMap || !placed)
                 return null
             root.geoMap.center; root.geoMap.zoomLevel; root.geoMap.bearing; root.geoMap.width; root.geoMap.height
-            var p = root.geoMap.fromCoordinate(painted.coord, false)
-            return { x: p.x, y: p.y, s: Math.pow(2, root.geoMap.zoomLevel - painted.zoom),
-                     r: painted.bearing - root.geoMap.bearing }
+            var p = root.geoMap.fromCoordinate(placed.coord, false)
+            return { x: p.x, y: p.y, s: Math.pow(2, root.geoMap.zoomLevel - placed.zoom),
+                     r: placed.bearing - root.geoMap.bearing }
         }
         x: place ? place.x : 0
         y: place ? place.y : 0
         scale: place ? place.s : 1
         rotation: place ? place.r : 0
         transformOrigin: Item.TopLeft
-
-        function repaint() {
-            if (root.strikes.length > 0)
-                requestPaint()
-        }
-
-        function cross(ctx, x, y, r) {
-            ctx.beginPath()
-            ctx.moveTo(x - r, y - r)
-            ctx.lineTo(x + r, y + r)
-            ctx.moveTo(x + r, y - r)
-            ctx.lineTo(x - r, y + r)
-            ctx.stroke()
-        }
-
-        // Yellow crosses outlined in black, so one shows on the radar's own yellow and red too.
-        // All of a group's outlines go down before its crosses, or each cross in a cluster
-        // would cut the one under it.
-        function crosses(ctx, list, r, width) {
-            ctx.lineCap = "round"
-            ctx.strokeStyle = "black"
-            ctx.lineWidth = width + 3
-            for (var i = 0; i < list.length; i++) {
-                ctx.globalAlpha = list[i].a
-                cross(ctx, list[i].x, list[i].y, r)
-            }
-            ctx.strokeStyle = "#ffd21f"
-            ctx.lineWidth = width
-            for (var j = 0; j < list.length; j++) {
-                ctx.globalAlpha = list[j].a
-                cross(ctx, list[j].x, list[j].y, r)
-            }
-            ctx.globalAlpha = 1
-        }
-
-        onPaint: {
-            var ctx = getContext("2d")
-            ctx.reset()
-            if (!root.ready() || !root.frameTimes.length) {
-                painted = null
-                return
-            }
-            var w = root.geoMap.width
-            // EPSG:3857 to screen is a similarity: the screen's x axis runs along a→b, its
-            // y axis (down) a quarter turn clockwise from that, k pixels to the metre.
-            var a = root.screenMerc(0, 0)
-            var b = root.screenMerc(w, 0)
-            var len = Math.hypot(b.x - a.x, b.y - a.y)
-            var ux = (b.x - a.x) / len
-            var uy = (b.y - a.y) / len
-            var k = w / len
-            painted = { coord: root.geoMap.toCoordinate(Qt.point(0, 0), false),
-                        zoom: root.geoMap.zoomLevel, bearing: root.geoMap.bearing }
-
-            var step = root.frameStepMin * 60000
-            var f = root.frameTime.getTime()
-            var end = root.frame === root.frameCount - 1 ? Infinity : f
-            var trail = root.frameCount * step
-            // A failed refresh leaves the last list in place; drop what has left the loop.
-            var loopStart = root.frameTimes[0].getTime() - step
-
-            // This frame's strikes full size, the loop's earlier ones smaller and fading with
-            // age, drawn first so this frame's land on top of them.
-            var earlier = []
-            var fresh = []
-            for (var i = 0; i < root.strikes.length; i++) {
-                var s = root.strikes[i]
-                if (s.t > end || s.t <= loopStart)
-                    continue
-                var dx = s.mx - a.x
-                var dy = s.my - a.y
-                var x = k * (dx * ux + dy * uy)
-                var y = k * (dx * uy - dy * ux)
-                if (s.t > f - step)
-                    fresh.push({ x: x, y: y, a: 1 })
-                else
-                    earlier.push({ x: x, y: y, a: Math.max(0.3, 0.9 - 0.6 * (f - s.t) / trail) })
-            }
-            crosses(ctx, earlier, 3.5, 2)
-            crosses(ctx, fresh, 5, 2.5)
-        }
     }
 
     Timer {

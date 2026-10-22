@@ -36,6 +36,7 @@
 #include "core/trip/currentdrive.hh"
 #include "core/trip/routebands.hh"
 #include "core/trip/tripsdata.hh"
+#include "core/weather/lightninglayer.hh"
 #include "core/weather/weatherdata.hh"
 
 int main(int argc, char* argv[]) {
@@ -210,6 +211,7 @@ int main(int argc, char* argv[]) {
 
     qmlRegisterType<GraphSeries>("frontend_v2", 1, 0, "GraphSeries");
     qmlRegisterType<SpectrumLevels>("frontend_v2", 1, 0, "SpectrumLevels");
+    qmlRegisterType<LightningLayer>("frontend_v2", 1, 0, "LightningLayer");
     qmlRegisterUncreatableType<RouteBands>("frontend_v2", 1, 0, "RouteBands",
                                            QStringLiteral("Trips.route and CurrentDrive.route hold one"));
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "App", &config);

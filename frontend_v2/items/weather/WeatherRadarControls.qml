@@ -126,7 +126,7 @@ GlassPanel {
         // Lightning up to the shown frame, there whenever the loop has any, so the bar does
         // not change size as the count climbs from zero.
         Row {
-            visible: bar.radar !== null && bar.radar.strikes.length > 0
+            visible: bar.radar !== null && bar.radar.strikeCount > 0
             spacing: 4
             // The map's strike mark: a yellow cross outlined in black.
             Shape {

@@ -113,6 +113,8 @@ qt_add_executable(appfrontend_v2
     core/media/spectrumlevels.cpp
     core/weather/weatherdata.hh
     core/weather/weatherdata.cpp
+    core/weather/lightninglayer.hh
+    core/weather/lightninglayer.cpp
     core/notification/notificationhandler.hh
     core/notification/notificationhandler.cpp
 )
@@ -400,6 +402,8 @@ qt_add_shaders(appfrontend_v2 "shaders"
         resources/shaders/climatewater.frag
         resources/shaders/climatewave.frag
         resources/shaders/glassfrost.frag
+        resources/shaders/lightning.vert
+        resources/shaders/lightning.frag
 )
 
 # Developer convenience: regenerate the Tesla data layer from the registry.

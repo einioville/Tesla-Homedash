@@ -120,7 +120,7 @@ frontend_v2/                      # ★ the Qt Quick/QML frontend (Main.qml, mai
     util/                         # ★ screensaver, notifications, shared widgets and motion pieces
     charging/ history/ luna/ media/ trip/ weather/
   views/                          # one screen per view on the switcher
-  resources/                      # fonts, icons, styles, Luna, shaders (ShaderEffect, compiled by qt_add_shaders)
+  resources/                      # fonts, icons, styles, Luna, shaders (ShaderEffect and material, compiled by qt_add_shaders)
 
 scripts/                          # ★ build-frontend.{sh,ps1,cmd}; Windows-only new-/finish-session
 docs/                             # wsl-dev-environment.md (WSL2 bootstrap), images/ (README screenshots)
@@ -519,7 +519,9 @@ drawn as the Kartta view's drive is (#83 B, `SpeedRoute`), its geometry built in
 in chunks, so a pan or zoom runs no per-point JavaScript and a live fix processes one short chunk;
 with nothing left drawing with Canvas2D, Qt's default OpenGL context and no `CanvasPainter` module —
 and the spectrum's per-frame work in C++ (#83 C, `SpectrumLevels`): the smoothing, the blur and the
-line's path, with each bar fed its own level by a list model.
+line's path, with each bar fed its own level by a list model — and the radar's lightning on the GPU
+(#83 D, `LightningLayer`): parsed and grouped by frame in C++, its quads built when the map rests,
+so a loop step redraws nothing on the CPU.
 When you land a change that touches documented behaviour, update this line.
 
 ### 7.8 Keeping the code clean

@@ -50,6 +50,27 @@ drawn: the rise and fall (`Theme.spectrumRise` / `spectrumFall`) and the 1-2-1 b
   style), and again on a resize.
 - `Media.spectrum` is C++ only (`QList<qreal>`), read here; no QML reads the frames.
 
+## `LightningLayer` — `weather/lightninglayer.{hh,cpp}`
+
+The lightning over the radar loop (`../items/weather/RadarLayer.qml`, issue #83), an item that draws
+on the GPU in place of a CPU `Canvas`: it parses FMI's response (`load`), keeps the strikes in `area`
+(the view the frames were fetched for), and gives `inArea` and the shown frame's count, `shown`.
+Load-bearing:
+
+- **The quads are built only when the strikes, the area or the loop change, and when `project` puts
+  them in the camera of the moment** — RadarLayer's `placeStrikes()`, at each map rest and every 1.5 s
+  while it moves; in between the item is carried with the map like a frame. 10 000 strikes rebuild in
+  under a millisecond of scene-graph sync on the dev box.
+- **A loop step builds nothing.** One quad per strike serves four passes in drawing order — the
+  earlier frames' outlines, their crosses, then the shown frame's — and the step only changes the
+  frame the shaders (`resources/shaders/lightning.*`) compare each strike's slot with: a quad its
+  pass does not draw collapses to a point. All of a pass's outlines go down before its crosses, so
+  a cluster's crosses do not cut each other. The cross is a distance field (two round-capped
+  strokes) with a one-pixel soft edge, the stroke weight of the canvas it replaces.
+- **A strike's slot is the frame whose 5 minutes end at or after it**; the newest frame takes those
+  since it as well, and one at or before the loop's start is in none. The earlier ones fade by their
+  own age, as before.
+
 ## `ServerClient` — `serverclient.{hh,cpp}`, `scram.{hh,cpp}`, `credentialstore.{hh,cpp}`
 
 The one socket to the backend (QML `Server`), **TLS 1.3 with a login in front** (issue #64; the

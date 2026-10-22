@@ -188,7 +188,7 @@ the menu sits in its map's corner, full-screen or the card. `TeslaMap`'s `show*`
   and fetches no older frame — and leaves the bar only that frame's time, the play button, track
   and relative age gone. Its header is the reference; two more things differ from the Weather card. This map turns heading-up, so each frame is fetched for the
   bounding box of all four screen corners and turned with the map (`Image.rotation`), and the
-  lightning is painted in screen pixels and carried the same way. And it keeps moving while it
+  lightning is drawn in screen pixels (`LightningLayer`, `core/CLAUDE.md`) and carried the same way. And it keeps moving while it
   follows the car, so it fetches a 25 % margin round the view, no finer than 150 m a pixel
   (the composite's cells are about 500 m) and at most 1024 px a side — all thirteen frames stay
   decoded, so the size is the memory.

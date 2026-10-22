@@ -15,7 +15,7 @@ core/           # C++: ServerClient, protocol.hh, Logger, AppConfig, dotenv, the
   tesla/ media/ weather/ charging/ trip/ map/ notification/   # per-domain data models
 items/          # QML components by domain (charging history luna media settings tesla trip util weather)
 views/          # one screen per view: Dashboard Map Weather Media History Trips Charging Settings
-resources/      # fonts, icons, styles, Luna, shaders (ShaderEffect .frag, compiled by qt_add_shaders)
+resources/      # fonts, icons, styles, Luna, shaders (ShaderEffect .frag, LightningLayer's material; qt_add_shaders)
 ```
 
 ## Icons
