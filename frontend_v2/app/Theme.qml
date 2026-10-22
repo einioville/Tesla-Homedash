@@ -110,6 +110,10 @@ QtObject {
     readonly property int viewTurnDuration: 260
     readonly property int viewForwardDuration: 190
     readonly property int viewPhaseOverlap: 70
+    // MarqueeText: a line too wide for its place rests this long between
+    // scrolls, which run at marqueeSpeed line heights a second.
+    readonly property int marqueeRestDuration: 10000
+    readonly property real marqueeSpeed: 2
     // Opacity of a settings row whose `relevantWhen` fails for a reason other
     // than the setting it is nested under (that one hides it) — the row is
     // disabled too.

@@ -193,6 +193,7 @@ qt_add_qml_module(appfrontend_v2
         items/luna/Luna.qml
         items/util/HomeIndicator.qml
         items/util/TextButton.qml
+        items/util/MarqueeText.qml
         items/util/Card.qml
         items/util/GlowBorder.qml
         items/util/TintedIcon.qml

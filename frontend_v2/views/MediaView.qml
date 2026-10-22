@@ -114,16 +114,16 @@ Item {
             width: view.coverSize
             spacing: 4
 
-            Text {
+            MarqueeText {
                 width: parent.width
                 text: Media.title.length > 0 ? Media.title : "-"
                 color: Theme.dataLabelValue
                 font.family: Theme.fontFamily
                 font.pointSize: 26
                 horizontalAlignment: Text.AlignHCenter
-                elide: Text.ElideRight
+                active: view.isCurrent && Media.isPlaying
             }
-            Text {
+            MarqueeText {
                 width: parent.width
                 visible: Media.mediaType === 2 && Media.artists.length > 0
                 text: Media.artists
@@ -131,7 +131,7 @@ Item {
                 font.family: Theme.fontFamily
                 font.pointSize: 15
                 horizontalAlignment: Text.AlignHCenter
-                elide: Text.ElideRight
+                active: view.isCurrent && Media.isPlaying
             }
         }
 

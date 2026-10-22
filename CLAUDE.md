@@ -511,7 +511,9 @@ and Qt 6.12, with the Trips map's route drawn by Canvas2D on the GPU behind an O
 (`App.gpuCanvas`, `frontend_v2/core/CLAUDE.md`) — plus the Qt Widgets `frontend/` removed from the
 source tree (#65), `frontend_v2` the one frontend, and with it the backend's `WEATHER_FORECAST` frame
 and its FMI WFS fetch, which only it read — plus the Kartta card's *Tyhjennä karttavälimuisti*,
-which deletes the map tile cache and restarts the app (`items/tesla/CLAUDE.md`).
+which deletes the map tile cache and restarts the app (`items/tesla/CLAUDE.md`) — plus the media
+seek bar's times in hours from an hour up, and a media title or artist line too long for its place
+scrolling every so often while the music plays (`items/util/MarqueeText.qml`).
 When you land a change that touches documented behaviour, update this line.
 
 ### 7.8 Keeping the code clean

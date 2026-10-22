@@ -54,17 +54,17 @@ Item {
             coverSize: 160
         }
 
-        Text {
+        MarqueeText {
             Layout.fillWidth: true
             text: Media.title.length > 0 ? Media.title : "-"
             color: Theme.dataLabelValue
             font.family: Theme.fontFamily
             font.pointSize: 15
             horizontalAlignment: Text.AlignHCenter
-            elide: Text.ElideRight
+            active: card.active && Media.isPlaying
         }
 
-        Text {
+        MarqueeText {
             Layout.fillWidth: true
             visible: card.isSpotify && Media.artists.length > 0
             text: Media.artists
@@ -72,7 +72,7 @@ Item {
             font.family: Theme.fontFamily
             font.pointSize: 8
             horizontalAlignment: Text.AlignHCenter
-            elide: Text.ElideRight
+            active: card.active && Media.isPlaying
         }
 
         MediaTransport {

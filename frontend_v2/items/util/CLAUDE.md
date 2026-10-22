@@ -101,6 +101,21 @@ Five pieces exist so every future control moves and responds the same way. Their
   events arrive in bursts whose 1 ms gaps are spikes of thousands of px/s. The view switch's three
   gestures use it (`../../CLAUDE.md`, *View switching*).
 
+## `MarqueeText.qml` — a line too long for its place
+
+The media title and artists on the dashboard card and the Media view. A line that fits stands
+still at its `horizontalAlignment`; one that does not rests at its start, the cut end faded rather
+than elided, and every `marqueeRestDuration` scrolls one loop — a copy following `gap` behind, so
+it ends where it began — at `marqueeSpeed` line heights a second, so large and small lines read at
+the same pace. The rest is a `Timer` and only the scroll a `NumberAnimation`, so a resting line
+costs no frames (`../../CLAUDE.md`, *Motion that keeps running*); a `PauseAnimation` in a
+sequence would redraw the window all through the rest. `active` gates the start of a scroll (the
+callers pass their view's `isCurrent` and `Media.isPlaying`), as does the effective `visible`, so
+nothing scrolls under the screensaver. The fade is a `MultiEffect` mask over a gradient, with
+`RoundedImage`'s threshold and spread (smoothstep over the mask's alpha); the near edge's fade
+follows the offset, so it grows in as the line leaves its start and is gone again as the copy
+arrives.
+
 ## Frosted glass over a map — `GlassPanel.qml`, `FrostLayer.qml`
 
 A `GlassPanel` frosts the backdrop behind it by capturing its own region (`ShaderEffectSource`),
