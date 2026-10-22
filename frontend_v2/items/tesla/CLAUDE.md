@@ -199,19 +199,22 @@ the menu sits in its map's corner, full-screen or the card. `TeslaMap`'s `show*`
   built and the other left. The backend's `TRIP_GET_CURRENT` finds it with the Trips view's own
   detection, a drive counting from the first metres (no minimum distance), and each live fix is
   added to a drive with the speed of the moment; the car leaving Park clears the last trip for
-  the next drive. It is **coloured by speed on the Trips map's scale** (`Theme.speedColor`)
-  and drawn in two parts: `path`, which ends at the fix before the newest, and a two-point
-  `MapPolyline` tail from there to the car arrow's eased position, in the current speed's colour.
-  The arrow takes a second to glide to each new fix, so a line through the newest fix would run
-  ahead of the car. **`path` is not a `MapPolyline`**: one is rebuilt (projected, clipped to the
-  view, triangulated) on every camera change
+  the next drive. It is **coloured by speed** (`Theme.speedColor`), drawn by `SpeedRoute.qml` as
+  the Trips map's trip is, and in two parts: `CurrentDrive.route`, which ends at the fix before the
+  newest, and a two-point `MapPolyline` tail from there to the car arrow's eased position, in the
+  current speed's colour. The arrow takes a second to glide to each new fix, so a line through the
+  newest fix would run ahead of the car. **The route is not a `MapPolyline`**: one is rebuilt
+  (projected, clipped to the view, triangulated) on every camera change
   (`QDeclarativePolylineMapItemPrivateCPU::afterViewportChanged`), which a following map makes
-  every frame, and colouring would take a line per speed band. `DriveRoute.qml` is one `Shape` in
-  EPSG:3857 metres from the first fix — a `ShapePath` per 15 km/h band holding that band's runs —
-  moved, scaled and turned with the map, so a frame costs one projection and the paths are
-  rebuilt only when the zoom changes the stroke width or a fix arrives (a `GeoFrame`, below). A fix
-  extends the runs of its band only; a reply that replaces the path (`CurrentDrive.generation`)
-  starts them over.
+  every frame, and colouring would take a line per speed band. `SpeedRoute` is Shapes in a
+  `GeoFrame` (below) — a `ShapePath` per 15 km/h band holding that band's runs — moved, scaled and
+  turned with the map, so a frame costs one projection. Their geometry is C++'s, `RouteBands`
+  (`../../core/CLAUDE.md`), in chunks: a reply builds the whole route once, and a live fix extends
+  the last chunk of at most 200 segments, which alone is processed again. The strokes are
+  `cosmeticStroke`, the same width on screen at every zoom with no path processed again, and the
+  Shapes are `asynchronous`, so a long trip is processed off the GUI thread. The Trips map gives it
+  a dark casing under the line (`casingColor: Theme.tripRouteCasing`): all of the casing goes under
+  all of the colour, or a chunk's casing would cover the end of the one before.
 - **Paikannimet** — `PlaceLabels.qml` over the `PlaceNames` store (below), issue #54's first step.
 - **Kelikamerat** — Fintraffic's road weather cameras (Digitraffic, CC BY 4.0, credited in the README
   and the dialog), `RoadCameras.qml`: the station list (`RoadCameraStations.qml`, ~800 cameras, 37 kB
@@ -241,8 +244,9 @@ the menu sits in its map's corner, full-screen or the card. `TeslaMap`'s `show*`
 **`GeoFrame.qml` carries drawing in metres with the map.** Its coordinates are EPSG:3857 metres from
 an origin; it is moved, scaled and turned with the camera, so a `Shape` in it is triangulated once
 and then only transformed — a frame costs one projection, where a `MapPolyline` is rebuilt every
-camera change. A stroke takes `px / pixelsPerMetre` and is rebuilt only when the zoom changes.
-`DriveRoute` and `WarningAreas` draw in one.
+camera change. A stroke keeps its width on screen as a `cosmeticStroke`, never processed again
+(`SpeedRoute`), or by taking `px / pixelsPerMetre`, processed again on every zoom change
+(`WarningAreas`).
 
 **Zoom buttons** — `MapZoomButtons.qml`, + over − on a glass pill, over the layer button on both
 maps. On the dashboard's card the two are out of sight until the map is touched (`MapTouchReveal`:

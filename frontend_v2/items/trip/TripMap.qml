@@ -1,59 +1,32 @@
 import QtQuick
-import QtCanvas2D
 import QtLocation
 import QtPositioning
 import frontend_v2
 
 // Trips-view map: a free-pan/zoom OSM map (no car-follow) that draws the selected
-// trip's GPS path as a colour-graded polyline, over the OSM place names and the home
-// (as on the Kartta view). The route comes from the Trips
-// singleton ({ latitude, longitude, speed, ts } per fix); the map fits its viewport to
-// the route when one arrives.
-//
-// The line is drawn on a Canvas2D overlaid on the map (a sibling on top, like the
-// TeslaMap corner overlay — no input handlers, so pan/pinch/wheel fall through to
-// the Map), which paints on the GPU: a pan or pinch repaints it every frame, which
-// a Qt Quick Canvas would rasterise on the CPU and upload again each time. Without
-// an OpenGL 3+ context (App.gpuCanvas) it is a Qt Quick Canvas after all. Each
-// segment is coloured by the mean speed of its two endpoints, from dark green (slow)
-// to dark red (Theme.tripMaxSpeedKmh, default 150 km/h). No dots
-// are drawn on the fixes — just the connecting lines.
-//
-// Resolution follows the zoom level: the route is decimated so kept fixes sit
-// ~4 px apart at the current zoom (rebuilt on zoom / route change). Each repaint
-// projects + strokes only the survivors that fall in (or near) the viewport, so
-// panning a long trip while zoomed in stays cheap regardless of trip length. Zoomed
-// out, distant fixes collapse to a coarse line; zoomed in, full detail is drawn.
+// trip's GPS path coloured by speed (Trips.route, SpeedRoute — the Kartta view's drive,
+// with a dark casing under it), over the OSM place names and under the home and the
+// start / end pins. The map fits its viewport to the route when one arrives.
 Item {
     id: root
 
     // Clip so the inspect-arrow overlay (a plain Image projected from a geo-coordinate)
     // can never paint outside the map card and over the neighbouring view items when the
-    // inspected fix sits off the current viewport. The Map + route Canvas2D fill root
-    // exactly, so clipping them is a no-op.
+    // inspected fix sits off the current viewport. The Map fills root exactly, so
+    // clipping it is a no-op.
     clip: true
 
     property bool isCurrent: true
-    property real lineWidth: Theme.tripRouteWidth
     property real defaultZoom: 12
-
-    // Plain-JS snapshot of Trips.route ([{ lat, lon, speed, ts }, ...]), taken once per
-    // route change. Decimation reads THIS, not the Trips.route QVariantList, so a
-    // pinch-zoom (which re-decimates on every zoom delta) never re-marshals each
-    // QVariantMap out of the singleton.
-    property var rawRoute: []
-
-    // The decimated survivor list (entries of rawRoute), rebuilt on zoom / route
-    // change; the paint step then projects only the on-screen survivors.
-    property var decimated: []
 
     // Graph-inspect mirror: while the user hovers the speed graph, show a heading arrow
     // at the route position for the inspected time. Bound by TripsView.
     property bool inspecting: false
     property real inspectTime: 0
-    // The inspected { lat, lon, bearing } (or null), recomputed as the cursor moves.
-    property var inspectPoint: (inspecting && rawRoute.length > 0)
-                               ? positionAtTime(inspectTime) : null
+    // The inspected { lat, lon, bearing } (or null), recomputed as the cursor moves;
+    // Trips.hasRoute is what makes it follow a new route (positionAt binds to nothing).
+    property var inspectPoint: (inspecting && Trips.hasRoute)
+                               ? Trips.route.positionAt(inspectTime) : null
 
     BasemapPlugin {
         id: osmPlugin
@@ -72,17 +45,8 @@ Item {
         bearing: 0
         center: QtPositioning.coordinate(61.497063, 23.750078)
 
-
-        // Repaint the route as the view moves; a zoom change also re-decimates
-        // (resolution follows zoom). fromCoordinate only works once mapReady, so a
-        // route that arrived earlier is fitted + drawn when the map becomes ready.
-        onCenterChanged: root.repaintRoute()
-        onZoomLevelChanged: { root.rebuildDecimation(); root.repaintRoute() }
-        onMapReadyChanged: if (mapReady) {
-            root.fitToRoute()
-            root.rebuildDecimation()
-            root.repaintRoute()
-        }
+        // A route that arrived before the map could project is fitted once it can.
+        onMapReadyChanged: if (mapReady) root.fitToRoute()
 
         // Free pan (1:1 in map coordinates, DPR-correct — see TeslaMap), scaled
         // by the shared map gesture sensitivity so this map and the car map feel
@@ -127,7 +91,7 @@ Item {
             }
         }
 
-        // Under the route, which the Canvas2D above the map draws, and the pins (TripMarker).
+        // Under the route and the pins (TripMarker).
         PlaceLabels {
             geoMap: map
             active: root.isCurrent
@@ -139,65 +103,34 @@ Item {
             active: root.isCurrent
         }
 
+        // Over the names (3), under the home (5) and the pins (6).
+        SpeedRoute {
+            z: 4
+            geoMap: map
+            route: Trips.route
+            lineWidth: Theme.tripRouteWidth
+            casingColor: Theme.tripRouteCasing
+        }
+
         // Start / end pins at the route's first + last fix. Map items, so they pan
         // and zoom with the map natively. Shown only when a route is drawn.
         TripMarker {
             label: qsTr("Alku")
-            visible: Trips.hasRoute && Trips.routeStart.latitude !== undefined
-            coordinate: (Trips.routeStart.latitude !== undefined)
-                        ? QtPositioning.coordinate(Trips.routeStart.latitude, Trips.routeStart.longitude)
-                        : QtPositioning.coordinate(0, 0)
+            visible: Trips.hasRoute
+            coordinate: Trips.routeStart
         }
         TripMarker {
             label: qsTr("Loppu")
-            visible: Trips.hasRoute && Trips.routeEnd.latitude !== undefined
-            coordinate: (Trips.routeEnd.latitude !== undefined)
-                        ? QtPositioning.coordinate(Trips.routeEnd.latitude, Trips.routeEnd.longitude)
-                        : QtPositioning.coordinate(0, 0)
+            visible: Trips.hasRoute
+            coordinate: Trips.routeEnd
         }
 
-    }
-
-    // Route overlay. Sibling on top of the map (no input handlers -> gestures fall
-    // through). Fills the same rect as the map, so map.fromCoordinate (relative to
-    // the map item) maps 1:1 into canvas coordinates. Both canvases run paintRoute().
-    Loader {
-        id: routeLoader
-        anchors.fill: parent
-        z: 5
-        sourceComponent: App.gpuCanvas ? gpuRoute : cpuRoute
-    }
-    // Cleared every frame, to the transparent fill colour over the map.
-    Component {
-        id: gpuRoute
-        Canvas2D {
-            fillColor: "transparent"
-            alphaBlending: true
-            onPaint: root.paintRoute()
-            onWidthChanged: requestPaint()
-            onHeightChanged: requestPaint()
-        }
-    }
-    // Keeps what it drew: paintRoute clears it first.
-    Component {
-        id: cpuRoute
-        Canvas {
-            onPaint: root.paintRoute()
-            onWidthChanged: requestPaint()
-            onHeightChanged: requestPaint()
-        }
-    }
-
-    function repaintRoute() {
-        if (routeLoader.item)
-            routeLoader.item.requestPaint()
     }
 
     // Graph-inspect marker: a heading arrow (same asset as the dashboard car marker) at
     // the route position for the time the user is inspecting on the speed graph, rotated
-    // to the direction of travel. Rendered as an overlay ABOVE the route Canvas2D (z 6 >
-    // its z 5) so it sits ON TOP of the drawn path — a MapQuickItem would draw as part
-    // of the map, under the route overlay. Projected via map.fromCoordinate
+    // to the direction of travel. An overlay above the map (z 6), so it sits over the
+    // route and the pins. Projected via map.fromCoordinate
     // (which references map.center + zoomLevel so it re-projects on every pan/zoom).
     // The map follows it (dead-zone pan, see followInspect) so it stays on-screen.
     Image {
@@ -220,8 +153,8 @@ Item {
 
         // Screen position of the inspected fix. Referencing map.center + map.zoomLevel
         // makes this re-evaluate as the map moves (fromCoordinate alone is not a tracked
-        // dependency), matching how the route Canvas2D repaints on view changes. Kept
-        // independent of `visible` (which reads it back) to avoid a binding loop.
+        // dependency). Kept independent of `visible` (which reads it back) to avoid a
+        // binding loop.
         property point projected: {
             var c = map.center
             var z = map.zoomLevel
@@ -291,67 +224,10 @@ Item {
     // A new route (or a cleared one) arrives from the backend.
     Connections {
         target: Trips
-        function onRouteChanged() {
-            root.snapshotRoute()
-            root.rebuildDecimation()
-            root.fitToRoute()
-            root.repaintRoute()
-        }
+        function onRouteChanged() { root.fitToRoute() }
     }
 
-    // Copy Trips.route (a QVariantList of QVariantMaps) into a plain-JS array once,
-    // so the per-zoom decimation and per-frame paint never touch the singleton list.
-    function snapshotRoute() {
-        var r = Trips.route
-        var out = []
-        if (r) {
-            for (var i = 0; i < r.length; ++i)
-                out.push({ lat: r[i].latitude, lon: r[i].longitude,
-                           speed: r[i].speed, ts: r[i].ts })
-        }
-        root.rawRoute = out
-    }
-
-    // Redraw when returning to the view (in case GL state was released while hidden).
-    onIsCurrentChanged: {
-        if (isCurrent)
-            root.repaintRoute()
-        else
-            followAnim.stop()
-    }
-
-    // Rebuild the decimated survivor list for the current zoom. Spacing target is
-    // ~4 px, converted to metres via the Web-Mercator metres-per-pixel at the current
-    // zoom/latitude, and applied as an equirectangular distance in geo space — so no
-    // projection is needed here (cheap), and the paint step reprojects the survivors.
-    function rebuildDecimation() {
-        var r = root.rawRoute
-        if (!r || r.length === 0) {
-            root.decimated = []
-            return
-        }
-        var lat0 = map.center.latitude
-        var mpp = 156543.03392 * Math.cos(lat0 * Math.PI / 180) / Math.pow(2, map.zoomLevel)
-        var threshold = mpp * 4  // metres between kept fixes at this zoom
-        var earth = 6378137.0
-        var out = [r[0]]
-        var last = r[0]
-        for (var i = 1; i < r.length - 1; ++i) {
-            var dLat = (r[i].lat - last.lat) * Math.PI / 180
-            var dLon = (r[i].lon - last.lon) * Math.PI / 180
-            var cLat = Math.cos(last.lat * Math.PI / 180)
-            var metres = earth * Math.sqrt(dLat * dLat + cLat * cLat * dLon * dLon)
-            if (metres >= threshold) {
-                last = r[i]
-                out.push(last)
-            }
-        }
-        if (r.length > 1) {
-            // Always keep the final fix so the line reaches the trip's end.
-            out.push(r[r.length - 1])
-        }
-        root.decimated = out
-    }
+    onIsCurrentChanged: if (!isCurrent) followAnim.stop()
 
     // Fit the viewport to the route's bounding box, padded a little so the line
     // doesn't touch the edges. Assigning visibleRegion (a plain property) is used
@@ -377,133 +253,5 @@ Item {
         map.visibleRegion = QtPositioning.rectangle(
             QtPositioning.coordinate(maxLat + latPad, minLon - lonPad),   // top-left
             QtPositioning.coordinate(minLat - latPad, maxLon + lonPad))   // bottom-right
-    }
-
-    // Nearest route fix to an inspected time, with a travel-direction bearing. rawRoute
-    // is ascending by ts, so a binary search finds the surrounding pair and picks the
-    // closer one. Returns { lat, lon, bearing } or null when there's no route.
-    function positionAtTime(t) {
-        var r = root.rawRoute
-        var n = r.length
-        if (n === 0)
-            return null
-        if (t <= r[0].ts)
-            return pointWithBearing(0)
-        if (t >= r[n - 1].ts)
-            return pointWithBearing(n - 1)
-        var lo = 0
-        var hi = n - 1
-        while (lo < hi) {
-            var mid = (lo + hi) >> 1
-            if (r[mid].ts < t)
-                lo = mid + 1
-            else
-                hi = mid
-        }
-        // lo is the first fix at/after t; pick whichever of (lo-1, lo) is nearer in time.
-        var idx = (Math.abs(r[lo - 1].ts - t) <= Math.abs(r[lo].ts - t)) ? (lo - 1) : lo
-        return pointWithBearing(idx)
-    }
-
-    // Build the { lat, lon, bearing } for a fix. Bearing is taken toward the next fix
-    // (or from the previous one at the very end), so the arrow points along the route.
-    function pointWithBearing(idx) {
-        var r = root.rawRoute
-        var n = r.length
-        var a = r[idx]
-        var bearing = 0
-        if (idx + 1 < n)
-            bearing = bearingDeg(a.lat, a.lon, r[idx + 1].lat, r[idx + 1].lon)
-        else if (idx - 1 >= 0)
-            bearing = bearingDeg(r[idx - 1].lat, r[idx - 1].lon, a.lat, a.lon)
-        return { lat: a.lat, lon: a.lon, bearing: bearing }
-    }
-
-    // Initial compass bearing (degrees clockwise from north) from point 1 to point 2 —
-    // matches the arrow.svg convention the dashboard car marker uses (rotation = heading,
-    // 0 = up = north).
-    function bearingDeg(lat1, lon1, lat2, lon2) {
-        var rad = Math.PI / 180
-        var y = Math.sin((lon2 - lon1) * rad) * Math.cos(lat2 * rad)
-        var x = Math.cos(lat1 * rad) * Math.sin(lat2 * rad)
-                - Math.sin(lat1 * rad) * Math.cos(lat2 * rad) * Math.cos((lon2 - lon1) * rad)
-        return (Math.atan2(y, x) / rad + 360) % 360
-    }
-
-    function paintRoute() {
-        var canvas = routeLoader.item
-        var ctx = canvas.getContext("2d")
-        if (!App.gpuCanvas)
-            ctx.clearRect(0, 0, canvas.width, canvas.height)
-        var d = root.decimated
-        if (!d || d.length < 2 || !map.mapReady)
-            return
-
-        var w = canvas.width, h = canvas.height
-
-        // Viewport geo-box (from the map corners) inflated by 30% each side, so we
-        // only project + stroke the on-screen part of the route. The survivor list
-        // spans the whole trip; at high zoom most of it is off-screen, and skipping it
-        // here keeps a pan cheap regardless of trip length.
-        var tl = map.toCoordinate(Qt.point(0, 0), false)
-        var br = map.toCoordinate(Qt.point(w, h), false)
-        var latMin = Math.min(tl.latitude, br.latitude)
-        var latMax = Math.max(tl.latitude, br.latitude)
-        var lonMin = Math.min(tl.longitude, br.longitude)
-        var lonMax = Math.max(tl.longitude, br.longitude)
-        var latPad = (latMax - latMin) * 0.3 + 1e-4
-        var lonPad = (lonMax - lonMin) * 0.3 + 1e-4
-        latMin -= latPad; latMax += latPad; lonMin -= lonPad; lonMax += lonPad
-
-        function inBox(pt) {
-            return pt.lat >= latMin && pt.lat <= latMax && pt.lon >= lonMin && pt.lon <= lonMax
-        }
-        function project(pt) {
-            var p = map.fromCoordinate(QtPositioning.coordinate(pt.lat, pt.lon), false)
-            return { x: p.x, y: p.y, speed: pt.speed }
-        }
-
-        ctx.lineCap = "round"
-        ctx.lineJoin = "round"
-
-        // Walk the survivors, drawing each contiguous run of segments that touch the
-        // viewport (either endpoint in the box). A run's points are projected once;
-        // its dark casing is one continuous stroke, then the coloured segments go on
-        // top. Breaking into runs keeps the casing from bridging an off-screen gap
-        // (e.g. a trip that loops out of view and back).
-        var n = d.length
-        var i = 0
-        while (i < n - 1) {
-            if (!(inBox(d[i]) || inBox(d[i + 1]))) {
-                ++i
-                continue
-            }
-            var run = [project(d[i])]
-            while (i < n - 1 && (inBox(d[i]) || inBox(d[i + 1]))) {
-                run.push(project(d[i + 1]))
-                ++i
-            }
-            if (run.length < 2)
-                continue
-
-            // Casing (continuous).
-            ctx.strokeStyle = Theme.tripRouteCasing
-            ctx.lineWidth = root.lineWidth + 3
-            ctx.beginPath()
-            ctx.moveTo(run[0].x, run[0].y)
-            for (var k = 1; k < run.length; ++k)
-                ctx.lineTo(run[k].x, run[k].y)
-            ctx.stroke()
-
-            // Coloured, one stroke per segment (mean speed of its two endpoints).
-            ctx.lineWidth = root.lineWidth
-            for (k = 1; k < run.length; ++k) {
-                ctx.strokeStyle = Theme.speedColor((run[k - 1].speed + run[k].speed) * 0.5)
-                ctx.beginPath()
-                ctx.moveTo(run[k - 1].x, run[k - 1].y)
-                ctx.lineTo(run[k].x, run[k].y)
-                ctx.stroke()
-            }
-        }
     }
 }

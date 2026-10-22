@@ -12,7 +12,8 @@ cmake_policy(SET CMP0100 NEW)
 
 find_package(Qt6 REQUIRED COMPONENTS Quick Network Concurrent Svg Location Positioning QuickControls2 Core5Compat Graphs LabsFolderListModel VirtualKeyboard ShaderTools CanvasPainter)
 
-# 6.12: Canvas2D (Qt Canvas Painter) for the Trips map's route.
+# 6.12: Canvas2D (Qt Canvas Painter), which no item draws with at present — kept, with the
+# OpenGL 3 context AppConfig asks for it, until that is decided (#83).
 qt_standard_project_setup(REQUIRES 6.12)
 
 # The C++ data/transport layer in core/ uses Q_OBJECT / Q_PROPERTY — needs AUTOMOC.
@@ -97,6 +98,8 @@ qt_add_executable(appfrontend_v2
     core/trip/tripsdata.cpp
     core/trip/currentdrive.hh
     core/trip/currentdrive.cpp
+    core/trip/routebands.hh
+    core/trip/routebands.cpp
     core/map/placenames.hh
     core/map/placenames.cpp
     core/map/geocoder.hh
@@ -230,7 +233,7 @@ qt_add_qml_module(appfrontend_v2
         items/tesla/MapLiveStats.qml
         items/tesla/MapZoomButtons.qml
         items/tesla/MapTouchReveal.qml
-        items/tesla/DriveRoute.qml
+        items/tesla/SpeedRoute.qml
         items/tesla/GeoFrame.qml
         items/tesla/MapCameraWatch.qml
         items/tesla/RoadCameras.qml

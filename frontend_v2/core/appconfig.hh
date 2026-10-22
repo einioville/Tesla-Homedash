@@ -31,7 +31,7 @@ class Settings;
  *                                secret: the environment or .env only, never the
  *                                committed QML or the Options view.
  *   TESLA_HOMEDASH_GPU_CANVAS    (bool)    default on. 0 keeps Qt's default OpenGL
- *                                context and the CPU-drawn Trips route (gpuCanvas).
+ *                                context (gpuCanvas false).
  *   TESLA_HOMEDASH_SCREENSAVER_TIMEOUT_MIN (int)     minutes of inactivity before
  *                                the screensaver appears (default 30). main()
  *                                seeds the IdleWatcher with it. Also an
@@ -56,7 +56,8 @@ class AppConfig : public QObject {
     // which Mesa answers with 2.1 — on the dev box and as the Pi's desktop GL — and on
     // which a Canvas2D crashes the app. So the constructor makes the default surface
     // format one the driver gives at 3+ (desktop 3.3 core, else ES 3.0, the Pi's), before
-    // any window exists, and says whether it could. The Trips route reads it.
+    // any window exists, and says whether it could. No item draws with Canvas2D at
+    // present, so nothing reads it (#83).
     Q_PROPERTY(bool gpuCanvas READ gpuCanvas CONSTANT)
 
 public:

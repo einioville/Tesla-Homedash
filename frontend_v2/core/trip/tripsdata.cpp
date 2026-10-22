@@ -15,7 +15,7 @@ const Logger logger = Logger::get("trips");
 }
 
 TripsData::TripsData(ServerClient *server, QObject *parent)
-    : QObject(parent), m_server(server) {
+    : QObject(parent), m_server(server), m_route(this) {
     connect(server, &ServerClient::packetReceived, this, &TripsData::onPacket);
     connect(server, &ServerClient::connectedChanged, this, &TripsData::onConnectedChanged);
 }
@@ -140,9 +140,8 @@ void TripsData::onConnectedChanged() {
 
 void TripsData::clearRoute() {
     m_currentTripId = 0;
-    m_route.clear();
-    m_routeStart.clear();
-    m_routeEnd.clear();
+    m_route.reset({});
+    m_routeStart = m_routeEnd = QGeoCoordinate();
     m_minLat = m_maxLat = m_minLon = m_maxLon = 0.0;
     setRouteLoading(false);
     emit routeChanged();
@@ -279,14 +278,14 @@ void TripsData::parseTripDetail(const QByteArray &payload) {
     quint32 count;
     stream >> count;
 
-    QVariantList route;
+    QList<RouteBands::Fix> route;
     double minLat = std::numeric_limits<double>::max();
     double maxLat = std::numeric_limits<double>::lowest();
     double minLon = std::numeric_limits<double>::max();
     double maxLon = std::numeric_limits<double>::lowest();
 
     if (status == 1) {
-        route.reserve(static_cast<int>(count));
+        route.reserve(static_cast<qsizetype>(qMin<qint64>(count, device->bytesAvailable() / 32)));
         for (quint32 i = 0; i < count; ++i) {
             // ts(8) + lat(8) + lon(8) + speed(8) = 32 bytes per point.
             if (device->bytesAvailable() < 32) {
@@ -298,15 +297,7 @@ void TripsData::parseTripDetail(const QByteArray &payload) {
             double lon;
             double speed;
             stream >> ts >> lat >> lon >> speed;
-
-            QVariantMap point;
-            point.insert(QStringLiteral("latitude"), lat);
-            point.insert(QStringLiteral("longitude"), lon);
-            point.insert(QStringLiteral("speed"), speed);
-            // Timestamp retained (epoch ms as a double) so the graph's inspect cursor
-            // can map an inspected time back to the fix's position on the map.
-            point.insert(QStringLiteral("ts"), static_cast<double>(ts));
-            route.append(point);
+            route.append({lat, lon, speed, ts});
 
             minLat = qMin(minLat, lat);
             maxLat = qMax(maxLat, lat);
@@ -315,26 +306,20 @@ void TripsData::parseTripDetail(const QByteArray &payload) {
         }
     }
 
-    m_route = route;
-    m_routeStart.clear();
-    m_routeEnd.clear();
+    m_route.reset(route);
     if (route.isEmpty()) {
         m_minLat = m_maxLat = m_minLon = m_maxLon = 0.0;
+        m_routeStart = m_routeEnd = QGeoCoordinate();
     } else {
         m_minLat = minLat;
         m_maxLat = maxLat;
         m_minLon = minLon;
         m_maxLon = maxLon;
-        const QVariantMap first = route.first().toMap();
-        const QVariantMap last = route.last().toMap();
-        m_routeStart.insert(QStringLiteral("latitude"), first.value(QStringLiteral("latitude")));
-        m_routeStart.insert(QStringLiteral("longitude"), first.value(QStringLiteral("longitude")));
-        m_routeEnd.insert(QStringLiteral("latitude"), last.value(QStringLiteral("latitude")));
-        m_routeEnd.insert(QStringLiteral("longitude"), last.value(QStringLiteral("longitude")));
+        m_routeStart = QGeoCoordinate(route.first().latitude, route.first().longitude);
+        m_routeEnd = QGeoCoordinate(route.last().latitude, route.last().longitude);
     }
     setRouteLoading(false);
     emit routeChanged();
-    emit routeReady();
     logger.debug(QStringLiteral("Trip route applied | id=%1 points=%2 status=%3")
                      .arg(tripId)
                      .arg(route.size())

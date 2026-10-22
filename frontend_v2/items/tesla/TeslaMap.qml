@@ -503,8 +503,9 @@ Item {
             anchors.fill: parent
             z: 2
             active: root.showRoute && CurrentDrive.active
-            sourceComponent: DriveRoute {
+            sourceComponent: SpeedRoute {
                 geoMap: map
+                route: CurrentDrive.route
             }
         }
         MapPolyline {

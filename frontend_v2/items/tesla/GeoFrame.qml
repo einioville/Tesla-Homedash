@@ -5,8 +5,9 @@ import QtPositioning
 // with a QtLocation Map: moved, scaled and turned with its camera. Declare it inside the Map and
 // draw in it in metres (`local()`); a Shape in it is triangulated once and then only
 // transformed, where a MapPolyline is rebuilt on every camera change — every frame on a map
-// that follows the car. Strokes take `px / pixelsPerMetre` to stay a fixed width on screen,
-// which rebuilds them only when the zoom changes. DriveRoute and WarningAreas draw this way.
+// that follows the car. A stroke stays a fixed width on screen as a `cosmeticStroke`, which
+// is never processed again (SpeedRoute), or by taking `px / pixelsPerMetre`, which has it
+// processed again on every zoom change (WarningAreas).
 Item {
     id: root
 

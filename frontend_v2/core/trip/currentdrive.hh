@@ -7,6 +7,8 @@
 #include <QObject>
 #include <QTimer>
 
+#include "routebands.hh"
+
 class ServerClient;
 class TeslaData;
 
@@ -17,11 +19,11 @@ class TeslaData;
  * trip only past the minimum distance); this side adds each live fix to a drive under way, so
  * the line grows behind the car between requests.
  *
- *  - `path` is the drive's fixes up to the one before the newest, `speeds` the speed at each
- *    (km/h). The car arrow eases from one fix to the next over a second, so the map draws
- *    `path` and a tail from `tailStart` (its last point) to the arrow itself, and the line
- *    never runs ahead of the car. A live fix extends `path`; a reply replaces it and bumps
- *    `generation`, so a view can build on what it drew while the path only grows.
+ *  - `route` is the drive's fixes up to the one before the newest, with the speed at each,
+ *    as the geometry the maps draw (RouteBands). The car arrow eases from one fix to the next
+ *    over a second, so the map draws `route` and a tail from `tailStart` (its last point) to
+ *    the arrow itself, and the line never runs ahead of the car. A live fix extends the
+ *    route; a reply replaces it.
  *  - `live` is true while a drive is under way: the backend reports one, or the car is out of
  *    Park before the backend has logged it. `active` is true while there is a route at all —
  *    a drive, or the last trip. A finished trip is drawn whole, its last fix included, and
@@ -38,10 +40,8 @@ class CurrentDrive : public QObject {
     Q_PROPERTY(bool watched READ watched NOTIFY watchedChanged)
     Q_PROPERTY(bool active READ active NOTIFY activeChanged)
     Q_PROPERTY(bool live READ live NOTIFY liveChanged)
-    Q_PROPERTY(QList<QGeoCoordinate> path READ path NOTIFY pathChanged)
-    Q_PROPERTY(QList<qreal> speeds READ speeds NOTIFY pathChanged)
-    Q_PROPERTY(int generation READ generation NOTIFY pathChanged)
-    Q_PROPERTY(QGeoCoordinate tailStart READ tailStart NOTIFY pathChanged)
+    Q_PROPERTY(RouteBands *route READ route CONSTANT)
+    Q_PROPERTY(QGeoCoordinate tailStart READ tailStart NOTIFY tailStartChanged)
 
 public:
     CurrentDrive(ServerClient *server, TeslaData *tesla, QObject *parent = nullptr);
@@ -51,16 +51,14 @@ public:
     Q_INVOKABLE void release();
     bool active() const { return m_active; }
     bool live() const { return m_live; }
-    QList<QGeoCoordinate> path() const { return m_path; }
-    QList<qreal> speeds() const { return m_speeds; }
-    int generation() const { return m_generation; }
-    QGeoCoordinate tailStart() const { return m_path.isEmpty() ? QGeoCoordinate() : m_path.last(); }
+    RouteBands *route() { return &m_route; }
+    QGeoCoordinate tailStart() const;
 
 signals:
     void watchedChanged();
     void activeChanged();
     void liveChanged();
-    void pathChanged();
+    void tailStartChanged();
 
 private:
     void setWatched(bool watched);
@@ -69,8 +67,11 @@ private:
     void onLocation();
     void onGear();
     // Takes `fix` as the newest; the one before it joins the path unless it is too
-    // close to the path's end to be worth a point (a parked car's GPS jitter).
-    void addFix(const QGeoCoordinate &fix, qreal speed);
+    // close to the path's end to be worth a point (a parked car's GPS jitter). True
+    // when it joined.
+    bool addFix(const QGeoCoordinate &fix, qreal speed);
+    // Takes the path as the route drawn.
+    void resetRoute();
     void clear();
     bool parked() const;
     QGeoCoordinate liveFix() const;
@@ -86,11 +87,10 @@ private:
     bool m_showingLast = false;
     bool m_active = false;
     bool m_live = false;
-    QList<QGeoCoordinate> m_path;
-    QList<qreal> m_speeds;
+    QList<RouteBands::Fix> m_path;
+    RouteBands m_route;
     QGeoCoordinate m_head;
     qreal m_headSpeed = 0;
-    int m_generation = 0;
     QTimer m_poll;
     QTimer m_gearSettle;
 };

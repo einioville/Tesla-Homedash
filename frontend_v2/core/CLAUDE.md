@@ -158,10 +158,12 @@ has shaders for OpenGL 3+, OpenGL ES 3+ and the other graphics APIs only, while 
 that context crashes the app. So the constructor sets the default surface format to desktop 3.3
 core, else ES 3.0 (the Pi 4's V3D gives ES 3.1), each accepted only once a context made with it
 is current on an offscreen surface, and logs which (`OpenGL: core 3.3 context for Canvas2D`).
-`App.gpuCanvas` says whether it worked; without it the Trips route is a Qt Quick Canvas
-(`items/trip/TripMap.qml`). Direct3D, Vulkan and Metal pass as they are; the software renderer
-never gets Canvas2D. `TESLA_HOMEDASH_GPU_CANVAS=0` skips all of it. Every view was checked on the
-dev box's 3.3 core context; the Pi's ES 3.0 path is not yet run on the device.
+`App.gpuCanvas` says whether it worked. Direct3D, Vulkan and Metal pass as they are; the software
+renderer never gets Canvas2D. `TESLA_HOMEDASH_GPU_CANVAS=0` skips all of it. Every view was checked
+on the dev box's 3.3 core context; the Pi's ES 3.0 path is not yet run on the device. **No item draws
+with Canvas2D at present** — the Trips route is a Shape (`RouteBands`, below) — so nothing reads
+`App.gpuCanvas`; the context request, the flag and the `CanvasPainter` link stay until it is
+decided whether they go (#83).
 
 ## `Geocoder` — `map/geocoder.{hh,cpp}`
 
@@ -276,6 +278,28 @@ how the server card's client list marks *tämä näyttö*.
 The Kartta view's route layer (the drive under way, `TRIP_GET_CURRENT` plus the live fixes) and the
 OSM place names over the map imagery (Overpass, cached per tile on disk). Both are written up with
 the map's layers in `../items/tesla/CLAUDE.md`.
+
+## `RouteBands` — `trip/routebands.{hh,cpp}`
+
+A route coloured by speed, as `items/tesla/SpeedRoute.qml` draws it (issue #83): `Trips.route` (the
+Trips map's trip) and `CurrentDrive.route` (the drive on the car's maps) are one each, owned by
+their model and registered uncreatable. It holds the fixes and builds the Shapes' geometry, so no
+fix is ever a JavaScript value. Load-bearing:
+
+- **The geometry is GeoFrame's**: EPSG:3857 metres east and south of the first fix (`origin`), the
+  projection `GeoFrame.local()` uses, so the frame carries it with the map. A segment goes to the
+  band of its two fixes' mean speed; a band's consecutive segments are one run, a `QPolygonF`, and
+  `PathMultiline` takes a `QList<QPolygonF>` as it is — measured, O(1) where 30 000 points as JS
+  arrays took 1.7 ms. The band scheme is the drawer's (`bandCount`, `bandKmh` from
+  `Theme.tripMaxSpeedKmh`); nothing is built until it is set.
+- **It is a list model whose rows are chunks**, each a Shape in the drawer. A reset (a reply, a
+  trip) puts all its fixes in one chunk; fixes appended after it go to chunks of at most 200
+  segments, a row inserted per new chunk. So a live fix has one short chunk processed again however
+  long the drive, and a new chunk adds one Shape without rebuilding the others. A row's `revision`
+  role changes with its geometry; `runs()` and `casing()` are invokables, which register no
+  dependency, so the drawer's bindings read `revision` too.
+- **`positionAt(t)`** answers the fix nearest a time, with the bearing toward the next, for the
+  Trips map's inspect arrow — the reason a fix keeps its `ts`.
 
 ## `TeslaFields` — `tesla/teslafieldeditor.{hh,cpp}`
 

@@ -25,7 +25,7 @@ constexpr int kGearSettleMs = 3000;
 }
 
 CurrentDrive::CurrentDrive(ServerClient *server, TeslaData *tesla, QObject *parent)
-    : QObject(parent), m_server(server), m_tesla(tesla) {
+    : QObject(parent), m_server(server), m_tesla(tesla), m_route(this) {
     m_poll.setInterval(kPollMs);
     connect(&m_poll, &QTimer::timeout, this, &CurrentDrive::request);
     m_gearSettle.setSingleShot(true);
@@ -90,28 +90,38 @@ QGeoCoordinate CurrentDrive::liveFix() const {
     return QGeoCoordinate(lat.toDouble(), lon.toDouble());
 }
 
-void CurrentDrive::addFix(const QGeoCoordinate &fix, qreal speed) {
+QGeoCoordinate CurrentDrive::tailStart() const {
+    if (m_path.isEmpty())
+        return {};
+    return {m_path.last().latitude, m_path.last().longitude};
+}
+
+bool CurrentDrive::addFix(const QGeoCoordinate &fix, qreal speed) {
     if (!fix.isValid())
-        return;
+        return false;
+    bool joined = false;
     if (m_head.isValid()) {
-        const QGeoCoordinate &anchor = m_path.isEmpty() ? m_head : m_path.last();
-        if (m_path.isEmpty() || anchor.distanceTo(m_head) >= kMinStepM) {
-            m_path.append(m_head);
-            m_speeds.append(m_headSpeed);
+        if (m_path.isEmpty() || tailStart().distanceTo(m_head) >= kMinStepM) {
+            m_path.append({m_head.latitude(), m_head.longitude(), m_headSpeed, 0});
+            joined = true;
         }
     }
     m_head = fix;
     m_headSpeed = speed;
+    return joined;
+}
+
+void CurrentDrive::resetRoute() {
+    m_route.reset(m_path);
+    emit tailStartChanged();
 }
 
 void CurrentDrive::clear() {
     if (m_path.isEmpty() && !m_head.isValid())
         return;
     m_path.clear();
-    m_speeds.clear();
     m_head = QGeoCoordinate();
-    ++m_generation;
-    emit pathChanged();
+    resetRoute();
 }
 
 void CurrentDrive::updateState() {
@@ -144,8 +154,10 @@ void CurrentDrive::onLocation() {
     const QGeoCoordinate fix = liveFix();
     if (!fix.isValid() || (m_head.isValid() && m_head.distanceTo(fix) < 0.5))
         return;
-    addFix(fix, m_tesla->vehicleSpeed());
-    emit pathChanged();
+    if (addFix(fix, m_tesla->vehicleSpeed())) {
+        m_route.append(m_path.last());
+        emit tailStartChanged();
+    }
 }
 
 void CurrentDrive::onGear() {
@@ -184,9 +196,7 @@ void CurrentDrive::onPacket(quint8 type, const QByteArray &payload) {
     }
 
     m_path.clear();
-    m_speeds.clear();
     m_head = QGeoCoordinate();
-    ++m_generation;
     if (status == 1) {
         for (quint32 i = 0; i < count; ++i) {
             // ts(8) + lat(8) + lon(8) + speed(8) = 32 bytes per point.
@@ -211,14 +221,13 @@ void CurrentDrive::onPacket(quint8 type, const QByteArray &payload) {
     } else {
         // A finished trip: no tail runs on from its last fix, so that fix joins the path.
         if (m_head.isValid()) {
-            m_path.append(m_head);
-            m_speeds.append(m_headSpeed);
+            m_path.append({m_head.latitude(), m_head.longitude(), m_headSpeed, 0});
             m_head = QGeoCoordinate();
         }
         m_showingLast = true;
     }
     updateState();
-    emit pathChanged();
+    resetRoute();
     logger.debug(QStringLiteral("Current drive | id=%1 live=%2 points=%3")
                      .arg(tripId).arg(live).arg(m_path.size()));
 }

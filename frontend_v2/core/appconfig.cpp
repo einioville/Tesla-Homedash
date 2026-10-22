@@ -67,7 +67,7 @@ bool requestGpuCanvasFormat() {
                         .arg(context.format().minorVersion()));
         return true;
     }
-    logger.warning(QStringLiteral("OpenGL: no 3.0+ context; the Trips route is drawn on the CPU"));
+    logger.warning(QStringLiteral("OpenGL: no 3.0+ context; Canvas2D cannot draw"));
     return false;
 }
 

@@ -507,15 +507,17 @@ card reporting a failed or partly stale refresh (#61), and the OSM place names o
 the home marked on every map (#54), and EOX's imagery wherever a map looks past MML's coverage
 in place of its blank white tiles (#59) — plus map tiles a Qt Location bug left blank requested
 again (`BasemapSwitch`), with the shared tile cache at 300 MiB, room for EOX's tiles beside MML's —
-and Qt 6.12, with the Trips map's route drawn by Canvas2D on the GPU behind an OpenGL 3 guard
-(`App.gpuCanvas`, `frontend_v2/core/CLAUDE.md`) — plus the Qt Widgets `frontend/` removed from the
+and Qt 6.12, with an OpenGL 3 guard for Canvas2D (`App.gpuCanvas`, `frontend_v2/core/CLAUDE.md`;
+no item draws with it at present) — plus the Qt Widgets `frontend/` removed from the
 source tree (#65), `frontend_v2` the one frontend, and with it the backend's `WEATHER_FORECAST` frame
 and its FMI WFS fetch, which only it read — plus the Kartta card's *Tyhjennä karttavälimuisti*,
 which deletes the map tile cache and restarts the app (`items/tesla/CLAUDE.md`) — plus the media
 seek bar's times in hours from an hour up, and a media title or artist line too long for its place
 scrolling every so often while the music plays (`items/util/MarqueeText.qml`) — plus the graphs'
 data work in C++ (#83 A, `GraphSeries`): the series bound as point lists and decimated, stepped and
-traced with no per-point JavaScript, and the extra lines drawn as Shapes.
+traced with no per-point JavaScript, and the extra lines drawn as Shapes — and the Trips map's route
+drawn as the Kartta view's drive is (#83 B, `SpeedRoute`), its geometry built in C++ (`RouteBands`)
+in chunks, so a pan or zoom runs no per-point JavaScript and a live fix processes one short chunk.
 When you land a change that touches documented behaviour, update this line.
 
 ### 7.8 Keeping the code clean
@@ -543,7 +545,8 @@ Four kinds of debris do not belong in this codebase; review your own diff for th
     `influxdb_service/series.py` and `influxdb_handler.to_flux_time` for history reads,
     `BaseMediaPlayer._send*` for media packets.
   - Frontend: `items/history/HistoryGraph.qml` for any graph (its data work is
-    `core/graphseries.hh`), `core/seriesbounds.hh` for graph bounds, `TeslaData::qmlName` for a
+    `core/graphseries.hh`), `items/tesla/SpeedRoute.qml` for a route coloured by speed on a map
+    (its geometry is `core/trip/routebands.hh`), `core/seriesbounds.hh` for graph bounds, `TeslaData::qmlName` for a
     registry id's property name, `app/Format.js` for displayed values ("—" for a missing one),
     `items/util/Card.qml` for a card (the dashboard's and the Weather view's look; its colours
     are `Theme`'s *card* tokens), `items/util/GlowBorder.qml` for a card's rim lit from inside,

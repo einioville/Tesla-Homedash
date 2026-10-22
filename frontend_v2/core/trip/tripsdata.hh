@@ -2,11 +2,14 @@
 #define FRONTEND_V2_TRIPSDATA_HH
 
 #include <QByteArray>
+#include <QGeoCoordinate>
 #include <QList>
 #include <QObject>
 #include <QPointF>
 #include <QVariantList>
 #include <QVariantMap>
+
+#include "routebands.hh"
 
 class ServerClient;
 
@@ -18,9 +21,9 @@ class ServerClient;
  *  - `trips` lists the detected trips in the selected week (for the trip dropdown):
  *    each entry is { tripId, startMs, endMs, distanceKm } (epoch ms as doubles;
  *    distanceKm may be NaN for a trip whose distance could not be computed).
- *  - `route` is the selected trip's GPS path: each entry is { latitude, longitude,
- *    speed, ts } (speed in km/h, ts epoch-ms as a double), consumed by the map's
- *    colour-graded polyline and its inspect marker (ts maps a graph time to a fix).
+ *  - `route` is the selected trip's GPS path with the speed and time of each fix, as
+ *    the geometry the map draws (RouteBands); its positionAt() maps a graph time to a
+ *    fix for the inspect marker.
  *  - `routeMinLat/…MaxLon` bound the route so the map can fit its viewport to it.
  *
  * A TRIP_DETAIL reply echoes its trip id (== start_ms); a reply whose id no longer
@@ -32,16 +35,16 @@ class ServerClient;
 class TripsData : public QObject {
     Q_OBJECT
     Q_PROPERTY(QVariantList trips READ trips NOTIFY tripsChanged)
-    Q_PROPERTY(QVariantList route READ route NOTIFY routeChanged)
+    Q_PROPERTY(RouteBands *route READ route CONSTANT)
     Q_PROPERTY(bool hasRoute READ hasRoute NOTIFY routeChanged)
     Q_PROPERTY(double routeMinLat READ routeMinLat NOTIFY routeChanged)
     Q_PROPERTY(double routeMaxLat READ routeMaxLat NOTIFY routeChanged)
     Q_PROPERTY(double routeMinLon READ routeMinLon NOTIFY routeChanged)
     Q_PROPERTY(double routeMaxLon READ routeMaxLon NOTIFY routeChanged)
-    // First/last GPS fix of the drawn route ({ latitude, longitude }), empty when no
-    // route — the map's start/end markers bind to these.
-    Q_PROPERTY(QVariantMap routeStart READ routeStart NOTIFY routeChanged)
-    Q_PROPERTY(QVariantMap routeEnd READ routeEnd NOTIFY routeChanged)
+    // First/last GPS fix of the drawn route, invalid when no route — the map's start/end
+    // markers bind to these.
+    Q_PROPERTY(QGeoCoordinate routeStart READ routeStart NOTIFY routeChanged)
+    Q_PROPERTY(QGeoCoordinate routeEnd READ routeEnd NOTIFY routeChanged)
     // Per-week trip counts for the week-selector dropdown, keyed by week_start_ms (as
     // a string, since QVariantMap keys are strings) -> int count.
     Q_PROPERTY(QVariantMap weekCounts READ weekCounts NOTIFY weekCountsChanged)
@@ -68,14 +71,14 @@ public:
     explicit TripsData(ServerClient *server, QObject *parent = nullptr);
 
     QVariantList trips() const { return m_trips; }
-    QVariantList route() const { return m_route; }
+    RouteBands *route() { return &m_route; }
     bool hasRoute() const { return !m_route.isEmpty(); }
     double routeMinLat() const { return m_minLat; }
     double routeMaxLat() const { return m_maxLat; }
     double routeMinLon() const { return m_minLon; }
     double routeMaxLon() const { return m_maxLon; }
-    QVariantMap routeStart() const { return m_routeStart; }
-    QVariantMap routeEnd() const { return m_routeEnd; }
+    QGeoCoordinate routeStart() const { return m_routeStart; }
+    QGeoCoordinate routeEnd() const { return m_routeEnd; }
     QVariantMap weekCounts() const { return m_weekCounts; }
     bool tripsLoading() const { return m_tripsLoading; }
     bool routeLoading() const { return m_routeLoading; }
@@ -113,7 +116,6 @@ signals:
     void routeChanged();
     void weekCountsChanged();
     void tripsReady();   // fired after a TRIP_LIST reply is applied
-    void routeReady();   // fired after a matching TRIP_DETAIL reply is applied
     void tripsLoadingChanged();
     void routeLoadingChanged();
     void summaryChanged();
@@ -148,9 +150,9 @@ private:
 
     ServerClient *m_server;
     QVariantList m_trips;
-    QVariantList m_route;
-    QVariantMap m_routeStart;
-    QVariantMap m_routeEnd;
+    RouteBands m_route;
+    QGeoCoordinate m_routeStart;
+    QGeoCoordinate m_routeEnd;
     QVariantMap m_weekCounts;
     double m_minLat = 0.0;
     double m_maxLat = 0.0;

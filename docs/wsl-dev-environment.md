@@ -196,7 +196,7 @@ find_package(Qt6 REQUIRED COMPONENTS
 | `Core5Compat` | `-m qt5compat` | retained Qt5 APIs in `core/` |
 | `VirtualKeyboard` | `-m qtvirtualkeyboard` | the in-app on-screen keyboard (`Main.qml`) |
 | `ShaderTools` | `-m qtshadertools` (the online installer adds it with Qt Graphs) | `qt_add_shaders`, the climate wave's shaders (`resources/shaders/`) |
-| `CanvasPainter` | `-m qtcanvaspainter` | the Trips map's route, drawn with Canvas2D (`items/trip/TripMap.qml`) |
+| `CanvasPainter` | `-m qtcanvaspainter` | Canvas2D, linked though no item draws with it at present (`frontend_v2/core/CLAUDE.md`, *App*) |
 | (none) | `-m qtmultimedia` | not a CMake component, but the Virtual Keyboard plugin links it: without it the keyboard fails to load at run time |
 
 ### 4.2 Recommended: `aqtinstall` (scripted, no Qt account)
