@@ -2,7 +2,9 @@
 #define FRONTEND_V2_TESLAHISTORY_HH
 
 #include <QByteArray>
+#include <QList>
 #include <QObject>
+#include <QPointF>
 #include <QString>
 #include <QVariantList>
 
@@ -17,8 +19,9 @@ class QTimer;
  * the backend replies to this client only.
  *
  *  - `properties` lists the graphable properties for the dropdown.
- *  - `points` is the current series as a JS array of points (x = epoch ms as a
- *    double, y = value), fed straight into a Qt Graphs LineSeries via replace().
+ *  - `points` is the current series (x = epoch ms as a double, y = value), bound
+ *    straight into a HistoryGraph's GraphSeries — a plain point list, never
+ *    converted to JS.
  *  - `minX/maxX/minY/maxY` bound the data so the QML axes can auto-fit.
  *
  * A history reply echoes its property id; a reply whose id no longer matches the
@@ -31,7 +34,7 @@ class QTimer;
 class TeslaHistory : public QObject {
     Q_OBJECT
     Q_PROPERTY(QVariantList properties READ properties NOTIFY propertiesChanged)
-    Q_PROPERTY(QVariantList points READ points NOTIFY historyChanged)
+    Q_PROPERTY(QList<QPointF> points READ points NOTIFY historyChanged)
     Q_PROPERTY(int pointCount READ pointCount NOTIFY historyChanged)
     Q_PROPERTY(double minX READ minX NOTIFY historyChanged)
     Q_PROPERTY(double maxX READ maxX NOTIFY historyChanged)
@@ -44,7 +47,7 @@ public:
                           QObject *parent = nullptr);
 
     QVariantList properties() const { return m_properties; }
-    QVariantList points() const { return m_points; }
+    QList<QPointF> points() const { return m_points; }
     int pointCount() const { return static_cast<int>(m_points.size()); }
     double minX() const { return m_minX; }
     double maxX() const { return m_maxX; }
@@ -94,7 +97,7 @@ private:
     ServerClient *m_server;
     TeslaData *m_tesla;
     QVariantList m_properties;
-    QVariantList m_points;
+    QList<QPointF> m_points;
     QString m_currentId;  // property id the user is currently viewing
     double m_minX = 0.0;
     double m_maxX = 0.0;

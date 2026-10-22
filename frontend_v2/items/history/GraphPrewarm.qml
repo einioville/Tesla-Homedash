@@ -25,8 +25,8 @@ Item {
         axisY: ValueAxis { min: 0; max: 1; gridVisible: false; subGridVisible: false; labelsVisible: false }
 
         // A few points so the line geometry pipeline compiles too, not just the
-        // axes. Default (straight) line style — the same one the real graph uses
-        // (it builds steps from explicit points, so its series is also straight).
+        // axes: Qt Graphs draws a LineSeries with a curve-renderer Shape, the
+        // pipeline the graphs' own line Shapes use.
         LineSeries {
             width: 2
             XYPoint { x: 0.0; y: 0.0 }

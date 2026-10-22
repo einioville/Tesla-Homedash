@@ -35,8 +35,8 @@ Item {
     // where telemetry only sends on change and the in-between is unknown. "linear": a
     // straight point-to-point line — right for accumulators / continuous quantities
     // (Odometer, energy counters, OutsideTemp) whose value genuinely tracks ~linearly
-    // between readings. Sourced per-property from config.json; buildStepped() and valueAt()
-    // branch on it, and the glow / y-fit / live marker follow from those two.
+    // between readings. Sourced per-property from config.json; GraphSeries builds the path
+    // and answers valueAt() by it, and the glow / y-fit / live marker follow from those two.
     property string lineMode: "step"
     // Pin the y-axis bottom to 0 for a quantity that cannot go negative (#42), and pad
     // only the top. A fitted axis would otherwise show impossible values (a parked car
@@ -57,10 +57,11 @@ Item {
     // --- Further lines over the same axes ---------------------------------------
     // Every graph in the app is this one. The Järjestelmän tila graphs draw several
     // lines (CPU per core, disk read / write, network down / up): the main series is
-    // the first, these the rest — each { points: [{x, y}] ascending, color, label,
-    // dashed }. Plain point-to-point lines with no glow or decimation: they are the
-    // small rolling series. Inspecting puts a dot on each and lists them all in the
-    // readout. Empty for every single-line graph.
+    // the first, these the rest — each { points: [Qt.point(x, y)] ascending, color,
+    // label, dashed }. Plain point-to-point lines with no glow or decimation: they are
+    // the small rolling series. Traced with the main line and drawn under it, moved by
+    // its transforms and uncovered by its draw-in. Inspecting puts a dot on each and
+    // lists them all in the readout. Empty for every single-line graph.
     property var extraSeries: []
     // The main line's colour (the glow follows it unless set apart) and its name in
     // a multi-line readout.
@@ -103,30 +104,17 @@ Item {
     // pulsing "now" would be misleading.
     property bool live: false
 
-    // Cached stepped path in DATA coordinates, rebuilt when the data changes or the zoom
-    // window SETTLES (reloadFull / advanceLive / rebuildDecimated) — what buildPaths traces
-    // the line and its glow from. It is built from the DECIMATED set for the current window
-    // (see below), not the full raw series, so it stays small (~a few k points).
-    // Panning/zooming within the built window only moves the traced paths, never re-steps it.
-    property var steppedData: []
-
     // --- Viewport level-of-detail (LOD) decimation ----------------------------
-    // The graph keeps the full raw series (rawPoints) but only ever RENDERS a pixel-matched
-    // subset of it, rebuilt for the current zoom window. This keeps zoom/pan cost proportional
-    // to what's visible (~1 point per plot pixel) instead of the full dataset, and naturally
-    // shows more detail as you zoom in. See snapshotPoints() / decimate() / rebuildDecimated().
+    // The graph keeps the full series (GraphSeries' snapshot) but only ever RENDERS a
+    // pixel-matched subset of it, rebuilt for the current zoom window when the data changes or
+    // the window SETTLES (reloadFull / advanceLive / rebuildDecimated). This keeps zoom/pan
+    // cost proportional to what's visible (~1 point per plot pixel) instead of the full
+    // dataset, and naturally shows more detail as you zoom in. Panning/zooming within the
+    // built window only moves the traced paths, never rebuilds them. The work is GraphSeries'
+    // (core/graphseries.hh), in C++: none of it runs per point in JavaScript.
 
-    // Plain-JS { x, y } snapshot of pointsData, taken once per load. Reading the C++
-    // QVariantList (pointsData) marshals every element to JS on each access; snapshotting once
-    // means decimate() / valueAt() / fitY() iterate a cheap JS array instead of re-marshaling.
-    property var rawPoints: []
-
-    // The current decimated render set (M4: first/last/min/max per pixel bucket) for the built
-    // window [buildMinX, buildMaxX]. steppedData and the y-fit are derived from THIS, not raw.
-    property var decimated: []
-
-    // The x-range steppedData was last built for: the visible window grown by renderMarginFrac
-    // each side (clamped to the full extent). buildStepped clamps the path to this, so panning
+    // The x-range the path was last built for: the visible window grown by renderMarginFrac
+    // each side (clamped to the full extent). The path is clamped to this, so panning
     // within the margin needs no rebuild — the margin-built path just remaps to the new axis.
     property real buildMinX: 0
     property real buildMaxX: 1
@@ -153,18 +141,17 @@ Item {
     // sub-minute empty space, independent of the range's total length. clampWidth enforces it.
     property real minZoomSpanMs: Theme.graphMinZoomSpanMs
 
-    // The line and its glow, traced by buildPaths() each time steppedData is rebuilt — a
-    // load, a settled gesture, a live tick — in the plot pixels of that moment (the bases),
-    // and seldom in between. A Shape processes its whole path on the GUI thread whenever the
-    // path changes: on the dev box the glow's fill took 20–80 ms for a few thousand points,
-    // the line's stroke up to 60. Re-traced on every frame of a pan, a zoom or the draw-in,
-    // they would stall the whole UI (#81). Between builds a transform carries each to the
-    // current axes instead: the curve renderer draws a moved or stretched path without
-    // processing it again. The glow is a fill and stretches cleanly; the line is re-traced
-    // alone when it stretches unevenly (lineStretchLimit).
-    property var linePath: []
-    property var glowPath: []
-    // The axes and plot size each path was traced in: { x0, xSpan, yTop, ySpan, w, h }.
+    // The line and its glow (series.linePath / glowPath), traced by buildPaths() each time
+    // the path is rebuilt — a load, a settled gesture, a live tick — in the plot pixels of
+    // that moment (the bases), and seldom in between. A Shape processes its whole path on the
+    // GUI thread whenever the path changes: on the dev box the glow's fill took 20–80 ms for a
+    // few thousand points, the line's stroke up to 60. Re-traced on every frame of a pan, a
+    // zoom or the draw-in, they would stall the whole UI (#81). Between builds a transform
+    // carries each to the current axes instead: the curve renderer draws a moved or stretched
+    // path without processing it again. The glow is a fill and stretches cleanly; the line
+    // (with the extra lines) is re-traced alone when it stretches unevenly (lineStretchLimit).
+    // The axes and plot size each path was traced in: { x0, xSpan, yTop, ySpan, w, h }; null
+    // while there is no path.
     property var lineBase: null
     property var glowBase: null
 
@@ -245,8 +232,9 @@ Item {
     property real plotMarginRight: 16
 
     // Data source (defaults to the History singleton; the other hosts override these).
-    // pointsData is [{ x: epochMs, y: value }] ascending; the bounds fit the axes.
-    property var pointsData: History.points
+    // pointsData is a QList<QPointF> (x = epoch ms) ascending, bound from the source model
+    // straight into the C++ series; the bounds fit the axes.
+    property alias pointsData: series.points
     property real dataMinX: History.minX
     property real dataMaxX: History.maxX
     property real dataMinY: History.minY
@@ -309,7 +297,7 @@ Item {
     // line (lineClip, after it) sit on top of the glow.
     Item {
         id: glowClip
-        visible: root.dataCount > 0 && root.glowPath.length > 0 && root.glowOpacity > 0
+        visible: root.dataCount > 0 && root.glowBase !== null && root.glowOpacity > 0
         x: graph.plotArea.x
         y: graph.plotArea.y
         width: root.revealWidth
@@ -325,8 +313,6 @@ Item {
             ShapePath {
                 strokeWidth: 0
                 strokeColor: "transparent"
-                startX: root.glowPath.length > 0 ? root.glowPath[0].x : 0
-                startY: root.glowPath.length > 0 ? root.glowPath[0].y : 0
                 // From the plot's top to its bottom on screen, so in the path's own pixels
                 // through the inverse of the transform (a change here is no re-triangulation).
                 fillGradient: LinearGradient {
@@ -338,7 +324,7 @@ Item {
                     GradientStop { position: 0.55; color: Qt.rgba(root.glowColor.r, root.glowColor.g, root.glowColor.b, root.glowOpacity * 0.22) }
                     GradientStop { position: 1.0; color: Qt.rgba(root.glowColor.r, root.glowColor.g, root.glowColor.b, 0.0) }
                 }
-                PathPolyline { path: root.glowPath }
+                PathPolyline { path: series.glowPath }
             }
         }
     }
@@ -411,20 +397,47 @@ Item {
     }
 
     // The main line: a Shape of our own rather than a LineSeries, which Qt Graphs would
-    // re-stroke on every frame the axes move. Over the GraphsView's gridlines and extra
-    // lines, clipped and moved like the glow. The path is the one buildStepped() makes per
-    // lineMode — "step" holds each reading then jumps (telemetry only sends on change),
-    // "linear" connects readings for accumulators — so straight segments draw exactly
-    // that. (A smooth spline is the wrong fit: it turns a flat, held value into a wobble.)
-    // The cap and join are a LineSeries' defaults.
+    // re-stroke on every frame the axes move. Over the GraphsView's gridlines, clipped and
+    // moved like the glow. The path is the one GraphSeries builds per lineMode — "step"
+    // holds each reading then jumps (telemetry only sends on change), "linear" connects
+    // readings for accumulators — so straight segments draw exactly that. (A smooth spline
+    // is the wrong fit: it turns a flat, held value into a wobble.) The cap and join are a
+    // LineSeries' defaults. The extra lines are Shapes beneath it, styled the same.
     Item {
         id: lineClip
-        visible: root.dataCount > 0 && root.linePath.length > 0
+        visible: root.dataCount > 0 && root.lineBase !== null
         x: graph.plotArea.x
         y: graph.plotArea.y
         width: root.revealWidth
         height: graph.plotArea.height
         clip: true
+
+        Repeater {
+            model: root.extraSeries.length
+
+            Shape {
+                id: extraLine
+                required property int index
+                readonly property var entry: root.extraSeries[index]
+                width: graph.plotArea.width
+                height: graph.plotArea.height
+                preferredRendererType: Shape.CurveRenderer
+                transform: [lineScale, lineShift]
+
+                ShapePath {
+                    strokeColor: extraLine.entry !== undefined ? extraLine.entry.color : "transparent"
+                    strokeWidth: 2
+                    cosmeticStroke: true
+                    strokeStyle: extraLine.entry !== undefined && extraLine.entry.dashed
+                                 ? ShapePath.DashLine : ShapePath.SolidLine
+                    dashPattern: [2, 1.5]
+                    fillColor: "transparent"
+                    capStyle: ShapePath.SquareCap
+                    joinStyle: ShapePath.BevelJoin
+                    PathPolyline { path: series.extraPaths[extraLine.index] ?? [] }
+                }
+            }
+        }
 
         Shape {
             width: graph.plotArea.width
@@ -439,57 +452,16 @@ Item {
                 fillColor: "transparent"
                 capStyle: ShapePath.SquareCap
                 joinStyle: ShapePath.BevelJoin
-                startX: root.linePath.length > 0 ? root.linePath[0].x : 0
-                startY: root.linePath.length > 0 ? root.linePath[0].y : 0
-                PathPolyline { path: root.linePath }
+                PathPolyline { path: series.linePath }
             }
         }
     }
 
-    // The extra lines, added to the GraphsView as they are created (its own children
-    // can only be series, so they cannot be declared inside it).
-    Instantiator {
-        id: extraLines
-        model: root.extraSeries.length
-
-        delegate: LineSeries {
-            required property int index
-            readonly property var entry: root.extraSeries[index]
-            width: 2
-            color: entry !== undefined ? entry.color : "transparent"
-            // A scoped enum: the unscoped LineSeries.DashLine the docs show is undefined.
-            strokeStyle: entry !== undefined && entry.dashed ? LineSeries.StrokeStyle.DashLine
-                                                             : LineSeries.StrokeStyle.SolidLine
-            dashPattern: [2, 1.5]
-        }
-
-        onObjectAdded: (index, object) => {
-            graph.addSeries(object)
-            root.refillExtras()
-        }
-        onObjectRemoved: (index, object) => graph.removeSeries(object)
-    }
-
-    onExtraSeriesChanged: refillExtras()
-    onRevealXChanged: if (root.extraSeries.length > 0) refillExtras()
-
-    // Hands each extra line its points — cut at the draw-in's sweep while it runs,
-    // so every line draws in together.
-    function refillExtras() {
-        const cutX = root.revealX
-        for (let i = 0; i < extraLines.count; ++i) {
-            const line = extraLines.objectAt(i)
-            const entry = root.extraSeries[i]
-            if (line === null || entry === undefined)
-                continue
-            const out = []
-            for (const p of entry.points) {
-                if (p.x > cutX)
-                    break
-                out.push(Qt.point(p.x, p.y))
-            }
-            line.replace(out)
-        }
+    GraphSeries {
+        id: series
+        points: History.points
+        lineMode: root.lineMode
+        extraPoints: root.extraSeries.map(entry => entry.points)
     }
 
     // A fresh load: reset the view to the full extent and rebuild the line. The
@@ -497,7 +469,7 @@ Item {
     // / Trips.onSeriesReady).
     function reloadFull() {
         root.resetView()
-        root.snapshotPoints()
+        series.snapshot()
         root.revealFrac = 0   // build the left-edge prefix first, then sweep the draw-in
         root.rebuildDecimated()
         revealAnim.restart()
@@ -540,17 +512,16 @@ Item {
         root.fullMaxX = root.dataMaxX
         if (!root.userControlled)
             root.showWindow(root.dataMinX, root.dataMaxX)
-        // Re-snapshot: the live roller appended/dropped points in pointsData. N stays small in
-        // live mode (recomputeBounds rolls the window), so snapshot + decimate per tick is cheap.
-        // advanceLive moves the window with showWindow, not setView, so it never trips the
-        // settle debounce; stop any pending settle since this rebuild supersedes it.
-        root.snapshotPoints()
+        // Re-snapshot: the live roller appended/dropped points in pointsData. advanceLive moves
+        // the window with showWindow, not setView, so it never trips the settle debounce; stop
+        // any pending settle since this rebuild supersedes it.
+        series.snapshot()
         settleTimer.stop()
         root.rebuildDecimated()
     }
     Component.onCompleted: {
         showWindow(viewMinX, viewMaxX)
-        if (root.dataCount > 0) { resetView(); snapshotPoints(); revealFrac = 0; rebuildDecimated(); revealAnim.restart() }
+        if (root.dataCount > 0) { resetView(); series.snapshot(); revealFrac = 0; rebuildDecimated(); revealAnim.restart() }
     }
 
     // Interactive overlay: pointer handlers for inspect + pan/zoom. Sized to the
@@ -688,7 +659,7 @@ Item {
                 required property int index
                 readonly property var entry: root.extraSeries[index]
                 readonly property real value: overlay.inspecting && entry !== undefined
-                                              ? root.interpAt(entry.points, overlay.dataX) : NaN
+                                              ? root.extraValueAt(index, overlay.dataX) : NaN
 
                 visible: !isNaN(value)
                 x: overlay.clampedX
@@ -816,7 +787,7 @@ Item {
                         readonly property var entry: index > 0 ? root.extraSeries[index - 1] : null
                         readonly property real value: index === 0 ? overlay.dataY
                             : entry !== undefined && entry !== null
-                              ? root.interpAt(entry.points, overlay.dataX) : NaN
+                              ? root.extraValueAt(index - 1, overlay.dataX) : NaN
 
                         spacing: 6
 
@@ -920,7 +891,7 @@ Item {
         // "Palauta" re-engages live auto-follow.
         root.userControlled = false
         showWindow(fullMinX, fullMaxX)
-        // Programmatic view change: rebuild detail immediately (rawPoints is already snapshotted).
+        // Programmatic view change: rebuild detail immediately (the series is already snapshotted).
         settleTimer.stop()
         root.rebuildDecimated()
     }
@@ -985,186 +956,66 @@ Item {
     }
 
     // --- Viewport LOD decimation ----------------------------------------------
-    // Copy the C++ pointsData (a QVariantList of QPointF / {x,y}) into a plain-JS array once,
-    // so decimate() / valueAt() / fitY() never re-marshal the whole list per rebuild or per
-    // pointer move. Mirrors TripMap.snapshotRoute. Elements are { x, y } — QPointF (History /
-    // Charging) and QVariantMap {x,y} (Trips) both expose .x/.y, so this is source-agnostic.
-    function snapshotPoints() {
-        const src = root.pointsData
-        const n = src.length
-        const out = new Array(n)
-        for (let i = 0; i < n; ++i)
-            out[i] = { x: src[i].x, y: src[i].y }
-        root.rawPoints = out
-    }
-
-    // Build the pixel-matched render subset for [windowStart, windowEnd] from rawPoints, via
-    // M4 decimation: the window is divided into bucketsPerPx buckets per visible plot pixel (at
-    // 1.0, one bucket per pixel column), and each bucket keeps
-    // its first, last, min-y and max-y points (deduped, x-ascending). This reproduces the
-    // rasterized line at pixel resolution — spikes survive (a spike is its bucket's min/max), a
-    // held value collapses to one flat point, and the first/last points keep linear slopes
-    // faithful. The two bracket points just outside the window (the held left edge = last point
-    // <= windowStart, and the first point >= windowEnd) are always kept so the line enters and
-    // exits correctly and the edge interpolation is exact. O(visible raw count).
-    function decimate(windowStart, windowEnd) {
-        const S = root.rawPoints
-        const N = S.length
-        if (N === 0)
-            return []
-        // L = last index with x <= windowStart (the held left edge), or -1 if none.
-        let L = -1
-        if (S[0].x <= windowStart) {
-            let lo = 0, hi = N - 1
-            while (lo < hi) {
-                const mid = (lo + hi + 1) >> 1
-                if (S[mid].x <= windowStart) lo = mid
-                else hi = mid - 1
-            }
-            L = lo
-        }
-        // R = first index with x >= windowEnd, or N if none.
-        let R = N
-        {
-            let lo = 0, hi = N
-            while (lo < hi) {
-                const mid = (lo + hi) >> 1
-                if (S[mid].x < windowEnd) lo = mid + 1
-                else hi = mid
-            }
-            R = lo
-        }
-        // Early-out: a visible set already under the bucket count renders exactly (no
-        // decimation), so the small Trips / Charging graphs draw every point. Decimation
-        // only engages for the heavy History 1W / 1M case — and not at all at the "max"
-        // resolution level (bucketsPerPx 0).
-        // The density is per VISIBLE pixel, so the count scales with how far this (build)
-        // window reaches past the view: otherwise a wider renderMarginFrac would quietly
-        // thin out what is on screen, and a smaller graph would get the same count as a
-        // full-width one.
-        const plotW = Math.max(1, graph.plotArea.width)
-        const viewSpan = root.viewMaxX - root.viewMinX
-        const startIdx = L < 0 ? 0 : L
-        const cap = root.bucketsPerPx > 0 && viewSpan > 0
-                  ? Math.ceil(root.bucketsPerPx * plotW * (windowEnd - windowStart) / viewSpan)
-                  : 0
-        if (cap <= 0 || R - startIdx <= cap)
-            return S.slice(startIdx, Math.min(R + 1, N))
-
-        const bucketDx = (windowEnd - windowStart) / cap
-        // Degenerate zero/negative-span window: bucketDx would be 0 and the advance loop below
-        // would never progress. Can't normally happen (clampWidth floors the span), but guard
-        // the hang and just return the raw slice.
-        if (bucketDx <= 0)
-            return S.slice(startIdx, Math.min(R + 1, N))
-
-        const out = []
-        if (L >= 0)
-            out.push(S[L])                       // held left-edge bracket
-
-        let bucketEnd = windowStart + bucketDx
-        let have = false
-        let first = null, mn = null, mx = null, last = null
-        function flush() {
-            // Emit first, last, min, max in x order, dropping any point equal (x AND y) to the
-            // previous emitted one — avoids duplicate / zero-area segments in the fill Shape.
-            const cand = [first, mn, mx, last]
-            cand.sort(function (a, b) { return a.x - b.x })
-            for (let k = 0; k < 4; ++k) {
-                const c = cand[k]
-                const prev = out.length > 0 ? out[out.length - 1] : null
-                if (prev && prev.x === c.x && prev.y === c.y)
-                    continue
-                out.push(c)
-            }
-        }
-        for (let i = (L < 0 ? 0 : L + 1); i < N && S[i].x < windowEnd; ++i) {
-            const p = S[i]
-            while (p.x > bucketEnd) {
-                if (have) { flush(); have = false }
-                bucketEnd += bucketDx
-            }
-            if (!have) {
-                first = mn = mx = last = p
-                have = true
-            } else {
-                if (p.y < mn.y) mn = p
-                if (p.y > mx.y) mx = p
-                last = p
-            }
-        }
-        if (have)
-            flush()
-
-        if (R < N)
-            out.push(S[R])                       // first point past the right edge
-        return out
-    }
-
-    // The one place steppedData and the line's geometry are regenerated: decimate the raw
-    // series to the current window (grown by the render margin), step it, and trace the
-    // paths. Called immediately on programmatic view changes (load, live tick, viewFull) and
-    // after a gesture settles (settleTimer) or ends.
+    // The one place the path and the line's geometry are regenerated: decimate the series
+    // to the current window (grown by the render margin), build the path through it, and
+    // trace the paths. Called immediately on programmatic view changes (load, live tick,
+    // viewFull) and after a gesture settles (settleTimer) or ends. The y-fit follows the
+    // rebuild (series.revision) before the paths are traced, so they are traced in the
+    // axes they will be shown in.
     function rebuildDecimated() {
         const span = Math.max(0, root.viewMaxX - root.viewMinX)
         const margin = span * root.renderMarginFrac
         root.buildMinX = Math.max(root.fullMinX, root.viewMinX - margin)
         root.buildMaxX = Math.min(root.fullMaxX, root.viewMaxX + margin)
-        root.decimated = root.decimate(root.buildMinX, root.buildMaxX)
-        root.steppedData = root.buildStepped(root.decimated)
+        series.rebuild(root.buildMinX, root.buildMaxX, root.viewMaxX - root.viewMinX,
+                       graph.plotArea.width, root.bucketsPerPx)
         root.buildPaths()
     }
 
-    // A bound on traced pixels, far off-screen. A point far outside the visible y-range
-    // maps to an enormous pixel, and the CurveRenderer triangulates the WHOLE path (the
-    // layers' clip is only a rasteriser scissor, not a geometry clip), which ASSERTS and
-    // aborts the app once a vertex exceeds 2^21 px (qtriangulator.cpp). Clamped to this,
-    // only the scissored-away tail changes.
-    readonly property real pathLimit: 1 << 18
-
-    // steppedData in the plot pixels of the axes as they stand, with that mapping as its
-    // base; null when there is nothing to trace.
-    function trace() {
+    // The axes and plot size as they stand: what a path traced now is traced in.
+    function currentBase() {
         const a = graph.plotArea
-        const src = root.steppedData
-        const n = src.length
-        const xSpan = xAxis.max - xAxis.min
-        const ySpan = yAxis.max - yAxis.min
-        if (n === 0 || a.width <= 0 || a.height <= 0 || xSpan <= 0 || ySpan <= 0)
-            return null
-        const w = a.width, h = a.height
-        const x0 = xAxis.min, yTop = yAxis.max
-        const lim = root.pathLimit
-        function clamp(v) { return v < -lim ? -lim : (v > lim ? lim : v) }
-        const points = new Array(n)
-        for (let i = 0; i < n; ++i)
-            points[i] = Qt.point(clamp((src[i].x - x0) / xSpan * w), clamp((yTop - src[i].y) / ySpan * h))
-        return { base: { x0: x0, xSpan: xSpan, yTop: yTop, ySpan: ySpan, w: w, h: h }, points: points }
+        return { x0: xAxis.min, xSpan: xAxis.max - xAxis.min, yTop: yAxis.max,
+                 ySpan: yAxis.max - yAxis.min, w: a.width, h: a.height }
     }
 
-    // Both paths, once the y-fit has followed `decimated`: the line, and the glow — the
-    // line bracketed by two floor points so the fill closes downward. The floor sits at
-    // pathLimit, far below the plot, so that a y re-fit stretching the glow before the next
-    // build cannot lift it into view.
+    // Both paths, the extra lines with the line.
     function buildPaths() {
-        const t = trace()
-        if (t === null) {
-            root.lineBase = root.glowBase = null
-            root.linePath = root.glowPath = []
-            return
-        }
-        const p = t.points
-        const floor = root.pathLimit
-        root.lineBase = root.glowBase = t.base
-        root.linePath = p
-        root.glowPath = [Qt.point(p[0].x, floor)].concat(p, [Qt.point(p[p.length - 1].x, floor)])
+        const b = currentBase()
+        root.lineBase = root.glowBase =
+            series.trace(b.x0, b.xSpan, b.yTop, b.ySpan, b.w, b.h, true) ? b : null
     }
 
-    // The line alone, when the axes have stretched it unevenly (lineStretchLimit).
+    // The line alone (with the extra lines), when the axes have stretched it unevenly
+    // (lineStretchLimit).
     function retraceLine() {
-        const t = trace()
-        root.lineBase = t !== null ? t.base : null
-        root.linePath = t !== null ? t.points : []
+        const b = currentBase()
+        root.lineBase = series.trace(b.x0, b.xSpan, b.yTop, b.ySpan, b.w, b.h, false) ? b : null
+    }
+
+    // The lookups below are C++ invokables, which register no binding dependency; reading
+    // series.revision makes a binding that calls them re-evaluate when what they answer
+    // from changes.
+
+    // Value at x for the inspect readout and the live marker, consistent with the line:
+    // held from the last reading ("step") or interpolated ("linear").
+    function valueAt(dx) {
+        const revision = series.revision
+        return series.valueAt(dx)
+    }
+
+    // Extra line `line` interpolated at x.
+    function extraValueAt(line, dx) {
+        const revision = series.revision
+        return series.extraValueAt(line, dx)
+    }
+
+    // Min/max y over a time window, held edge values and extra lines included, so the line
+    // stays inside the re-fitted y-axis; the data's bounds when the window holds none.
+    function fitY(tMin, tMax) {
+        const revision = series.revision
+        const f = series.fitY(tMin, tMax, root.dataMinY, root.dataMaxY)
+        return { min: f.x, max: f.y }
     }
 
     // --- Pixel <-> data mapping (GraphsView has no built-in conversion) -------
@@ -1222,172 +1073,5 @@ Item {
         if (step >= 60000)
             return Qt.formatDateTime(d, "HH:mm")
         return Qt.formatDateTime(d, "HH:mm:ss")
-    }
-
-    // Expand the (decimated) readings into an explicit path in DATA coordinates, clamped to the
-    // built window [lo, hi], per root.lineMode — drawn as straight segments, so the path
-    // geometry we build IS what shows (no reliance on renderer step support). The inspect
-    // readout uses the RAW series (valueAt reads rawPoints), so it stays exact regardless of
-    // decimation and branches on lineMode the same way.
-    function buildStepped(pts) {
-        const n = pts.length
-        if (n === 0)
-            return []
-        // Clamp the path to the BUILT window (view ± render margin), NOT the full extent — pts
-        // is already the decimated subset for that window. Building to the full extent would
-        // spread the held edges across the whole range and defeat the decimation.
-        const lo = root.buildMinX
-        const hi = root.buildMaxX
-        if (root.lineMode === "linear")
-            return buildLinearPath(pts, lo, hi)
-        // --- "step" (hold-forward), the default ---
-        // A horizontal segment at the held value out to the next timestamp, then a
-        // vertical jump to the new value — a true step (no slope). Right for sampled /
-        // held signals, whose in-between telemetry never sent is unknown.
-        const out = []
-        // Value held at the left edge: the y of the last point at or before lo (the
-        // boundary the live roller keeps, or the first point), so the line starts
-        // flat at the edge even when the first reading predates the window. Clamping
-        // to [lo, hi] also keeps the path x-monotonic when a boundary point sits to
-        // the left of the window.
-        let heldY = pts[0].y
-        let i = 0
-        while (i < n && pts[i].x <= lo) {
-            heldY = pts[i].y
-            ++i
-        }
-        out.push(Qt.point(lo, heldY))
-        // Step through points inside (lo, hi]: hold the previous value to the new
-        // time, then jump to the new value.
-        for (; i < n && pts[i].x <= hi; ++i) {
-            out.push(Qt.point(pts[i].x, heldY))
-            out.push(Qt.point(pts[i].x, pts[i].y))
-            heldY = pts[i].y
-        }
-        // Hold the last value forward to the right edge ("held until now" in live
-        // mode); a single reading thus draws as a flat line across the window.
-        out.push(Qt.point(hi, heldY))
-        return out
-    }
-
-    // "linear" (point-to-point) path in DATA coordinates, clamped to [lo, hi]: an
-    // interpolated point at the left edge, every raw reading strictly inside the window,
-    // then an interpolated point at the right edge. Right for accumulators / continuous
-    // quantities whose value genuinely tracks ~linearly between readings. The edge values
-    // match valueAt()'s "linear" branch (hold at the ends when the edge lies outside the
-    // data), so a value held constant across the window still draws as one flat line —
-    // identical to the step build's boundary-fill case.
-    function buildLinearPath(pts, lo, hi) {
-        const n = pts.length
-        const out = []
-        out.push(Qt.point(lo, interpAt(pts, lo)))
-        for (let i = 0; i < n; ++i) {
-            if (pts[i].x > lo && pts[i].x < hi)
-                out.push(Qt.point(pts[i].x, pts[i].y))
-        }
-        out.push(Qt.point(hi, interpAt(pts, hi)))
-        return out
-    }
-
-    // Linear interpolation of the raw ascending series at time dx: the value on the
-    // straight segment between the two readings bracketing dx, clamped to the endpoints
-    // outside the data range. Binary-searches for the bracketing pair.
-    function interpAt(pts, dx) {
-        const n = pts.length
-        if (n === 0)
-            return NaN
-        if (dx <= pts[0].x)
-            return pts[0].y
-        if (dx >= pts[n - 1].x)
-            return pts[n - 1].y
-        // Largest index with pts[i].x <= dx.
-        let lo = 0
-        let hi = n - 1
-        while (lo < hi) {
-            const mid = (lo + hi + 1) >> 1
-            if (pts[mid].x <= dx)
-                lo = mid
-            else
-                hi = mid - 1
-        }
-        const a = pts[lo]
-        const b = pts[lo + 1]
-        const span = b.x - a.x
-        if (span <= 0)
-            return a.y
-        return a.y + (b.y - a.y) * (dx - a.x) / span
-    }
-
-    // Value at x for the inspect readout, y-fit edge values and the live marker —
-    // consistent with the rendered line. "linear": interpolate between the bracketing
-    // readings. "step" (default): hold-forward — the value of the most recent point at
-    // or before x (binary search over the ascending raw series).
-    function valueAt(dx) {
-        const pts = root.rawPoints
-        const n = pts.length
-        if (n === 0)
-            return NaN
-        if (root.lineMode === "linear")
-            return interpAt(pts, dx)
-        if (dx <= pts[0].x)
-            return pts[0].y
-        if (dx >= pts[n - 1].x)
-            return pts[n - 1].y
-        let lo = 0
-        let hi = n - 1
-        while (lo < hi) {
-            const mid = (lo + hi + 1) >> 1
-            if (pts[mid].x <= dx)
-                lo = mid
-            else
-                hi = mid - 1
-        }
-        return pts[lo].y
-    }
-
-    // Min/max y over a time window, including the held edge values so the step line stays
-    // inside the re-fitted y-axis. Scans the DECIMATED set's visible slice — M4 keeps each
-    // bucket's true min-y and max-y, so its envelope equals the raw visible envelope (the fit
-    // can't clip), and the scan is O(few-k) so it stays live every frame. The edge folds use
-    // valueAt (raw), so the exact held/interpolated value at the view edges is captured.
-    function fitY(tMin, tMax) {
-        const pts = root.decimated
-        const n = pts.length
-        if (n === 0)
-            return { min: 0, max: 1 }
-        let mn = Infinity
-        let mx = -Infinity
-        const yL = valueAt(tMin)
-        if (!isNaN(yL)) { mn = Math.min(mn, yL); mx = Math.max(mx, yL) }
-        // First index with x >= tMin.
-        let lo = 0
-        let hi = n
-        while (lo < hi) {
-            const m = (lo + hi) >> 1
-            if (pts[m].x < tMin) lo = m + 1
-            else hi = m
-        }
-        for (let i = lo; i < n && pts[i].x <= tMax; ++i) {
-            mn = Math.min(mn, pts[i].y)
-            mx = Math.max(mx, pts[i].y)
-        }
-        const yR = valueAt(tMax)
-        if (!isNaN(yR)) { mn = Math.min(mn, yR); mx = Math.max(mx, yR) }
-        // Extra lines (multi-line graphs only): the same envelope, edges included.
-        for (const extra of root.extraSeries) {
-            const ep = extra.points
-            for (const e of [interpAt(ep, tMin), interpAt(ep, tMax)]) {
-                if (!isNaN(e)) { mn = Math.min(mn, e); mx = Math.max(mx, e) }
-            }
-            for (let i = 0; i < ep.length; ++i) {
-                if (ep[i].x >= tMin && ep[i].x <= tMax) {
-                    mn = Math.min(mn, ep[i].y)
-                    mx = Math.max(mx, ep[i].y)
-                }
-            }
-        }
-        if (mn === Infinity)
-            return { min: root.dataMinY, max: root.dataMaxY }
-        return { min: mn, max: mx }
     }
 }

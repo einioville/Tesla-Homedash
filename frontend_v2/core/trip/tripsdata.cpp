@@ -481,15 +481,7 @@ void TripsData::parseTripSeries(const QByteArray &payload) {
     }
     const quint8 status = series->status;
 
-    QVariantList points;
-    points.reserve(series->points.size());
-    for (const QPointF &p : series->points) {
-        QVariantMap point;
-        point.insert(QStringLiteral("x"), p.x());
-        point.insert(QStringLiteral("y"), p.y());
-        points.append(point);
-    }
-    m_seriesPoints = points;
+    m_seriesPoints = series->points;
     const SeriesBounds bounds = seriesBounds(series->points);
     m_seriesMinX = bounds.minX;
     m_seriesMaxX = bounds.maxX;
@@ -501,7 +493,7 @@ void TripsData::parseTripSeries(const QByteArray &payload) {
     logger.debug(QStringLiteral("Trip series applied | id=%1 property=%2 points=%3 status=%4")
                      .arg(tripId)
                      .arg(propertyId)
-                     .arg(points.size())
+                     .arg(m_seriesPoints.size())
                      .arg(status));
 }
 

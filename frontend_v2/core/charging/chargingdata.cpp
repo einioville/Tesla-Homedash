@@ -204,11 +204,7 @@ void ChargingData::parseChargerHistory(const QByteArray &payload) {
             QStringLiteral("Truncated charger-history points at %1").arg(series->points.size()));
     }
     const quint8 status = series->status;
-    QVariantList points;
-    points.reserve(series->points.size());
-    for (const QPointF &point : series->points) {
-        points.append(QVariant::fromValue(point));
-    }
+    const QList<QPointF> &points = series->points;
 
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
     if (id == QStringLiteral("GridPower")) {
@@ -230,7 +226,7 @@ void ChargingData::parseChargerHistory(const QByteArray &payload) {
                      .arg(status));
 }
 
-void ChargingData::seedSeries(Series &s, const QVariantList &points, qint64 nowMs) {
+void ChargingData::seedSeries(Series &s, const QList<QPointF> &points, qint64 nowMs) {
     s.points = points;
     // Show the whole 1 h window on the axis (not just the seeded data extent), matching
     // TeslaHistory's live seed; live appends then roll it forward.
@@ -241,9 +237,9 @@ void ChargingData::appendLive(Series &s, double value, qint64 nowMs) {
     // Store a real point only when the value changed since the last sample; between
     // changes the step line holds the previous value flat to the advancing right edge.
     const bool changed =
-        s.points.isEmpty() || s.points.last().toPointF().y() != value;
+        s.points.isEmpty() || s.points.last().y() != value;
     if (changed) {
-        s.points.append(QVariant::fromValue(QPointF(static_cast<double>(nowMs), value)));
+        s.points.append(QPointF(static_cast<double>(nowMs), value));
     }
     rollBounds(s, nowMs);
 }
@@ -258,7 +254,7 @@ void ChargingData::rollBounds(Series &s, qint64 nowMs) {
 
 QVariantMap ChargingData::seriesMap(const Series &s) {
     QVariantMap m;
-    m.insert(QStringLiteral("points"), s.points);
+    m.insert(QStringLiteral("points"), QVariant::fromValue(s.points));
     m.insert(QStringLiteral("minX"), s.minX);
     m.insert(QStringLiteral("maxX"), s.maxX);
     m.insert(QStringLiteral("minY"), s.minY);

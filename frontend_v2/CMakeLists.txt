@@ -45,6 +45,8 @@ qt_add_executable(appfrontend_v2
     main.cpp
     core/protocol.hh
     core/seriesbounds.hh
+    core/graphseries.hh
+    core/graphseries.cpp
     core/logger.hh
     core/logger.cpp
     core/serverclient.hh

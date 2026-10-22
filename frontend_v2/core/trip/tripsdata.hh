@@ -2,7 +2,9 @@
 #define FRONTEND_V2_TRIPSDATA_HH
 
 #include <QByteArray>
+#include <QList>
 #include <QObject>
+#include <QPointF>
 #include <QVariantList>
 #include <QVariantMap>
 
@@ -52,9 +54,9 @@ class TripsData : public QObject {
     Q_PROPERTY(QVariantMap summary READ summary NOTIFY summaryChanged)
     Q_PROPERTY(bool summaryLoading READ summaryLoading NOTIFY summaryLoadingChanged)
     // Selected trip's graph series for the currently-chosen property: seriesPoints is
-    // [{ x: epochMs, y: value }] (same shape History.points uses, so the shared graph
-    // renders it directly); the bounds fit the axes.
-    Q_PROPERTY(QVariantList seriesPoints READ seriesPoints NOTIFY seriesChanged)
+    // (x = epoch ms, y = value), the shape History.points has, so the shared graph
+    // binds it as it is; the bounds fit the axes.
+    Q_PROPERTY(QList<QPointF> seriesPoints READ seriesPoints NOTIFY seriesChanged)
     Q_PROPERTY(int seriesCount READ seriesCount NOTIFY seriesChanged)
     Q_PROPERTY(double seriesMinX READ seriesMinX NOTIFY seriesChanged)
     Q_PROPERTY(double seriesMaxX READ seriesMaxX NOTIFY seriesChanged)
@@ -79,7 +81,7 @@ public:
     bool routeLoading() const { return m_routeLoading; }
     QVariantMap summary() const { return m_summary; }
     bool summaryLoading() const { return m_summaryLoading; }
-    QVariantList seriesPoints() const { return m_seriesPoints; }
+    QList<QPointF> seriesPoints() const { return m_seriesPoints; }
     int seriesCount() const { return static_cast<int>(m_seriesPoints.size()); }
     double seriesMinX() const { return m_seriesMinX; }
     double seriesMaxX() const { return m_seriesMaxX; }
@@ -181,7 +183,7 @@ private:
     // Selected trip's graph series (for one property) + the request keys. TRIP_SERIES
     // echoes both the trip id and the property id; a reply mismatching either (the user
     // switched trip or property) is dropped. Also the reconnect-retry keys.
-    QVariantList m_seriesPoints;
+    QList<QPointF> m_seriesPoints;
     double m_seriesMinX = 0.0;
     double m_seriesMaxX = 0.0;
     double m_seriesMinY = 0.0;

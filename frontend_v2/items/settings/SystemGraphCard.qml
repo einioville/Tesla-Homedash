@@ -46,7 +46,7 @@ Item {
         for (let i = 0; i < times.length && i < values.length; ++i) {
             const v = values[i]
             if (v !== undefined && v !== null && !isNaN(v))
-                out.push({ "x": times[i], "y": v })
+                out.push(Qt.point(times[i], v))
         }
         return out
     }

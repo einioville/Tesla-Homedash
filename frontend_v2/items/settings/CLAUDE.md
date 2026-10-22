@@ -420,11 +420,11 @@ line, the draw-in, and pinch / left-drag zoom with *Palauta*. `SystemGraphCard` 
 like the Charging view's live graphs: the first data `reloadFull()`s, later updates
 `advanceLive()` (keeping a zoom the user made). What `HistoryGraph` offers for this, all inert at
 their defaults so no other graph is affected:
-- **`extraSeries`** — further lines over the same axes (`{points, color, label, dashed}`), as extra
-  `LineSeries` added to the GraphsView at runtime (an `Instantiator`; the view's own children can
-  only be series). They join the y-fit, draw in with the main line, get a dot each when inspecting,
-  and a multi-line readout lists every line with its colour. Dashes use the scoped
-  `LineSeries.StrokeStyle.DashLine` — the unscoped form the docs show is undefined at runtime.
+- **`extraSeries`** — further lines over the same axes (`{points, color, label, dashed}`, the points
+  `Qt.point`s), traced by `GraphSeries` with the main line and drawn as Shapes beneath it, so they
+  move with its transforms and the draw-in's clip uncovers them with it — nothing is refilled per
+  frame. They join the y-fit, get a dot each when inspecting, and a multi-line readout lists every
+  line with its colour. A dashed line is `ShapePath.DashLine` with the `[2, 1.5]` pattern.
 - **`lineColor`** / **`seriesLabel`** for the main line, **`fixedMinY` / `fixedMaxY`** in place of the
   fit, **`formatValue`** for the readout, and **`wheelZoom`** — off here, since the section scrolls
   and the wheel belongs to the page (a left-drag still pans, a pinch still zooms).

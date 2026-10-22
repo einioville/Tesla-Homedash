@@ -11,6 +11,7 @@
 #include "core/charging/chargingdata.hh"
 #include "core/idlewatcher.hh"
 #include "core/connectionprobe.hh"
+#include "core/graphseries.hh"
 #include "core/screensaverphotos.hh"
 #include "core/screenpower.hh"
 #include "core/logger.hh"
@@ -205,6 +206,7 @@ int main(int argc, char* argv[]) {
     // MediaData via shared_ptr, so neither dangles regardless of teardown order.
     engine.addImageProvider(QStringLiteral("media"), new MediaImageProvider(mediaCache));
 
+    qmlRegisterType<GraphSeries>("frontend_v2", 1, 0, "GraphSeries");
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "App", &config);
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "Server", &serverClient);
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "Tesla", &teslaData);

@@ -12,6 +12,28 @@ malformed or non-object reply), `writeString()` / `readString()` (len(2B) + UTF-
 and `TRIP_SERIES`). A graph's axis bounds come from `seriesbounds.hh`: `seriesBounds()` for a static
 series, `rollLiveWindow()` for a live one.
 
+## `GraphSeries` — `graphseries.{hh,cpp}`
+
+The data half of every graph (`../items/history/HistoryGraph.qml`, issue #83): the series held as a
+`QList<QPointF>`, M4 decimation for the window being built, the step or linear path through it, the
+trace into plot pixels (`QPolygonF`, which `PathPolyline` takes as it is), the y envelope and the
+inspect lookups. QML keeps the gestures, axes, transforms and draw-in. Load-bearing:
+
+- **The series reach it as point lists, bound property to property.** `History.points`,
+  `Trips.seriesPoints` and Charging's series `points` are `QList<QPointF>`, and a QML binding hands
+  one over as a sequence, O(1) — measured, 100 binds of 30 000 points in 0.2 ms. A JS array of
+  `Qt.point`s converts point by point (4–9 ms for the same 30 000), so a source never builds one;
+  only the Järjestelmän tila graphs, ~300 points every 2 s, are fed one from JavaScript.
+- **`snapshot()` takes the bound list as what is drawn and answered for**, on a load or a live tick;
+  a list bound in between changes nothing until then.
+- **`revision` is how bindings follow it.** `valueAt()`, `extraValueAt()` and `fitY()` are
+  invokables, which register no dependency, so HistoryGraph's wrappers read `revision` first.
+  `rebuild()` bumps it before the paths are traced, so the y-fit has followed the new build and the
+  paths are traced in the axes they are shown in.
+- **Registered in `main.cpp`** (`qmlRegisterType`), as every other type here is, not with
+  `QML_ELEMENT`: the generated registration includes the header by its bare name, which the
+  `core/…` include path does not resolve.
+
 ## `ServerClient` — `serverclient.{hh,cpp}`, `scram.{hh,cpp}`, `credentialstore.{hh,cpp}`
 
 The one socket to the backend (QML `Server`), **TLS 1.3 with a login in front** (issue #64; the

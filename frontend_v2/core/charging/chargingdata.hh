@@ -2,8 +2,9 @@
 #define FRONTEND_V2_CHARGINGDATA_HH
 
 #include <QByteArray>
+#include <QList>
 #include <QObject>
-#include <QVariantList>
+#include <QPointF>
 #include <QVariantMap>
 
 class ServerClient;
@@ -46,7 +47,8 @@ class ChargingData : public QObject {
     // Month-to-date aggregate (CHARGING_MONTH): `valid` + the 13 fields (NaN -> "—").
     Q_PROPERTY(QVariantMap monthSummary READ monthSummary NOTIFY monthChanged)
 
-    // Past-hour power series, each { points: [{x,y}], minX, maxX, minY, maxY, count }.
+    // Past-hour power series, each { points, minX, maxX, minY, maxY, count }, points a
+    // QList<QPointF> a HistoryGraph binds as it is.
     Q_PROPERTY(QVariantMap gridSeries READ gridSeries NOTIFY gridChanged)
     Q_PROPERTY(QVariantMap chargeSeries READ chargeSeries NOTIFY chargeChanged)
     Q_PROPERTY(bool historyLoading READ historyLoading NOTIFY historyLoadingChanged)
@@ -94,10 +96,9 @@ private slots:
     void onConnectedChanged();
 
 private:
-    // One rolling past-hour series. points is a QPointF list ascending by x (epoch ms),
-    // fed straight into a HistoryGraph.
+    // One rolling past-hour series, ascending by x (epoch ms).
     struct Series {
-        QVariantList points;
+        QList<QPointF> points;
         double minX = 0.0;
         double maxX = 1.0;
         double minY = 0.0;
@@ -109,7 +110,7 @@ private:
     void parseMonth(const QByteArray &payload);
     void parseChargerHistory(const QByteArray &payload);
     void sendHistoryRequest(const QString &id);
-    void seedSeries(Series &s, const QVariantList &points, qint64 nowMs);
+    void seedSeries(Series &s, const QList<QPointF> &points, qint64 nowMs);
     void appendLive(Series &s, double value, qint64 nowMs);
     void rollBounds(Series &s, qint64 nowMs);
     static QVariantMap seriesMap(const Series &s);

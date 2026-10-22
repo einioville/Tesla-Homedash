@@ -3,7 +3,6 @@
 
 #include <QList>
 #include <QPointF>
-#include <QVariantList>
 
 #include <limits>
 
@@ -41,16 +40,16 @@ inline SeriesBounds seriesBounds(const QList<QPointF> &points) {
 }
 
 /**
- * Rolls a live graph's window to [nowMs - windowMs, nowMs]. `points` (QPointF
- * variants, oldest first) loses everything before the left edge except the last
- * such point, which the step line needs for the value held at the edge. The
+ * Rolls a live graph's window to [nowMs - windowMs, nowMs]. `points` (oldest first)
+ * loses everything before the left edge except the last such point, which the
+ * step line needs for the value held at the edge. The
  * y-bounds span the points kept, 0..1 when there are none; HistoryGraph uses them
  * only when the visible window holds no points.
  */
-inline SeriesBounds rollLiveWindow(QVariantList &points, qint64 windowMs, qint64 nowMs) {
+inline SeriesBounds rollLiveWindow(QList<QPointF> &points, qint64 windowMs, qint64 nowMs) {
     const double left = static_cast<double>(nowMs - windowMs);
     qsizetype firstInside = 0;
-    while (firstInside < points.size() && points[firstInside].toPointF().x() < left) {
+    while (firstInside < points.size() && points[firstInside].x() < left) {
         ++firstInside;
     }
     if (firstInside > 1) {
@@ -60,9 +59,9 @@ inline SeriesBounds rollLiveWindow(QVariantList &points, qint64 windowMs, qint64
     if (!points.isEmpty()) {
         b.minY = std::numeric_limits<double>::max();
         b.maxY = std::numeric_limits<double>::lowest();
-        for (const QVariant &p : points) {
-            b.minY = qMin(b.minY, p.toPointF().y());
-            b.maxY = qMax(b.maxY, p.toPointF().y());
+        for (const QPointF &p : points) {
+            b.minY = qMin(b.minY, p.y());
+            b.maxY = qMax(b.maxY, p.y());
         }
     }
     return b;

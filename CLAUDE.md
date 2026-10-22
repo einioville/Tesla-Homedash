@@ -513,7 +513,9 @@ source tree (#65), `frontend_v2` the one frontend, and with it the backend's `WE
 and its FMI WFS fetch, which only it read — plus the Kartta card's *Tyhjennä karttavälimuisti*,
 which deletes the map tile cache and restarts the app (`items/tesla/CLAUDE.md`) — plus the media
 seek bar's times in hours from an hour up, and a media title or artist line too long for its place
-scrolling every so often while the music plays (`items/util/MarqueeText.qml`).
+scrolling every so often while the music plays (`items/util/MarqueeText.qml`) — plus the graphs'
+data work in C++ (#83 A, `GraphSeries`): the series bound as point lists and decimated, stepped and
+traced with no per-point JavaScript, and the extra lines drawn as Shapes.
 When you land a change that touches documented behaviour, update this line.
 
 ### 7.8 Keeping the code clean
@@ -540,8 +542,9 @@ Four kinds of debris do not belong in this codebase; review your own diff for th
     for any whole-file rewrite, `utils/timeline` for trip/charging segmentation,
     `influxdb_service/series.py` and `influxdb_handler.to_flux_time` for history reads,
     `BaseMediaPlayer._send*` for media packets.
-  - Frontend: `core/seriesbounds.hh` for graph bounds, `TeslaData::qmlName` for a registry id's
-    property name, `app/Format.js` for displayed values ("—" for a missing one),
+  - Frontend: `items/history/HistoryGraph.qml` for any graph (its data work is
+    `core/graphseries.hh`), `core/seriesbounds.hh` for graph bounds, `TeslaData::qmlName` for a
+    registry id's property name, `app/Format.js` for displayed values ("—" for a missing one),
     `items/util/Card.qml` for a card (the dashboard's and the Weather view's look; its colours
     are `Theme`'s *card* tokens), `items/util/GlowBorder.qml` for a card's rim lit from inside,
     `items/settings/ModalDialog.qml` for a dialog, `SettingDetails.qml` for a status line with its

@@ -97,11 +97,10 @@ void TeslaHistory::onLiveTick() {
         // accumulate a synthetic point every tick.
         bool changed = m_points.isEmpty();
         if (!m_points.isEmpty()) {
-            changed = m_points.last().toPointF().y() != value;
+            changed = m_points.last().y() != value;
         }
         if (changed) {
-            m_points.append(
-                QVariant::fromValue(QPointF(static_cast<double>(now), value)));
+            m_points.append(QPointF(static_cast<double>(now), value));
         }
     }
     recomputeBounds(now);
@@ -222,12 +221,7 @@ void TeslaHistory::parseHistory(const QByteArray &payload) {
     }
     const quint8 status = series->status;
 
-    QVariantList points;
-    points.reserve(series->points.size());
-    for (const QPointF &point : series->points) {
-        points.append(QVariant::fromValue(point));
-    }
-    m_points = points;
+    m_points = series->points;
     const SeriesBounds bounds = seriesBounds(series->points);
     m_minX = bounds.minX;
     m_maxX = bounds.maxX;
@@ -247,7 +241,7 @@ void TeslaHistory::parseHistory(const QByteArray &payload) {
     emit historyReady();
     logger.debug(QStringLiteral("History applied | id=%1 points=%2 status=%3")
                      .arg(id)
-                     .arg(points.size())
+                     .arg(m_points.size())
                      .arg(status));
 }
 
