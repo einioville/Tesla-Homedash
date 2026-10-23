@@ -309,9 +309,8 @@ Item {
     // hands its newest picture to a shader (QQuickImage keeps its texture provider current).
     Repeater {
         id: frames
-        // The pictures made so far, for bindings on itemAt(). In a view built asynchronously
-        // (ViewController) the Repeater makes them after `count` has changed, so `count` alone
-        // left the shown frame null until the loop stepped, and for good with latestOnly.
+        // The pictures made so far, which shownImage waits for: in a view built asynchronously
+        // (ViewController) the Repeater makes them after `count` has changed.
         property int made: 0
         model: root.frameCount
         onItemAdded: made++
@@ -340,12 +339,11 @@ Item {
     // across a new box the step is a cut.
     ShaderEffect {
         id: shownFrame
-        readonly property Item shownImage: {
-            frames.made
-            return frames.itemAt(root.frame)
-        }
+        // `made` is read in the result, not as a bare statement: qmlcachegen compiles this
+        // binding and drops a read whose value is unused, and the dependency with it, which left
+        // the frame unshown until the loop stepped, and for good with latestOnly.
+        readonly property Item shownImage: frames.made === root.frameCount ? frames.itemAt(root.frame) : null
         readonly property Item fadingImage: {
-            frames.made
             var image = root.fadeFrom >= 0 ? frames.itemAt(root.fadeFrom) : null
             return image && shownImage && image.shown === shownImage.shown ? image : null
         }

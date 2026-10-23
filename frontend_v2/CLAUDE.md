@@ -296,6 +296,14 @@ a step, none between.
 - **A `Q_INVOKABLE` registers no property dependency**, so a binding built on one never
   re-evaluates. Read a `Q_PROPERTY` (or index into one) instead — `core/CLAUDE.md` records the
   `Updater` card that froze this way, and `Settings.valuesRevision` exists for the same reason.
+- **A bare read is no dependency in a binding qmlcachegen compiles.** `frames.count;` as a
+  statement, or `const revision = Settings.valuesRevision` left unused, is dropped from a binding
+  compiled to C++, and the dependency with it: RadarLayer's shown frame stayed empty with *Vain
+  uusin* until its count was read in the result. The interpreter keeps such reads, so the idiom
+  holds in the bindings that use it now — none compiles, each reading an untyped property or
+  calling a JS function — but one made compilable loses them. Use the value in the result. A
+  binding is compiled if `build/.rcc/qmlcache/*_<File>_qml.cpp` has `// expression for <name> at
+  line N`.
 - `QT_QML_GENERATE_QMLLS_INI` is **deprecated since Qt 6.10** ("no replacement needed") — don't add
   it to `CMakeLists.txt`.
 
