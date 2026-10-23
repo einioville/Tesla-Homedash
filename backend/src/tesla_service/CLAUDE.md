@@ -13,7 +13,14 @@
   __update` applies formulas, broadcasts changed fields (`protocol.frame(MSG_STREAM, …)`), and
   writes logged fields to InfluxDB (a failed write never blocks the broadcast). Non-data **state**
   events carry `online`/`offline`/`asleep` (the car reports a sleeping vehicle as `offline`, never
-  `asleep`); `__update` writes the synthesized `VehicleOnline` and nothing more. **Value-callbacks**
+  `asleep`); `__update` writes the synthesized `VehicleOnline` and broadcasts it, **on a change
+  only**: Teslemetry repeats the state about every 90 s, and a repeat must not move the field's
+  timestamp, which a display takes as the time the car fell asleep (`Tesla.asleepSince`). **The
+  state event alone says whether the car is awake** — telemetry arriving while it is offline does
+  not: every stream reconnect replays Teslemetry's cached values (with their original timestamps),
+  and the car can send fresh data while Teslemetry keeps reporting `offline` for minutes, so a
+  wake inferred from data would flap back at the next repeated `offline` and apply the sleep
+  defaults twice. **Value-callbacks**
   (`add_callback`/`remove_callback`) drive the rest: `add_callback(criteria, cb)` fires
   `cb(matches)` when every property in `criteria` (`{id: target_value}`) simultaneously holds its
   target (edge-triggered, built on the per-property callbacks; `matches` is a list of `(id, value,

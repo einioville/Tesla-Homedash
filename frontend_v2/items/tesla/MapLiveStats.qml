@@ -6,7 +6,7 @@ import "../../app/Format.js" as Format
 // frosted glass over the map (`backdrop`, a sibling of this panel). The glass is the
 // notification pill's, darker than the Weather card's radar bar: aerial imagery is bright.
 // The car reports the outside temperature only while it is awake, so an hour into its sleep
-// the temperature is FMI's for the place (the Weather view's now), captioned so.
+// the temperature is FMI's for the place (the Weather view's now).
 GlassPanel {
     id: root
 
@@ -79,7 +79,7 @@ GlassPanel {
         Stat {
             value: Format.num(root.fmiOutside ? root.fmiTemp : Tesla.outsideTemp, "", 1)
             unit: "°C"
-            caption: root.fmiOutside ? qsTr("ULKONA · FMI") : qsTr("ULKONA")
+            caption: qsTr("ULKONA")
         }
     }
 }

@@ -177,13 +177,21 @@ class Vehicle:
                 # State enum). In practice the car reports a sleeping vehicle as
                 # "offline" and never emits "asleep". Updating VehicleOnline to
                 # False trips the sleep-default reset via the value-callback
-                # registered in __init__ (see __on_sleep).
+                # registered in __init__ (see __on_sleep). Teslemetry repeats
+                # the state about every 90 s; only a change is written and
+                # broadcast, so the timestamp stays the transition's — a
+                # display's Tesla.asleepSince. Telemetry arriving while offline
+                # does not mean awake: a stream reconnect replays the cached
+                # values, and the car can send fresh data minutes before
+                # Teslemetry says online.
                 state = data["state"]
                 logger.info("Vehicle state event: state=%s", state)
                 online = state == "online"
-                await self.__data["VehicleOnline"].update(
-                    value=online, timestamp=timestamp
-                )
+                vehicle_online = self.__data["VehicleOnline"]
+                async with self.__async_lock:
+                    if await vehicle_online.get_value() != online:
+                        await vehicle_online.update(value=online, timestamp=timestamp)
+                        await self.stream_data_property(vehicle_online)
             return
 
         async with self.__async_lock:

@@ -288,6 +288,7 @@ QML tap (e.g. Tesla.switchClimate()) → protocol::frame(…) → ServerClient.s
 **Vehicle sleeps (default reset)**
 ```
 Teslemetry state event (state != "online") → Vehicle.__update → VehicleOnline.update(False)
+  + broadcast via MSG_STREAM   (on a change only, waking the same way; repeats are dropped)
   → (edge) VehicleOnline value-callback → Vehicle.__on_sleep → Vehicle.__apply_sleep_defaults
   → each property with a sleep_default: apply_sleep_default (force value+timestamp, clear lock)
   → broadcast changed-only via MSG_STREAM   (no InfluxDB write — display-only)
@@ -540,7 +541,9 @@ line's path, with each bar fed its own level by a list model — and the radar's
 so a loop step redraws nothing on the CPU — plus the fetch split (#79, #84; the rule in §5.4): the
 album cover fetched by each display from the URL the backend sends (`MEDIA_STREAM_IMAGE_URL`),
 through a disk cache, the home's timezone found by the backend when the home is written, one
-road-camera list per display, and a timeout on every QML fetch.
+road-camera list per display, and a timeout on every QML fetch — plus the car's sleep and waking
+sent to the displays as they happen (#85), so Kartta's outside temperature returns to the car's
+when it wakes, under one *ULKONA* caption whichever source it is.
 When you land a change that touches documented behaviour, update this line.
 
 ### 7.8 Keeping the code clean

@@ -179,7 +179,9 @@ the menu sits in its map's corner, full-screen or the card. `TeslaMap`'s `show*`
   temperature on frosted glass, read straight off `Tesla`. The car reports the outside temperature
   only while it is awake, so an hour after it went offline (`Tesla.asleepSince`, the backend's state
   event time, which a repeated offline event does not move) the temperature is FMI's for the place —
-  the weather document's `now.temp` — captioned *ULKONA · FMI*, until the car is back online.
+  the weather document's `now.temp`, under the same *ULKONA* caption — until the car is back
+  online. The backend sends `VehicleOnline` on every change, so the card follows the car's sleep
+  and waking with no reconnect (`backend/src/tesla_service/CLAUDE.md`).
 - **Sadetutka** — `items/weather/RadarLayer.qml`, the Weather view's radar loop and lightning, over
   this map too, undimmed, with `WeatherRadarControls` upright on the left edge above the data card.
   The loop is the last quarter hour (four frames, 1.5 s each, the newest held 3.5 s) rather than the
