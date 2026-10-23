@@ -384,11 +384,13 @@ cards from `System` (`../../core/CLAUDE.md`), both retained only while the secti
   in effect as label–value pairs (typed values formatted here: `{time}` today as a clock time, another
   day with its date; both columns **wrap rather than elide** — a path cut in the middle hid the part
   being looked for, and with no spaces in it, it breaks at a slash or anywhere), the server card's
-  connected displays with this one marked, and the warning and
-  error counts with *Näytä* opening `SystemLogPopup` (newest first, date and time, level tag,
-  logger, the message's first lines). Cards pair two to a row, each row as tall as its taller card;
-  the Repeater's model is a **count**, since a poll replaces the list every 5 s and a new array
-  would rebuild every card.
+  connected displays with this one marked, and the **open** warning and error counts — none while
+  the card is *Toiminnassa*; the backend decides which are open (`backend/src/system_service/
+  CLAUDE.md`) — beside a muted *N aiempaa (24 h)*, with *Näytä* opening `SystemLogPopup` (newest
+  first, date and time, level tag, logger, the message's first lines; the open entries under
+  *Avoimet · <time> alkaen*, then the rest dimmed under *Aiemmat*). Cards pair two to a row, each
+  row as tall as its taller card; the Repeater's model is a **count**, since a poll replaces the
+  list every 5 s and a new array would rebuild every card.
 - **Temperature**'s headline gives the window's peak. A host with no sensor (`temp_available: false`,
   WSL2) shows *Tällä laitteella ei ole lämpötila-anturia* in place of the graph.
 - **Every dialog is a `ModalDialog`** — the opaque card over a scrim that takes every press and

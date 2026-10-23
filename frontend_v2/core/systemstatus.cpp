@@ -56,6 +56,7 @@ void SystemStatus::openLog(const QString &service, const QString &label) {
     m_logService = service;
     m_logLabel = label;
     m_logEntries.clear();
+    m_logOpenSince.clear();
     m_logLoading = m_server != nullptr && m_server->connected();
     emit logChanged();
     if (!m_logLoading) {
@@ -73,6 +74,7 @@ void SystemStatus::closeLog() {
     m_logOpen = false;
     m_logLoading = false;
     m_logEntries.clear();
+    m_logOpenSince.clear();
     emit logChanged();
 }
 
@@ -87,6 +89,7 @@ void SystemStatus::onLogPacket(const QByteArray &payload) {
         return;
     }
     m_logEntries = doc.value(QStringLiteral("entries")).toArray().toVariantList();
+    m_logOpenSince = doc.value(QStringLiteral("open_since")).toVariant();
     m_logLoading = false;
     emit logChanged();
 }

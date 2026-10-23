@@ -36,8 +36,11 @@ class SystemStatus : public QObject {
     Q_PROPERTY(bool logOpen READ logOpen NOTIFY logChanged)
     Q_PROPERTY(bool logLoading READ logLoading NOTIFY logChanged)
     Q_PROPERTY(QString logLabel READ logLabel NOTIFY logChanged)
-    // [{t, level, logger, message}], newest first.
+    // [{t, level, logger, message, open}], newest first, so the open ones —
+    // logged since the service last worked — lead.
     Q_PROPERTY(QVariantList logEntries READ logEntries NOTIFY logChanged)
+    // Epoch ms where the open entries begin; null while the service is fine.
+    Q_PROPERTY(QVariant logOpenSince READ logOpenSince NOTIFY logChanged)
 
 public:
     explicit SystemStatus(QObject *parent = nullptr);
@@ -50,6 +53,7 @@ public:
     bool logLoading() const { return m_logLoading; }
     QString logLabel() const { return m_logLabel; }
     QVariantList logEntries() const { return m_logEntries; }
+    QVariant logOpenSince() const { return m_logOpenSince; }
 
     void attachServer(ServerClient *client);
 
@@ -87,6 +91,7 @@ private:
     QString m_logService;
     QString m_logLabel;
     QVariantList m_logEntries;
+    QVariant m_logOpenSince;
 };
 
 #endif  // FRONTEND_V2_SYSTEMSTATUS_HH

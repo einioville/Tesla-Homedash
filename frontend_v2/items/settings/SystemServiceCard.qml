@@ -3,8 +3,9 @@ import frontend_v2
 import "../../app/Format.js" as Format
 
 // One backend service in Järjestelmän tila: its standing, the settings it is
-// running with, any list it keeps (the connected displays) and its warning and
-// error counts, with *Näytä* opening the list of them.
+// running with, any list it keeps (the connected displays) and its open warning
+// and error counts — logged since it last worked, so none while it is fine —
+// beside a muted count of the earlier ones, with *Näytä* opening the list.
 //
 // Everything comes from the service's row in System.data.services — the
 // backend's duck-typed health() (backend/src/system_service/CLAUDE.md) — and is
@@ -15,13 +16,15 @@ Rectangle {
     id: card
 
     // One entry of System.data.services: {id, label, state, detail, config,
-    // items, errors: {warnings, errors}}.
+    // items, errors: {warnings, errors, past}} — warnings and errors open, past
+    // the earlier ones of the last 24 h.
     required property var service
 
     readonly property var config: service.config !== undefined ? service.config : []
     readonly property var items: service.items !== undefined ? service.items : []
     readonly property int warnings: service.errors !== undefined ? service.errors.warnings : 0
     readonly property int errors: service.errors !== undefined ? service.errors.errors : 0
+    readonly property int past: service.errors !== undefined ? service.errors.past : 0
 
     readonly property var stateStyles: ({
         "ok": { "label": qsTr("Toiminnassa"), "color": "#4ade80" },
@@ -263,6 +266,15 @@ Rectangle {
                     font.family: Theme.fontFamily
                     font.pixelSize: 13
                     color: card.warnings > 0 ? "#ffd48a" : Theme.dataLabelTitle
+                }
+
+                Text {
+                    visible: card.past > 0
+                    text: qsTr("%1 aiempaa (24 h)").arg(card.past)
+                    font.family: Theme.fontFamily
+                    font.pixelSize: 13
+                    color: Theme.dataLabelTitle
+                    opacity: 0.7
                 }
             }
 

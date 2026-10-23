@@ -298,8 +298,9 @@ section switch, a rebuilt Loader), and a flag set by the newcomer was cleared by
 consumer retains while visible and releases exactly once (`syncPoll()`). The document is handled as an opaque `QVariantMap` on
 purpose: it is a dashboard, not a contract, and adding a metric — or a service, or a setting in one —
 on the backend needs no C++ change to display it. It also carries **one card's warning/error list**:
-`openLog(service, label)` sends `SYSTEM_GET_LOG` and fills `logEntries`; a reply for another card or
-a list since closed is dropped. `SystemLogPopup` binds to it.
+`openLog(service, label)` sends `SYSTEM_GET_LOG` and fills `logEntries` (each flagged `open`) and
+`logOpenSince` (where the open ones begin, null when none are); a reply for another card or a list
+since closed is dropped. `SystemLogPopup` binds to it.
 
 ## `SystemHistory` — `systemhistory.{hh,cpp}`
 

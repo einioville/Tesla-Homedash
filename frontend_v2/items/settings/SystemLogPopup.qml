@@ -1,10 +1,13 @@
 import QtQuick
 import frontend_v2
+import "../../app/Format.js" as Format
 
 // One service card's warnings and errors, newest first, with the date and time of
 // each — what the card's *Näytä* opens. The list is the backend's persistent
 // error store (System.openLog → SYSTEM_GET_LOG), so it reaches back past a
-// restart, to the last time the logs were cleared in full.
+// restart, to the last time the logs were cleared in full. The open ones —
+// logged since the service last worked — lead under *Avoimet*; the earlier ones
+// follow, dimmed, under *Aiemmat*.
 //
 // A child of SettingsView like the other dialogs, anchored high and capped in
 // height so it stays clear of the menu's swipe-up strip (ModalDialog); the list
@@ -76,6 +79,11 @@ ModalDialog {
             required property int index
 
             readonly property bool isError: modelData.level === "ERROR" || modelData.level === "CRITICAL"
+            readonly property bool isOpen: modelData.open === true
+            // Newest first puts the open entries ahead of the past ones, so a
+            // heading goes where the group changes.
+            readonly property bool startsGroup: index === 0
+                                                || System.logEntries[index - 1].open !== modelData.open
 
             width: ListView.view.width
             height: texts.implicitHeight + 22
@@ -87,8 +95,21 @@ ModalDialog {
                 anchors.verticalCenter: parent.verticalCenter
                 spacing: 3
 
+                Text {
+                    visible: entry.startsGroup
+                    topPadding: entry.index > 0 ? 10 : 0
+                    bottomPadding: 6
+                    text: entry.isOpen ? qsTr("Avoimet · %1 alkaen").arg(Format.moment(System.logOpenSince))
+                                       : qsTr("Aiemmat")
+                    font.family: Theme.fontFamily
+                    font.pixelSize: 13
+                    font.bold: true
+                    color: entry.isOpen ? Theme.dataLabelValue : Theme.dataLabelTitle
+                }
+
                 Row {
                     spacing: 10
+                    opacity: entry.isOpen ? 1 : 0.6
 
                     Rectangle {
                         anchors.verticalCenter: parent.verticalCenter
@@ -128,6 +149,7 @@ ModalDialog {
                 // A traceback runs to many lines; the first few say what broke.
                 Text {
                     width: parent.width
+                    opacity: entry.isOpen ? 1 : 0.6
                     text: entry.modelData.message
                     font.family: Theme.fontFamily
                     font.pixelSize: 13

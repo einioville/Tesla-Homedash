@@ -543,7 +543,9 @@ album cover fetched by each display from the URL the backend sends (`MEDIA_STREA
 through a disk cache, the home's timezone found by the backend when the home is written, one
 road-camera list per display, and a timeout on every QML fetch — plus the car's sleep and waking
 sent to the displays as they happen (#85), so Kartta's outside temperature returns to the car's
-when it wakes, under one *ULKONA* caption whichever source it is.
+when it wakes, under one *ULKONA* caption whichever source it is — plus the Järjestelmän tila
+cards' warnings and errors split into open ones, logged since a failing service last worked, and
+past ones, muted (#82; `backend/src/system_service/CLAUDE.md`).
 When you land a change that touches documented behaviour, update this line.
 
 ### 7.8 Keeping the code clean
