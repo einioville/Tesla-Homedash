@@ -200,8 +200,8 @@ shows the first, and the last one switched off switches it off. `TeslaMap`'s `sh
     card needs no timeline. A tap opens the Weather view (`Navigation`, `../../CLAUDE.md`).
   - **The overlay** lies under every other layer at 55 % opacity (`RadarLayer.frameOpacity`; the
     lightning stays opaque), undimmed. With the minimap on too it plays in step with it
-    (`RadarLayer.follow`: the minimap's frame list and frame), so the two never show different
-    times. This map turns heading-up, so each frame is fetched for the bounding box of all four
+    (`RadarLayer.follow`: the minimap's frame list, frame and fade), so the two never show
+    different times. This map turns heading-up, so each frame is fetched for the bounding box of all four
     screen corners and turned with the map (`Image.rotation`), and the lightning is drawn in screen
     pixels (`LightningLayer`, `core/CLAUDE.md`) and carried the same way. And it keeps moving while
     it follows the car, so it fetches a 25 % margin round the view, no finer than 150 m a pixel and
@@ -211,6 +211,13 @@ shows the first, and the last one switched off switches it off. `TeslaMap`'s `sh
     5-minute steps. The steps share about 4.5 s, so 15 minutes plays 1.5 s a frame and an hour
     never faster than the Weather card's 600 ms; the newest frame holds 3.5 s. *Uusin* is
     `RadarLayer.latestOnly`: no loop, no older frame fetched, and only the frame's time on the bar.
+  - **Each step crossfades** into the next over 400 ms (`RadarLayer.fadeMs`), the Weather card's
+    loop too; the wrap back to the oldest frame and a seek are cuts. It blends the two pictures
+    pixel by pixel in one draw (`resources/shaders/radarfade.frag`), because FMI draws light rain
+    translucent (alpha 38–204): two Images laid over each other would brighten it mid-fade, a
+    pulse on every step. The frames' Images are hidden and only hand their pictures to the
+    shader; a step to a frame of another box (one fetched for a new view) is a cut. A blend
+    shows real frames only — it does not guess where the rain was between them.
   `WeatherRadarControls` stands upright on Kartta's left edge above the data card, working the
   minimap's loop while it shows (`TeslaMap.radar`), else the overlay's. The Weather card's
   *Vain uusin* checkbox on its own bar (`weatherRadarLatestOnly`) is that card's alone.

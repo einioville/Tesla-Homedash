@@ -406,6 +406,7 @@ qt_add_shaders(appfrontend_v2 "shaders"
         resources/shaders/climatewater.frag
         resources/shaders/climatewave.frag
         resources/shaders/glassfrost.frag
+        resources/shaders/radarfade.frag
         resources/shaders/lightning.vert
         resources/shaders/lightning.frag
 )

@@ -287,7 +287,9 @@ per frame the backend sends, about 30 a second: 34 with the backdrop on the dev 
 the line), with the per-frame work in C++ (`SpectrumLevels`, `core/CLAUDE.md`). The climate switch's water
 (`items/tesla/CLAUDE.md`) renders every frame while a switch shows, and only then. A media title
 too long for its place (`items/util/MarqueeText.qml`) renders every frame for the few seconds it
-scrolls, once every `marqueeRestDuration` while the music plays.
+scrolls, once every `marqueeRestDuration` while the music plays. A radar loop's crossfade
+(`items/weather/RadarLayer.qml`) steps on a 50 ms `Timer` for 400 ms of each step: about 8 redraws
+a step, none between.
 
 ## QML ↔ C++ traps
 

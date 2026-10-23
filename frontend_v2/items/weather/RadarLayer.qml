@@ -61,12 +61,20 @@ Item {
 
     property int frame: frameCount - 1
     property bool playing: true
+    // How long a step of the loop fades into the next, in ms; 0 cuts. The fade steps on a
+    // Timer, 20 times a second, not an Animation, which would redraw the window on every vsync
+    // for as long as the loop plays (frontend_v2/CLAUDE.md, *Motion that keeps running*).
+    property int fadeMs: 400
+    // The fade under way: the frame fading out (-1, none) and how far the shown one is in, 0–1.
+    property int fadeFrom: -1
+    property real fade: 1
+    property real fadeStart: 0
     // Only the newest frame: no loop, and the older frames are not fetched at all.
     property bool latestOnly: false
     property var frameTimes: []
     // Another RadarLayer to play in step with, the overlay under a map's minimap: its frame
-    // list and the frame it shows, so the two never show different times. Its own loop and
-    // refresh then stand still.
+    // list, the frame it shows and its fade, so the two never show different times. Its own
+    // loop and refresh then stand still.
     property Item follow: null
     // The box the frames were last fetched for: its top-left coordinate, its EPSG:3857 metres,
     // its pixel size and resolution, the map's zoom and metres per pixel when it was taken, and
@@ -215,8 +223,36 @@ Item {
                + "&format=image/png&transparent=true&time=" + d.toISOString().replace(".000Z", "Z")
     }
 
-    onLatestOnlyChanged: if (latestOnly) frame = frameCount - 1
+    // The loop's own step forward fades; the wrap back to the oldest frame stays a cut, so the
+    // restart shows, and so does every other change of frame: a seek pauses first.
+    function step() {
+        var next = (frame + 1) % frameCount
+        if (next === 0 || fadeMs <= 0) {
+            stopFade()
+            frame = next
+            return
+        }
+        fadeFrom = frame
+        fade = 0
+        fadeStart = Date.now()
+        frame = next
+        fadeTimer.restart()
+    }
+
+    function stopFade() {
+        fadeTimer.stop()
+        fadeFrom = -1
+        fade = 1
+    }
+
+    onPlayingChanged: if (!playing) stopFade()
+    onLatestOnlyChanged: {
+        stopFade()
+        if (latestOnly)
+            frame = frameCount - 1
+    }
     onFrameCountChanged: {
+        stopFade()
         frame = frameCount - 1
         refreshFrames()
     }
@@ -242,6 +278,20 @@ Item {
         when: root.follow !== null
         restoreMode: Binding.RestoreNone
     }
+    Binding {
+        target: root
+        property: "fadeFrom"
+        value: root.follow ? root.follow.fadeFrom : -1
+        when: root.follow !== null
+        restoreMode: Binding.RestoreNone
+    }
+    Binding {
+        target: root
+        property: "fade"
+        value: root.follow ? root.follow.fade : 1
+        when: root.follow !== null
+        restoreMode: Binding.RestoreNone
+    }
 
     MapCameraWatch {
         id: watch
@@ -255,39 +305,63 @@ Item {
         opacity: root.dim
     }
 
+    // The loop's pictures, one per frame, drawn by shownFrame below. Hidden, an Image still
+    // hands its newest picture to a shader (QQuickImage keeps its texture provider current).
     Repeater {
+        id: frames
         model: root.frameCount
 
         Image {
-            id: frameImage
             required property int index
             // The box this image's picture belongs to. A new box's picture replaces it only
             // once loaded, and until then the old one stays where it belongs on the map.
             property var shown: null
-            readonly property var place: {
-                if (!root.geoMap || index !== root.frame || !shown)
-                    return null
-                root.geoMap.center; root.geoMap.zoomLevel; root.geoMap.bearing; root.geoMap.width; root.geoMap.height
-                return root.placement(shown)
-            }
-            x: place ? place.x : 0
-            y: place ? place.y : 0
-            width: shown ? shown.w : 0
-            height: shown ? shown.h : 0
-            scale: place ? place.s : 1
-            rotation: place ? place.r : 0
-            transformOrigin: Item.TopLeft
             source: root.latestOnly && index !== root.frameCount - 1
                     ? "" : root.frameUrl(root.frameTimes[index], root.view)
             retainWhileLoading: true
-            visible: place !== null
-            opacity: root.frameOpacity
+            visible: false
             asynchronous: true
             cache: true
             onStatusChanged: if (status === Image.Ready) shown = root.view
             // A picture already in the cache arrives without a status change.
             onSourceChanged: Qt.callLater(() => { if (status === Image.Ready) shown = root.view })
         }
+    }
+
+    // The frame on screen, with the one before blended in while a step fades
+    // (resources/shaders/radarfade.frag): one draw, so a pixel both frames share keeps its
+    // colour and the frames' opacity applies once. A fade needs both pictures to be of one box;
+    // across a new box the step is a cut.
+    ShaderEffect {
+        id: shownFrame
+        readonly property Item shownImage: {
+            frames.count
+            return frames.itemAt(root.frame)
+        }
+        readonly property Item fadingImage: {
+            frames.count
+            var image = root.fadeFrom >= 0 ? frames.itemAt(root.fadeFrom) : null
+            return image && shownImage && image.shown === shownImage.shown ? image : null
+        }
+        readonly property var place: {
+            if (!root.geoMap || !shownImage || !shownImage.shown)
+                return null
+            root.geoMap.center; root.geoMap.zoomLevel; root.geoMap.bearing; root.geoMap.width; root.geoMap.height
+            return root.placement(shownImage.shown)
+        }
+        property variant previous: fadingImage || shownImage
+        property variant current: shownImage
+        property real progress: fadingImage ? root.fade : 1
+        x: place ? place.x : 0
+        y: place ? place.y : 0
+        width: place ? shownImage.shown.w : 0
+        height: place ? shownImage.shown.h : 0
+        scale: place ? place.s : 1
+        rotation: place ? place.r : 0
+        transformOrigin: Item.TopLeft
+        visible: place !== null
+        opacity: root.frameOpacity
+        fragmentShader: "qrc:/resources/shaders/radarfade.frag.qsb"
     }
 
     // Built in screen pixels for the camera of the moment (placeStrikes), then carried with the
@@ -326,7 +400,19 @@ Item {
         interval: root.frame === root.frameCount - 1 ? root.newestFrameMs : root.frameMs
         running: root.active && root.playing && !root.latestOnly && !root.follow && root.frameTimes.length > 0
         repeat: true
-        onTriggered: root.frame = (root.frame + 1) % root.frameCount
+        onTriggered: root.step()
+    }
+
+    Timer {
+        id: fadeTimer
+        interval: 50
+        repeat: true
+        onTriggered: {
+            var p = Math.min(1, (Date.now() - root.fadeStart) / root.fadeMs)
+            root.fade = p * p * (3 - 2 * p)
+            if (p >= 1)
+                root.stopFade()
+        }
     }
 
     Timer {
