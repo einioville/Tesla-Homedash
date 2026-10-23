@@ -250,6 +250,22 @@ In `frontend_v2`, `core/serverclient` reassembles frames and hands each packet t
 data model or singleton that QML binds to, and user-tunable design tokens flow through
 `app/Theme.qml` — see `frontend_v2/CLAUDE.md`.
 
+### 5.4 Where fetching happens
+
+**The backend fetches what backend state decides** — playback, the car, the home location, a
+schedule — and anything that needs a secret or whose failure belongs on a Ylläpito status card:
+telemetry, Spotify, the radio's stations, the weather document, spot prices, the Zappi, the home's
+timezone. **A display fetches what its own screen decides** — what a map shows, what a tap opens —
+above all binary content Qt loads and caches natively: map tiles, radar frames and lightning, road
+cameras, place names, address search. Routing those through the backend would only copy bytes to
+every display. **Where the backend decides *what* and the display *when*, the backend sends a URL**
+and each display fetches and caches it: the album cover (#84).
+
+Every frontend fetch has a timeout (the C++ fetchers set their own; QML's come from
+`core/qmlnetworkfactory.hh`), logs a failure to `frontend.log` — the Ylläpito cards never see it —
+and says beside its code why it is not the backend's. Every display therefore needs internet
+access, not just a route to the backend.
+
 ## 6. Event flows
 
 **Live telemetry → UI**
@@ -521,7 +537,10 @@ with nothing left drawing with Canvas2D, Qt's default OpenGL context and no `Can
 and the spectrum's per-frame work in C++ (#83 C, `SpectrumLevels`): the smoothing, the blur and the
 line's path, with each bar fed its own level by a list model — and the radar's lightning on the GPU
 (#83 D, `LightningLayer`): parsed and grouped by frame in C++, its quads built when the map rests,
-so a loop step redraws nothing on the CPU.
+so a loop step redraws nothing on the CPU — plus the fetch split (#79, #84; the rule in §5.4): the
+album cover fetched by each display from the URL the backend sends (`MEDIA_STREAM_IMAGE_URL`),
+through a disk cache, the home's timezone found by the backend when the home is written, one
+road-camera list per display, and a timeout on every QML fetch.
 When you land a change that touches documented behaviour, update this line.
 
 ### 7.8 Keeping the code clean

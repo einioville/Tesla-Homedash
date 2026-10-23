@@ -32,6 +32,10 @@ class QNetworkReply;
  *
  * `query()` answers from what is cached and queues the rest; `revision` changes when a
  * tile arrives, which is a map's cue to ask again.
+ *
+ * Fetched by the display, not the backend: which tiles are wanted follows what its maps show,
+ * like the imagery's (root CLAUDE.md §5.4). Several displays each ask Overpass for a tile once;
+ * a shared backend cache would pay off only once displays are many.
  */
 class PlaceNames : public QObject {
     Q_OBJECT

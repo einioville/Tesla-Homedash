@@ -22,6 +22,10 @@ import frontend_v2
 // frame also takes the strikes since it, which arrive a few minutes before the radar does.
 // They are drawn at screen resolution on the GPU (LightningLayer, core/weather/lightninglayer.hh),
 // so they stay crisp over a frame fetched coarser and a loop step redraws nothing on the CPU.
+//
+// Both are fetched by the display, not the backend (root CLAUDE.md §5.4): the frames are for its
+// own view, and the lightning, though the same for every display, is wanted only while a radar
+// is on screen. A request that stalls ends after the QML engine's timeout (QmlNetworkFactory).
 Item {
     id: root
 

@@ -6,7 +6,8 @@ import frontend_v2
 // keyless Sentinel-2 cloudless (~10 m, the whole world) as the satellite type, from the
 // provider file bundled at qrc:/config/map-providers/satellite (zoom 18 at most: EOX has no
 // 19). BasemapSwitch picks between them. The two types' tiles are cached apart: the OSM
-// plugin names a cached tile by its map type's id.
+// plugin names a cached tile by its map type's id. Each display fetches the tiles for what its
+// maps show, which the backend could only copy (root CLAUDE.md §5.4).
 Plugin {
     name: "osm"
 
