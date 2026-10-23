@@ -3,7 +3,7 @@ import QtLocation
 import QtPositioning
 import frontend_v2
 
-// Fintraffic's road weather cameras (RoadCameraStations) as markers on a TeslaMap: those in
+// Fintraffic's road weather cameras (the RoadCameraStations list) as markers on a TeslaMap: those in
 // view from zoom 9, at most 60 and none on top of another, each a MapQuickItem with no zoomLevel
 // so it stays upright. A tap asks for the camera whole (`opened(stationId)`, RoadCameraPopup).
 // Declare it inside the Map. Which show is decided again when the map rests and every 2 s while
@@ -74,7 +74,7 @@ MapItemView {
         // cameras sit at one junction.
         var inView = []
         var placed = []
-        for (var s of list.stations) {
+        for (var s of RoadCameraStations.stations) {
             if (inView.length >= maxMarkers)
                 break
             if (s.lat < south || s.lat > north || s.lon < west || s.lon > east)
@@ -89,11 +89,12 @@ MapItemView {
             shown = inView
     }
 
-    onActiveChanged: if (active) relayout()
+    onActiveChanged: if (active) { RoadCameraStations.ensure(); relayout() }
+    Component.onCompleted: if (active) RoadCameraStations.ensure()
 
-    property RoadCameraStations list: RoadCameraStations {
-        active: root.active
-        onStationsChanged: root.relayout()
+    property Connections listWatch: Connections {
+        target: RoadCameraStations
+        function onStationsChanged() { root.relayout() }
     }
 
     property MapCameraWatch watch: MapCameraWatch {

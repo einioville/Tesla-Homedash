@@ -45,6 +45,7 @@ qt_add_executable(appfrontend_v2
     main.cpp
     core/protocol.hh
     core/seriesbounds.hh
+    core/qmlnetworkfactory.hh
     core/graphseries.hh
     core/graphseries.cpp
     core/logger.hh
@@ -119,10 +120,11 @@ qt_add_executable(appfrontend_v2
     core/notification/notificationhandler.cpp
 )
 
-# Theme is a QML singleton: the pragma in app/Theme.qml plus this source
-# property are both required so the `singleton` line is written to qmldir.
+# QML singletons: the pragma in the file plus this source property are both
+# required so the `singleton` line is written to qmldir.
 # Must be set before qt_add_qml_module().
-set_source_files_properties(app/Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
+set_source_files_properties(app/Theme.qml items/tesla/RoadCameraStations.qml
+    PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 
 qt_add_qml_module(appfrontend_v2
     URI frontend_v2

@@ -10,6 +10,7 @@ import "../../app/Format.js" as Format
 // it is in the URL so a new one is not served from the image cache. Centred, on frosted glass
 // over the view's `backdrop` (ModalDialog). Opened with a list of cameras instead (the Weather
 // view's nearest), it steps through them with the arrows in its corner, saying how far each is.
+// Fetched by the display, not the backend: a tap on one display asks for it (root CLAUDE.md §5.4).
 ModalDialog {
     id: popup
 
@@ -94,7 +95,11 @@ ModalDialog {
                 console.warn("Road camera fetch failed: HTTP", xhr.status, url)
                 return
             }
-            done(JSON.parse(xhr.responseText))
+            try {
+                done(JSON.parse(xhr.responseText))
+            } catch (e) {
+                console.warn("Road camera reply unreadable:", e, url)
+            }
         }
         xhr.open("GET", url)
         xhr.setRequestHeader("Digitraffic-User", "Tesla-Homedash")

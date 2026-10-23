@@ -18,18 +18,20 @@ Rectangle {
     property bool camerasWanted: false
 
     function openCameras() {
-        if (!cameraStations.stations.length) {
+        if (!RoadCameraStations.stations.length) {
             camerasWanted = true
-            cameraStations.fetch()
+            RoadCameraStations.ensure()
             return
         }
         camerasWanted = false
         var meta = Weather.view.meta
-        cameraPopup.openNearest(cameraStations.nearest(meta.lat, meta.lon, nearestCameras))
+        cameraPopup.openNearest(RoadCameraStations.nearest(meta.lat, meta.lon, nearestCameras))
     }
 
     onIsCurrentChanged: {
-        if (!isCurrent) {
+        if (isCurrent) {
+            RoadCameraStations.ensure()
+        } else {
             camerasWanted = false
             cameraPopup.close()
             warningsPopup.close()
@@ -58,10 +60,12 @@ Rectangle {
         font.pixelSize: 16
     }
 
-    RoadCameraStations {
-        id: cameraStations
-        active: view.isCurrent
-        onStationsChanged: if (view.camerasWanted) view.openCameras()
+    Connections {
+        target: RoadCameraStations
+        function onStationsChanged() {
+            if (view.camerasWanted)
+                view.openCameras()
+        }
     }
 
     FrostLayer {

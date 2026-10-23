@@ -218,8 +218,10 @@ the menu sits in its map's corner, full-screen or the card. `TeslaMap`'s `show*`
 - **Paikannimet** — `PlaceLabels.qml` over the `PlaceNames` store (below), issue #54's first step.
 - **Kelikamerat** — Fintraffic's road weather cameras (Digitraffic, CC BY 4.0, credited in the README
   and the dialog), `RoadCameras.qml`: the station list (`RoadCameraStations.qml`, ~800 cameras, 37 kB
-  gzipped) fetched straight from `tie.digitraffic.fi` when the layer comes on and every six hours, and
-  a marker for each camera in view from zoom 9 — at most 60, none within 30 px of another. A tap opens `RoadCameraPopup.qml`:
+  gzipped), a QML singleton so each display holds one for both maps and the Weather view, fetched
+  straight from `tie.digitraffic.fi` (`ensure()`) when a layer or the view comes live and the list is
+  missing or six hours old; and a marker for each camera in view from zoom 9 — at most 60, none within
+  30 px of another. A tap opens `RoadCameraPopup.qml`:
   the station's pictures, one per direction it looks (a tab each), and the nearest road weather
   station's readings (`nearestWeatherStationId`: road condition, road and air temperature, wind,
   rain, visibility, humidity), all fetched when it opens. Pictures are taken every ten minutes; the

@@ -22,6 +22,7 @@
 #include "core/media/spectrumlevels.hh"
 #include "core/notification/notificationhandler.hh"
 #include "core/paireddisplays.hh"
+#include "core/qmlnetworkfactory.hh"
 #include "core/serverclient.hh"
 #include "core/settings.hh"
 #include "core/spotifyauth.hh"
@@ -204,7 +205,10 @@ int main(int argc, char* argv[]) {
     // renders native). Must be set before the engine loads any Controls.
     QQuickStyle::setStyle(QStringLiteral("Basic"));
 
+    // Declared before the engine, which does not own it and must not outlive it.
+    QmlNetworkFactory networkFactory;
     QQmlApplicationEngine engine;
+    engine.setNetworkAccessManagerFactory(&networkFactory);
     // The engine takes ownership of the image provider; it shares the cache with
     // MediaData via shared_ptr, so neither dangles regardless of teardown order.
     engine.addImageProvider(QStringLiteral("media"), new MediaImageProvider(mediaCache));

@@ -67,6 +67,14 @@ the backend's Spotify poll or in a connecting display's snapshot. Load-bearing:
   hash, a newer picture superseding a decode in flight), stored in `MediaImageCache` and served as
   `image://media/<hash>` by `MediaImageProvider`.
 
+## `QmlNetworkFactory` — `qmlnetworkfactory.hh`
+
+The QML engine's network access (`main.cpp`), which every `XMLHttpRequest` and every `Image` with an
+http(s) source go through: the radar, the lightning, the road cameras. Its only job is a 30 s
+transfer timeout, which Qt's default manager does not have, so a stalled request ends as an error
+(an XHR's status 0) instead of hanging. The maps' tiles go through the Qt Location plugin's own
+manager, and the C++ fetchers set their own timeouts.
+
 ## `LightningLayer` — `weather/lightninglayer.{hh,cpp}`
 
 The lightning over the radar loop (`../items/weather/RadarLayer.qml`, issue #83), an item that draws
