@@ -369,4 +369,12 @@ QtObject {
     // small free area quietly shrinks (items/tesla/CLAUDE.md).
     readonly property real mapWarpLeadFrac:
         ({ none: 0, small: 0.06, normal: 0.12, large: 0.2, xlarge: 0.3 })[Settings.values.mapWarpLead] ?? 0.12
+    // How far back a map's radar loop goes, in minutes (mapRadarHistory, homeMapRadarHistory),
+    // offered by the layer menus under Sadetutka; 0 is the newest frame alone.
+    readonly property var radarHistoryChoices: [
+        { value: 0, label: qsTr("Uusin") },
+        { value: 15, label: qsTr("15 min") },
+        { value: 30, label: qsTr("30 min") },
+        { value: 60, label: qsTr("1 h") }
+    ]
 }

@@ -3,9 +3,11 @@ import frontend_v2
 
 // Full-screen map view (*Kartta*): the dashboard's TeslaMap blown up to fill the whole
 // surface, with layers switched from the menu in the bottom-right corner (MapLayerMenu): the
-// live data card in the bottom-left, the drive under way, OSM place names, and FMI's radar
-// with its timeline upright on the left edge; zoom buttons sit over the layer button. Corners are left square (roundedCorners: false) — the map IS
-// the view, so there's no surrounding card for rounded corners to blend into.
+// live data card in the bottom-left, the drive under way, OSM place names, and FMI's radar —
+// a minimap in the top-right corner, an overlay or both — with its timeline upright on the
+// left edge; zoom buttons sit over the layer button. Corners are left square
+// (roundedCorners: false) — the map IS the view, so there's no surrounding card for rounded
+// corners to blend into.
 //
 // isCurrent is forwarded to the map so it freezes its follow animation + center
 // binding while this view is hidden: the ViewController keeps this view (and its
@@ -39,9 +41,14 @@ Rectangle {
         roundedCorners: false
         isCurrent: view.isCurrent
         showRadar: view.showRadar
+        radarInset: Settings.values.mapRadarInset === true
+        radarOverlay: Settings.values.mapRadarOverlay === true
+        radarHistoryMin: Settings.values.mapRadarHistory
+        radarInsetAlignment: Qt.AlignRight | Qt.AlignTop
+        radarInsetSize: Qt.size(300, 220)
+        radarInsetMargin: 20
         showWarnings: view.showWarnings
         showCameras: view.showCameras
-        radarLatestOnly: Settings.values.mapRadarLatestOnly === true
         onCameraOpened: (stationId) => cameraPopup.open(stationId)
         showRoute: view.showRoute
         showPlaceNames: view.showPlaces
@@ -62,7 +69,6 @@ Rectangle {
         anchors.bottom: stats.visible ? stats.top : parent.bottom
         anchors.bottomMargin: stats.visible ? 12 : 20
         vertical: true
-        latestOnlyKey: "mapRadarLatestOnly"
         visible: map.radar !== null
         radar: map.radar
         backdrop: map
@@ -112,7 +118,10 @@ Rectangle {
             { key: "mapLayerRoute", label: qsTr("Ajettu reitti") },
             { key: "mapLayerPlaces", label: qsTr("Paikannimet") },
             { key: "mapLayerCameras", label: qsTr("Kelikamerat") },
-            { key: "mapLayerRadar", label: qsTr("Sadetutka") },
+            { key: "mapLayerRadar", label: qsTr("Sadetutka"),
+              modes: [{ key: "mapRadarInset", label: qsTr("Minikartta") },
+                      { key: "mapRadarOverlay", label: qsTr("Kartan päällä") }],
+              choice: { key: "mapRadarHistory", label: qsTr("Historia"), options: Theme.radarHistoryChoices } },
             { key: "mapLayerWarnings", label: qsTr("Säävaroitukset") }
         ]
     }

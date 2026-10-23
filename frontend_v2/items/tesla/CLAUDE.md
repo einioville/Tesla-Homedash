@@ -171,9 +171,12 @@ further). Their states are **hidden local settings** in the Kartta card (`mapLay
 `mapLayerRadar`, `mapLayerRoute`, `mapLayerPlaces`), written straight from the menu, so a choice
 outlasts a restart without a row in the Options view. **The dashboard's card has its own** menu and
 switches (`homeMapLayer*`) for the radar, the route, the names and the cameras — not the warnings or
-the data card, which need the full screen — with no radar timeline: its loop plays on its own, and a
-camera's tap opens the same dialog over the dashboard. Each view names its rows (`MapLayerMenu.layers`);
-the menu sits in its map's corner, full-screen or the card. `TeslaMap`'s `show*` default off.
+the data card, which need the full screen — with no radar timeline (its minimap carries the time),
+and a camera's tap opens the same dialog over the dashboard. Each view names its rows
+(`MapLayerMenu.layers`); the menu sits in its map's corner, full-screen or the card. A row can carry
+options nested under it while it is on — the ways the layer shows (`modes`, switches) and one
+`choice` — and the layer is on only with one of its modes on: switched on with all of them off it
+shows the first, and the last one switched off switches it off. `TeslaMap`'s `show*` default off.
 
 - **Ajotiedot** — `MapLiveStats.qml` in the bottom-left: speed, battery, range and outside
   temperature on frosted glass, read straight off `Tesla`. The car reports the outside temperature
@@ -182,18 +185,35 @@ the menu sits in its map's corner, full-screen or the card. `TeslaMap`'s `show*`
   the weather document's `now.temp`, under the same *ULKONA* caption — until the car is back
   online. The backend sends `VehicleOnline` on every change, so the card follows the car's sleep
   and waking with no reconnect (`backend/src/tesla_service/CLAUDE.md`).
-- **Sadetutka** — `items/weather/RadarLayer.qml`, the Weather view's radar loop and lightning, over
-  this map too, undimmed, with `WeatherRadarControls` upright on the left edge above the data card.
-  The loop is the last quarter hour (four frames, 1.5 s each, the newest held 3.5 s) rather than the
-  Weather card's hour. A *Vain uusin* checkbox on the bar (`mapRadarLatestOnly`; the Weather card has
-  its own, `weatherRadarLatestOnly`) holds the newest frame — `RadarLayer.latestOnly` stops the loop
-  and fetches no older frame — and leaves the bar only that frame's time, the play button, track
-  and relative age gone. Its header is the reference; two more things differ from the Weather card. This map turns heading-up, so each frame is fetched for the
-  bounding box of all four screen corners and turned with the map (`Image.rotation`), and the
-  lightning is drawn in screen pixels (`LightningLayer`, `core/CLAUDE.md`) and carried the same way. And it keeps moving while it
-  follows the car, so it fetches a 25 % margin round the view, no finer than 150 m a pixel
-  (the composite's cells are about 500 m) and at most 1024 px a side — all thirteen frames stay
-  decoded, so the size is the memory.
+- **Sadetutka** — `items/weather/RadarLayer.qml`, the Weather view's radar loop and lightning, on
+  both maps in two ways, either or both, nested under the row (#86): *Minikartta* (on by default)
+  and *Kartan päällä* (`mapRadarInset` / `mapRadarOverlay`, the dashboard's `homeMapRadar*`). Laid
+  over a map at the dashboard card's zoom, one of the composite's ~500 m cells is a third of the
+  card, and a light shower turns all of it green — hence the minimap.
+  - **The minimap** (`items/weather/RadarInset.qml`, its header the reference) is a small north-up
+    map in a corner — the card's bottom-left, clear of the controls and, heading-up, of the road
+    ahead; Kartta's top-right, larger — three zoom levels out from the big map and never closer
+    than zoom 8, where a cell is about two pixels. It is centred on the big map's centre in whole
+    pixels of its own, so a following map redraws it about once in ten seconds at highway speed;
+    it outlines the big map's view once that is 16 px a side, and marks the car at each fix. The
+    frame's time is in its corner and the loop's ticks along its bottom edge, so the dashboard's
+    card needs no timeline. A tap opens the Weather view (`Navigation`, `../../CLAUDE.md`).
+  - **The overlay** lies under every other layer at 55 % opacity (`RadarLayer.frameOpacity`; the
+    lightning stays opaque), undimmed. With the minimap on too it plays in step with it
+    (`RadarLayer.follow`: the minimap's frame list and frame), so the two never show different
+    times. This map turns heading-up, so each frame is fetched for the bounding box of all four
+    screen corners and turned with the map (`Image.rotation`), and the lightning is drawn in screen
+    pixels (`LightningLayer`, `core/CLAUDE.md`) and carried the same way. And it keeps moving while
+    it follows the car, so it fetches a 25 % margin round the view, no finer than 150 m a pixel and
+    at most 1024 px a side — every frame of the loop stays decoded, so the size is the memory.
+  - **Historia** (`mapRadarHistory` / `homeMapRadarHistory`, minutes: *Uusin*, 15, 30 or 60, the
+    choices in `Theme.radarHistoryChoices`; 15 by default) is how far back both loop, at FMI's
+    5-minute steps. The steps share about 4.5 s, so 15 minutes plays 1.5 s a frame and an hour
+    never faster than the Weather card's 600 ms; the newest frame holds 3.5 s. *Uusin* is
+    `RadarLayer.latestOnly`: no loop, no older frame fetched, and only the frame's time on the bar.
+  `WeatherRadarControls` stands upright on Kartta's left edge above the data card, working the
+  minimap's loop while it shows (`TeslaMap.radar`), else the overlay's. The Weather card's
+  *Vain uusin* checkbox on its own bar (`weatherRadarLatestOnly`) is that card's alone.
 - **Ajettu reitti** — the drive under way, or while the car is parked the last trip, whole (no
   tail), from `CurrentDrive` (`core/trip/currentdrive.hh`),
   which asks the backend only while a map on screen draws it — each `TeslaMap` holds it with
@@ -261,8 +281,9 @@ open. A step is `TeslaMap.stepZoom`: a whole level from where the map is, **writ
 (`onDefaultZoomChanged`: eased if it is on screen, set if hidden, left alone mid-gesture). Steps
 stay within the setting's 10–19.
 
-**Inside the `Map`, the layers are ordered by `z`**: the radar's Loader 1, the warnings 1 (declared
-after it), the route 2, the names 3, the cameras 4, the home 5, the car arrow 10.
+**Inside the `Map`, the layers are ordered by `z`**: the radar overlay's Loader 1, the warnings 1
+(declared after it), the route 2, the names 3, the cameras 4, the home 5, the car arrow 10. The
+radar's minimap is no child of the `Map`: it lies over all of it, under the card's corners.
 
 **The home** — `HomeMarker.qml`, the home icon in a dark disc with *Koti* under it, at the
 *Yleinen › Sijainti › Koti* location (`Settings.valueOf("home")`, a backend setting), on both

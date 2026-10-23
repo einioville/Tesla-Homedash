@@ -70,8 +70,8 @@ Rectangle {
         }
 
         // The Kartta view's layers but for the warnings and the data card, which need the full
-        // screen, switched separately (homeMapLayer*); the radar loops on its own, with no timeline
-        // to work it.
+        // screen, switched separately (homeMapLayer*); the radar's minimap sits in the bottom-left
+        // corner, clear of the controls and, heading-up, of the road ahead.
         TeslaMap {
             id: map
             x: view.cellX(0); y: view.cellY(0)
@@ -79,6 +79,9 @@ Rectangle {
             isCurrent: view.isCurrent
             background: background
             showRadar: Settings.values.homeMapLayerRadar === true
+            radarInset: Settings.values.homeMapRadarInset === true
+            radarOverlay: Settings.values.homeMapRadarOverlay === true
+            radarHistoryMin: Settings.values.homeMapRadarHistory
             showRoute: Settings.values.homeMapLayerRoute === true
             showPlaceNames: Settings.values.homeMapLayerPlaces === true
             showCameras: Settings.values.homeMapLayerCameras === true
@@ -121,7 +124,11 @@ Rectangle {
                 { key: "homeMapLayerRoute", label: qsTr("Ajettu reitti") },
                 { key: "homeMapLayerPlaces", label: qsTr("Paikannimet") },
                 { key: "homeMapLayerCameras", label: qsTr("Kelikamerat") },
-                { key: "homeMapLayerRadar", label: qsTr("Sadetutka") }
+                { key: "homeMapLayerRadar", label: qsTr("Sadetutka"),
+                  modes: [{ key: "homeMapRadarInset", label: qsTr("Minikartta") },
+                          { key: "homeMapRadarOverlay", label: qsTr("Kartan päällä") }],
+                  choice: { key: "homeMapRadarHistory", label: qsTr("Historia"),
+                            options: Theme.radarHistoryChoices } }
             ]
         }
 

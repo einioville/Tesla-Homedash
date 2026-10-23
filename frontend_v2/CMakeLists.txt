@@ -256,6 +256,7 @@ qt_add_qml_module(appfrontend_v2
         items/weather/WeatherWindArrow.qml
         items/weather/WeatherRadarMap.qml
         items/weather/RadarLayer.qml
+        items/weather/RadarInset.qml
         items/weather/WarningAreas.qml
         items/weather/WarningLegend.qml
         items/weather/WeatherRadarControls.qml

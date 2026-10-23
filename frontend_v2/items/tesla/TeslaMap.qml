@@ -49,22 +49,35 @@ Item {
     property bool roundedCorners: true
 
     // The map's layers, as the Kartta view's menu sets them (the dashboard's card leaves out
-    // the warnings): FMI's radar and lightning under everything else, FMI's warning areas, the drive under way (CurrentDrive) drawn behind the car, and
-    // OSM place names (PlaceLabels) and Fintraffic's road cameras (RoadCameras). `radar` is
-    // the RadarLayer while it is shown, for its controls.
+    // the warnings): FMI's radar and lightning, FMI's warning areas, the drive under way
+    // (CurrentDrive) drawn behind the car, and OSM place names (PlaceLabels) and Fintraffic's
+    // road cameras (RoadCameras). `radar` is the RadarLayer whose loop the others follow while
+    // the radar shows, for its controls.
     property bool showRadar: false
     property bool showWarnings: false
     property bool showRoute: false
     property bool showPlaceNames: false
     property bool showCameras: false
-    // The radar shows only its newest frame (the Kartta view's *Vain uusin*).
-    property bool radarLatestOnly: false
+    // The radar's two ways of showing, either or both: a minimap in a corner (RadarInset) and
+    // an overlay on this map under everything else, translucent so the imagery shows through.
+    property bool radarInset: true
+    property bool radarOverlay: false
+    // Where the minimap sits and how big it is: the views lay out their own controls round it.
+    property int radarInsetAlignment: Qt.AlignLeft | Qt.AlignBottom
+    property size radarInsetSize: Qt.size(200, 150)
+    property int radarInsetMargin: 12
+    // How far back the radar's loop goes, in minutes; 0 is the newest frame alone. The frames
+    // are FMI's 5-minute steps, and their steps share about 4.5 s, so a longer history plays
+    // faster, though never faster than the Weather card's hour does.
+    property int radarHistoryMin: 15
+    readonly property int radarFrameCount: radarHistoryMin / 5 + 1
+    readonly property int radarFrameMs: Math.max(600, 4500 / Math.max(1, radarFrameCount - 1))
     // Holds CurrentDrive's requests while this map draws the route on screen.
     readonly property bool watchingDrive: showRoute && isCurrent
     onWatchingDriveChanged: watchingDrive ? CurrentDrive.retain() : CurrentDrive.release()
     Component.onCompleted: if (watchingDrive) CurrentDrive.retain()
     Component.onDestruction: if (watchingDrive) CurrentDrive.release()
-    readonly property Item radar: radarLoader.item
+    readonly property Item radar: insetLoader.item ? insetLoader.item.radar : radarLoader.item
 
     // Frozen while the owning view is hidden. The dashboard keeps this map alive in
     // memory (so returning is instant — no tile reload), but a hidden map must not
@@ -466,7 +479,7 @@ Item {
             id: radarLoader
             anchors.fill: parent
             z: 1
-            active: root.showRadar
+            active: root.showRadar && root.radarOverlay
             sourceComponent: RadarLayer {
                 geoMap: map
                 active: root.isCurrent
@@ -476,12 +489,12 @@ Item {
                 minMetresPerPixel: 150
                 maxImageSize: 1024
                 dim: 0
-                // The last quarter hour, played slowly: a glance at what is coming, not
-                // the hour of history the Weather card loops.
-                frameCount: 4
-                frameMs: 1500
+                frameOpacity: 0.55
+                frameCount: root.radarFrameCount
+                frameMs: root.radarFrameMs
                 newestFrameMs: 3500
-                latestOnly: root.radarLatestOnly
+                latestOnly: root.radarHistoryMin === 0
+                follow: insetLoader.item ? insetLoader.item.radar : null
                 holdFetch: panHandler.active || pinchHandler.active
             }
         }
@@ -562,6 +575,29 @@ Item {
 
             anchorPoint.x: vehicleIcon.width / 2
             anchorPoint.y: vehicleIcon.height / 2
+        }
+    }
+
+    Loader {
+        id: insetLoader
+        x: root.radarInsetAlignment & Qt.AlignRight ? root.width - width - root.radarInsetMargin
+                                                    : root.radarInsetMargin
+        y: root.radarInsetAlignment & Qt.AlignBottom ? root.height - height - root.radarInsetMargin
+                                                     : root.radarInsetMargin
+        width: root.radarInsetSize.width
+        height: root.radarInsetSize.height
+        active: root.showRadar && root.radarInset
+        sourceComponent: RadarInset {
+            mainMap: map
+            active: root.isCurrent
+            car: Tesla.location && Tesla.location.latitude !== undefined
+                 ? QtPositioning.coordinate(Tesla.location.latitude, Tesla.location.longitude)
+                 : QtPositioning.coordinate()
+            heading: Tesla.gpsHeading
+            frameCount: root.radarFrameCount
+            frameMs: root.radarFrameMs
+            newestFrameMs: 3500
+            latestOnly: root.radarHistoryMin === 0
         }
     }
 

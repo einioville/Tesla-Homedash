@@ -546,7 +546,9 @@ sent to the displays as they happen (#85), so Kartta's outside temperature retur
 when it wakes, under one *ULKONA* caption whichever source it is — plus the Järjestelmän tila
 cards' warnings and errors split into open ones, logged since a failing service last worked, and
 past ones, muted (#82; `backend/src/system_service/CLAUDE.md`) — plus the dashboard weather card's
-*Sää* pill, which opens the Weather view (`Navigation`).
+*Sää* pill, which opens the Weather view (`Navigation`), and the maps' radar redesign (#86): a
+minimap in a corner (`RadarInset`) whose tap opens the Weather view too, the overlay translucent and
+in step with it, both chosen and the loop's history set under the layer menu's *Sadetutka*.
 When you land a change that touches documented behaviour, update this line.
 
 ### 7.8 Keeping the code clean

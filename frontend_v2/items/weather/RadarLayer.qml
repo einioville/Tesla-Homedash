@@ -3,8 +3,9 @@ import QtPositioning
 import frontend_v2
 
 // FMI's live radar composite and lightning, looping over a QtLocation Map: the Weather
-// view's radar card (WeatherRadarMap) and the Kartta view's radar layer. Fill the map with
-// it; it only reads the map's camera.
+// view's radar card (WeatherRadarMap), and on the dashboard's and the Kartta view's maps both
+// the minimap (RadarInset) and the overlay. Fill the map with it; it only reads the map's
+// camera.
 //
 // The radar is a WMS layer in EPSG:3857, the projection the tiles use, so each frame is one
 // transparent PNG requested for a box round the visible area and laid straight over it.
@@ -44,6 +45,9 @@ Item {
     property bool holdFetch: false
     // How much the imagery is darkened so the radar colours carry the picture.
     property real dim: 0.25
+    // The frames' opacity, below 1 where the radar lies over a map that shows other things.
+    // The lightning stays opaque.
+    property real frameOpacity: 1
 
     property int frameCount: 13          // one hour at FMI's 5-minute cadence
     // How long each frame of the loop shows, and the newest, which holds longer.
@@ -60,6 +64,10 @@ Item {
     // Only the newest frame: no loop, and the older frames are not fetched at all.
     property bool latestOnly: false
     property var frameTimes: []
+    // Another RadarLayer to play in step with, the overlay under a map's minimap: its frame
+    // list and the frame it shows, so the two never show different times. Its own loop and
+    // refresh then stand still.
+    property Item follow: null
     // The box the frames were last fetched for: its top-left coordinate, its EPSG:3857 metres,
     // its pixel size and resolution, the map's zoom and metres per pixel when it was taken, and
     // `seen`, the part of it that was on screen.
@@ -74,6 +82,8 @@ Item {
     }
 
     function refreshFrames() {
+        if (follow)
+            return
         // The newest composite lags real time by a few minutes; stay one step behind it.
         var step = frameStepMin * 60000
         var t = Math.floor((Date.now() - step) / step) * step
@@ -81,7 +91,6 @@ Item {
         for (var i = frameCount - 1; i >= 0; i--)
             list.push(new Date(t - i * step))
         frameTimes = list
-        fetchLightning()
     }
 
     property var strikeXhr: null
@@ -207,10 +216,32 @@ Item {
     }
 
     onLatestOnlyChanged: if (latestOnly) frame = frameCount - 1
+    onFrameCountChanged: {
+        frame = frameCount - 1
+        refreshFrames()
+    }
+    onFrameTimesChanged: fetchLightning()
+    // Left alone again, it makes a list of its own at once: its refresh stood still meanwhile.
+    onFollowChanged: if (!follow) refreshFrames()
     onHoldFetchChanged: if (!holdFetch) watch.moved()
     // Coming live refreshes the frame list: it is as old as the last refresh, and a view is
     // built in the background long before it is first opened.
     onActiveChanged: if (active) { refreshFrames(); check() }
+
+    Binding {
+        target: root
+        property: "frameTimes"
+        value: root.follow ? root.follow.frameTimes : []
+        when: root.follow !== null
+        restoreMode: Binding.RestoreNone
+    }
+    Binding {
+        target: root
+        property: "frame"
+        value: root.follow ? root.follow.frame : 0
+        when: root.follow !== null
+        restoreMode: Binding.RestoreNone
+    }
 
     MapCameraWatch {
         id: watch
@@ -250,6 +281,7 @@ Item {
                     ? "" : root.frameUrl(root.frameTimes[index], root.view)
             retainWhileLoading: true
             visible: place !== null
+            opacity: root.frameOpacity
             asynchronous: true
             cache: true
             onStatusChanged: if (status === Image.Ready) shown = root.view
@@ -292,14 +324,14 @@ Item {
 
     Timer {
         interval: root.frame === root.frameCount - 1 ? root.newestFrameMs : root.frameMs
-        running: root.active && root.playing && !root.latestOnly && root.frameTimes.length > 0
+        running: root.active && root.playing && !root.latestOnly && !root.follow && root.frameTimes.length > 0
         repeat: true
         onTriggered: root.frame = (root.frame + 1) % root.frameCount
     }
 
     Timer {
         interval: 5 * 60000
-        running: root.active
+        running: root.active && !root.follow
         repeat: true
         onTriggered: root.refreshFrames()
     }

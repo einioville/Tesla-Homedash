@@ -574,11 +574,29 @@
                             "apply": "live"
                         },
                         {
-                            "key": "mapRadarLatestOnly",
+                            "key": "mapRadarInset",
                             "type": "bool",
-                            "label": "Sadetutka: vain uusin (kartta)",
+                            "label": "Sadetutka: minikartta",
+                            "hidden": true,
+                            "default": true,
+                            "apply": "live"
+                        },
+                        {
+                            "key": "mapRadarOverlay",
+                            "type": "bool",
+                            "label": "Sadetutka: kartan päällä",
                             "hidden": true,
                             "default": false,
+                            "apply": "live"
+                        },
+                        {
+                            "key": "mapRadarHistory",
+                            "type": "int",
+                            "label": "Sadetutka: historia (min)",
+                            "hidden": true,
+                            "min": 0,
+                            "max": 60,
+                            "default": 15,
                             "apply": "live"
                         },
                         {
@@ -619,6 +637,32 @@
                             "label": "Sadetutka (aloitusnäkymä)",
                             "hidden": true,
                             "default": false,
+                            "apply": "live"
+                        },
+                        {
+                            "key": "homeMapRadarInset",
+                            "type": "bool",
+                            "label": "Sadetutka: minikartta (aloitusnäkymä)",
+                            "hidden": true,
+                            "default": true,
+                            "apply": "live"
+                        },
+                        {
+                            "key": "homeMapRadarOverlay",
+                            "type": "bool",
+                            "label": "Sadetutka: kartan päällä (aloitusnäkymä)",
+                            "hidden": true,
+                            "default": false,
+                            "apply": "live"
+                        },
+                        {
+                            "key": "homeMapRadarHistory",
+                            "type": "int",
+                            "label": "Sadetutka: historia (min, aloitusnäkymä)",
+                            "hidden": true,
+                            "min": 0,
+                            "max": 60,
+                            "default": 15,
                             "apply": "live"
                         },
                         {
