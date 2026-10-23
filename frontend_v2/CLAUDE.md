@@ -9,7 +9,7 @@ repeats it.
 ```
 Main.qml        # the window: view host, the menu's swipe-up strip, app-level overlays (see z-order below)
 main.cpp        # construction order matters — Settings before AppConfig (core/CLAUDE.md)
-app/            # Theme.qml (design tokens + the settings façade), ViewController.qml, Format.js
+app/            # Theme.qml (design tokens + the settings façade), ViewController.qml, Navigation.qml, Format.js
 config/         # settings.json (bundled Options-view schema), notifications.json
 core/           # C++: ServerClient, protocol.hh, Logger, AppConfig, dotenv, the QML singletons
   tesla/ media/ weather/ charging/ trip/ map/ notification/   # per-domain data models
@@ -250,6 +250,9 @@ invisible) a switch is instant and an open menu closes.
   construction: Trips requests this week's trips (as opening it does) and the radar fetches its
   frame list from FMI. Warming views stay frozen (`isCurrent` false) and behind the input
   gate below.
+- **Another view is opened with `Navigation.open(key)`** (`app/Navigation.qml`, a singleton), the
+  key from `Main.viewModel`: the dashboard's weather card opens the Weather view so. `Main.qml` makes the switch, as the menu's pick does, so a view need not know where the
+  other stands on the cylinder.
 - **The target is built before the motion starts** — a swipe's at drag start, a home return's one
   event-loop pass before the animation (`Qt.callLater`), a menu pick's before its glide — so a slow
   view build delays the turn rather than skipping frames of it.

@@ -44,7 +44,7 @@ Card {
         visible: !chart.atStart
         z: 3
         anchors.right: parent.right
-        anchors.rightMargin: 10
+        anchors.rightMargin: 10 + card.noteInset
         y: 5
         width: backRow.implicitWidth + 24; height: 24; radius: 12
         color: "#26ffffff"

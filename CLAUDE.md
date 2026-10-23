@@ -110,7 +110,7 @@ backend/                          # ★ orchestration, service contracts, .env +
       logger_configurator.py      # Shared stdout logging setup
 
 frontend_v2/                      # ★ the Qt Quick/QML frontend (Main.qml, main.cpp)
-  app/                            # Theme.qml (design tokens + settings façade), ViewController.qml, Format.js
+  app/                            # Theme.qml (design tokens + settings façade), ViewController.qml, Navigation.qml, Format.js
   config/                         # settings.json (bundled Options-view schema), notifications.json
   core/                           # ★ C++: ServerClient, protocol.hh, Logger, AppConfig, Settings + QML singletons
     tesla/ media/ weather/ charging/ trip/ map/ notification/   # per-domain data models
@@ -545,7 +545,8 @@ road-camera list per display, and a timeout on every QML fetch — plus the car'
 sent to the displays as they happen (#85), so Kartta's outside temperature returns to the car's
 when it wakes, under one *ULKONA* caption whichever source it is — plus the Järjestelmän tila
 cards' warnings and errors split into open ones, logged since a failing service last worked, and
-past ones, muted (#82; `backend/src/system_service/CLAUDE.md`).
+past ones, muted (#82; `backend/src/system_service/CLAUDE.md`) — plus the dashboard weather card's
+*Sää* pill, which opens the Weather view (`Navigation`).
 When you land a change that touches documented behaviour, update this line.
 
 ### 7.8 Keeping the code clean

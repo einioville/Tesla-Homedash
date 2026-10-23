@@ -33,19 +33,30 @@ Window {
     color: Theme.appBackground
 
     // Single source of truth for the views, read by the ViewController: the
-    // component, and the name and icon its menu shows. Add a view by adding one
-    // entry here plus its inline Component below.
+    // component, the name and icon its menu shows, and the key another view asks
+    // for it by (Navigation). Add a view by adding one entry here plus its inline
+    // Component below.
     readonly property var viewModel: [
-        { name: qsTr("Dashboard"), icon: "qrc:/resources/icons/home.svg", component: dashboardComponent },
-        { name: qsTr("Kartta"), icon: "qrc:/resources/icons/location.svg", component: mapComponent },
-        { name: qsTr("Sää"), icon: "qrc:/resources/icons/weather/clouds.svg", component: weatherComponent },
-        { name: qsTr("Musiikki"), icon: "qrc:/resources/icons/music.svg", component: mediaComponent },
-        { name: qsTr("Historia"), icon: "qrc:/resources/icons/chart_line.svg", component: historyComponent },
-        { name: qsTr("Matkat"), icon: "qrc:/resources/icons/trip.svg", component: tripsComponent },
-        { name: qsTr("Lataus"), icon: "qrc:/resources/icons/charger.svg", component: chargingComponent },
-        { name: qsTr("Asetukset"), icon: "qrc:/resources/icons/settings.svg", component: settingsComponent }
+        { key: "dashboard", name: qsTr("Dashboard"), icon: "qrc:/resources/icons/home.svg", component: dashboardComponent },
+        { key: "map", name: qsTr("Kartta"), icon: "qrc:/resources/icons/location.svg", component: mapComponent },
+        { key: "weather", name: qsTr("Sää"), icon: "qrc:/resources/icons/weather/clouds.svg", component: weatherComponent },
+        { key: "media", name: qsTr("Musiikki"), icon: "qrc:/resources/icons/music.svg", component: mediaComponent },
+        { key: "history", name: qsTr("Historia"), icon: "qrc:/resources/icons/chart_line.svg", component: historyComponent },
+        { key: "trips", name: qsTr("Matkat"), icon: "qrc:/resources/icons/trip.svg", component: tripsComponent },
+        { key: "charging", name: qsTr("Lataus"), icon: "qrc:/resources/icons/charger.svg", component: chargingComponent },
+        { key: "settings", name: qsTr("Asetukset"), icon: "qrc:/resources/icons/settings.svg", component: settingsComponent }
     ]
     property int currentView: 0
+
+    Connections {
+        target: Navigation
+
+        function onOpenRequested(key) {
+            const index = window.viewModel.findIndex(v => v.key === key)
+            if (index >= 0)
+                window.currentView = index
+        }
+    }
 
     // A keyboard left up over a view the user has switched to belongs to a field
     // they can no longer see; the views stay resident, so focus would stay put.

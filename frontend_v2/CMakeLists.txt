@@ -123,7 +123,7 @@ qt_add_executable(appfrontend_v2
 # QML singletons: the pragma in the file plus this source property are both
 # required so the `singleton` line is written to qmldir.
 # Must be set before qt_add_qml_module().
-set_source_files_properties(app/Theme.qml items/tesla/RoadCameraStations.qml
+set_source_files_properties(app/Theme.qml app/Navigation.qml items/tesla/RoadCameraStations.qml
     PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 
 qt_add_qml_module(appfrontend_v2
@@ -132,6 +132,7 @@ qt_add_qml_module(appfrontend_v2
         Main.qml
         app/ViewController.qml
         app/Theme.qml
+        app/Navigation.qml
         app/Format.js
         views/DashboardView.qml
         views/HistoryView.qml

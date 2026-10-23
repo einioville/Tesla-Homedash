@@ -7,6 +7,8 @@ import frontend_v2
 Rectangle {
     property string title
     property string note
+    // Room kept clear right of the note, for a control in the title row's corner.
+    property real noteInset: 0
 
     color: Theme.cardFill
     border.color: Theme.cardBorder
@@ -25,7 +27,7 @@ Rectangle {
     }
     Text {
         anchors.right: parent.right
-        anchors.rightMargin: 14
+        anchors.rightMargin: 14 + parent.noteInset
         y: 10
         text: parent.note
         color: Theme.cardNote
