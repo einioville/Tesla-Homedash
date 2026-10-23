@@ -35,7 +35,7 @@ mirrored on freeicons.org.
 | Working on | Read |
 |---|---|
 | The connection and the login — `ServerClient` (`Server`), `PairedDisplays` | `core/CLAUDE.md`; the exchange in `backend/src/auth_service/CLAUDE.md` |
-| A `core/` singleton — `Settings`, `Geocoder`, `Probe`, `Photos`, `UsbImport`, `Display`, `System`, `SystemHistory`, `Logs`, `TeslaFields`, `SpotifyAuth`, `SpotifyDevice`, `Updater` | `core/CLAUDE.md` |
+| A `core/` singleton — `Media` (the cover fetch), `Settings`, `Geocoder`, `Probe`, `Photos`, `UsbImport`, `Display`, `System`, `SystemHistory`, `Logs`, `TeslaFields`, `SpotifyAuth`, `SpotifyDevice`, `Updater` | `core/CLAUDE.md` |
 | The Options view's QML — layout, schema keys, delegates, status widgets, the USB photo import | `items/settings/CLAUDE.md` |
 | The map — `items/tesla/TeslaMap.qml` (full-screen in `views/MapView.qml` with its layers: the radar, the drive under way — `CurrentDrive` — and OSM place names — `PlaceNames`; `items/trip/TripMap.qml` shares its gesture handlers) | `items/tesla/CLAUDE.md` |
 | A graph — every one is `items/history/HistoryGraph.qml`; its multi-line additions (`extraSeries`, fixed range, `wheelZoom`) | `items/settings/CLAUDE.md`, *Järjestelmän tila*. How it draws is in the file's own comments: the x-axis is written only by `showWindow()`, never bound (#81), and the line, its glow and the extra lines are Shapes traced per data rebuild and moved by transforms in between — Qt Graphs draws only the axes and grid. Its data work is C++, `GraphSeries` (`core/CLAUDE.md`) |

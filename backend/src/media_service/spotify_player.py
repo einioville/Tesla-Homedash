@@ -2,7 +2,6 @@ import asyncio
 import logging
 import struct
 
-import aiohttp
 import requests
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from spotipy import Spotify, SpotifyBaseException
@@ -17,7 +16,6 @@ from .spotify_oauth import build_oauth
 logger = logging.getLogger("media_service.spotify_player")
 
 _FAILED = object()
-_IMAGE_FETCH_TIMEOUT = aiohttp.ClientTimeout(total=10)
 
 # OAuth errors that mean the GRANT ITSELF is gone and only a new authorization can
 # bring it back. Everything else a token endpoint can raise — a 5xx, a malformed
@@ -596,10 +594,7 @@ class SpotifyPlayer(BaseMediaPlayer):
                               self._artist_text(self._song_details), client)
 
     async def _stream_image(self, client=None) -> None:
-        # Bounded: on the poll path this runs under _state_lock, and every poll
-        # is skipped while that is held, so a slow CDN would otherwise stall it.
-        await self._send_image(self._image_url(self._song_details), client,
-                               timeout=_IMAGE_FETCH_TIMEOUT)
+        await self._send_cover(self._image_url(self._song_details), client)
 
     async def _stream_play_state(self, client=None) -> None:
         await self._send(protocol.MEDIA_IS_PLAYING, struct.pack("!B", self._is_playing), client)

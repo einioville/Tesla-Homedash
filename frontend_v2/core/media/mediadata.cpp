@@ -8,6 +8,11 @@
 #include <QDataStream>
 #include <QHash>
 #include <QIODevice>
+#include <QNetworkAccessManager>
+#include <QNetworkDiskCache>
+#include <QNetworkReply>
+#include <QNetworkRequest>
+#include <QStandardPaths>
 #include <QVector3D>
 #include <QtConcurrent>
 
@@ -15,27 +20,21 @@
 #include <cmath>
 #include <limits>
 #include <random>
+#include <utility>
 
 namespace {
 const Logger logger = Logger::get("media");
 
-// Reads a [length(2B)][UTF-8] string, bounds-checking the prefix against the
-// bytes actually present. Returns false (and leaves out untouched) on a
-// truncated frame so a malformed packet never sets a corrupt string.
+// A cover is ~25-150 kB, so this keeps several hundred.
+constexpr qint64 kCoverCacheBytes = 50LL * 1024 * 1024;
+// Without a byte for this long, a cover fetch gives up.
+constexpr int kCoverTimeoutMs = 20 * 1000;
+
+// A payload that is one len(2B) + UTF-8 string; false (out untouched) when truncated.
 bool readLenString(const QByteArray &payload, QString &out) {
     QDataStream stream(payload);
     stream.setByteOrder(QDataStream::BigEndian);
-    QIODevice *device = stream.device();
-
-    quint16 length;
-    stream >> length;
-    if (device && device->bytesAvailable() < length) {
-        return false;
-    }
-    QByteArray raw(length, Qt::Uninitialized);
-    stream.readRawData(raw.data(), length);
-    out = QString::fromUtf8(raw);
-    return true;
+    return protocol::readString(stream, out);
 }
 
 quint32 readU32(const QByteArray &payload) {
@@ -48,7 +47,14 @@ quint32 readU32(const QByteArray &payload) {
 }  // namespace
 
 MediaData::MediaData(ServerClient *server, std::shared_ptr<MediaImageCache> cache, QObject *parent)
-    : QObject(parent), m_server(server), m_cache(std::move(cache)) {
+    : QObject(parent), m_server(server), m_cache(std::move(cache)),
+      m_network(new QNetworkAccessManager(this)) {
+    auto *diskCache = new QNetworkDiskCache(m_network);
+    diskCache->setCacheDirectory(QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation)
+                                 + QStringLiteral("/Tesla-Homedash/covers"));
+    diskCache->setMaximumCacheSize(kCoverCacheBytes);
+    m_network->setCache(diskCache);
+
     connect(server, &ServerClient::packetReceived, this, &MediaData::onPacket);
     // The backend forgets a watcher with its connection.
     connect(server, &ServerClient::connectedChanged, this, [this]() {
@@ -60,9 +66,13 @@ MediaData::MediaData(ServerClient *server, std::shared_ptr<MediaImageCache> cach
 
 void MediaData::onPacket(quint8 type, const QByteArray &payload) {
     switch (type) {
-        case protocol::MEDIA_STREAM_IMAGE:
-            decodeCoverArt(payload);
+        case protocol::MEDIA_STREAM_IMAGE_URL: {
+            QString value;
+            if (readLenString(payload, value)) {
+                fetchCover(QUrl(value));
+            }
             break;
+        }
         case protocol::MEDIA_STREAM_NAME: {
             QString value;
             if (readLenString(payload, value)) {
@@ -115,9 +125,49 @@ void MediaData::onPacket(quint8 type, const QByteArray &payload) {
     }
 }
 
-void MediaData::decodeCoverArt(const QByteArray &packet) {
-    // Dedup: identical cover-art packets arrive frequently during playback.
-    const quint64 hash = qHash(packet);
+void MediaData::fetchCover(const QUrl &url) {
+    if (!url.isValid()) {
+        return;
+    }
+    if (m_coverReply) {
+        if (m_coverReply->request().url() == url) {
+            return;
+        }
+        QNetworkReply *older = std::exchange(m_coverReply, nullptr);
+        older->disconnect(this);
+        older->abort();
+        older->deleteLater();
+    }
+    // The snapshot after a reconnect, or the next track off the same album.
+    if (url == m_coverUrl) {
+        return;
+    }
+
+    QNetworkRequest request(url);
+    request.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("Tesla-Homedash/1.0"));
+    request.setTransferTimeout(kCoverTimeoutMs);
+    // A cover URL names one picture for good (Spotify's are content hashes), so a
+    // cached copy is served without asking the server again.
+    request.setAttribute(QNetworkRequest::CacheLoadControlAttribute, QNetworkRequest::PreferCache);
+    QNetworkReply *reply = m_network->get(request);
+    m_coverReply = reply;
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        reply->deleteLater();
+        m_coverReply = nullptr;
+        // The picture shown stays, as it would for a cover the backend could not name.
+        if (reply->error() != QNetworkReply::NoError) {
+            logger.warning(QStringLiteral("Cover art fetch failed | url=%1 error=%2")
+                               .arg(reply->request().url().toString(), reply->errorString()));
+            return;
+        }
+        m_coverUrl = reply->request().url();
+        decodeCoverArt(reply->readAll());
+    });
+}
+
+void MediaData::decodeCoverArt(const QByteArray &bytes) {
+    // Two URLs can serve the picture already shown.
+    const quint64 hash = qHash(bytes);
     if (hash == m_lastCoverHash) {
         return;
     }
@@ -152,9 +202,9 @@ void MediaData::decodeCoverArt(const QByteArray &packet) {
     // worker (QPixmap is GUI-thread-only). The same worker pass also runs the
     // k-means dominant-colour extraction so the card gradient never blocks the
     // GUI thread. The provider serves the QImage; the colours drive the gradients.
-    m_coverWatcher->setFuture(QtConcurrent::run([packet]() {
+    m_coverWatcher->setFuture(QtConcurrent::run([bytes]() {
         DecodedCover out;
-        out.image.loadFromData(packet);
+        out.image.loadFromData(bytes);
         computeCoverColors(out);
         return out;
     }));

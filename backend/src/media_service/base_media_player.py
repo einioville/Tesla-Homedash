@@ -1,18 +1,12 @@
 from __future__ import annotations
 
-import asyncio
-import logging
 import struct
 from typing import TYPE_CHECKING
-
-import aiohttp
 
 from ..utils import protocol
 
 if TYPE_CHECKING:
     from .media_manager import MediaManager
-
-logger = logging.getLogger("media_service.base_media_player")
 
 
 class BaseMediaPlayer:
@@ -65,7 +59,7 @@ class BaseMediaPlayer:
 
     async def _send_text(self, msg_type: int, text: str, client=None) -> None:
         '''
-        Sends a len(2B) + UTF-8 text packet (MEDIA_STREAM_NAME / _ARTISTS).
+        Sends a len(2B) + UTF-8 text packet (MEDIA_STREAM_NAME / _ARTISTS / _IMAGE_URL).
         Arguments:
             msg_type (int): A protocol.MEDIA_* code.
             text (str): The text.
@@ -74,27 +68,14 @@ class BaseMediaPlayer:
         raw = text.encode("utf-8")
         await self._send(msg_type, struct.pack("!H", len(raw)) + raw, client)
 
-    async def _send_image(self, url: str | None, client=None,
-                          timeout: aiohttp.ClientTimeout | None = None) -> None:
+    async def _send_cover(self, url: str | None, client=None) -> None:
         '''
-        Downloads a cover image and sends it as MEDIA_STREAM_IMAGE.  Nothing is
-        sent when there is no URL or the download fails; the dashboard keeps the
-        image it has.
+        Sends a cover image's URL as MEDIA_STREAM_IMAGE_URL; each display fetches
+        the picture itself.  Nothing is sent when there is no URL, and the
+        dashboard keeps the image it has.
         Arguments:
             url (str | None): The image URL.
             client (StreamWriter | None): One client, or None for every client.
-            timeout (ClientTimeout | None): The download's bound; None is aiohttp's
-                default (five minutes).
         '''
-        if not url:
-            return
-        try:
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.get(url) as response:
-                    if response.status != 200:
-                        return
-                    image = await response.read()
-        except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-            logger.debug("Failed to download a cover image: %s: %s", type(e).__name__, e)
-            return
-        await self._send(protocol.MEDIA_STREAM_IMAGE, image, client)
+        if url:
+            await self._send_text(protocol.MEDIA_STREAM_IMAGE_URL, url, client)

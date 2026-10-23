@@ -7,11 +7,14 @@
 #include <QImage>
 #include <QObject>
 #include <QString>
+#include <QUrl>
 #include <QVariantList>
 #include <memory>
 
 #include "mediaimagecache.hh"
 
+class QNetworkAccessManager;
+class QNetworkReply;
 class ServerClient;
 
 // Result of the off-thread cover-art decode: the image plus its k-means
@@ -28,8 +31,9 @@ struct DecodedCover {
  * media packets (title, artists, progress, duration, play-state, media-type)
  * and bridges cover art to QML through a MediaImageProvider.
  *
- * Cover art is deduped by content hash and decoded off the GUI thread; a newer
- * image supersedes an in-flight decode.
+ * Cover art arrives as a URL (MEDIA_STREAM_IMAGE_URL) and is fetched here, through
+ * a disk cache; a newer URL cancels an older one still in flight. The picture is
+ * decoded off the GUI thread, and a newer one supersedes an in-flight decode.
  */
 class MediaData : public QObject {
     Q_OBJECT
@@ -98,7 +102,8 @@ private slots:
     void onPacket(quint8 type, const QByteArray &payload);
 
 private:
-    void decodeCoverArt(const QByteArray &packet);
+    void fetchCover(const QUrl &url);
+    void decodeCoverArt(const QByteArray &bytes);
     void setTitle(const QString &value);
     void setArtists(const QString &value);
     void setProgressMs(int value);
@@ -117,6 +122,10 @@ private:
     ServerClient *m_server;
     std::shared_ptr<MediaImageCache> m_cache;
 
+    QNetworkAccessManager *m_network;
+    QNetworkReply *m_coverReply = nullptr;
+    // The URL whose picture is shown; the same URL again fetches nothing.
+    QUrl m_coverUrl;
     QFutureWatcher<DecodedCover> *m_coverWatcher = nullptr;
     quint64 m_lastCoverHash = 0;
 

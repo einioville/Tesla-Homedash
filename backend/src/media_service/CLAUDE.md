@@ -16,14 +16,14 @@
   its claim until its Connect session times out, often much later, and without it the radio would
   start by itself in the middle of the night.
 - **`base_media_player.py`**: the transport controls both players override (no-ops by default) and
-  the senders every media packet goes through — `_send`, `_send_text`, `_send_image` — so a new
+  the senders every media packet goes through — `_send`, `_send_text`, `_send_cover` — so a new
   field or player frames nothing by hand.
 - **`spotify_player.py`** (`SpotifyPlayer`) polls the Spotify Web API via spotipy on an APScheduler
   interval (10 s idle / 2 s active). `_update_state` is **serialised by `self._state_lock`**: it
   runs both on the timer and inline after every control command, and `claim_media_control` re-enters
   it via `play()`, so the guard (`if self._state_lock.locked(): return`) prevents both a deadlock and
   double claim/release. On detecting playback on `spotifyDeviceId` it claims control and streams
-  name/artists/duration/image/progress/play-state; controls call `start/pause/next/previous/seek`.
+  name/artists/duration/cover URL/progress/play-state; controls call `start/pause/next/previous/seek`.
   **Talks to:** Spotify Web API (run in an executor), `MediaManager`. *(If `spotifyDeviceId` is
   wrong, controls silently no-op — the `_current_device_id` vs `_target_device_id` comparison drives
   claim/release.)*

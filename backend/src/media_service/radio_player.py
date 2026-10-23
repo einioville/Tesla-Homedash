@@ -280,7 +280,7 @@ class RadioPlayer(BaseMediaPlayer):
         self.__vlc_player.play()
 
     async def __stream_channel_image(self, client=None) -> None:
-        await self._send_image(self.__image_url, client)
+        await self._send_cover(self.__image_url, client)
 
     async def __stream_channel_name(self, client=None) -> None:
         await self._send_text(protocol.MEDIA_STREAM_NAME, self.__channel, client)

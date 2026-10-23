@@ -50,6 +50,23 @@ drawn: the rise and fall (`Theme.spectrumRise` / `spectrumFall`) and the 1-2-1 b
   style), and again on a resize.
 - `Media.spectrum` is C++ only (`QList<qreal>`), read here; no QML reads the frames.
 
+## `Media` — `media/mediadata.{hh,cpp}`
+
+The now-playing state (the QML `Media` singleton) and its cover. **The backend sends the cover's URL,
+not its bytes** (`MEDIA_STREAM_IMAGE_URL`, #84), and each display fetches it, so no download runs in
+the backend's Spotify poll or in a connecting display's snapshot. Load-bearing:
+
+- **A disk cache keeps covers across restarts** (`QNetworkDiskCache`,
+  `<GenericCacheLocation>/Tesla-Homedash/covers`, 50 MiB), and a request **prefers it**
+  (`PreferCache`): a cover URL names one picture for good — Spotify's are content hashes, Nelonen's a
+  file and a size — and both CDNs send lifetimes of months to years anyway.
+- **The same URL again fetches nothing** — the snapshot after a reconnect, the next track off the
+  same album. A newer URL aborts an older one still in flight, and a fetch that fails or stalls
+  (20 s without a byte) keeps the picture shown and logs a warning.
+- The bytes are decoded with the k-means colours on a worker (`decodeCoverArt`, deduped by content
+  hash, a newer picture superseding a decode in flight), stored in `MediaImageCache` and served as
+  `image://media/<hash>` by `MediaImageProvider`.
+
 ## `LightningLayer` — `weather/lightninglayer.{hh,cpp}`
 
 The lightning over the radar loop (`../items/weather/RadarLayer.qml`, issue #83), an item that draws

@@ -30,7 +30,8 @@ inline constexpr quint8 MSG_TERMINATE = 0x03;
 inline constexpr quint8 MSG_STREAM = 0x04;
 
 // Media stream + control bytes
-inline constexpr quint8 MEDIA_STREAM_IMAGE = 0x14;
+// The cover's URL; MediaData fetches and caches the picture (#84).
+inline constexpr quint8 MEDIA_STREAM_IMAGE_URL = 0x13;
 inline constexpr quint8 MEDIA_STREAM_NAME = 0x15;
 inline constexpr quint8 MEDIA_STREAM_PROGRESS = 0x16;
 inline constexpr quint8 MEDIA_STREAM_DURATION = 0x17;

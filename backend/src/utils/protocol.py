@@ -14,7 +14,8 @@ MSG_TERMINATE = 0x03
 MSG_STREAM = 0x04
 
 # Media stream and control bytes
-MEDIA_STREAM_IMAGE = 0x14
+# The cover's URL, not its bytes: each display fetches and caches the picture itself (#84).
+MEDIA_STREAM_IMAGE_URL = 0x13  # B->F: len(2B) + UTF-8
 MEDIA_STREAM_NAME = 0x15
 MEDIA_STREAM_PROGRESS = 0x16
 MEDIA_STREAM_DURATION = 0x17

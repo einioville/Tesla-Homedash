@@ -55,7 +55,7 @@ with inbound messages capped at `MAX_PREAUTH_MSG_SIZE` (4 KB) — `../auth_servi
 |------|------|-----|---------|
 | `0x03` | MSG_TERMINATE | F→B | (empty) |
 | `0x04` | MSG_STREAM | B→F | `stream_id(2B) + value_type(1B) + value + timestamp(8B)` |
-| `0x14` | MEDIA_STREAM_IMAGE | B→F | Raw image bytes (JPEG/PNG) |
+| `0x13` | MEDIA_STREAM_IMAGE_URL | B→F | `length(2B) + UTF-8` — the cover's URL; each display fetches, caches and decodes the picture itself (`frontend_v2/core/CLAUDE.md`, *MediaData*). Sent on a new track or station and in the snapshot, never empty |
 | `0x15` | MEDIA_STREAM_NAME | B→F | `length(2B) + UTF-8` |
 | `0x16` | MEDIA_STREAM_PROGRESS | B→F | `progress_ms(4B)` |
 | `0x17` | MEDIA_STREAM_DURATION | B→F | `duration_ms(4B)` |
