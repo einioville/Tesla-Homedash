@@ -263,7 +263,11 @@ shows the first, and the last one switched off switches it off. `TeslaMap`'s `sh
   cameras nearest the weather document's place (`RoadCameraStations.nearest`, great-circle
   distance), nearest first, stepped through with the arrows in its corner and each one's distance
   under its name; the view holds that list and the dialog (`views/WeatherView.qml`), frosting the
-  whole dashboard, whose radar map takes no gesture meanwhile.
+  whole dashboard, whose radar map takes no gesture meanwhile. Above the readings, wherever it is
+  opened, `RoadCameraMap.qml` shows where the camera is: a still north-up map centred on it (the
+  reply's `geometry`) at zoom 12 — where suburbs are named — with the place names and the home, and
+  the camera's marker in the accent over the home. It takes no input. Each view's dialog builds its
+  map the first time it opens and then keeps it, holding its tiles.
 - **Säävaroitukset** (a demo, on by default) — FMI's warnings in force as areas,
   `items/weather/WarningAreas.qml`: each warning's regions from the weather document's `shapes`
   (`backend/src/weather_service/CLAUDE.md`), filled faintly in its colour and outlined, in a

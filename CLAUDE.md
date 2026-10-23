@@ -549,7 +549,8 @@ past ones, muted (#82; `backend/src/system_service/CLAUDE.md`) — plus the dash
 *Sää* pill, which opens the Weather view (`Navigation`), and the maps' radar redesign (#86): a
 minimap in a corner (`RadarInset`) whose tap opens the Weather view too, the overlay translucent and
 in step with it, both chosen and the loop's history set under the layer menu's *Sadetutka* — and
-every radar loop's steps crossfading in a shader (`radarfade.frag`).
+every radar loop's steps crossfading in a shader (`radarfade.frag`) — plus a still map of where the
+camera is in the road camera dialog (`RoadCameraMap`).
 When you land a change that touches documented behaviour, update this line.
 
 ### 7.8 Keeping the code clean

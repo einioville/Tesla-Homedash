@@ -1,4 +1,5 @@
 import QtQuick
+import QtPositioning
 import frontend_v2
 import "../../app/Format.js" as Format
 
@@ -10,13 +11,14 @@ import "../../app/Format.js" as Format
 // it is in the URL so a new one is not served from the image cache. Centred, on frosted glass
 // over the view's `backdrop` (ModalDialog). Opened with a list of cameras instead (the Weather
 // view's nearest), it steps through them with the arrows in its corner, saying how far each is.
+// A still map above the readings shows where the camera is (RoadCameraMap).
 // Fetched by the display, not the backend: a tap on one display asks for it (root CLAUDE.md §5.4).
 ModalDialog {
     id: popup
 
     property bool shown: false
     property string stationId: ""
-    // { name, municipality, presets: [{ id, name, url }] }
+    // { name, municipality, coordinate, presets: [{ id, name, url }] }
     property var station: null
     // Preset id → when its picture was taken (ISO).
     property var taken: ({})
@@ -60,9 +62,11 @@ ModalDialog {
         shown = true
         get("https://tie.digitraffic.fi/api/weathercam/v1/stations/" + id, id, function (d) {
             var p = d.properties
+            var at = d.geometry ? d.geometry.coordinates : null
             station = {
                 name: (p.names && p.names.fi) || p.name,
                 municipality: p.municipality || "",
+                coordinate: at ? QtPositioning.coordinate(at[1], at[0]) : QtPositioning.coordinate(),
                 presets: p.presets.filter(x => x.inCollection)
                                   .map(x => ({ id: x.id, name: x.presentationName || "", url: x.imageUrl }))
             }
@@ -120,8 +124,13 @@ ModalDialog {
         return iso ? Format.moment(new Date(iso).getTime()) : "—"
     }
 
+    // The map is built the first time the dialog opens with it, then kept: a map reads the whole
+    // tile cache folder when it starts (items/tesla/CLAUDE.md, The basemap), and kept, it holds
+    // the tiles it has shown.
+    onShownChanged: if (shown) whereLoader.active = true
+
     onScrimClicked: close()
-    cardWidth: 940
+    cardWidth: 1040
     // Centred on the 800 px screen, it ends above the menu's swipe-up strip (the bottom 72 px).
     cardHeight: 560
 
@@ -292,60 +301,93 @@ ModalDialog {
         }
     }
 
-    // The nearest road weather station: what the road and the air are like there.
+    // Where the camera is, then the nearest road weather station: what the road and the air are
+    // like there, measured at the time beside its title.
     Column {
         anchors.left: picture.right
         anchors.right: parent.right
         anchors.top: picture.top
         anchors.leftMargin: 24
         anchors.rightMargin: 20
-        spacing: 12
+        spacing: 14
 
-        Text {
-            text: qsTr("TIESÄÄASEMA")
-            font.family: Theme.fontFamily
-            font.pixelSize: 12
-            font.letterSpacing: 1.2
-            color: Theme.cardTitle
-        }
-
-        Repeater {
-            model: [
-                { label: qsTr("Keli"), text: popup.describe("KELI_1") },
-                { label: qsTr("Tie"), text: Format.num(popup.value("TIE_1"), "°C", 1) },
-                { label: qsTr("Ilma"), text: Format.num(popup.value("ILMA"), "°C", 1) },
-                { label: qsTr("Tuuli"), text: Format.has(popup.value("KESKITUULI"))
-                      ? Format.num(popup.value("KESKITUULI"), "", 1) + " (" + Format.num(popup.value("MAKSIMITUULI"), "", 1) + ") m/s"
-                      : "—" },
-                { label: qsTr("Sade"), text: popup.describe("SADE") },
-                { label: qsTr("Näkyvyys"), text: Format.num(popup.value("NÄKYVYYS_KM"), "km", 0) },
-                { label: qsTr("Kosteus"), text: Format.num(popup.value("ILMAN_KOSTEUS"), "%", 0) }
-            ]
-
-            Column {
-                id: reading
-                required property var modelData
-                spacing: 1
-                Text {
-                    text: reading.modelData.label
-                    font.family: Theme.fontFamily
-                    font.pixelSize: 12
-                    color: Theme.dataLabelTitle
-                }
-                Text {
-                    text: reading.modelData.text
-                    font.family: Theme.fontFamily
-                    font.pixelSize: 17
-                    color: Theme.dataLabelValue
-                }
+        Loader {
+            id: whereLoader
+            width: parent.width
+            height: 180
+            active: false
+            sourceComponent: RoadCameraMap {
+                active: popup.shown
+                coordinate: popup.station ? popup.station.coordinate : QtPositioning.coordinate()
             }
         }
 
-        Text {
-            text: qsTr("Mitattu ") + popup.clock(popup.readAt)
-            font.family: Theme.fontFamily
-            font.pixelSize: 12
-            color: Theme.dataLabelTitle
+        Item {
+            width: parent.width
+            height: stationTitle.implicitHeight
+
+            Text {
+                id: stationTitle
+                text: qsTr("TIESÄÄASEMA")
+                font.family: Theme.fontFamily
+                font.pixelSize: 12
+                font.letterSpacing: 1.2
+                color: Theme.cardTitle
+            }
+            Text {
+                anchors.right: parent.right
+                anchors.baseline: stationTitle.baseline
+                visible: popup.readAt !== ""
+                text: popup.clock(popup.readAt)
+                font.family: Theme.fontFamily
+                font.pixelSize: 12
+                color: Theme.dataLabelTitle
+            }
+        }
+
+        // Ordered so that, in pairs, the road's state sits beside the rain and the
+        // temperatures beside each other.
+        Grid {
+            id: readingGrid
+            width: parent.width
+            columns: 2
+            columnSpacing: 16
+            rowSpacing: 10
+
+            Repeater {
+                model: [
+                    { label: qsTr("Keli"), text: popup.describe("KELI_1") },
+                    { label: qsTr("Sade"), text: popup.describe("SADE") },
+                    { label: qsTr("Tie"), text: Format.num(popup.value("TIE_1"), "°C", 1) },
+                    { label: qsTr("Ilma"), text: Format.num(popup.value("ILMA"), "°C", 1) },
+                    { label: qsTr("Tuuli"), text: Format.has(popup.value("KESKITUULI"))
+                          ? Format.num(popup.value("KESKITUULI"), "", 1) + " (" + Format.num(popup.value("MAKSIMITUULI"), "", 1) + ") m/s"
+                          : "—" },
+                    { label: qsTr("Näkyvyys"), text: Format.num(popup.value("NÄKYVYYS_KM"), "km", 0) },
+                    { label: qsTr("Kosteus"), text: Format.num(popup.value("ILMAN_KOSTEUS"), "%", 0) }
+                ]
+
+                Column {
+                    id: reading
+                    required property var modelData
+                    width: (readingGrid.width - readingGrid.columnSpacing) / 2
+                    spacing: 1
+                    Text {
+                        text: reading.modelData.label
+                        font.family: Theme.fontFamily
+                        font.pixelSize: 12
+                        color: Theme.dataLabelTitle
+                    }
+                    Text {
+                        width: parent.width
+                        wrapMode: Text.WordWrap
+                        text: reading.modelData.text
+                        font.family: Theme.fontFamily
+                        font.pixelSize: 17
+                        color: Theme.dataLabelValue
+                    }
+                }
+            }
         }
     }
 
