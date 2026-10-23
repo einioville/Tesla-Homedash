@@ -36,7 +36,7 @@ import os
 import shutil
 import struct
 import time
-from typing import Any, Callable
+from typing import Any, Awaitable, Callable
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from ..utils import process, protocol
@@ -91,10 +91,9 @@ _ADDRESS_MAX = 200
 
 def _validate_location(value: Any) -> dict:
     '''
-    Checks a location from the Koti dialog: {address, lat, lon} and the zone FMI
-    gives the point (timeZone), which the dialog leaves out when FMI could not
-    say.  The zone must resolve: an "auto" timeZone follows it, and Config
-    refuses to load an unresolvable zone, so a bad one would restart-loop.
+    Checks a location from the Koti dialog: {address, lat, lon}.  Its zone is not
+    the dialog's to say — ConfigService adds it (__with_zone), and a timeZone sent
+    along is dropped.
     Arguments:
         value (Any): The JSON-decoded value from the CONFIG_SET payload.
     '''
@@ -107,16 +106,8 @@ def _validate_location(value: Any) -> dict:
         v = value.get(name)
         if isinstance(v, bool) or not isinstance(v, (int, float)) or not -bound <= v <= bound:
             raise ValueError("Virheelliset koordinaatit")
-    location = {"address": address.strip()[:_ADDRESS_MAX],
-                "lat": float(value["lat"]), "lon": float(value["lon"])}
-    zone = value.get("timeZone")
-    if zone is not None:
-        try:
-            ZoneInfo(zone)
-        except (ZoneInfoNotFoundError, ValueError, TypeError) as e:
-            raise ValueError(f"Tuntematon aikavyöhyke: {zone}") from e
-        location["timeZone"] = zone
-    return location
+    return {"address": address.strip()[:_ADDRESS_MAX],
+            "lat": float(value["lat"]), "lon": float(value["lon"])}
 
 
 # ── The schema ────────────────────────────────────────────────────────────────
@@ -141,7 +132,8 @@ def _validate_location(value: Any) -> dict:
 # Per-setting keys:
 #   key       dotted path into config.json ("myenergi.pollIntervalSeconds")
 #   type      bool | int | float | string | enum | location (an {address, lat,
-#             lon, timeZone} object, edited in its own dialog; see _validate_location)
+#             lon} object edited in its own dialog, to which the backend adds the
+#             point's timeZone; see _validate_location and __with_zone)
 #   label     Finnish row label
 #   help      Finnish one-liner shown under the row (optional)
 #   unit      suffix rendered after the value (optional)
@@ -679,6 +671,9 @@ class ConfigService:
         # value is already on disk and its failure is swallowed, so a guard is the
         # only place an honest "this cannot work here" reaches the user.
         self.__guards: dict[str, Callable[[str, Any], None]] = {}
+        # (lat, lon) -> the point's IANA zone or None: the weather service's FMI lookup,
+        # which a location written from the Options view takes its timeZone from.
+        self.__zone_lookup: Callable[[float, float], Awaitable[str | None]] | None = None
         # name -> callable returning a refusal reason, or "" to allow. See
         # register_restart_veto: some restarts can only be refused honestly by
         # the service that knows what is in flight.
@@ -727,6 +722,16 @@ class ConfigService:
             guard (Callable): guard(key, coerced_value) -> None, raises ValueError.
         '''
         self.__guards[name] = guard
+
+    def register_zone_lookup(self, lookup: Callable[[float, float], Awaitable[str | None]]) -> None:
+        '''
+        Registers how a location's zone is found: awaited with the point before a
+        location write is saved (__with_zone).
+        Arguments:
+            lookup (Callable): async lookup(lat, lon) -> IANA zone, or None when
+                it could not say; must not raise.
+        '''
+        self.__zone_lookup = lookup
 
     def register_hook(self, name: str, hook: Callable[[], Any]) -> None:
         '''
@@ -1000,6 +1005,8 @@ class ConfigService:
             return {"ok": False, "applied": "", "value": value, "message": str(e)}
 
         previous = self.__current_value(key)
+        if setting["type"] == "location" and coerced is not None:
+            coerced = await self.__with_zone(coerced, previous)
         if coerced == previous:
             return {"ok": True, "applied": "unchanged", "value": coerced, "message": ""}
 
@@ -1018,6 +1025,31 @@ class ConfigService:
 
         logger.info("Config set %s = %r (%s)", key, coerced, applied)
         return {"ok": True, "applied": applied, "value": coerced, "message": ""}
+
+    async def __with_zone(self, location: dict, previous: Any) -> dict:
+        '''
+        Adds the zone of a location's point as its timeZone, which an "auto"
+        timeZone follows.  When the lookup cannot say, a location whose point has
+        not moved keeps the zone it had, and a new one goes without — the host's
+        zone then applies.  A zone that does not resolve is never written: Config
+        refuses to load one, so it would restart-loop.
+        Arguments:
+            location (dict): The validated {address, lat, lon}.
+            previous (Any): The setting's current value, a location or None.
+        '''
+        zone = None
+        if self.__zone_lookup is not None:
+            zone = await self.__zone_lookup(location["lat"], location["lon"])
+        if zone is not None:
+            try:
+                ZoneInfo(zone)
+            except (ZoneInfoNotFoundError, ValueError, TypeError):
+                logger.warning("Unknown timezone %r for the home — not saved", zone)
+                zone = None
+        if zone is None and isinstance(previous, dict) \
+                and (previous.get("lat"), previous.get("lon")) == (location["lat"], location["lon"]):
+            zone = previous.get("timeZone")
+        return {**location, "timeZone": zone} if zone else location
 
     async def handle_restart(self, _payload: bytes, writer) -> None:
         '''

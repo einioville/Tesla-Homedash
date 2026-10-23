@@ -19,7 +19,6 @@ namespace {
 const Logger logger = Logger::get("map");
 
 const char *const kNominatim = "https://nominatim.openstreetmap.org";
-const char *const kTimeseries = "https://opendata.fmi.fi/timeseries";
 // Nominatim's policy: an application User-Agent, at most one request a second.
 const char *const kUserAgent = "Tesla-Homedash/1.0 (+https://github.com/einioville/Tesla-Homedash)";
 constexpr int kSpacingMs = 1000;
@@ -106,30 +105,6 @@ void Geocoder::reverse(double lat, double lon) {
             setError(tr("Osoitteen haku epäonnistui. Tarkista verkkoyhteys."));
             emit addressFound(lat, lon, QString());
         });
-}
-
-void Geocoder::lookupZone(double lat, double lon) {
-    QUrl url{QString::fromLatin1(kTimeseries)};
-    QUrlQuery q;
-    q.addQueryItem(QStringLiteral("latlon"),
-                   QString::number(lat, 'f', 5) + QLatin1Char(',') + QString::number(lon, 'f', 5));
-    q.addQueryItem(QStringLiteral("param"), QStringLiteral("tz"));
-    q.addQueryItem(QStringLiteral("timesteps"), QStringLiteral("1"));
-    q.addQueryItem(QStringLiteral("format"), QStringLiteral("json"));
-    url.setQuery(q);
-    QNetworkReply *reply = get(url);
-    connect(reply, &QNetworkReply::finished, this, [this, reply, lat, lon]() {
-        reply->deleteLater();
-        QString zone;
-        if (reply->error() == QNetworkReply::NoError) {
-            zone = QJsonDocument::fromJson(reply->readAll())
-                       .array().at(0).toObject().value(QStringLiteral("tz")).toString();
-        }
-        if (zone.isEmpty())
-            logger.warning(QStringLiteral("No timezone from FMI for %1, %2: %3")
-                               .arg(lat).arg(lon).arg(reply->errorString()));
-        emit zoneFound(lat, lon, zone);
-    });
 }
 
 void Geocoder::clear() {

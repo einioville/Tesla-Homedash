@@ -11,6 +11,9 @@ after their slot — broadcasts it, and caches the last frame to replay to new c
 name (`{"place": "Tampere"}`). FMI takes coordinates as they are and names the point after its
 nearest place (*Hervanta*), which becomes the document's `meta.place`. The home's write runs
 `apply_config()`, which drops the cached frame — it describes the old place — and refetches at once.
+**`zone_at(lat, lon)`** answers the IANA zone FMI gives a point (`localtz`), or `None` when it could
+not say; `ConfigService` awaits it for a home being written, before saving it
+(`../config_service/CLAUDE.md`, *Location and timezone*).
 
 > **Load-bearing invariants — do not break:**
 > - **Every FMI request carries `_FMI_TIMEOUT`**, an explicit socket-level ceiling. A stalled FMI

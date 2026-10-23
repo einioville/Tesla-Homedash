@@ -15,8 +15,9 @@ class QNetworkReply;
 
 /**
  * Geocoder — addresses to coordinates and back for the Options view's Koti dialog (QML
- * `Geocoder`), through OpenStreetMap's Nominatim (ODbL, keyless), and the timezone of a
- * point from FMI's timeseries service, which the weather already comes from.
+ * `Geocoder`), through OpenStreetMap's Nominatim (ODbL, keyless). The display asks, not the
+ * backend: a lookup answers what one user is typing on one display (root CLAUDE.md §5.4).
+ * The home's timezone is the backend's to find, when the home is written.
  *
  * Nominatim's usage policy shapes it: a User-Agent naming the application (which QML's
  * XMLHttpRequest may not set), at most one request a second and no search-as-you-type. So
@@ -43,8 +44,6 @@ public:
     Q_INVOKABLE void search(const QString &query);
     // The address at a point, as addressFound.
     Q_INVOKABLE void reverse(double lat, double lon);
-    // The point's IANA zone, as zoneFound ("" when FMI could not say).
-    Q_INVOKABLE void lookupZone(double lat, double lon);
     // Forgets the last search and drops a request still waiting: the dialog opens afresh.
     Q_INVOKABLE void clear();
 
@@ -53,7 +52,6 @@ signals:
     void busyChanged();
     void errorChanged();
     void addressFound(double lat, double lon, const QString &address);
-    void zoneFound(double lat, double lon, const QString &zone);
 
 private:
     using Handler = std::function<void(const QByteArray &)>;

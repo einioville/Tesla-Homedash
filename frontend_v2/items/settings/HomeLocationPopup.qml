@@ -7,16 +7,15 @@ import frontend_v2
 
 // The Koti row's dialog: the home found by its address (Nominatim through Geocoder, on Hae or
 // Enter — its policy allows no search-as-you-type) or by a tap on the map, whose address is
-// then looked up. Tallenna asks FMI for the point's timezone and writes the backend's `home`
-// setting { address, lat, lon, timeZone }; the write's result shows beside the row. Hung from
-// the top, so the field and the hits under it stay above the on-screen keyboard.
+// then looked up. Tallenna writes the backend's `home` setting { address, lat, lon }, and the
+// backend adds the point's timezone; the write's result shows beside the row. Hung from the top,
+// so the field and the hits under it stay above the on-screen keyboard.
 ModalDialog {
     id: popup
 
     property bool shown: false
     // The point chosen, { address, lat, lon }; the address is "" while its lookup runs.
     property var chosen: null
-    property bool saving: false
 
     visible: shown
     cardWidth: 1040
@@ -29,7 +28,6 @@ ModalDialog {
     function open() {
         Geocoder.clear()
         field.text = ""
-        saving = false
         const home = Settings.valueOf("home")
         chosen = home ? { address: home.address, lat: home.lat, lon: home.lon } : null
         shown = true
@@ -71,10 +69,11 @@ ModalDialog {
     }
 
     function save() {
-        if (!chosen || saving)
+        if (!chosen)
             return
-        saving = true
-        Geocoder.lookupZone(chosen.lat, chosen.lon)
+        Settings.setValue("home", { address: chosen.address || coordinates(chosen.lat, chosen.lon),
+                                    lat: chosen.lat, lon: chosen.lon })
+        close()
     }
 
     Connections {
@@ -84,18 +83,6 @@ ModalDialog {
         function onAddressFound(lat, lon, address) {
             if (popup.chosen && popup.chosen.lat === lat && popup.chosen.lon === lon)
                 popup.chosen = { address: address || popup.coordinates(lat, lon), lat: lat, lon: lon }
-        }
-
-        // FMI could not say: saved without a zone, which leaves the backend on the host's.
-        function onZoneFound(lat, lon, zone) {
-            const c = popup.chosen
-            if (!popup.saving || !c || c.lat !== lat || c.lon !== lon)
-                return
-            const home = { address: c.address || popup.coordinates(lat, lon), lat: lat, lon: lon }
-            if (zone)
-                home.timeZone = zone
-            Settings.setValue("home", home)
-            popup.close()
         }
     }
 
@@ -399,9 +386,9 @@ ModalDialog {
             }
             DialogButton {
                 primary: true
-                enabled: popup.chosen !== null && !popup.saving
+                enabled: popup.chosen !== null
                 opacity: enabled ? 1 : 0.4
-                label: popup.saving ? qsTr("Tallennetaan…") : qsTr("Tallenna")
+                label: qsTr("Tallenna")
                 onActivated: popup.save()
             }
         }

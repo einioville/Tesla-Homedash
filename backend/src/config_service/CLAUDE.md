@@ -59,10 +59,14 @@ through the runner's teardown and prints a full traceback plus *"Task exception 
 retrieved"* — misleading noise in the journal for an intentional restart.
 
 **Location and timezone.** *Yleinen › Sijainti* holds one setting, `home`, of type `location`:
-`{address, lat, lon, timeZone}`, written whole by the frontend's *Koti* dialog (address search or a
-point on a map; `frontend_v2/items/settings/CLAUDE.md`) and checked by `_validate_location`. It is
-`hook`-tier for the weather, which moves to the coordinates at once. The zone is the other half:
-`timeZone` has no row: `"auto"` (absent, the default) follows the home's zone, else the
+`{address, lat, lon, timeZone}`. The frontend's *Koti* dialog writes `{address, lat, lon}` (address
+search or a point on a map; `frontend_v2/items/settings/CLAUDE.md`), checked by `_validate_location`,
+and **the backend adds `timeZone` before saving** (`__with_zone`): the zone FMI gives the point,
+through the lookup the weather service registers (`register_zone_lookup`, `WeatherService.zone_at`),
+since the zone is the backend's to apply and its FMI client is there. When FMI cannot say, a home
+whose point has not moved keeps its zone and a new one goes without (the host's then applies); a
+zone that does not resolve is never written. It is `hook`-tier for the weather, which moves to the
+coordinates at once. The zone is the other half: `timeZone` has no row: `"auto"` (absent, the default) follows the home's zone, else the
 host's (`utils/config_parser.resolve_timezone`), and a named zone stays a `config.json`-only
 override. The schedulers are built once, so a home in another zone takes effect on the next start;
 the entry's `runtime` (`zoneInEffect`, the zone this process started in, and `zoneNext`) lets the row
@@ -71,7 +75,7 @@ Finnish home is in Europe/Helsinki — so it is a line under the row rather than
 
 **Safety.** Validation happens before any write. The home's zone check is the important one: an
 unresolvable zone would make `Config.__init__` raise on the next start — a restart *loop* — so
-`_validate_location` refuses one (and `resolve_timezone` passes a hand-edited bad one over for the
+`__with_zone` never writes one (and `resolve_timezone` passes a hand-edited bad one over for the
 host's, with a warning). A failed `save()` rolls the in-memory value back so services and disk never
 disagree. A hook that raises is logged and swallowed: the value is already saved, so failing the
 write there would leave the reply and the disk disagreeing. **Talks to:** `Config` (set/save),

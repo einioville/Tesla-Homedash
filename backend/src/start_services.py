@@ -942,6 +942,7 @@ async def main():
     # restart-tier instead of silently doing nothing.
     config_service = ConfigService(config=config, server=server)
     config_service.register_hook("weather", weather.apply_config)
+    config_service.register_zone_lookup(weather.zone_at)
     config_service.register_hook("trip", trip_loader.apply_config)
     config_service.register_hook("charging", charging_loader.apply_config)
     config_service.register_hook("spot_price", spot_provider.apply_config)

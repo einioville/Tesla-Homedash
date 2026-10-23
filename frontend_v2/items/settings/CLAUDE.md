@@ -197,7 +197,8 @@ zone — with a line in the warning colour when that zone is not the running bac
 (`runtime.zoneInEffect`; `backend/src/config_service/CLAUDE.md`, *Location and timezone*). The
 dialog finds the home by address through `Geocoder` (`../../core/CLAUDE.md`) — on *Hae* or Enter,
 never per keystroke, Nominatim's rule — or by a tap on its map, whose address is looked up the same
-way; *Tallenna* asks FMI for the point's zone and writes the whole object with `Settings.setValue`.
+way; *Tallenna* writes `{address, lat, lon}` with `Settings.setValue` and closes the dialog, and the
+backend adds the point's zone before saving it (`backend/src/config_service/CLAUDE.md`).
 It is hung from the top so the field and the hits stay above the keyboard, and Enter closes the
 keyboard so the map shows. The map is a plain `Map` on the app's imagery (`BasemapPlugin`) with
 pan, pinch, wheel and tap handlers of its own: a picker shares nothing else with the car's map.

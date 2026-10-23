@@ -290,6 +290,23 @@ class WeatherViewBuilder:
             "warnings": warnings,
         }
 
+    async def zone_at(self, lat: float, lon: float) -> str | None:
+        '''
+        The IANA zone FMI gives a point, or None when it could not say.  The home's, which
+        the Options view writes and an "auto" timeZone follows.
+        Arguments:
+            lat (float): The point's latitude.
+            lon (float): The point's longitude.
+        '''
+        try:
+            async with aiohttp.ClientSession(timeout=self.__timeout) as session:
+                row = (await self.__timeseries(session, {
+                    "latlon": f"{lat:.5f},{lon:.5f}", "timesteps": 1, "param": "localtz"}))[0]
+            return str(row["localtz"])
+        except _FETCH_ERRORS as e:
+            logger.warning("No timezone from FMI for %.5f, %.5f: %s: %s", lat, lon, type(e).__name__, e)
+            return None
+
     async def __part(self, label: str, fetch):
         '''
         Runs one part's fetch, logging and swallowing any failure as None.

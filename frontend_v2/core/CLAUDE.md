@@ -214,14 +214,14 @@ item, and the climate wave is built for it (`../items/tesla/CLAUDE.md`).
 
 Address search and lookup for the Options view's *Koti* dialog (`../items/settings/CLAUDE.md`):
 `search(query)` fills `results` (`{address, lat, lon}`, one per distinct address — Nominatim answers
-the building, its entrance and a shop in it separately), `reverse(lat, lon)` answers `addressFound`,
-`lookupZone(lat, lon)` answers `zoneFound` with FMI's `tz` for the point (`""` when it could not
-say). It is C++ because **Nominatim's usage policy wants a User-Agent naming the application**,
+the building, its entrance and a shop in it separately), and `reverse(lat, lon)` answers
+`addressFound`. It is C++ because **Nominatim's usage policy wants a User-Agent naming the application**,
 which QML's `XMLHttpRequest` may not set, and **at most one request a second**: a request waits for
 its turn, and a newer one replaces any still waiting (`m_generation` drops a reply nobody wants any
 more). Searches are limited to Finland (`countrycodes=fi`), where the weather and the road cameras
 are, and the addresses are short — street and number, postcode and town — with the place's own
-name only where there is no street. The zone comes from FMI, not Nominatim, which has none.
+name only where there is no street. The home's timezone is not looked up here: the backend adds it
+when the home is written (`backend/src/config_service/CLAUDE.md`, *Location and timezone*).
 
 ## `Probe` — `connectionprobe.{hh,cpp}`
 

@@ -93,6 +93,16 @@ class WeatherService:
         self.__last_view = None
         self.__loop.create_task(self.__update_view())
 
+    async def zone_at(self, lat: float, lon: float) -> str | None:
+        '''
+        The IANA zone FMI gives a point, or None when it could not say.  ConfigService
+        asks it for a home being written, before the home is saved.
+        Arguments:
+            lat (float): The point's latitude.
+            lon (float): The point's longitude.
+        '''
+        return await self.__view_builder.zone_at(lat, lon)
+
     async def run(self) -> None:
         '''
         Starts the weather service: schedules the 10-minute refresh, then builds
