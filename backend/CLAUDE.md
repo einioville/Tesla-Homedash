@@ -40,7 +40,8 @@ imports a service:
   `config_service.register_hook(name, svc.apply_config)`. No service re-reads `Config` on its own
   (`src/config_service/CLAUDE.md`).
 - **`health()`** — a per-service probe for the status view: `{state, detail}` plus optionally
-  `config` (the settings in effect, `[label, value]`) and `items`; registered with the loggers whose
+  `config` (the settings in effect, `[label, value]`), `items` and `last_ok_ms` (the service's last
+  good cycle, where its open warnings begin while it fails); registered with the loggers whose
   warnings its Järjestelmän tila card counts (`src/system_service/CLAUDE.md`).
 - **Logging** — a new service's top-level logger name must be added to `_SERVICE_LOGGERS`, or its
   INFO/DEBUG output silently vanishes (`src/utils/CLAUDE.md`).

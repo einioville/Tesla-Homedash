@@ -71,6 +71,8 @@ class WeatherService:
         self.__view_updated_ms: int | None = None
         # Why the latest view cycle sent nothing, or None after one that did.
         self.__view_failure: str | None = None
+        # The end of the last cycle that sent a document with every part fresh.
+        self.__last_ok_ms: int | None = None
 
     def apply_config(self) -> None:
         '''
@@ -139,14 +141,16 @@ class WeatherService:
                   ["Lähde", "Ilmatieteen laitos"]]
         if self.__view_updated_ms is not None:
             config.append(["Päivitetty", {"time": self.__view_updated_ms}])
-        if self.__last_view is None:
-            return {"state": "warn", "detail": "Ei säätietoja", "config": config}
-        if self.__view_failure:
-            return {"state": "warn", "detail": self.__view_failure, "config": config}
         stale = [_PART_NAMES.get(p, p) for p in self.__view_builder.failed_parts]
-        if stale:
-            return {"state": "warn", "detail": "Ei päivittynyt: " + ", ".join(stale), "config": config}
-        return {"state": "ok", "detail": "Säätiedot haettu", "config": config}
+        if self.__last_view is None:
+            state, detail = "warn", "Ei säätietoja"
+        elif self.__view_failure:
+            state, detail = "warn", self.__view_failure
+        elif stale:
+            state, detail = "warn", "Ei päivittynyt: " + ", ".join(stale)
+        else:
+            state, detail = "ok", "Säätiedot haettu"
+        return {"state": state, "detail": detail, "config": config, "last_ok_ms": self.__last_ok_ms}
 
     def get_run_task(self) -> asyncio.Task:
         '''
@@ -183,6 +187,8 @@ class WeatherService:
         )
         self.__view_updated_ms = int(datetime.now().timestamp() * 1000)
         self.__view_failure = None
+        if not self.__view_builder.failed_parts:
+            self.__last_ok_ms = self.__view_updated_ms
         logger.info(
             "Broadcasting weather view: %d hours, observed %s",
             len(document["hourly"]), document["now"]["time"] or "-",

@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import struct
+import time
 
 import requests
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -65,6 +66,8 @@ class SpotifyPlayer(BaseMediaPlayer):
         # Awaited when _auth_error changes, so the dashboard hears about it at once
         # rather than at the next client reconnect.
         self._auth_listener = None
+        # Epoch ms of the last Spotify call that succeeded, for the status card.
+        self._last_ok_ms: int | None = None
 
         self._scheduler = AsyncIOScheduler(timezone=config.zone_info)
 
@@ -164,7 +167,8 @@ class SpotifyPlayer(BaseMediaPlayer):
         '''Polling and playback facts for the status view's Spotify card.'''
         return {"poll_s": self._poll_interval, "playing": self._is_playing,
                 "on_target": bool(self._current_device_id)
-                and self._current_device_id == self._target_device_id}
+                and self._current_device_id == self._target_device_id,
+                "last_ok_ms": self._last_ok_ms}
 
     def target_device_id(self) -> str:
         '''
@@ -290,9 +294,11 @@ class SpotifyPlayer(BaseMediaPlayer):
         if self._auth_error is not None:
             return _FAILED
         try:
-            return await self._loop.run_in_executor(
+            result = await self._loop.run_in_executor(
                 None, lambda: func(*args, **kwargs)
             )
+            self._last_ok_ms = int(time.time() * 1000)
+            return result
         except SpotifyOauthError as e:
             # Caught BEFORE SpotifyBaseException, of which it is a subclass: only
             # this branch can tell "the grant is gone" from "the API said no".

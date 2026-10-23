@@ -28,11 +28,12 @@ class TelemetryHandler:
         self.__server = server
         self.__stream: TeslemetryStream | None = None
         self.__close_event = asyncio.Event()
-        # For the status view: whether the stream is up, since when, and when
-        # the last event arrived. None until the first of each happens.
+        # For the status view: whether the stream is up, when the last event
+        # arrived, and the last moment it was known to work (an event, or the
+        # stream up). None until the first of each happens.
         self.__connected: bool | None = None
-        self.__changed_ms: int | None = None
         self.__last_event_ms: int | None = None
+        self.__last_ok_ms: int | None = None
 
     async def start(self) -> None:
         '''
@@ -65,12 +66,15 @@ class TelemetryHandler:
             data (dict): One Teslemetry stream event.
         '''
         self.__last_event_ms = int(time.time() * 1000)
+        self.__last_ok_ms = self.__last_event_ms
         self.__vehicle.on_telemetry_event(data)
 
     def __on_connection_change(self, connected: bool) -> None:
         '''Logs connection state transitions reported by the TeslemetryStream library.'''
+        # Up until now either way: a connect starts a good stretch, a drop ends one.
+        if connected or self.__connected:
+            self.__last_ok_ms = int(time.time() * 1000)
         self.__connected = connected
-        self.__changed_ms = int(time.time() * 1000)
         if connected:
             logger.info("Teslemetry stream connected")
         else:
@@ -95,7 +99,7 @@ class TelemetryHandler:
             config.append(["Auto", "Hereillä" if online else "Nukkuu"])
         if self.__last_event_ms is not None:
             config.append(["Viimeisin tieto", {"time": self.__last_event_ms}])
-        return {"state": state, "detail": detail, "config": config}
+        return {"state": state, "detail": detail, "config": config, "last_ok_ms": self.__last_ok_ms}
 
     def close(self) -> None:
         '''

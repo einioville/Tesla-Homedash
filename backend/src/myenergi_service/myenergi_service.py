@@ -137,6 +137,8 @@ class MyEnergiService:
         # __apply_interval). Reset to 0 on the first poll that succeeds.
         self.__is_charging = False
         self.__consecutive_failures = 0
+        # Epoch ms of the last successful poll, for the status card.
+        self.__last_ok_ms: int | None = None
 
         # Most recent framed CHARGER_STREAM packet, replayed verbatim to a newly
         # connecting client (same idea as WeatherService.__last_view).
@@ -193,7 +195,7 @@ class MyEnergiService:
             config.append(["Kyselyväli nyt", f"{self.__current_interval} s"])
         serial = self.__zappi.serial_number if self.__zappi is not None else None
         config.append(["Zappi", str(serial) if serial else (self.__zappi_serial or "Automaattinen")])
-        return {"state": state, "detail": detail, "config": config}
+        return {"state": state, "detail": detail, "config": config, "last_ok_ms": self.__last_ok_ms}
 
     def get_run_task(self) -> asyncio.Task:
         '''Returns an asyncio Task that starts the MyEnergi service.'''
@@ -260,6 +262,7 @@ class MyEnergiService:
                 "Zappi refresh recovered after %d failure(s)", self.__consecutive_failures
             )
             self.__consecutive_failures = 0
+        self.__last_ok_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
 
         status = self.__zappi.status
         plug = self.__zappi.plug_status

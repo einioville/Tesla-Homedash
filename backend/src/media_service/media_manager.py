@@ -313,7 +313,7 @@ class MediaManager:
             state, detail = "ok", "Spotify ohjaa toistoa"
         else:
             state, detail = "ok", "Soi" if self.__radio_player.is_playing() else "Pysäytetty"
-        return {"state": state, "detail": detail, "config": [
+        return {"state": state, "detail": detail, "last_ok_ms": info["last_ok_ms"], "config": [
             ["Asema", info["channel"]],
             ["Asemia", str(info["stations"])],
             ["Käynnistys", "Soi heti" if self.__autoplay_radio else "Hiljaa"],

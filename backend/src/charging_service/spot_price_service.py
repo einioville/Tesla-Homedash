@@ -69,6 +69,8 @@ class SpotPriceService:
         self.__last_frame: bytes | None = None
         # The all-in €/kWh in that packet, for the status view (None on a fetch miss).
         self.__last_all_in: float | None = None
+        # Epoch ms of the last broadcast that carried a price, for the status card.
+        self.__last_ok_ms: int | None = None
 
     async def run(self) -> None:
         '''
@@ -101,10 +103,12 @@ class SpotPriceService:
         if self.__last_all_in is not None:
             config.append(["Hinta nyt", f"{self.__last_all_in * 100.0:.2f} c/kWh"])
         if self.__last_frame is None:
-            return {"state": "warn", "detail": "Ei hintaa", "config": config}
-        if self.__last_all_in is None:
-            return {"state": "warn", "detail": "Tämän tunnin hinta puuttuu", "config": config}
-        return {"state": "ok", "detail": "Hinta haettu", "config": config}
+            state, detail = "warn", "Ei hintaa"
+        elif self.__last_all_in is None:
+            state, detail = "warn", "Tämän tunnin hinta puuttuu"
+        else:
+            state, detail = "ok", "Hinta haettu"
+        return {"state": state, "detail": detail, "config": config, "last_ok_ms": self.__last_ok_ms}
 
     def get_run_task(self) -> asyncio.Task:
         '''Returns an asyncio Task that starts the spot price service.'''
@@ -123,6 +127,8 @@ class SpotPriceService:
         spot = self.__provider.raw_price_at(now_ms)
         self.__last_frame = _build_spot_price_frame(hour_ms, spot, all_in)
         self.__last_all_in = all_in
+        if all_in is not None:
+            self.__last_ok_ms = now_ms
         logger.info(
             "Broadcasting spot price: hour=%s all_in=%s €/kWh",
             datetime.fromtimestamp(hour_ms / 1000, tz=timezone.utc).isoformat(),

@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import struct
+import time
 
 import aiohttp
 import vlc
@@ -50,9 +51,10 @@ class RadioPlayer(BaseMediaPlayer):
 
         self.__stream_url: str | None = None
         self.__image_url: str | None = None
-        # Why the last station lookup failed, or None after one that worked; the
-        # status view's Radio card reads it.
+        # Why the last station lookup failed, or None after one that worked, and
+        # when one last worked (epoch ms); the status view's Radio card reads both.
         self.__fetch_error: str | None = None
+        self.__last_ok_ms: int | None = None
 
         # Flag to prevent restart loops when intentionally stopped
         self.__intentional_stop = False
@@ -172,6 +174,7 @@ class RadioPlayer(BaseMediaPlayer):
                 self.__fetch_error = "Asemalle ei löytynyt lähetystä"
             else:
                 self.__fetch_error = None
+                self.__last_ok_ms = int(time.time() * 1000)
         except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as e:
             # ValueError covers JSON decode errors from response.json()
             logger.warning("Failed to fetch radio station data for %s: %s: %s", self.__channel, type(e).__name__, e)
@@ -229,9 +232,12 @@ class RadioPlayer(BaseMediaPlayer):
         logger.debug("Radio player stopped")
 
     def describe(self) -> dict:
-        '''The station, the station count and the last lookup's failure, for the status view.'''
+        '''
+        The station, the station count, the last lookup's failure and when a
+        lookup last worked, for the status view.
+        '''
         return {"channel": self.__channel, "stations": len(self.__channels),
-                "error": self.__fetch_error}
+                "error": self.__fetch_error, "last_ok_ms": self.__last_ok_ms}
 
     def is_playing(self) -> bool:
         '''

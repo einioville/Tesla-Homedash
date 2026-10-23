@@ -77,6 +77,8 @@ class InfluxDBHandler:
         # Day/month boundary queries must align with the configured timezone
         # used by the midnight snapshot job, not the host OS local time.
         self.__timezone = zone_info
+        # Epoch ms of the last request InfluxDB answered, for the status card.
+        self.__last_ok_ms: int | None = None
         logger.info(
             "InfluxDB handler initialized: url=%s, org=%s, tz=%s",
             url, org, zone_info.key,
@@ -91,10 +93,17 @@ class InfluxDBHandler:
         the status probe registry awaits it under its timeout.
         '''
         ok = await self.connected()
+        if ok:
+            self.__answered()
         return {"state": "ok" if ok else "error",
                 "detail": "Yhteys auki" if ok else "Ei yhteyttä tietokantaan",
                 "config": [["Osoite", self.__url], ["Organisaatio", self.__org],
-                           ["Bucket", self.__bucket]]}
+                           ["Bucket", self.__bucket]],
+                "last_ok_ms": self.__last_ok_ms}
+
+    def __answered(self) -> None:
+        '''Notes that InfluxDB answered a request just now.'''
+        self.__last_ok_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
 
     async def __single_table(self, query: str, failure: str):
         '''
@@ -111,6 +120,7 @@ class InfluxDBHandler:
         except Exception as e:
             logger.warning("InfluxDB %s: %s: %s", failure, type(e).__name__, e)
             return None
+        self.__answered()
 
         if len(result) > 1:
             raise Exception("There was more than one table")
@@ -418,6 +428,7 @@ class InfluxDBHandler:
             return
         try:
             await self.__client.write_api().write(bucket=self.__bucket, record=valid_points)
+            self.__answered()
             logger.info("Wrote %d points to InfluxDB", len(valid_points))
         except Exception as e:
             logger.error("Failed to write points to InfluxDB: %s", e)
@@ -439,6 +450,7 @@ class InfluxDBHandler:
             return
         try:
             await self.__client.write_api().write(bucket=self.__bucket, record=valid_points)
+            self.__answered()
             logger.info("Wrote %d charger points to InfluxDB", len(valid_points))
         except Exception as e:
             logger.error("Failed to write charger points to InfluxDB: %s", e)

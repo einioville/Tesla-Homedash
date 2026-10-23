@@ -231,22 +231,31 @@ class ErrorLog(logging.Handler):
         entries.reverse()
         return entries
 
-    def counts(self, match) -> dict:
+    def counts(self, match, open_since: int | None, past_since: int) -> dict:
         '''
-        {"warnings": n, "errors": m} over the entries whose logger matches; an
-        error is ERROR or CRITICAL.
+        One card's tallies over the entries whose logger matches:
+        {"warnings": n, "errors": m} over the open ones, logged at or after
+        open_since, and "past": how many earlier ones were logged at or after
+        past_since.  An error is ERROR or CRITICAL.
         Arguments:
             match (Callable): match(logger_name) -> bool.
+            open_since (int | None): Epoch ms where the open entries begin; None
+                when nothing is open.
+            past_since (int): Epoch ms where the past count begins.
         '''
-        warnings = errors = 0
+        warnings = errors = past = 0
         with self.__mutex:
             for entry in self.__entries:
-                if match(entry["logger"]):
+                if not match(entry["logger"]):
+                    continue
+                if open_since is not None and entry["t"] >= open_since:
                     if entry["level"] in ("ERROR", "CRITICAL"):
                         errors += 1
                     else:
                         warnings += 1
-        return {"warnings": warnings, "errors": errors}
+                elif entry["t"] >= past_since:
+                    past += 1
+        return {"warnings": warnings, "errors": errors, "past": past}
 
     def clear(self) -> int:
         '''

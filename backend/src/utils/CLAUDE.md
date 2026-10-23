@@ -109,11 +109,11 @@ with inbound messages capped at `MAX_PREAUTH_MSG_SIZE` (4 KB) — `../auth_servi
 | `0xAA` | SPOTIFY_DEVICE_GET_STATUS | F→B | (empty) — ask for the configured device's standing |
 | `0xAB` | SPOTIFY_DEVICE_STATUS | B→F | `status(1B, always OK) + len(4B) + JSON` — `{configured, id, name, type, detected, isRestricted, reason}`; `detected` is `null` when Spotify's device list could not be read. Replied to the requester, **broadcast** after a successful select; no `scanId` — it describes `config.json`, not a flow |
 | `0xB0` | SYSTEM_GET_STATUS | F→B | (empty) — poll the service probes now |
-| `0xB1` | SYSTEM_STATUS | B→F | `status(1B) + len(4B) + JSON` — `{services[{id, label, state, detail, config, items, errors{warnings, errors}}], sampled_ms, uptime_s, backend_uptime_s}`; the host's metrics are `SYSTEM_HISTORY`'s |
+| `0xB1` | SYSTEM_STATUS | B→F | `status(1B) + len(4B) + JSON` — `{services[{id, label, state, detail, config, items, errors{warnings, errors, past}}], sampled_ms, uptime_s, backend_uptime_s}` — `warnings` / `errors` the open ones, `past` the earlier ones of the last 24 h (`../system_service/CLAUDE.md`); the host's metrics are `SYSTEM_HISTORY`'s |
 | `0xB2` | SYSTEM_GET_HISTORY | F→B | `since_ms(8B, signed)` — the samples newer than this; `0` (or an empty payload) = everything |
 | `0xB3` | SYSTEM_HISTORY | B→F | `status(1B) + len(4B) + JSON` — `{interval_s, window_s, reset, mem_total_b, cpu_count, temp_available, disk{path, device, total_b, used_b, free_b, used_pct}, samples[{t, cpu[], mem_used_b, disk_read_bps, disk_write_bps, net_rx_bps, net_tx_bps, cpu_temp_c}]}`; to the requester only. `reset` = drop what you hold rather than append (asked for everything, or the host clock went backwards). A value that could not be computed is `null` (`../system_service/CLAUDE.md`) |
 | `0xB4` | SYSTEM_GET_LOG | F→B | `len(4B) + JSON` — `{service}`: one status card's probe id |
-| `0xB5` | SYSTEM_LOG | B→F | `status(1B) + len(4B) + JSON` — `{service, label, entries[{t, level, logger, message}]}`, newest first, ≤ 500; to the requester only |
+| `0xB5` | SYSTEM_LOG | B→F | `status(1B) + len(4B) + JSON` — `{service, label, open_since, entries[{t, level, logger, message, open}]}`, newest first, ≤ 500; `open_since` is where the open entries begin, `null` when none are; to the requester only |
 | `0xB6` | LOG_CLEAR | F→B | `len(4B) + JSON` — `{keep: "warnings" \| "none"}`; clears the backend's own log files (the journal is never touched) |
 | `0xB7` | LOG_CLEAR_RESULT | B→F | `status(1B) + len(4B) + JSON` — `{ok, freedBytes, message}`; to the requester only |
 | `0xC0` | DISPLAY_SET_POWER | F→B | `on(1B)` — 1 wakes the panel, 0 powers it down |

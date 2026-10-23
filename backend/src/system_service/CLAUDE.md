@@ -31,12 +31,28 @@ metrics are the history's. Details that matter:
 - **Each probe claims the loggers whose warnings its card counts** (`register_probe(…, loggers=…)`,
   exact names or their dotted descendants — `media_service.spotify` would NOT match
   `media_service.spotify_player`, so list them). The server card is the **catch-all**: it also takes
-  every logger no other card claims, so no warning is ever unlisted. Each row gets
-  `errors: {warnings, errors}` from the persistent `ErrorLog` (`../utils/CLAUDE.md`), and
-  **`SYSTEM_GET_LOG`** returns one card's entries, newest first, capped at 500.
-- Warnings since the logs were last cleared in full — the store persists across restarts, so a count
-  is not "since boot" any more. A level change is logged at INFO for that reason: a deliberate
-  change is no problem to count.
+  every logger no other card claims, so no warning is ever unlisted.
+- **A card's warnings and errors are open or past (#82)** — the state says what is wrong now, the
+  log is history, and one time joins them (`__open_since`). A card that is `ok` or `off` has
+  nothing open, whatever it logged before. A `warn` / `error` card has open everything logged since
+  its **`last_ok_ms`** — the probe's optional epoch-ms of the service's last good cycle — or, with
+  none to report, everything since this backend started. Each row gets `errors: {warnings, errors,
+  past}` from the persistent `ErrorLog` (`../utils/CLAUDE.md`): the open ones by level, and how many
+  past ones fall in the last 24 h (`_PAST_WINDOW_MS`). **`SYSTEM_GET_LOG`** returns one card's
+  entries, newest first, capped at 500, each flagged `open`, with `open_since`; it reads the
+  state and `last_ok_ms` the card's latest status poll recorded (`__latest`).
+- **Nothing is raised or cleared by name.** Most warnings are events — a refused login, a dropped
+  packet, a one-off 502 — with no condition behind them to clear, and the conditions that matter
+  are already the probes' states. So a problem that recurs while other cycles succeed must show in
+  `health()` as `warn` (the Sää card's stale parts do), or one good cycle makes it past.
+- **Which probes report `last_ok_ms`**: the ones with a cycle that can succeed — Tesla (the last
+  event, or the stream coming up or going down), InfluxDB (the last request it answered: a write,
+  a read or the probe's ping), Radio (the last station lookup that found a stream), Spotify (the
+  last API call that succeeded), Sää (the last cycle with every part fresh), Laturi (the last good
+  Zappi poll) and Pörssisähkö (the last broadcast that carried a price). Auth, audio, display and
+  the server have no cycle, so a failing one opens this run's entries.
+- The store holds warnings since the logs were last cleared in full, across restarts. A level
+  change is logged at INFO for that reason: a deliberate change is no problem to count.
 - CPU jiffies sum only the first eight `/proc/stat` fields: `guest` / `guest_nice` are already inside
   `user` / `nice`, so summing all ten counts a VM host's guest time twice.
 

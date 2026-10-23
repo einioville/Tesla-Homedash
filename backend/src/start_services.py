@@ -881,13 +881,16 @@ async def main():
         if status.get("validUntil"):
             config_rows.append(["Tunnistus voimassa", {"time": int(status["validUntil"]) * 1000}])
         if not status["authorized"]:
-            return {"state": "error" if status.get("needsReauth") else "warn",
-                    "detail": status["reason"], "config": config_rows}
-        if not device:
-            return {"state": "warn", "detail": "Laitetta ei ole valittu", "config": config_rows}
-        detail = ("Soittaa" if player["playing"] else "Ohjaa toistoa") if player["active"] \
-            else "Odottaa toistoa laitteella"
-        return {"state": "ok", "detail": detail, "config": config_rows}
+            state = "error" if status.get("needsReauth") else "warn"
+            detail = status["reason"]
+        elif not device:
+            state, detail = "warn", "Laitetta ei ole valittu"
+        else:
+            state = "ok"
+            detail = ("Soittaa" if player["playing"] else "Ohjaa toistoa") if player["active"] \
+                else "Odottaa toistoa laitteella"
+        return {"state": state, "detail": detail, "config": config_rows,
+                "last_ok_ms": player["last_ok_ms"]}
 
     system_status.register_probe("spotify", "Spotify", _spotify_health,
                                  loggers=("media_service.spotify_player", "media_service.spotify_auth",
