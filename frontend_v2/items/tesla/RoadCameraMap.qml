@@ -4,10 +4,12 @@ import QtLocation
 import QtPositioning
 import frontend_v2
 
-// Where a road camera is, in RoadCameraPopup: a still, north-up map centred on the camera at
-// `zoom`, with the OSM place names and the home, so a camera named by its road and junction can
-// be placed. It takes no input, and nothing moves it but the camera it shows; an invalid
-// `coordinate` (a camera still loading) hides the marker and leaves the map where it was.
+// Where a road camera is, in RoadCameraPopup: a north-up map centred on the camera at `zoom`,
+// with the OSM place names, the home and the car, so a camera named by its road and junction can
+// be placed. Nothing else is drawn on it. It pans and zooms as the Koti dialog's map does, scaled
+// by the shared map sensitivity, and goes back to the camera and `zoom` when the camera changes;
+// an invalid `coordinate` (a camera still loading) hides the marker and leaves the map where it
+// was.
 Item {
     id: root
 
@@ -15,11 +17,21 @@ Item {
     property bool active: true
     // Suburbs are named from 12 (PlaceNames), and at 61° a 336 px map spans about 6 km.
     readonly property real zoom: 12
+    readonly property real minimumZoom: 6
+    // EOX, the imagery past MML's coverage, has no zoom 19.
+    readonly property real maximumZoom: 18
     readonly property int radius: 10
 
+    // The OSM plugin takes any zoom it is given, so the gestures clamp it themselves.
+    function zoomTo(level) {
+        map.zoomLevel = Math.max(minimumZoom, Math.min(maximumZoom, level))
+    }
+
     onCoordinateChanged: {
-        if (coordinate.isValid)
-            map.center = coordinate
+        if (!coordinate.isValid)
+            return
+        map.zoomLevel = zoom
+        map.center = coordinate
     }
 
     Item {
@@ -49,6 +61,30 @@ Item {
                 active: root.active
             }
 
+            DragHandler {
+                target: null
+                maximumPointCount: 1
+                property point last
+                onActiveChanged: last = Qt.point(0, 0)
+                onTranslationChanged: {
+                    map.pan((last.x - translation.x) * Theme.mapSensitivity,
+                            (last.y - translation.y) * Theme.mapSensitivity)
+                    last = translation
+                }
+            }
+
+            PinchHandler {
+                target: null
+                property real startZoom: root.zoom
+                onActiveChanged: if (active) startZoom = map.zoomLevel
+                onActiveScaleChanged: if (active) root.zoomTo(startZoom + Math.log2(activeScale) * Theme.mapSensitivity)
+            }
+
+            WheelHandler {
+                acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+                onWheel: (event) => root.zoomTo(map.zoomLevel + event.angleDelta.y / 120 * 0.5 * Theme.mapSensitivity)
+            }
+
             PlaceLabels {
                 geoMap: map
                 active: root.active
@@ -56,10 +92,29 @@ Item {
 
             HomeMarker {}
 
+            // The car as the telemetry has it; the map is north-up, so the heading is the arrow's turn.
+            MapQuickItem {
+                visible: Tesla.location && Tesla.location.latitude !== undefined
+                z: 6
+                coordinate: visible ? QtPositioning.coordinate(Tesla.location.latitude, Tesla.location.longitude)
+                                    : QtPositioning.coordinate()
+                rotation: Tesla.gpsHeading
+                anchorPoint.x: carIcon.width / 2
+                anchorPoint.y: carIcon.height / 2
+                sourceItem: Image {
+                    id: carIcon
+                    width: 24
+                    height: 24
+                    source: "qrc:/resources/icons/arrow.svg"
+                    sourceSize: Qt.size(48, 48)
+                    smooth: true
+                }
+            }
+
             MapQuickItem {
                 visible: root.coordinate.isValid
-                // Over the home: the camera is what this map is for.
-                z: 6
+                // Over the home and the car: the camera is what this map is for.
+                z: 7
                 coordinate: root.coordinate
                 anchorPoint.x: 17
                 anchorPoint.y: 17

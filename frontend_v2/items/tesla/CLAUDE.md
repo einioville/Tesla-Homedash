@@ -260,15 +260,18 @@ OSM's place names are no layer: the imagery has no labels of its own, so every m
   view (the dashboard frosts all of itself, `surface`, through a FrostLayer made while the dialog
   shows; Kartta's dialog has one of its own beside the panels' shared one, since a dialog's frost
   is stronger), and the map under it takes no gesture while it is open (`interactive`).
-  The Weather view's *Nyt* card has a *Kelikamerat* button that opens the same dialog on the ten
-  cameras nearest the weather document's place (`RoadCameraStations.nearest`, great-circle
-  distance), nearest first, stepped through with the arrows in its corner and each one's distance
-  under its name; the view holds that list and the dialog (`views/WeatherView.qml`), frosting the
-  whole dashboard, whose radar map takes no gesture meanwhile. Above the readings, wherever it is
-  opened, `RoadCameraMap.qml` shows where the camera is: a still north-up map centred on it (the
-  reply's `geometry`) at zoom 12 — where suburbs are named — with the place names and the home, and
-  the camera's marker in the accent over the home. It takes no input. Each view's dialog builds its
-  map the first time it opens and then keeps it, holding its tiles.
+  The Weather view's *Nyt* card has a *Kelikamerat* button that opens the same dialog on every
+  camera within *Kelikameroiden etäisyys* of the home (`roadCameraRadiusKm`, the Kartta card, 15 km
+  by default; the weather document's place with no home set; `RoadCameraStations.within`,
+  great-circle distance) — the nearest one alone when none is that close — nearest first, stepped
+  through with the arrows in its corner and each one's distance under its name; the view holds that
+  list and the dialog (`views/WeatherView.qml`), frosting the whole dashboard, whose radar map takes
+  no gesture meanwhile. Above the readings, wherever it is opened, `RoadCameraMap.qml` shows where
+  the camera is: a north-up map centred on it (the reply's `geometry`) at zoom 12 — where suburbs
+  are named — with the place names, the home and the car, and the camera's marker in the accent over
+  both. Nothing else is drawn on it. It pans and zooms (zoom 6–18, the shared *Eleherkkyys*) and goes
+  back to the camera at zoom 12 when the dialog moves to another camera or opens again. Each view's
+  dialog builds its map the first time it opens and then keeps it, holding its tiles.
 - **Säävaroitukset** (a demo, on by default) — FMI's warnings in force as areas,
   `items/weather/WarningAreas.qml`: each warning's regions from the weather document's `shapes`
   (`backend/src/weather_service/CLAUDE.md`), filled faintly in its colour and outlined, in a

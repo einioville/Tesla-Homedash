@@ -550,7 +550,9 @@ past ones, muted (#82; `backend/src/system_service/CLAUDE.md`) — plus the dash
 minimap in a corner (`RadarInset`) whose tap opens the Weather view too, the overlay translucent and
 in step with it, both chosen and the loop's history set under the layer menu's *Sadetutka* — and
 every radar loop's steps crossfading in a shader (`radarfade.frag`) — plus a still map of where the
-camera is in the road camera dialog (`RoadCameraMap`).
+camera is in the road camera dialog (`RoadCameraMap`: movable, with the home and the car), the
+Weather view's cameras every one within a set distance of the home, and the place names on every
+map always rather than a layer.
 When you land a change that touches documented behaviour, update this line.
 
 ### 7.8 Keeping the code clean

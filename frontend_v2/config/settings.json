@@ -542,6 +542,18 @@
                             }
                         },
                         {
+                            "key": "roadCameraRadiusKm",
+                            "type": "int",
+                            "label": "Kelikameroiden etäisyys",
+                            "help": "Sää-näkymän Kelikamerat-painike näyttää kamerat tämän matkan päässä kodista, lähimmän ensin.",
+                            "unit": "km",
+                            "min": 5,
+                            "max": 100,
+                            "step": 5,
+                            "default": 15,
+                            "apply": "live"
+                        },
+                        {
                             "key": "clearMapCache",
                             "type": "action",
                             "label": "Tyhjennä karttavälimuisti",

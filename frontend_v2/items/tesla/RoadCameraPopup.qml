@@ -10,7 +10,8 @@ import "../../app/Format.js" as Format
 // station since closed is dropped. A picture is taken every ten minutes; its time is shown, and
 // it is in the URL so a new one is not served from the image cache. Centred, on frosted glass
 // over the view's `backdrop` (ModalDialog). Opened with a list of cameras instead (the Weather
-// view's nearest), it steps through them with the arrows in its corner, saying how far each is.
+// view's, round the home), it steps through them with the arrows in its corner, saying how far
+// each is.
 // A still map above the readings shows where the camera is (RoadCameraMap).
 // Fetched by the display, not the backend: a tap on one display asks for it (root CLAUDE.md §5.4).
 ModalDialog {
@@ -26,7 +27,7 @@ ModalDialog {
     property var readings: ({})
     property string readAt: ""
     property int preset: 0
-    // The cameras to step through, nearest first, as { id, km } (RoadCameraStations.nearest);
+    // The cameras to step through, nearest first, as { id, km } (RoadCameraStations.within);
     // empty for one camera opened from the map.
     property var cameras: []
     property int cameraIndex: 0
@@ -203,7 +204,7 @@ ModalDialog {
         }
         Text {
             anchors.verticalCenter: parent.verticalCenter
-            width: 52
+            width: 64
             horizontalAlignment: Text.AlignHCenter
             text: (popup.cameraIndex + 1) + " / " + popup.cameras.length
             font.family: Theme.fontFamily
