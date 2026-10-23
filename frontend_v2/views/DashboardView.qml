@@ -83,7 +83,6 @@ Rectangle {
             radarOverlay: Settings.values.homeMapRadarOverlay === true
             radarHistoryMin: Settings.values.homeMapRadarHistory
             showRoute: Settings.values.homeMapLayerRoute === true
-            showPlaceNames: Settings.values.homeMapLayerPlaces === true
             showCameras: Settings.values.homeMapLayerCameras === true
             onCameraOpened: (stationId) => cameraPopup.open(stationId)
             interactive: !cameraPopup.visible && !warningsPopup.visible
@@ -122,7 +121,6 @@ Rectangle {
             onUsed: mapControls.poke()
             layers: [
                 { key: "homeMapLayerRoute", label: qsTr("Ajettu reitti") },
-                { key: "homeMapLayerPlaces", label: qsTr("Paikannimet") },
                 { key: "homeMapLayerCameras", label: qsTr("Kelikamerat") },
                 { key: "homeMapLayerRadar", label: qsTr("Sadetutka"),
                   modes: [{ key: "homeMapRadarInset", label: qsTr("Minikartta") },

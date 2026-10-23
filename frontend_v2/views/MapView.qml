@@ -22,7 +22,6 @@ Rectangle {
     readonly property bool showStats: Settings.values.mapLayerStats === true
     readonly property bool showRadar: Settings.values.mapLayerRadar === true
     readonly property bool showRoute: Settings.values.mapLayerRoute === true
-    readonly property bool showPlaces: Settings.values.mapLayerPlaces === true
     readonly property bool showWarnings: Settings.values.mapLayerWarnings === true
     readonly property bool showCameras: Settings.values.mapLayerCameras === true
     readonly property var warnings: (Weather.view.warnings || []).filter(w => (w.shapes || []).length > 0)
@@ -51,7 +50,6 @@ Rectangle {
         showCameras: view.showCameras
         onCameraOpened: (stationId) => cameraPopup.open(stationId)
         showRoute: view.showRoute
-        showPlaceNames: view.showPlaces
         interactive: !cameraPopup.visible && !warningsPopup.visible
     }
 
@@ -116,7 +114,6 @@ Rectangle {
         layers: [
             { key: "mapLayerStats", label: qsTr("Ajotiedot") },
             { key: "mapLayerRoute", label: qsTr("Ajettu reitti") },
-            { key: "mapLayerPlaces", label: qsTr("Paikannimet") },
             { key: "mapLayerCameras", label: qsTr("Kelikamerat") },
             { key: "mapLayerRadar", label: qsTr("Sadetutka"),
               modes: [{ key: "mapRadarInset", label: qsTr("Minikartta") },

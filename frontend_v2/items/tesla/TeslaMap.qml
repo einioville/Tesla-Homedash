@@ -50,13 +50,13 @@ Item {
 
     // The map's layers, as the Kartta view's menu sets them (the dashboard's card leaves out
     // the warnings): FMI's radar and lightning, FMI's warning areas, the drive under way
-    // (CurrentDrive) drawn behind the car, and OSM place names (PlaceLabels) and Fintraffic's
-    // road cameras (RoadCameras). `radar` is the RadarLayer whose loop the others follow while
-    // the radar shows, for its controls.
+    // (CurrentDrive) drawn behind the car and Fintraffic's road cameras (RoadCameras). OSM's
+    // place names (PlaceLabels) are no layer: the imagery has no labels, so they always show.
+    // `radar` is the RadarLayer whose loop the others follow while the radar shows, for its
+    // controls.
     property bool showRadar: false
     property bool showWarnings: false
     property bool showRoute: false
-    property bool showPlaceNames: false
     property bool showCameras: false
     // The radar's two ways of showing, either or both: a minimap in a corner (RadarInset) and
     // an overlay on this map under everything else, translucent so the imagery shows through.
@@ -532,7 +532,7 @@ Item {
 
         PlaceLabels {
             geoMap: map
-            active: root.showPlaceNames && root.isCurrent
+            active: root.isCurrent
         }
 
         RoadCameras {

@@ -616,14 +616,6 @@
                             "apply": "live"
                         },
                         {
-                            "key": "homeMapLayerPlaces",
-                            "type": "bool",
-                            "label": "Paikannimet (aloitusnäkymä)",
-                            "hidden": true,
-                            "default": true,
-                            "apply": "live"
-                        },
-                        {
                             "key": "homeMapLayerCameras",
                             "type": "bool",
                             "label": "Kelikamerat (aloitusnäkymä)",
@@ -677,14 +669,6 @@
                             "key": "mapLayerWarnings",
                             "type": "bool",
                             "label": "Säävaroitukset",
-                            "hidden": true,
-                            "default": true,
-                            "apply": "live"
-                        },
-                        {
-                            "key": "mapLayerPlaces",
-                            "type": "bool",
-                            "label": "Paikannimet",
                             "hidden": true,
                             "default": true,
                             "apply": "live"

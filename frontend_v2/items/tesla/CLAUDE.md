@@ -165,18 +165,20 @@ testing every edge.
 
 ## The Kartta view's layers — `views/MapView.qml`
 
-The full-screen map carries four layers, each switched from the menu behind the round button in
+The full-screen map carries five layers, each switched from the menu behind the round button in
 the bottom-right corner (`MapLayerMenu.qml`; a press outside the open menu closes it and goes no
 further). Their states are **hidden local settings** in the Kartta card (`mapLayerStats`,
-`mapLayerRadar`, `mapLayerRoute`, `mapLayerPlaces`), written straight from the menu, so a choice
-outlasts a restart without a row in the Options view. **The dashboard's card has its own** menu and
-switches (`homeMapLayer*`) for the radar, the route, the names and the cameras — not the warnings or
+`mapLayerRadar`, `mapLayerRoute`, `mapLayerCameras`, `mapLayerWarnings`), written straight from the
+menu, so a choice outlasts a restart without a row in the Options view. **The dashboard's card has
+its own** menu and switches (`homeMapLayer*`) for the radar, the route and the cameras — not the warnings or
 the data card, which need the full screen — with no radar timeline (its minimap carries the time),
 and a camera's tap opens the same dialog over the dashboard. Each view names its rows
 (`MapLayerMenu.layers`); the menu sits in its map's corner, full-screen or the card. A row can carry
 options nested under it while it is on — the ways the layer shows (`modes`, switches) and one
 `choice` — and the layer is on only with one of its modes on: switched on with all of them off it
 shows the first, and the last one switched off switches it off. `TeslaMap`'s `show*` default off.
+OSM's place names are no layer: the imagery has no labels of its own, so every map draws them
+(*Place names*, below).
 
 - **Ajotiedot** — `MapLiveStats.qml` in the bottom-left: speed, battery, range and outside
   temperature on frosted glass, read straight off `Tesla`. The car reports the outside temperature
@@ -244,7 +246,6 @@ shows the first, and the last one switched off switches it off. `TeslaMap`'s `sh
   Shapes are `asynchronous`, so a long trip is processed off the GUI thread. The Trips map gives it
   a dark casing under the line (`casingColor: Theme.tripRouteCasing`): all of the casing goes under
   all of the colour, or a chunk's casing would cover the end of the one before.
-- **Paikannimet** — `PlaceLabels.qml` over the `PlaceNames` store (below), issue #54's first step.
 - **Kelikamerat** — Fintraffic's road weather cameras (Digitraffic, CC BY 4.0, credited in the README
   and the dialog), `RoadCameras.qml`: the station list (`RoadCameraStations.qml`, ~800 cameras, 37 kB
   gzipped), a QML singleton so each display holds one for both maps and the Weather view, fetched
