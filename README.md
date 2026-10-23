@@ -31,7 +31,7 @@ Tesla-Homedash is a desktop dashboard that brings live vehicle telemetry, music,
 - [aiohttp](https://docs.aiohttp.org/) — async HTTP client.
 - [aiocsv](https://github.com/MKuranowski/aiocsv) — async CSV reader.
 - [influxdb-client](https://github.com/influxdata/influxdb-client-python) — InfluxDB read / write client.
-- [numpy](https://numpy.org/) — numerics for cover-art processing.
+- [numpy](https://numpy.org/) — numerics for the charging-session energy breakdown and the audio spectrum.
 - [python-dotenv](https://github.com/theskumar/python-dotenv) — loads `.env` secrets.
 - [python-vlc](https://wiki.videolan.org/Python_bindings/) — Python bindings to libVLC for the radio player.
 - [spotipy](https://spotipy.readthedocs.io/) — Spotify Web API client.
