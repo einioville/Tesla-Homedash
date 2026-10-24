@@ -90,6 +90,10 @@ qt_add_executable(appfrontend_v2
     core/tesla/tesladata_gen.cpp
     core/tesla/tesladata.hh
     core/tesla/tesladata.cpp
+    core/tesla/cartrack.hh
+    core/tesla/cartrack.cpp
+    core/tesla/carmotion.hh
+    core/tesla/carmotion.cpp
     core/tesla/teslahistory.hh
     core/tesla/teslahistory.cpp
     core/tesla/teslafieldeditor.hh

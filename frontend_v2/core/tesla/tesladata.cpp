@@ -16,6 +16,16 @@ TeslaData::TeslaData(ServerClient *server, QObject *parent)
     : TeslaDataGen(parent), m_server(server) {
     connect(server, &ServerClient::packetReceived, this, &TeslaData::onPacket);
     connect(this, &TeslaDataGen::vehicleOnlineChanged, this, &TeslaData::trackSleep);
+    connect(this, &TeslaDataGen::locationChanged, this, [this]() {
+        const QVariantMap fix = location();
+        m_track.addFix(fix.value(QStringLiteral("latitude")).toDouble(),
+                       fix.value(QStringLiteral("longitude")).toDouble(), m_packetTime,
+                       m_track.now());
+    });
+    connect(this, &TeslaDataGen::gpsHeadingChanged, this,
+            [this]() { m_track.addHeading(gpsHeading(), m_packetTime); });
+    connect(this, &TeslaDataGen::vehicleSpeedChanged, this,
+            [this]() { m_track.setSpeed(vehicleSpeed(), m_track.now()); });
 }
 
 void TeslaData::trackSleep() {

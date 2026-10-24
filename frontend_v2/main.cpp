@@ -31,6 +31,7 @@
 #include "core/systemhistory.hh"
 #include "core/systemstatus.hh"
 #include "core/usbimport.hh"
+#include "core/tesla/carmotion.hh"
 #include "core/tesla/tesladata.hh"
 #include "core/tesla/teslafieldeditor.hh"
 #include "core/tesla/teslahistory.hh"
@@ -216,6 +217,7 @@ int main(int argc, char* argv[]) {
     qmlRegisterType<GraphSeries>("frontend_v2", 1, 0, "GraphSeries");
     qmlRegisterType<SpectrumLevels>("frontend_v2", 1, 0, "SpectrumLevels");
     qmlRegisterType<LightningLayer>("frontend_v2", 1, 0, "LightningLayer");
+    qmlRegisterType<CarMotion>("frontend_v2", 1, 0, "CarMotion");
     qmlRegisterUncreatableType<RouteBands>("frontend_v2", 1, 0, "RouteBands",
                                            QStringLiteral("Trips.route and CurrentDrive.route hold one"));
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "App", &config);

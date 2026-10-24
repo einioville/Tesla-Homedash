@@ -5,7 +5,7 @@ import QtPositioning
 import frontend_v2
 
 // OSM map that follows the car — the QML port of the Widgets map.qml. Position
-// and heading bind to the Tesla singleton (Location map + GpsHeading); pan /
+// and heading come from the Tesla singleton's track (CarMotion); pan /
 // pinch / wheel gestures suspend auto-follow for an idle window, then the view
 // snaps back to the car. Corners are rounded to match the card radius.
 // (Heading is named `heading`, not `rotation`, to avoid shadowing Item.rotation
@@ -22,11 +22,16 @@ import frontend_v2
 Item {
     id: root
 
-    property real latitude: (Tesla.location && Tesla.location.latitude !== undefined)
-                            ? Tesla.location.latitude : 61.497063
-    property real longitude: (Tesla.location && Tesla.location.longitude !== undefined)
-                             ? Tesla.location.longitude : 23.750078
-    property real heading: Tesla.gpsHeading
+    // The car as drawn: moved along its fixes at the speed it reports (CarTrack), every frame
+    // while this map is current and once per fix while it is hidden.
+    CarMotion {
+        id: car
+        source: Tesla
+        live: root.isCurrent
+    }
+    property real latitude: car.valid ? car.latitude : 61.497063
+    property real longitude: car.valid ? car.longitude : 23.750078
+    property real heading: car.heading
 
     // True while the user interacts (or within the idle window after). Auto-
     // follow is suspended in this state.
@@ -82,7 +87,8 @@ Item {
     // Frozen while the owning view is hidden. The dashboard keeps this map alive in
     // memory (so returning is instant — no tile reload), but a hidden map must not
     // animate or re-center on every telemetry tick. DashboardView binds this to its
-    // isCurrent; the follow animations and the center binding below gate on it.
+    // isCurrent; the car's motion, the follow animations and the center binding below
+    // gate on it.
     // A snap-back still pending when the view is left is an unfinished gesture, not
     // follow mode: it is finished on return — at once if it fell due while away, else
     // after a fresh idle window — so centre and zoom both come back (#55).
@@ -105,13 +111,6 @@ Item {
             }
             warpStep()
         }
-    }
-
-    Behavior on latitude { enabled: root.isCurrent; NumberAnimation { duration: 999; easing.type: Easing.Linear } }
-    Behavior on longitude { enabled: root.isCurrent; NumberAnimation { duration: 999; easing.type: Easing.Linear } }
-    Behavior on heading {
-        enabled: root.isCurrent
-        RotationAnimation { duration: 999; easing.type: Easing.Linear; direction: RotationAnimation.Shortest }
     }
 
     // Off while a dialog lies over the map: pointer handlers beneath an item that took the press
@@ -344,8 +343,8 @@ Item {
         warpAnim.restart()
     }
 
-    // Position ticks arrive smoothed by the Behaviors above, so these fire per
-    // frame while the car moves; warpStep is a bounds check and an early return
+    // The car moves every frame (CarMotion), so these fire per frame while it
+    // does; warpStep is a bounds check and an early return
     // in the common case. Heading changes deliberately do NOT trigger a step —
     // a bend would otherwise re-centre continuously — and need not, since a
     // turning car is also a moving one.
@@ -392,9 +391,9 @@ Item {
         // Turning the map under the car. Verified against the Qt 6.11.1 sources:
         // the OSM geoservice plugin declares setSupportsBearing(true), without
         // which QDeclarativeGeoMap would accept this property and silently
-        // ignore it. `heading` is already smoothed by the Behavior above, so the
-        // rotation eases for free and needs no Behavior of its own (one here
-        // would re-trigger on every frame of that animation and only add lag).
+        // ignore it. `heading` already turns smoothly with the car (CarMotion), so
+        // the rotation needs no Behavior of its own (one would re-trigger on every
+        // frame and only add lag).
         // Left ungated by isCurrent: a camera update on a map nobody is
         // rendering is cheap, and it means returning to the view finds the
         // bearing already correct rather than spinning into place.

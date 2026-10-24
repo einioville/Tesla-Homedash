@@ -1,6 +1,7 @@
 #ifndef FRONTEND_V2_TESLADATA_HH
 #define FRONTEND_V2_TESLADATA_HH
 
+#include "cartrack.hh"
 #include "tesladata_gen.hh"
 
 class ServerClient;
@@ -38,6 +39,8 @@ public:
     }
 
     qint64 asleepSince() const { return m_asleepSince; }
+    // Where the maps draw the car, fed from the location, heading and speed (CarMotion).
+    CarTrack *track() { return &m_track; }
 
 signals:
     void asleepSinceChanged();
@@ -52,6 +55,7 @@ private:
     // The timestamp of the packet being applied, for the NOTIFY handlers it sets off.
     qint64 m_packetTime = 0;
     qint64 m_asleepSince = 0;
+    CarTrack m_track;
 };
 
 #endif  // FRONTEND_V2_TESLADATA_HH

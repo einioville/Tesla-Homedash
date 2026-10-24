@@ -104,11 +104,18 @@ Two more ways back to the car, both ending in that snap-back (#55):
 - `handleGestureActive(true)` stops the snap-back **before** it sets `userControlled`: the
   animation's `onStopped` clears it, and a wheel turn has no active handler to keep it.
 
-`warpStep()` is driven off latitude/longitude changes (which the position Behaviors smooth to
-per-frame ticks) and NOT off heading — a bend would otherwise re-centre continuously, and a
+`warpStep()` is driven off latitude/longitude changes (which the car's motion makes per frame,
+below) and NOT off heading — a bend would otherwise re-centre continuously, and a
 turning car is a moving one anyway. The `warpAnim.running` guard is what stops a 700 ms ease
 being restarted on each of the ~42 frames it spans, and a car more than one viewport away (a
 first fix, a reconnect, a telemetry jump) is snapped rather than eased across half of Finland.
+
+**The car arrow is moved by a `CarMotion`** (one per `TeslaMap`, `live` with `isCurrent`): along
+its fixes at the speed it reported 1.5 s earlier, from the shared `CarTrack`
+(`../../core/CLAUDE.md`), not a `Behavior` gliding a second toward each new fix: that assumes a fix
+every second, and the car skips samples and stamps them up to a second off, so such an arrow stands
+still and then covers two seconds of road in one. Heading-up turns the map by the arrow's `heading`,
+which is the car's GpsHeading at the point shown, so the map turns where the path does.
 
 ## The basemap — `BasemapPlugin.qml`, `BasemapSwitch.qml`, `MapCoverage.js` (#59)
 
@@ -232,10 +239,11 @@ OSM's place names are no layer: the imagery has no labels of its own, so every m
   detection, a drive counting from the first metres (no minimum distance), and each live fix is
   added to a drive with the speed of the moment; the car leaving Park clears the last trip for
   the next drive. It is **coloured by speed** (`Theme.speedColor`), drawn by `SpeedRoute.qml` as
-  the Trips map's trip is, and in two parts: `CurrentDrive.route`, which ends at the fix before the
-  newest, and a two-point `MapPolyline` tail from there to the car arrow's eased position, in the
-  current speed's colour. The arrow takes a second to glide to each new fix, so a line through the
-  newest fix would run ahead of the car. **The route is not a `MapPolyline`**: one is rebuilt
+  the Trips map's trip is, and in two parts: `CurrentDrive.route`, which ends at the newest fix the
+  car arrow has reached (`CarTrack::reachedMs()`), and a two-point `MapPolyline` tail from there to the
+  arrow, in the current speed's colour. The arrow runs a second or two behind the newest fix, so
+  the fixes past it wait in `CurrentDrive` until it reaches them: a line through the newest fix
+  would run ahead of the car. **The route is not a `MapPolyline`**: one is rebuilt
   (projected, clipped to the view, triangulated) on every camera change
   (`QDeclarativePolylineMapItemPrivateCPU::afterViewportChanged`), which a following map makes
   every frame, and colouring would take a line per speed band. `SpeedRoute` is Shapes in a

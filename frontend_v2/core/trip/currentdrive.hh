@@ -19,11 +19,12 @@ class TeslaData;
  * trip only past the minimum distance); this side adds each live fix to a drive under way, so
  * the line grows behind the car between requests.
  *
- *  - `route` is the drive's fixes up to the one before the newest, with the speed at each,
- *    as the geometry the maps draw (RouteBands). The car arrow eases from one fix to the next
- *    over a second, so the map draws `route` and a tail from `tailStart` (its last point) to
- *    the arrow itself, and the line never runs ahead of the car. A live fix extends the
- *    route; a reply replaces it.
+ *  - `route` is the drive's fixes up to the newest one the car arrow has reached, with the
+ *    speed at each, as the geometry the maps draw (RouteBands). The arrow follows the fixes a
+ *    second or two behind the newest (CarTrack), so later fixes wait in `m_pending` until it
+ *    reaches them, and the map draws `route` and a tail from `tailStart` (its last point) to
+ *    the arrow itself: the line never runs ahead of the car. A reached fix extends the route;
+ *    a reply replaces it.
  *  - `live` is true while a drive is under way: the backend reports one, or the car is out of
  *    Park before the backend has logged it. `active` is true while there is a route at all —
  *    a drive, or the last trip. A finished trip is drawn whole, its last fix included, and
@@ -64,17 +65,18 @@ private:
     void setWatched(bool watched);
     void request();
     void onPacket(quint8 type, const QByteArray &payload);
-    void onLocation();
+    void onFix(double latitude, double longitude, qint64 carMs);
+    void onReached();
     void onGear();
-    // Takes `fix` as the newest; the one before it joins the path unless it is too
-    // close to the path's end to be worth a point (a parked car's GPS jitter). True
-    // when it joined.
-    bool addFix(const QGeoCoordinate &fix, qreal speed);
+    // Adds `fix` to the path unless it is too close to the path's end to be worth a point
+    // (a parked car's GPS jitter). True when it joined.
+    bool join(const RouteBands::Fix &fix);
+    // Moves the pending fixes the car has reached to the path. True when any joined.
+    bool joinReached();
     // Takes the path as the route drawn.
     void resetRoute();
     void clear();
     bool parked() const;
-    QGeoCoordinate liveFix() const;
     void updateState();
 
     ServerClient *m_server;
@@ -88,9 +90,9 @@ private:
     bool m_active = false;
     bool m_live = false;
     QList<RouteBands::Fix> m_path;
+    // The drive's fixes past the car arrow, oldest first.
+    QList<RouteBands::Fix> m_pending;
     RouteBands m_route;
-    QGeoCoordinate m_head;
-    qreal m_headSpeed = 0;
     QTimer m_poll;
     QTimer m_gearSettle;
 };

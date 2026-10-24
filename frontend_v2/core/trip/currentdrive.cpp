@@ -7,7 +7,6 @@
 
 #include <QDataStream>
 #include <QIODevice>
-#include <QVariantMap>
 
 namespace {
 const Logger logger = Logger::get("trips");
@@ -37,7 +36,8 @@ CurrentDrive::CurrentDrive(ServerClient *server, TeslaData *tesla, QObject *pare
         if (m_server->connected() && m_watched)
             request();
     });
-    connect(tesla, &TeslaData::locationChanged, this, &CurrentDrive::onLocation);
+    connect(tesla->track(), &CarTrack::fixAdded, this, &CurrentDrive::onFix);
+    connect(tesla->track(), &CarTrack::reachedChanged, this, &CurrentDrive::onReached);
     connect(tesla, &TeslaData::gearChanged, this, &CurrentDrive::onGear);
 }
 
@@ -81,33 +81,25 @@ bool CurrentDrive::parked() const {
     return gear.isEmpty() || gear == kParkGear;
 }
 
-QGeoCoordinate CurrentDrive::liveFix() const {
-    const QVariantMap location = m_tesla->location();
-    const QVariant lat = location.value(QStringLiteral("latitude"));
-    const QVariant lon = location.value(QStringLiteral("longitude"));
-    if (!lat.isValid() || !lon.isValid())
-        return {};
-    return QGeoCoordinate(lat.toDouble(), lon.toDouble());
-}
-
 QGeoCoordinate CurrentDrive::tailStart() const {
     if (m_path.isEmpty())
         return {};
     return {m_path.last().latitude, m_path.last().longitude};
 }
 
-bool CurrentDrive::addFix(const QGeoCoordinate &fix, qreal speed) {
-    if (!fix.isValid())
+bool CurrentDrive::join(const RouteBands::Fix &fix) {
+    if (!m_path.isEmpty()
+        && tailStart().distanceTo(QGeoCoordinate(fix.latitude, fix.longitude)) < kMinStepM)
         return false;
+    m_path.append(fix);
+    return true;
+}
+
+bool CurrentDrive::joinReached() {
+    const qint64 reached = m_tesla->track()->reachedMs();
     bool joined = false;
-    if (m_head.isValid()) {
-        if (m_path.isEmpty() || tailStart().distanceTo(m_head) >= kMinStepM) {
-            m_path.append({m_head.latitude(), m_head.longitude(), m_headSpeed, 0});
-            joined = true;
-        }
-    }
-    m_head = fix;
-    m_headSpeed = speed;
+    while (!m_pending.isEmpty() && m_pending.first().ts <= reached)
+        joined = join(m_pending.takeFirst()) || joined;
     return joined;
 }
 
@@ -117,10 +109,10 @@ void CurrentDrive::resetRoute() {
 }
 
 void CurrentDrive::clear() {
-    if (m_path.isEmpty() && !m_head.isValid())
+    if (m_path.isEmpty() && m_pending.isEmpty())
         return;
     m_path.clear();
-    m_head = QGeoCoordinate();
+    m_pending.clear();
     resetRoute();
 }
 
@@ -148,16 +140,23 @@ void CurrentDrive::updateState() {
     }
 }
 
-void CurrentDrive::onLocation() {
+void CurrentDrive::onFix(double latitude, double longitude, qint64 carMs) {
     if (!m_watched || !m_live)
         return;
-    const QGeoCoordinate fix = liveFix();
-    if (!fix.isValid() || (m_head.isValid() && m_head.distanceTo(fix) < 0.5))
+    m_pending.append({latitude, longitude, m_tesla->vehicleSpeed(), carMs});
+    // A fix far from the last puts the car on it at once (CarTrack).
+    onReached();
+}
+
+void CurrentDrive::onReached() {
+    if (!m_watched || !m_live)
         return;
-    if (addFix(fix, m_tesla->vehicleSpeed())) {
-        m_route.append(m_path.last());
-        emit tailStartChanged();
-    }
+    const qsizetype joinedFrom = m_path.size();
+    if (!joinReached())
+        return;
+    for (qsizetype i = joinedFrom; i < m_path.size(); ++i)
+        m_route.append(m_path.at(i));
+    emit tailStartChanged();
 }
 
 void CurrentDrive::onGear() {
@@ -195,8 +194,7 @@ void CurrentDrive::onPacket(quint8 type, const QByteArray &payload) {
         return;
     }
 
-    m_path.clear();
-    m_head = QGeoCoordinate();
+    QList<RouteBands::Fix> fixes;
     if (status == 1) {
         for (quint32 i = 0; i < count; ++i) {
             // ts(8) + lat(8) + lon(8) + speed(8) = 32 bytes per point.
@@ -209,21 +207,26 @@ void CurrentDrive::onPacket(quint8 type, const QByteArray &payload) {
             double lon;
             double speed;
             stream >> ts >> lat >> lon >> speed;
-            addFix(QGeoCoordinate(lat, lon), speed);
+            fixes.append({lat, lon, speed, ts});
         }
     }
+    // Live fixes newer than the reply's are kept: they arrived after the backend read its log.
+    const qint64 replyNewest = fixes.isEmpty() ? 0 : fixes.last().ts;
+    QList<RouteBands::Fix> newer;
+    for (const RouteBands::Fix &fix : std::as_const(m_pending)) {
+        if (fix.ts > replyNewest)
+            newer.append(fix);
+    }
+    m_path.clear();
+    m_pending.clear();
     if (live) {
-        // The car may have moved on since the backend read its log.
-        const QGeoCoordinate fix = liveFix();
-        if (fix.isValid() && (!m_head.isValid() || m_head.distanceTo(fix) >= kMinStepM))
-            addFix(fix, m_tesla->vehicleSpeed());
+        m_pending = fixes + newer;
+        joinReached();
         m_showingLast = false;
     } else {
-        // A finished trip: no tail runs on from its last fix, so that fix joins the path.
-        if (m_head.isValid()) {
-            m_path.append({m_head.latitude(), m_head.longitude(), m_headSpeed, 0});
-            m_head = QGeoCoordinate();
-        }
+        // A finished trip: no tail runs on from its last fix, so all of it is the path.
+        for (const RouteBands::Fix &fix : std::as_const(fixes))
+            join(fix);
         m_showingLast = true;
     }
     updateState();

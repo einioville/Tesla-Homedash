@@ -290,7 +290,9 @@ the line), with the per-frame work in C++ (`SpectrumLevels`, `core/CLAUDE.md`). 
 too long for its place (`items/util/MarqueeText.qml`) renders every frame for the few seconds it
 scrolls, once every `marqueeRestDuration` while the music plays. A radar loop's crossfade
 (`items/weather/RadarLayer.qml`) steps on a 50 ms `Timer` for 400 ms of each step: about 8 redraws
-a step, none between.
+a step, none between. The car on a map (`CarMotion`, `core/CLAUDE.md`) steps on an animation while
+it moves, so a drive renders every frame on the view whose map is current; it stops once the car
+has reached its newest fix, so a parked car keeps no frames coming.
 
 ## QML ↔ C++ traps
 

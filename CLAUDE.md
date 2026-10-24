@@ -567,7 +567,10 @@ in memory with the covers either side of each track and station (`Media.coverAft
 when the new cover arrives (`frontend_v2/core/CLAUDE.md`, *Media*) — plus one frosted glass: every
 `GlassPanel` takes its frost from a `FrostLayer`, the only maker of frost, which rebuilds itself
 when it goes live and every minute, since Qt never links an effect again to a texture whose provider
-was destroyed (`frontend_v2/items/util/CLAUDE.md`).
+was destroyed (`frontend_v2/items/util/CLAUDE.md`) — plus the car on the maps moved along its
+fixes at the speed it reported 1.5 s before (`CarTrack`, `CarMotion`; `frontend_v2/core/CLAUDE.md`),
+since the car skips samples and stamps them up to a second off, with the drive's route growing as
+the arrow reaches each fix.
 When you land a change that touches documented behaviour, update this line.
 
 ### 7.8 Keeping the code clean

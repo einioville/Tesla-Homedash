@@ -354,6 +354,29 @@ backend's. The two come back as **one `finished(ok, message)`** with the bytes f
 the frontend's half done and says so. `ServerClient` meanwhile exposes `localAddress` / `localPort`,
 how the server card's client list marks *tämä näyttö*.
 
+## `CarTrack`, `CarMotion` — `tesla/cartrack.{hh,cpp}`, `tesla/carmotion.{hh,cpp}`
+
+Where the maps draw the car (`../items/tesla/CLAUDE.md`). `CarTrack` is owned by `TeslaData`
+(`Tesla`), which hands it each fix and heading with the packet's car timestamp and each speed as
+it arrives; it moves the car along the path of its fixes 1.5 s behind the car, at the speed
+reported then. Each `TeslaMap` reads it through a `CarMotion` (`source: Tesla`), and
+`CurrentDrive` takes each fix into the drawn route once the car has reached it (`fixAdded`,
+`reachedChanged`). Load-bearing, more in `cartrack.hh`:
+
+- **Neither the arrival nor the car's stamp says when a position was true** — some drives stamp a
+  fifth of the fixes 2 s after the last with a second of road, others a second after with two —
+  so the car moves at its reported speed along the path's shape, never by the stamps.
+- **A correction holds the lag** (over 4 s, a 0.5 s deadband of road, 1 s while standing), the
+  speed shown eases toward it over 0.4 s, and the car brakes into the newest fix instead of
+  passing it. Replayed over three logged drives, it stalled in at most 0.4 % of the frames and
+  never dashed, where a glide of a fixed second toward each new fix stalled in 7–34 % and dashed
+  in up to 30 %.
+- **`advance(now)` is the one clock**: every `CarMotion` asking in a frame gets the same place,
+  and one asked after more than 2 s (no map was live) places the car at once.
+- **`CarMotion` steps on a `QAbstractAnimation`** while `live`, so the steps fall on the frames;
+  not live, it is placed at each arrival and nothing runs. Time is fractional milliseconds
+  (`nsecsElapsed`): whole ones stepped the car 16 or 17 ms' worth per frame.
+
 ## `CurrentDrive`, `PlaceNames` — `trip/currentdrive.{hh,cpp}`, `map/placenames.{hh,cpp}`
 
 The Kartta view's route layer (the drive under way, `TRIP_GET_CURRENT` plus the live fixes) and the
