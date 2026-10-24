@@ -34,7 +34,10 @@ Item {
     onTextChanged: {
         scroll.stop()
         offset = 0
-        rest.restart()
+        // restart() runs the timer even while its `running` binding is false,
+        // which would scroll a title that fits.
+        if (rest.running)
+            rest.restart()
     }
 
     Timer {
