@@ -93,6 +93,7 @@ Item {
             returnTimer.stop()
             returnAnim.stop()   // its onStopped clears userControlled
             warpAnim.stop()
+            holdAnim.stop()
             userControlled = pending
         } else {
             claimCenterForWarp()
@@ -168,11 +169,49 @@ Item {
             returnAnim.stop()
             warpAnim.stop()
             zoomAnim.stop()
+            holdAnim.stop()
             userControlled = true
         } else {
             returnDueMs = Date.now() + idleReturnMs
             returnTimer.restart()
         }
+    }
+
+    // Holds the map on `coordinate` — the road camera its view's dialog shows — with follow
+    // suspended as a gesture suspends it, until releaseHold() starts the idle window after
+    // which it snaps back to the car. A camera more than a screen away is jumped to, as a
+    // warp is: easing across Finland is a blur of tiles.
+    function holdAt(coordinate) {
+        returnTimer.stop()
+        returnAnim.stop()
+        warpAnim.stop()
+        userControlled = true
+        var at = map.fromCoordinate(coordinate, false)
+        if (!(Math.abs(at.x - map.width / 2) <= map.width && Math.abs(at.y - map.height / 2) <= map.height)) {
+            holdAnim.stop()
+            map.center = coordinate
+            return
+        }
+        holdAnim.to = coordinate
+        holdAnim.restart()
+    }
+
+    // A hidden map only notes when the snap-back falls due; it is finished on return
+    // (onIsCurrentChanged).
+    function releaseHold() {
+        if (!userControlled)
+            return
+        returnDueMs = Date.now() + idleReturnMs
+        if (isCurrent)
+            returnTimer.restart()
+    }
+
+    CoordinateAnimation {
+        id: holdAnim
+        target: map
+        property: "center"
+        duration: 600
+        easing.type: Easing.InOutQuad
     }
 
     Timer {

@@ -551,7 +551,8 @@ minimap in a corner (`RadarInset`) whose tap opens the Weather view too, the ove
 in step with it, both chosen and the loop's history set under the layer menu's *Sadetutka* — and
 every radar loop's steps crossfading in a shader (`radarfade.frag`) — plus a still map of where the
 camera is in the road camera dialog (`RoadCameraMap`: movable, with the home and the car), the
-Weather view's cameras every one within a set distance of the home, and the place names on every
+dialog stepping round every camera in Finland from the home outwards, its own map flying from one
+to the next and the map it was opened over held on each, and the place names on every
 map always rather than a layer — and Kartta's radar timeline only for the overlay alone, the minimap
 carrying the time itself.
 When you land a change that touches documented behaviour, update this line.

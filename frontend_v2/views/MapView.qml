@@ -137,6 +137,8 @@ Rectangle {
         id: cameraPopup
         backdrop: map
         frost: popupFrost
+        onShowing: (coordinate) => map.holdAt(coordinate)
+        onShownChanged: if (!shown) map.releaseHold()
     }
 
     WeatherWarningsPopup {

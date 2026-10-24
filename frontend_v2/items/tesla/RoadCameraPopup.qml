@@ -9,9 +9,11 @@ import "../../app/Format.js" as Format
 // fetched from Digitraffic (CC BY 4.0, credited in the footer) when it opens, and a reply for a
 // station since closed is dropped. A picture is taken every ten minutes; its time is shown, and
 // it is in the URL so a new one is not served from the image cache. Centred, on frosted glass
-// over the view's `backdrop` (ModalDialog). Opened with a list of cameras instead (the Weather
-// view's, round the home), it steps through them with the arrows in its corner, saying how far
-// each is.
+// over the view's `backdrop` (ModalDialog). The arrows in its corner step round every camera
+// in Finland from the home outwards (the weather document's place with no home set), saying
+// how far from it each is: opened from a map's marker it starts at that camera, from the
+// Weather view's button at the nearest, and `showing` says where each one is for the map under
+// it to centre on.
 // A still map above the readings shows where the camera is (RoadCameraMap).
 // Fetched by the display, not the backend: a tap on one display asks for it (root CLAUDE.md §5.4).
 ModalDialog {
@@ -19,7 +21,7 @@ ModalDialog {
 
     property bool shown: false
     property string stationId: ""
-    // { name, municipality, coordinate, presets: [{ id, name, url }] }
+    // { name, municipality, presets: [{ id, name, url }] }
     property var station: null
     // Preset id → when its picture was taken (ISO).
     property var taken: ({})
@@ -27,30 +29,56 @@ ModalDialog {
     property var readings: ({})
     property string readAt: ""
     property int preset: 0
-    // The cameras to step through, nearest first, as { id, km } (RoadCameraStations.within);
-    // empty for one camera opened from the map.
+    // The cameras to step through, nearest the home first, as { id, lat, lon, km }
+    // (RoadCameraStations.byDistance); empty for a camera the list does not hold.
     property var cameras: []
     property int cameraIndex: 0
 
     readonly property var current: station && station.presets.length > preset ? station.presets[preset] : null
+    // Where the camera is: from the list as soon as it is chosen, so the maps set off before
+    // its reply; from the reply for a camera the list does not hold.
+    property var where: QtPositioning.coordinate()
+
+    // Where the camera the dialog moves to is, as soon as it is chosen (TeslaMap.holdAt).
+    signal showing(var coordinate)
 
     visible: shown
 
+    // A marker's camera, the order going on from it.
     function open(id) {
-        cameras = []
-        load(id)
+        cameras = ordered()
+        var at = cameras.findIndex(c => c.id === id)
+        if (at < 0) {
+            cameras = []
+            where = QtPositioning.coordinate()
+            load(id)
+            return
+        }
+        show(at)
     }
 
-    function openNearest(list) {
-        cameras = list
-        cameraIndex = 0
-        if (list.length)
-            load(list[0].id)
+    function openNearest() {
+        cameras = ordered()
+        if (cameras.length)
+            show(0)
     }
 
+    function ordered() {
+        var home = Settings.valueOf("home") || Weather.view.meta
+        return home ? RoadCameraStations.byDistance(home.lat, home.lon) : []
+    }
+
+    function show(index) {
+        cameraIndex = index
+        var camera = cameras[index]
+        where = QtPositioning.coordinate(camera.lat, camera.lon)
+        showing(where)
+        load(camera.id)
+    }
+
+    // Round from the farthest to the nearest and back.
     function step(by) {
-        cameraIndex = Math.max(0, Math.min(cameras.length - 1, cameraIndex + by))
-        load(cameras[cameraIndex].id)
+        show((cameraIndex + by + cameras.length) % cameras.length)
     }
 
     function load(id) {
@@ -64,10 +92,11 @@ ModalDialog {
         get("https://tie.digitraffic.fi/api/weathercam/v1/stations/" + id, id, function (d) {
             var p = d.properties
             var at = d.geometry ? d.geometry.coordinates : null
+            if (!cameras.length && at)
+                where = QtPositioning.coordinate(at[1], at[0])
             station = {
                 name: (p.names && p.names.fi) || p.name,
                 municipality: p.municipality || "",
-                coordinate: at ? QtPositioning.coordinate(at[1], at[0]) : QtPositioning.coordinate(),
                 presets: p.presets.filter(x => x.inCollection)
                                   .map(x => ({ id: x.id, name: x.presentationName || "", url: x.imageUrl }))
             }
@@ -158,7 +187,7 @@ ModalDialog {
             if (popup.station && popup.station.municipality)
                 parts.push(popup.station.municipality)
             if (popup.cameras.length)
-                parts.push(qsTr("%1 km päässä").arg(Format.num(popup.cameras[popup.cameraIndex].km, "", 1)))
+                parts.push(qsTr("%1 km kotoa").arg(Format.num(popup.cameras[popup.cameraIndex].km, "", 1)))
             return parts.join(" · ")
         }
         font.family: Theme.fontFamily
@@ -174,7 +203,6 @@ ModalDialog {
         height: 36
         radius: 18
         color: stepTap.pressed ? "#40ffffff" : "#26ffffff"
-        opacity: enabled ? 1 : 0.35
         TintedIcon {
             anchors.centerIn: parent
             iconSize: 18
@@ -188,7 +216,7 @@ ModalDialog {
         }
     }
 
-    // Nearer and farther cameras, when there is a list to step through.
+    // Nearer the home and farther, when there is a list to step through.
     Row {
         id: stepper
         visible: popup.cameras.length > 1
@@ -199,21 +227,10 @@ ModalDialog {
 
         StepButton {
             icon: "qrc:/resources/icons/arrow_left.svg"
-            enabled: popup.cameraIndex > 0
             onActivated: popup.step(-1)
-        }
-        Text {
-            anchors.verticalCenter: parent.verticalCenter
-            width: 64
-            horizontalAlignment: Text.AlignHCenter
-            text: (popup.cameraIndex + 1) + " / " + popup.cameras.length
-            font.family: Theme.fontFamily
-            font.pixelSize: 15
-            color: Theme.dataLabelValue
         }
         StepButton {
             icon: "qrc:/resources/icons/arrow_right.svg"
-            enabled: popup.cameraIndex < popup.cameras.length - 1
             onActivated: popup.step(1)
         }
     }
@@ -319,7 +336,7 @@ ModalDialog {
             active: false
             sourceComponent: RoadCameraMap {
                 active: popup.shown
-                coordinate: popup.station ? popup.station.coordinate : QtPositioning.coordinate()
+                coordinate: popup.where
             }
         }
 

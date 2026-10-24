@@ -369,8 +369,6 @@ QtObject {
     // small free area quietly shrinks (items/tesla/CLAUDE.md).
     readonly property real mapWarpLeadFrac:
         ({ none: 0, small: 0.06, normal: 0.12, large: 0.2, xlarge: 0.3 })[Settings.values.mapWarpLead] ?? 0.12
-    // How far from the home the Weather view's camera button reaches, in km.
-    readonly property int roadCameraRadiusKm: Settings.values.roadCameraRadiusKm
     // How far back a map's radar loop goes, in minutes (mapRadarHistory, homeMapRadarHistory),
     // offered by the layer menus under Sadetutka; 0 is the newest frame alone.
     readonly property var radarHistoryChoices: [

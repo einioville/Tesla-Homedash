@@ -4,9 +4,9 @@ import frontend_v2
 // The Weather view ("Sää"), over the backend's WEATHER_VIEW document (`Weather.view`,
 // refreshed every 10 minutes); the radar loop and its lightning come straight from FMI.
 // Until the first document arrives there is nothing to lay out, so the dashboard waits.
-// The Nyt card's camera button opens the road cameras round the home (Theme.roadCameraRadiusKm),
-// and its warning strip the warnings that apply at the document's place, both on frosted glass
-// over the dashboard.
+// The Nyt card's camera button opens the road camera nearest the home, each time anew, and its
+// warning strip the warnings that apply at the document's place, both on frosted glass over the
+// dashboard.
 Rectangle {
     id: view
 
@@ -23,9 +23,7 @@ Rectangle {
             return
         }
         camerasWanted = false
-        // With no home set, the place the weather is for.
-        var place = Settings.valueOf("home") || Weather.view.meta
-        cameraPopup.openNearest(RoadCameraStations.within(place.lat, place.lon, Theme.roadCameraRadiusKm))
+        cameraPopup.openNearest()
     }
 
     onIsCurrentChanged: {
