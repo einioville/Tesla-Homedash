@@ -221,7 +221,8 @@ OSM's place names are no layer: the imagery has no labels of its own, so every m
     shader; a step to a frame of another box (one fetched for a new view) is a cut. A blend
     shows real frames only — it does not guess where the rain was between them.
   `WeatherRadarControls` stands upright on Kartta's left edge above the data card, working the
-  minimap's loop while it shows (`TeslaMap.radar`), else the overlay's. The Weather card's
+  overlay's loop (`TeslaMap.radar`), only while the overlay shows without the minimap — the
+  minimap carries the time and the ticks itself. The Weather card's
   *Vain uusin* checkbox on its own bar (`weatherRadarLatestOnly`) is that card's alone.
 - **Ajettu reitti** — the drive under way, or while the car is parked the last trip, whole (no
   tail), from `CurrentDrive` (`core/trip/currentdrive.hh`),
