@@ -60,19 +60,29 @@ the backend's Spotify poll or in a connecting display's snapshot. Load-bearing:
   `<GenericCacheLocation>/Tesla-Homedash/covers`, 50 MiB), and a request **prefers it**
   (`PreferCache`): a cover URL names one picture for good — Spotify's are content hashes, Nelonen's a
   file and a size — and both CDNs send lifetimes of months to years anyway.
-- **The same URL again fetches nothing** — the snapshot after a reconnect, the next track off the
-  same album. A newer URL aborts an older one still in flight, and a fetch that fails or stalls
-  (20 s without a byte) keeps the picture shown and logs a warning.
-- The bytes are decoded with the k-means colours on a worker (`decodeCoverArt`, deduped by content
-  hash, a newer picture superseding a decode in flight), stored in `MediaImageCache` and served as
-  `image://media/<hash>` by `MediaImageProvider`.
+- **Decoded covers stay in memory**, up to 10 by URL (`m_covers`, the pictures in
+  `MediaImageCache`, served as `image://media/<content hash>` by `MediaImageProvider`), with their
+  k-means colours, decoded together on a worker (`loadCover`). A URL already there is shown at
+  once — the snapshot after a reconnect, the next track off the same album, a cover a skip was
+  expected to bring. A load is never cancelled: one the backend has moved past lands in memory and
+  is shown only if it is still the URL named last (`m_wantedCoverUrl`). A fetch that fails or stalls
+  (20 s without a byte) keeps the picture shown and logs a warning. Eviction is least recently
+  used, never the shown, wanted or neighbour covers; a radio's lap of stations fits.
+- **The covers either side of the shown one are learnt and loaded ahead** (`learnNeighbours`): a
+  cover named under a new item (title + artists, the same player) records the two items as
+  neighbours, forward or back as `coverDirection` says. Forward on Spotify, the queue's answer
+  (`nextImageUrl`) wins over what followed last time. `coverAfterSkip(direction)` answers which
+  cover a skip will bring when it is in memory — the current one for a skip back more than 5 s into
+  a Spotify track, which the backend's `skip_backward` turns into a restart — and the Media view's
+  swipe slides to it before the backend answers (`../items/media/MediaCover.qml`).
 - **What plays next** (`nextTitle`, `nextArtists`, `nextImageUrl`) is asked for, not streamed:
   `requestNext()` sends `MEDIA_GET_NEXT`, and the backend answers this display alone from Spotify's
-  queue (`backend/src/media_service/CLAUDE.md`). The Media view's *Seuraavaksi* card
-  (`../items/media/MediaUpNext.qml`) asks once a track, `askAheadMs` (6 s) before it is due at
-  `Theme.mediaUpNextLeadMs` (20 s, fixed by choice: the card is one switch, Media › *Seuraavaksi*),
-  and only while the view is current and the switch on, so a display elsewhere costs the backend
-  nothing. **A new title or duration clears the answer** — what was next is now playing — so a
+  queue (`backend/src/media_service/CLAUDE.md`). Two asks a track, both only while the Media view
+  is current, so a display elsewhere costs the backend nothing: the cover's swipe asks 3 s into a
+  Spotify track, for the next cover to hold in memory (the queue can lag a track change), and the
+  *Seuraavaksi* card (`../items/media/MediaUpNext.qml`) asks again `askAheadMs` (6 s) before it is
+  due at `Theme.mediaUpNextLeadMs` (20 s, fixed by choice: the card is one switch, Media ›
+  *Seuraavaksi*), with the switch on, catching a song queued meanwhile. **A new title or duration clears the answer** — what was next is now playing — so a
   failed ask leaves the card hidden instead of naming the track already playing. The card drops
   1 s before the end, on a timer armed from each progress update, so it is gone before the display
   hears of the next track and the cover slides. It keeps its own copy while it drops away, and

@@ -30,9 +30,10 @@
 - **What plays next** (`MEDIA_GET_NEXT` → `MEDIA_NEXT`, the Media view's *Seuraavaksi* card) is the
   first item of Spotify's queue (`GET /me/player/queue`, covered by `SPOTIFY_SCOPE`), read by
   `SpotifyPlayer.stream_next` **only when a display asks** and sent to that display alone. It is
-  not polled: a display asks once a track, a few seconds before its card is due and only while its
-  Media view shows, so the lead time is each display's own (`frontend_v2/core/CLAUDE.md`, *Media*)
-  and a backend with no display on the Media view makes no queue calls. A song queued after the ask
+  not polled: a display asks only while its Media view shows, twice a track — a few seconds in,
+  for the cover its swipe slides to, and a few seconds before its card is due — so the lead time
+  is each display's own (`frontend_v2/core/CLAUDE.md`, *Media*) and a backend with no display on
+  the Media view makes no queue calls. A song queued after the ask
   is not seen until the next ask. A failed read sends nothing, and an empty queue three empty texts.
 - **`radio_player.py`** (`RadioPlayer`) plays Nelonen Media HLS streams through libVLC, fetching the
   stream + art URL per station, cycling stations on skip, and restarting on VLC error/end events

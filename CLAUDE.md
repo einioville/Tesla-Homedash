@@ -561,7 +561,10 @@ sliding in from the right (from the left after the back button), and a swipe ove
 skipping either way — and Spotify's takeover opening the Media view on a panel nobody has touched
 for 30 s (*Yleinen › Navigointi*) — plus the radio's libVLC calls on a thread of their own, so a
 stop stuck inside VLC stalls only the radio, and a burst of skips tuning once to where it ends
-(`backend/src/media_service/CLAUDE.md`).
+(`backend/src/media_service/CLAUDE.md`) — plus the Media view's cover swipe reaching further and,
+let go past a skip, sliding on from where it is: at once to the cover the skip should bring, held
+in memory with the covers either side of each track and station (`Media.coverAfterSkip`), else
+when the new cover arrives (`frontend_v2/core/CLAUDE.md`, *Media*).
 When you land a change that touches documented behaviour, update this line.
 
 ### 7.8 Keeping the code clean

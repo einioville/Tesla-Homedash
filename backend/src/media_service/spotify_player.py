@@ -619,8 +619,8 @@ class SpotifyPlayer(BaseMediaPlayer):
         '''
         Sends the first item of Spotify's queue as MEDIA_NEXT, all empty when
         nothing is queued.  Read only when a display asks, not on every poll: a
-        display asks once near a track's end, and only while its Media view
-        shows.  Nothing is sent when the queue could not be read, so the display
+        display asks a few seconds into a track and again near its end, only
+        while its Media view shows.  Nothing is sent when the queue could not be read, so the display
         shows nothing rather than a guess.  Like probe_playback, an independent
         read that does not take _state_lock.
         Arguments:

@@ -4,9 +4,11 @@
 #include <QByteArray>
 #include <QColor>
 #include <QElapsedTimer>
-#include <QFutureWatcher>
 #include <QImage>
+#include <QHash>
+#include <QList>
 #include <QObject>
+#include <QSet>
 #include <QString>
 #include <QUrl>
 #include <QVariantList>
@@ -15,12 +17,12 @@
 #include "mediaimagecache.hh"
 
 class QNetworkAccessManager;
-class QNetworkReply;
 class ServerClient;
 
-// Result of the off-thread cover-art decode: the image plus its k-means
-// colours, computed together in one worker pass.
+// Result of the off-thread cover-art decode: the image, its content-hash id and
+// its k-means colours, computed together in one worker pass.
 struct DecodedCover {
+    QString id;
     QImage image;
     QColor color;
     QVariantList palette;
@@ -33,8 +35,8 @@ struct DecodedCover {
  * and bridges cover art to QML through a MediaImageProvider.
  *
  * Cover art arrives as a URL (MEDIA_STREAM_IMAGE_URL) and is fetched here, through
- * a disk cache; a newer URL cancels an older one still in flight. The picture is
- * decoded off the GUI thread, and a newer one supersedes an in-flight decode.
+ * a disk cache, and decoded off the GUI thread. A few decoded covers stay in
+ * memory, among them the ones a skip would most likely bring (coverAfterSkip).
  */
 class MediaData : public QObject {
     Q_OBJECT
@@ -101,8 +103,14 @@ public:
     Q_INVOKABLE void pausePlay();
     Q_INVOKABLE void setProgress(int ms);
     // Asks the backend what plays next; the answer lands in the next* properties.
-    // Spotify's queue is read per ask, so the caller asks once a track, when it needs it.
+    // Spotify's queue is read per ask, so a caller asks once a track, when it needs it.
     Q_INVOKABLE void requestNext();
+    // The cover a skip that way (1 forward, -1 back) will most likely bring, as a
+    // coverArtId, when it is decoded in memory and can be shown at once; "" when it
+    // is not known or not loaded. The current cover when the skip keeps it: back
+    // more than 5 s into a Spotify track starts it over, and a track off the same
+    // album shares it.
+    Q_INVOKABLE QString coverAfterSkip(int direction) const;
 
 signals:
     void titleChanged();
@@ -121,8 +129,21 @@ private slots:
     void onPacket(quint8 type, const QByteArray &payload);
 
 private:
-    void fetchCover(const QUrl &url);
-    void decodeCoverArt(const QByteArray &bytes);
+    // A decoded cover kept in memory; its picture is in MediaImageCache under `id`.
+    struct MemoryCover {
+        QString id;
+        QColor color;
+        QVariantList palette;
+    };
+
+    void showCoverFrom(const QUrl &url);
+    void loadCover(const QUrl &url);
+    void keepCover(const QUrl &url, const DecodedCover &cover);
+    void showCover(const QUrl &url);
+    void learnNeighbours(const QUrl &url);
+    QUrl neighbourCoverUrl(int direction) const;
+    void loadNeighbourCovers();
+    int changeDirection() const;
     void setTitle(const QString &value);
     void setArtists(const QString &value);
     void setProgressMs(int value);
@@ -143,11 +164,24 @@ private:
     std::shared_ptr<MediaImageCache> m_cache;
 
     QNetworkAccessManager *m_network;
-    QNetworkReply *m_coverReply = nullptr;
-    // The URL whose picture is shown; the same URL again fetches nothing.
+    // The URL whose picture is shown, and the one the backend named last, shown
+    // as soon as it is loaded.
     QUrl m_coverUrl;
-    QFutureWatcher<DecodedCover> *m_coverWatcher = nullptr;
-    quint64 m_lastCoverHash = 0;
+    QUrl m_wantedCoverUrl;
+    QHash<QUrl, MemoryCover> m_covers;
+    // m_covers' URLs, least recently shown or loaded first.
+    QList<QUrl> m_coverUse;
+    // Being fetched or decoded.
+    QSet<QUrl> m_coverLoads;
+
+    // The item (title + artists) the shown cover belongs to, its player, and the
+    // covers seen either side of each item: a cover named under a new item
+    // records the two as neighbours, the way coverDirection says it went.
+    QString m_itemKey;
+    int m_itemType = 0;
+    QUrl m_itemCoverUrl;
+    QHash<QString, QUrl> m_nextCovers;
+    QHash<QString, QUrl> m_previousCovers;
 
     QString m_title;
     QString m_artists;

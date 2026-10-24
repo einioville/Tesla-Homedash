@@ -6,6 +6,7 @@
 
 #include <QColor>
 #include <QDataStream>
+#include <QFutureWatcher>
 #include <QHash>
 #include <QIODevice>
 #include <QNetworkAccessManager>
@@ -32,6 +33,17 @@ constexpr int kCoverTimeoutMs = 20 * 1000;
 // A cover change this soon after skipBackward() is the one it asked for: the backend's
 // Spotify call and next poll, or the radio's stream fetch, then the cover's own fetch.
 constexpr qint64 kSkipBackwardWindowMs = 8 * 1000;
+// Decoded covers kept in memory, 1-2 MB each: the current one, the two a skip would
+// bring, and recent ones — every station of a radio's lap.
+constexpr int kMemoryCovers = 10;
+// Neighbours learnt before the lists start over; a few hundred bytes each.
+constexpr int kLearntNeighbours = 1000;
+// The backend's SpotifyPlayer.skip_backward starts the track over past this.
+constexpr int kSpotifyRestartAfterMs = 5000;
+
+QString coverArtIdOf(const QString &id) {
+    return QStringLiteral("image://media/") + id;
+}
 
 // A payload that is one len(2B) + UTF-8 string; false (out untouched) when truncated.
 bool readLenString(const QByteArray &payload, QString &out) {
@@ -72,7 +84,7 @@ void MediaData::onPacket(quint8 type, const QByteArray &payload) {
         case protocol::MEDIA_STREAM_IMAGE_URL: {
             QString value;
             if (readLenString(payload, value)) {
-                fetchCover(QUrl(value));
+                showCoverFrom(QUrl(value));
             }
             break;
         }
@@ -140,23 +152,30 @@ void MediaData::onPacket(quint8 type, const QByteArray &payload) {
     }
 }
 
-void MediaData::fetchCover(const QUrl &url) {
+// The cover the backend names: shown at once when it is in memory, else when loaded.
+void MediaData::showCoverFrom(const QUrl &url) {
     if (!url.isValid()) {
         return;
     }
-    if (m_coverReply) {
-        if (m_coverReply->request().url() == url) {
-            return;
-        }
-        QNetworkReply *older = std::exchange(m_coverReply, nullptr);
-        older->disconnect(this);
-        older->abort();
-        older->deleteLater();
+    learnNeighbours(url);
+    m_wantedCoverUrl = url;
+    // The snapshot after a reconnect, the next track off the same album, or a cover
+    // a skip was expected to bring.
+    if (m_covers.contains(url)) {
+        showCover(url);
+    } else {
+        loadCover(url);
     }
-    // The snapshot after a reconnect, or the next track off the same album.
-    if (url == m_coverUrl) {
+    loadNeighbourCovers();
+}
+
+// Fetches and decodes a cover into memory, and shows it if it is wanted by then.
+// A load is never cancelled: one the backend has moved past is a neighbour now.
+void MediaData::loadCover(const QUrl &url) {
+    if (!url.isValid() || m_covers.contains(url) || m_coverLoads.contains(url)) {
         return;
     }
+    m_coverLoads.insert(url);
 
     QNetworkRequest request(url);
     request.setHeader(QNetworkRequest::UserAgentHeader, QStringLiteral("Tesla-Homedash/1.0"));
@@ -165,67 +184,138 @@ void MediaData::fetchCover(const QUrl &url) {
     // cached copy is served without asking the server again.
     request.setAttribute(QNetworkRequest::CacheLoadControlAttribute, QNetworkRequest::PreferCache);
     QNetworkReply *reply = m_network->get(request);
-    m_coverReply = reply;
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+    connect(reply, &QNetworkReply::finished, this, [this, reply, url]() {
         reply->deleteLater();
-        m_coverReply = nullptr;
         // The picture shown stays, as it would for a cover the backend could not name.
         if (reply->error() != QNetworkReply::NoError) {
+            m_coverLoads.remove(url);
             logger.warning(QStringLiteral("Cover art fetch failed | url=%1 error=%2")
-                               .arg(reply->request().url().toString(), reply->errorString()));
+                               .arg(url.toString(), reply->errorString()));
             return;
         }
-        m_coverUrl = reply->request().url();
-        decodeCoverArt(reply->readAll());
+        auto *watcher = new QFutureWatcher<DecodedCover>(this);
+        connect(watcher, &QFutureWatcher<DecodedCover>::finished, this, [this, watcher, url]() {
+            watcher->deleteLater();
+            m_coverLoads.remove(url);
+            const DecodedCover result = watcher->result();
+            if (result.image.isNull()) {
+                logger.warning(QStringLiteral("Cover art decode produced a null image | url=%1")
+                                   .arg(url.toString()));
+                return;
+            }
+            keepCover(url, result);
+            if (url == m_wantedCoverUrl) {
+                showCover(url);
+            }
+        });
+        // Decode to QImage (thread-safe) off the GUI thread — never a QPixmap on a
+        // worker (QPixmap is GUI-thread-only). The same worker pass also runs the
+        // k-means dominant-colour extraction so the card gradient never blocks the
+        // GUI thread. The provider serves the QImage; the colours drive the gradients.
+        watcher->setFuture(QtConcurrent::run([bytes = reply->readAll()]() {
+            DecodedCover out;
+            out.id = QString::number(qHash(bytes));
+            out.image.loadFromData(bytes);
+            computeCoverColors(out);
+            return out;
+        }));
     });
 }
 
-void MediaData::decodeCoverArt(const QByteArray &bytes) {
+void MediaData::keepCover(const QUrl &url, const DecodedCover &cover) {
+    m_cache->put(cover.id, cover.image);
+    m_covers.insert(url, {cover.id, cover.color, cover.palette});
+    m_coverUse.removeOne(url);
+    m_coverUse.append(url);
+
+    // The least recently used goes first, never one that is shown, wanted or next to it.
+    const QList<QUrl> kept = {m_coverUrl, m_wantedCoverUrl, neighbourCoverUrl(1),
+                              neighbourCoverUrl(-1)};
+    for (int i = 0; m_covers.size() > kMemoryCovers && i < m_coverUse.size();) {
+        const QUrl old = m_coverUse.at(i);
+        if (kept.contains(old)) {
+            i++;
+            continue;
+        }
+        m_coverUse.removeAt(i);
+        const QString id = m_covers.take(old).id;
+        // Two URLs can share one picture.
+        const bool shared = std::any_of(m_covers.cbegin(), m_covers.cend(),
+                                        [&id](const MemoryCover &other) { return other.id == id; });
+        if (!shared) {
+            m_cache->remove(id);
+        }
+    }
+}
+
+void MediaData::showCover(const QUrl &url) {
+    const MemoryCover cover = m_covers.value(url);
+    m_coverUse.removeOne(url);
+    m_coverUse.append(url);
+    m_coverUrl = url;
+    const QString id = coverArtIdOf(cover.id);
     // Two URLs can serve the picture already shown.
-    const quint64 hash = qHash(bytes);
-    if (hash == m_lastCoverHash) {
+    if (id == m_coverArtId) {
         return;
     }
-    m_lastCoverHash = hash;
+    m_coverDirection = changeDirection();
+    m_skipBackward.invalidate();
+    m_coverArtId = id;
+    emit coverArtIdChanged();
+    setDominantColor(cover.color);
+    setPalette(cover.palette);
+}
 
-    // Drop any in-flight decode — its result would be stale by the time it lands.
-    if (m_coverWatcher) {
-        m_coverWatcher->disconnect();
-        m_coverWatcher->cancel();
-        m_coverWatcher->deleteLater();
-        m_coverWatcher = nullptr;
-    }
-
-    const QString id = QString::number(hash);
-    m_coverWatcher = new QFutureWatcher<DecodedCover>(this);
-    connect(m_coverWatcher, &QFutureWatcher<DecodedCover>::finished, this, [this, id]() {
-        const DecodedCover result = m_coverWatcher->result();
-        m_coverWatcher->deleteLater();
-        m_coverWatcher = nullptr;
-        if (result.image.isNull()) {
-            logger.warning(QStringLiteral("Cover art decode produced a null image"));
-            return;
+// Called with every cover URL the backend names. One named under a new item (another
+// title or artists, the same player) makes the two items neighbours, either way round.
+// The name comes before the cover: Spotify's poll sends it first, and a radio skip at once.
+void MediaData::learnNeighbours(const QUrl &url) {
+    const QString key = m_title + QChar(0x1f) + m_artists;
+    if (m_mediaType == m_itemType && !m_itemKey.isEmpty() && key != m_itemKey) {
+        if (m_nextCovers.size() > kLearntNeighbours) {
+            m_nextCovers.clear();
+            m_previousCovers.clear();
         }
-        m_cache->put(id, result.image);
-        m_coverDirection = m_skipBackward.isValid()
-                && m_skipBackward.elapsed() < kSkipBackwardWindowMs ? -1 : 1;
-        m_skipBackward.invalidate();
-        m_coverArtId = QStringLiteral("image://media/") + id;
-        emit coverArtIdChanged();
-        setDominantColor(result.color);
-        setPalette(result.palette);
-    });
+        if (changeDirection() < 0) {
+            m_previousCovers.insert(m_itemKey, url);
+            m_nextCovers.insert(key, m_itemCoverUrl);
+        } else {
+            m_nextCovers.insert(m_itemKey, url);
+            m_previousCovers.insert(key, m_itemCoverUrl);
+        }
+    }
+    m_itemKey = key;
+    m_itemType = m_mediaType;
+    m_itemCoverUrl = url;
+}
 
-    // Decode to QImage (thread-safe) off the GUI thread — never a QPixmap on a
-    // worker (QPixmap is GUI-thread-only). The same worker pass also runs the
-    // k-means dominant-colour extraction so the card gradient never blocks the
-    // GUI thread. The provider serves the QImage; the colours drive the gradients.
-    m_coverWatcher->setFuture(QtConcurrent::run([bytes]() {
-        DecodedCover out;
-        out.image.loadFromData(bytes);
-        computeCoverColors(out);
-        return out;
-    }));
+QUrl MediaData::neighbourCoverUrl(int direction) const {
+    if (direction < 0) {
+        return m_previousCovers.value(m_itemKey);
+    }
+    // Spotify's queue, once asked this track, over the track that followed last time.
+    if (m_mediaType == protocol::MEDIA_TYPE_SPOTIFY && !m_nextImageUrl.isEmpty()) {
+        return QUrl(m_nextImageUrl);
+    }
+    return m_nextCovers.value(m_itemKey);
+}
+
+void MediaData::loadNeighbourCovers() {
+    loadCover(neighbourCoverUrl(1));
+    loadCover(neighbourCoverUrl(-1));
+}
+
+int MediaData::changeDirection() const {
+    return m_skipBackward.isValid() && m_skipBackward.elapsed() < kSkipBackwardWindowMs ? -1 : 1;
+}
+
+QString MediaData::coverAfterSkip(int direction) const {
+    if (direction < 0 && m_mediaType == protocol::MEDIA_TYPE_SPOTIFY
+            && m_progressMs > kSpotifyRestartAfterMs) {
+        return m_coverArtId;
+    }
+    const auto it = m_covers.constFind(neighbourCoverUrl(direction));
+    return it == m_covers.cend() ? QString() : coverArtIdOf(it->id);
 }
 
 void MediaData::setTitle(const QString &value) {
@@ -327,6 +417,9 @@ void MediaData::setNext(const QString &title, const QString &artists, const QStr
     m_nextArtists = artists;
     m_nextImageUrl = imageUrl;
     emit nextChanged();
+    if (!imageUrl.isEmpty()) {
+        loadNeighbourCovers();
+    }
 }
 
 void MediaData::setDominantColor(const QColor &value) {
