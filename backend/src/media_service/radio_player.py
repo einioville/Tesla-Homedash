@@ -257,6 +257,9 @@ class RadioPlayer(BaseMediaPlayer):
         '''
         channel = self.__channel
         logger.info("Loading radio player for channel: %s", channel)
+        # Cleared before the unload: its MediaChanged event streams the cover, and
+        # must not send the last station's under the new name.
+        self.__image_url = None
         await self.__unload()
 
         await self.__fetch_radio_station(channel)
