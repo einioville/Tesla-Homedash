@@ -252,6 +252,7 @@ qt_add_qml_module(appfrontend_v2
         items/media/MediaCover.qml
         items/media/MediaTransport.qml
         items/media/MediaSeekBar.qml
+        items/media/MediaUpNext.qml
         items/weather/MainWeather.qml
         items/weather/WeatherUtil.js
         items/weather/WeatherWindArrow.qml

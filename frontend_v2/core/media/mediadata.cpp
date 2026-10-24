@@ -107,6 +107,18 @@ void MediaData::onPacket(quint8 type, const QByteArray &payload) {
                 setMediaType(static_cast<quint8>(payload.at(0)));
             }
             break;
+        case protocol::MEDIA_NEXT: {
+            QDataStream stream(payload);
+            stream.setByteOrder(QDataStream::BigEndian);
+            QString title, artists, imageUrl;
+            if (protocol::readString(stream, title) && protocol::readString(stream, artists)
+                    && protocol::readString(stream, imageUrl)) {
+                setNext(title, artists, imageUrl);
+            } else {
+                logger.warning(QStringLiteral("MEDIA_NEXT truncated | bytes=%1").arg(payload.size()));
+            }
+            break;
+        }
         case protocol::MEDIA_SPECTRUM: {
             const int count = payload.isEmpty() ? 0 : static_cast<quint8>(payload.at(0));
             if (!spectrumWatched() || payload.size() < 1 + count) {
@@ -216,6 +228,8 @@ void MediaData::setTitle(const QString &value) {
     }
     m_title = value;
     emit titleChanged();
+    // A new track: what was next is now playing, or was skipped past.
+    setNext({}, {}, {});
 }
 
 void MediaData::setArtists(const QString &value) {
@@ -240,6 +254,8 @@ void MediaData::setDurationMs(int value) {
     }
     m_durationMs = value;
     emit durationMsChanged();
+    // Two tracks can share a title (a cover, a remaster); rarely a length as well.
+    setNext({}, {}, {});
 }
 
 void MediaData::setIsPlaying(bool value) {
@@ -288,6 +304,21 @@ void MediaData::setProgress(int ms) {
     stream << static_cast<quint32>(ms);
     m_server->sendPacket(protocol::frame(protocol::MEDIA_SET_PROGRESS, payload));
     logger.info(QStringLiteral("Seek command issued | position=%1ms").arg(ms));
+}
+
+void MediaData::requestNext() {
+    m_server->sendPacket(protocol::frame(protocol::MEDIA_GET_NEXT));
+    logger.debug(QStringLiteral("Next track requested"));
+}
+
+void MediaData::setNext(const QString &title, const QString &artists, const QString &imageUrl) {
+    if (m_nextTitle == title && m_nextArtists == artists && m_nextImageUrl == imageUrl) {
+        return;
+    }
+    m_nextTitle = title;
+    m_nextArtists = artists;
+    m_nextImageUrl = imageUrl;
+    emit nextChanged();
 }
 
 void MediaData::setDominantColor(const QColor &value) {

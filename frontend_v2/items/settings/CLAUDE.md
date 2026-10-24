@@ -65,7 +65,8 @@ Load-bearing:
   section. `Settings` applies the list after the merge: named ids first, in that order, everything
   unnamed after them in its natural order (so a subsection added later still appears). Media uses
   it to put the backend's *Ääni* card above the local *Spotify* card and the backend's *Radio*, with
-  the local *Spektri* card (the spectrum's style, in the Media view and the equalizer) last.
+  the local *Spektri* card (the spectrum's style, in the Media view and the equalizer) and
+  *Seuraavaksi* (the Media view's next-track card on or off) last.
 - **A group may name a `view`**, a screen `SettingsPane` renders in place of the card stack, built
   by a `Loader` only while that section is selected (so whatever it polls stops when the user moves
   on) and resolved in the pane's view table. `Settings::rebuildGroups` keeps such a group although it

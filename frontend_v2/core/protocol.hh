@@ -46,6 +46,10 @@ inline constexpr quint8 MEDIA_STREAM_TYPE = 0x1E;
 // gets count(1B) + count*level(1B) frames, low to high frequency.
 inline constexpr quint8 MEDIA_SPECTRUM_WATCH = 0x1F;
 inline constexpr quint8 MEDIA_SPECTRUM = 0x20;
+// What plays next: GET_NEXT (empty) asks, NEXT answers to the asker with name, artists and
+// cover URL as three len(2B) + UTF-8 strings, all empty when nothing is queued.
+inline constexpr quint8 MEDIA_GET_NEXT = 0x21;
+inline constexpr quint8 MEDIA_NEXT = 0x22;
 
 // Media-type byte values carried inside MEDIA_STREAM_TYPE payloads
 inline constexpr quint8 MEDIA_TYPE_RADIO = 0x01;

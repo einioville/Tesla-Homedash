@@ -3,8 +3,8 @@ import QtQuick.Effects
 import frontend_v2
 
 // Reusable "liquid glass" surface — used by the notification pill, the graph's
-// inspect readout (HistoryGraph, without the frost) and the weather radar's
-// controls.
+// inspect readout (HistoryGraph, without the frost), the weather radar's
+// controls and the Media view's next-track card (MediaUpNext, a card's fill and rim).
 // It captures the region of `backdropSource` directly behind itself, blurs and
 // rounds it, then overlays a dark translucent tint, a bright white rim and a
 // specular highlight so white content reads clearly. The chrome below is declared
@@ -26,9 +26,10 @@ Item {
     property bool active: true
     property point backdropOrigin: Qt.point(0, 0)
     property int radius: Theme.notificationRadius
-    // The rim's width and the translucent tint, per instance; the defaults are the
+    // The rim and the translucent tint, per instance; the defaults are the
     // notification pill's.
     property real rimWidth: 1.5
+    property color rimColor: Theme.notificationBorder
     property color tintTop: Theme.notificationGlassTop
     property color tintBottom: Theme.notificationGlassBottom
     // The bright line just inside the top edge; a thin rim can do without it.
@@ -93,14 +94,14 @@ Item {
         fragmentShader: "qrc:/resources/shaders/glassfrost.frag.qsb"
     }
 
-    // Dark translucent tint (brighter at the top) + bright white rim.
+    // Dark translucent tint (brighter at the top) + the rim.
     Rectangle {
         id: glass
         anchors.fill: parent
         radius: panel.radius
         color: "transparent"
         border.width: panel.rimWidth
-        border.color: Theme.notificationBorder
+        border.color: panel.rimColor
         gradient: Gradient {
             GradientStop { position: 0.0; color: panel.tintTop }
             GradientStop { position: 1.0; color: panel.tintBottom }

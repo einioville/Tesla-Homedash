@@ -46,6 +46,14 @@ class BaseMediaPlayer:
     async def stream_everything(self, client=None) -> None:
         raise NotImplementedError
 
+    async def stream_next(self, client=None) -> None:
+        '''
+        Sends what plays after the current item as MEDIA_NEXT.  Nothing by
+        default: the radio has no queue, and a display never asks it.
+        Arguments:
+            client (StreamWriter | None): The client that asked.
+        '''
+
     async def _send(self, msg_type: int, payload: bytes, client=None) -> None:
         '''
         Frames one media packet and hands it to the manager.
@@ -65,8 +73,21 @@ class BaseMediaPlayer:
             text (str): The text.
             client (StreamWriter | None): One client, or None for every client.
         '''
-        raw = text.encode("utf-8")
-        await self._send(msg_type, struct.pack("!H", len(raw)) + raw, client)
+        await self._send_texts(msg_type, (text,), client)
+
+    async def _send_texts(self, msg_type: int, texts, client=None) -> None:
+        '''
+        Sends a packet of len(2B) + UTF-8 texts back to back (MEDIA_NEXT's three).
+        Arguments:
+            msg_type (int): A protocol.MEDIA_* code.
+            texts (Iterable[str]): The texts, in wire order.
+            client (StreamWriter | None): One client, or None for every client.
+        '''
+        payload = b""
+        for text in texts:
+            raw = text.encode("utf-8")
+            payload += struct.pack("!H", len(raw)) + raw
+        await self._send(msg_type, payload, client)
 
     async def _send_cover(self, url: str | None, client=None) -> None:
         '''

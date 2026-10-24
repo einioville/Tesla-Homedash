@@ -131,4 +131,8 @@ each panel cuts its part with `resources/shaders/glassfrost.frag` (the rounded r
 one-pixel soft edge). That is three render targets for the whole view, and each panel's frost is a
 plain texture lookup. The Kartta view's layer menu, zoom pill, data card, radar bar and warning
 legend share one; the dashboard's map controls another, live only while they show. Panels not over
-a moving backdrop (the notification pill) still frost themselves.
+a moving backdrop (the notification pill) still frost themselves, and so does the Media view's
+next-track card (`../media/MediaUpNext.qml`) over that view's drifting backdrop and spectrum: one
+panel, live only for the last 20 s of a track. Its `backdropSource` is the view's `backdrop` item,
+which holds every layer under the player and nothing over it, since a capture of an item that
+contains the panel would contain the panel too.

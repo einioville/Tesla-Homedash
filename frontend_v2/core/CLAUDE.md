@@ -66,6 +66,16 @@ the backend's Spotify poll or in a connecting display's snapshot. Load-bearing:
 - The bytes are decoded with the k-means colours on a worker (`decodeCoverArt`, deduped by content
   hash, a newer picture superseding a decode in flight), stored in `MediaImageCache` and served as
   `image://media/<hash>` by `MediaImageProvider`.
+- **What plays next** (`nextTitle`, `nextArtists`, `nextImageUrl`) is asked for, not streamed:
+  `requestNext()` sends `MEDIA_GET_NEXT`, and the backend answers this display alone from Spotify's
+  queue (`backend/src/media_service/CLAUDE.md`). The Media view's *Seuraavaksi* card
+  (`../items/media/MediaUpNext.qml`) asks once a track, `askAheadMs` (6 s) before it is due at
+  `Theme.mediaUpNextLeadMs` (20 s, fixed by choice: the card is one switch, Media › *Seuraavaksi*),
+  and only while the view is current and the switch on, so a display elsewhere costs the backend
+  nothing. **A new title or duration clears the answer** — what was next is now playing — so a
+  failed ask leaves the card hidden instead of naming the track already playing. The card keeps
+  its own copy while it drops away, and loads the cover from the URL itself (a QML `Image`, under
+  `QmlNetworkFactory`'s timeout), outside the cover cache above.
 
 ## `QmlNetworkFactory` — `qmlnetworkfactory.hh`
 

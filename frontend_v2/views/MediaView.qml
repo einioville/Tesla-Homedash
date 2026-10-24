@@ -4,7 +4,9 @@ import frontend_v2
 // Fullscreen media player over the cover-coloured backdrop (MediaBackdrop), its
 // main colour a halo behind the cover, with the spectrum of what is playing along
 // the bottom edge (MediaSpectrum). The cover heads a centred vertical stack with
-// the title/artist and the (larger) transport controls + progress bar below it.
+// the title/artist and the (larger) transport controls + progress bar below it;
+// near a Spotify track's end the next one shows in the bottom-right corner
+// (MediaUpNext).
 // Cover, controls and seek bar are the shared media components, so this view and
 // the dashboard card stay in lockstep.
 Item {
@@ -12,82 +14,89 @@ Item {
 
     property bool isCurrent: false
 
-    // Opaque, so this view fully hides the others behind it (see ViewController).
-    Rectangle {
+    // What lies under the player, all of it, so the next-track card's glass can
+    // frost it without capturing itself.
+    Item {
+        id: backdrop
         anchors.fill: parent
-        color: Theme.mediaBackground
-    }
 
-    // The halo is centred on the cover (the stack below puts it about here) and
-    // reaches well past it, the cover hiding its middle; the cover's colours drift
-    // in the corners round it, its main one the most. Nothing lies over the light
-    // here, so it is stronger than on the dashboard, under translucent cards.
-    MediaBackdrop {
-        anchors.fill: parent
-        active: view.isCurrent
-        strength: Theme.mediaBackdropStrength
-        glows: [
-            { tone: 0, radius: 760, home: Qt.point(640, 280), reach: Qt.point(50, 30),
-              periods: Qt.vector3d(31, 23, 19), phase: 0.0 },
-            { tone: 1, radius: 520, home: Qt.point(170, 170), reach: Qt.point(140, 110),
-              periods: Qt.vector3d(41, 33, 27), phase: 1.3 },
-            { tone: 0, radius: 560, home: Qt.point(1110, 630), reach: Qt.point(150, 110),
-              periods: Qt.vector3d(47, 37, 29), phase: 2.6 },
-            { tone: 2, radius: 480, home: Qt.point(1120, 150), reach: Qt.point(130, 100),
-              periods: Qt.vector3d(53, 39, 31), phase: 3.9 },
-            { tone: 0, radius: 500, home: Qt.point(160, 650), reach: Qt.point(130, 100),
-              periods: Qt.vector3d(43, 35, 25), phase: 5.2 }
-        ]
-    }
-
-    // One-shot noise tile, generated once and tiled by the GPU, blended at very
-    // low opacity over the backdrop. It dithers away the 8-bit banding its broad
-    // dark gradients would otherwise show — the per-frame cost is just one extra
-    // textured quad. Tunable: drop opacity toward 0 to soften, or remove entirely.
-    Canvas {
-        id: noiseTile
-        width: 128
-        height: 128
-        // opacity:0 (not visible:false) so the Canvas stays in the rendered scene
-        // and onPaint reliably fires — an invisible, unconsumed Canvas may never
-        // paint, leaving the tile (and the dither) empty. It is 128x128 at 0,0,
-        // fully covered by the backdrop + content, so it is effectively hidden.
-        opacity: 0
-        property string url: ""
-        onPaint: {
-            var ctx = getContext("2d")
-            if (!ctx)
-                return
-            var image = ctx.createImageData(width, height)
-            var data = image.data
-            for (var i = 0; i < data.length; i += 4) {
-                var v = Math.floor(Math.random() * 256)
-                data[i] = v
-                data[i + 1] = v
-                data[i + 2] = v
-                data[i + 3] = 255
-            }
-            ctx.putImageData(image, 0, 0)
-            noiseTile.url = noiseTile.toDataURL("image/png")
+        // Opaque, so this view fully hides the others behind it (see ViewController).
+        Rectangle {
+            anchors.fill: parent
+            color: Theme.mediaBackground
         }
-        Component.onCompleted: requestPaint()
-    }
 
-    Image {
-        anchors.fill: parent
-        source: noiseTile.url
-        visible: noiseTile.url.length > 0
-        fillMode: Image.Tile
-        opacity: 0.02
-    }
+        // The halo is centred on the cover (the stack below puts it about here) and
+        // reaches well past it, the cover hiding its middle; the cover's colours drift
+        // in the corners round it, its main one the most. Nothing lies over the light
+        // here, so it is stronger than on the dashboard, under translucent cards.
+        MediaBackdrop {
+            anchors.fill: parent
+            active: view.isCurrent
+            strength: Theme.mediaBackdropStrength
+            glows: [
+                { tone: 0, radius: 760, home: Qt.point(640, 280), reach: Qt.point(50, 30),
+                  periods: Qt.vector3d(31, 23, 19), phase: 0.0 },
+                { tone: 1, radius: 520, home: Qt.point(170, 170), reach: Qt.point(140, 110),
+                  periods: Qt.vector3d(41, 33, 27), phase: 1.3 },
+                { tone: 0, radius: 560, home: Qt.point(1110, 630), reach: Qt.point(150, 110),
+                  periods: Qt.vector3d(47, 37, 29), phase: 2.6 },
+                { tone: 2, radius: 480, home: Qt.point(1120, 150), reach: Qt.point(130, 100),
+                  periods: Qt.vector3d(53, 39, 31), phase: 3.9 },
+                { tone: 0, radius: 500, home: Qt.point(160, 650), reach: Qt.point(130, 100),
+                  periods: Qt.vector3d(43, 35, 25), phase: 5.2 }
+            ]
+        }
 
-    // Along the bottom edge, over the backdrop and under everything else.
-    MediaSpectrum {
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.bottom: parent.bottom
-        height: 200
-        active: view.isCurrent
+        // One-shot noise tile, generated once and tiled by the GPU, blended at very
+        // low opacity over the backdrop. It dithers away the 8-bit banding its broad
+        // dark gradients would otherwise show — the per-frame cost is just one extra
+        // textured quad. Tunable: drop opacity toward 0 to soften, or remove entirely.
+        Canvas {
+            id: noiseTile
+            width: 128
+            height: 128
+            // opacity:0 (not visible:false) so the Canvas stays in the rendered scene
+            // and onPaint reliably fires — an invisible, unconsumed Canvas may never
+            // paint, leaving the tile (and the dither) empty. It is 128x128 at 0,0,
+            // fully covered by the backdrop + content, so it is effectively hidden.
+            opacity: 0
+            property string url: ""
+            onPaint: {
+                var ctx = getContext("2d")
+                if (!ctx)
+                    return
+                var image = ctx.createImageData(width, height)
+                var data = image.data
+                for (var i = 0; i < data.length; i += 4) {
+                    var v = Math.floor(Math.random() * 256)
+                    data[i] = v
+                    data[i + 1] = v
+                    data[i + 2] = v
+                    data[i + 3] = 255
+                }
+                ctx.putImageData(image, 0, 0)
+                noiseTile.url = noiseTile.toDataURL("image/png")
+            }
+            Component.onCompleted: requestPaint()
+        }
+
+        Image {
+            anchors.fill: parent
+            source: noiseTile.url
+            visible: noiseTile.url.length > 0
+            fillMode: Image.Tile
+            opacity: 0.02
+        }
+
+        // Along the bottom edge, over the backdrop and under everything else.
+        MediaSpectrum {
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            height: 200
+            active: view.isCurrent
+        }
     }
 
     // Cover sized to leave room for the title/artist + controls stacked below it.
@@ -155,5 +164,11 @@ Item {
                 fontPointSize: 12
             }
         }
+    }
+
+    MediaUpNext {
+        anchors.fill: parent
+        active: view.isCurrent
+        backdropSource: backdrop
     }
 }

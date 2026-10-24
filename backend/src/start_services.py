@@ -689,6 +689,7 @@ def _register_handlers(
     server.register_handler(protocol.MEDIA_SKIP_BACKWARD,        lambda _p, _w: mm.skip_backward())
     server.register_handler(protocol.MEDIA_PAUSE_PLAY,           lambda _p, _w: mm.pause_play())
     server.register_handler(protocol.MEDIA_SET_PROGRESS,         _set_progress)
+    server.register_handler(protocol.MEDIA_GET_NEXT,             lambda _p, w: mm.send_next(w))
     server.register_handler(protocol.TESLA_SWITCH_CLIMATE_STATE, lambda _p, _w: vehicle.switch_climate_state())
     server.register_handler(protocol.TESLA_MINUS_TARGET_TEMP,    lambda _p, _w: vehicle.minus_temp())
     server.register_handler(protocol.TESLA_PLUS_TARGET_TEMP,     lambda _p, _w: vehicle.plus_temp())

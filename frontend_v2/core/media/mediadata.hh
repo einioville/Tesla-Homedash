@@ -53,6 +53,12 @@ class MediaData : public QObject {
     // up to two more that each cover a fair share of the art. Empty until the
     // first art is decoded.
     Q_PROPERTY(QVariantList palette READ palette NOTIFY paletteChanged)
+    // What plays after the current track, as the backend last answered requestNext();
+    // all empty before an answer, when nothing is queued, and from a track change
+    // until the next answer. The cover is a URL the Media view's card loads itself.
+    Q_PROPERTY(QString nextTitle READ nextTitle NOTIFY nextChanged)
+    Q_PROPERTY(QString nextArtists READ nextArtists NOTIFY nextChanged)
+    Q_PROPERTY(QString nextImageUrl READ nextImageUrl NOTIFY nextChanged)
 
 public:
     MediaData(ServerClient *server, std::shared_ptr<MediaImageCache> cache,
@@ -67,6 +73,9 @@ public:
     QString coverArtId() const { return m_coverArtId; }
     QColor dominantColor() const { return m_dominantColor; }
     QVariantList palette() const { return m_palette; }
+    QString nextTitle() const { return m_nextTitle; }
+    QString nextArtists() const { return m_nextArtists; }
+    QString nextImageUrl() const { return m_nextImageUrl; }
     // The spectrum of what is playing: band levels 0-1, low to high frequency, new
     // about 30 times a second (spectrumChanged) while it is watched and something
     // plays, a flat frame when it stops. The backend records only while some display
@@ -85,6 +94,9 @@ public:
     Q_INVOKABLE void skipBackward();
     Q_INVOKABLE void pausePlay();
     Q_INVOKABLE void setProgress(int ms);
+    // Asks the backend what plays next; the answer lands in the next* properties.
+    // Spotify's queue is read per ask, so the caller asks once a track, when it needs it.
+    Q_INVOKABLE void requestNext();
 
 signals:
     void titleChanged();
@@ -96,6 +108,7 @@ signals:
     void coverArtIdChanged();
     void dominantColorChanged();
     void paletteChanged();
+    void nextChanged();
     void spectrumChanged();
 
 private slots:
@@ -112,6 +125,7 @@ private:
     void setMediaType(int value);
     void setDominantColor(const QColor &value);
     void setPalette(const QVariantList &value);
+    void setNext(const QString &title, const QString &artists, const QString &imageUrl);
     void setSpectrum(const QList<qreal> &value);
     void sendSpectrumWatch();
 
@@ -138,6 +152,9 @@ private:
     QString m_coverArtId;
     QColor m_dominantColor = QColor(0x1E, 0x3A, 0x8A);
     QVariantList m_palette;
+    QString m_nextTitle;
+    QString m_nextArtists;
+    QString m_nextImageUrl;
     QList<qreal> m_spectrum;
     int m_spectrumWatchers = 0;
 };

@@ -65,6 +65,16 @@ class MediaManager:
         if self.__active_player:
             await self.__active_player.skip_backward()
 
+    async def send_next(self, client) -> None:
+        '''
+        Answers MEDIA_GET_NEXT: the active player sends what plays next to the
+        client that asked.
+        Arguments:
+            client (StreamWriter): The client that asked.
+        '''
+        if self.__active_player:
+            await self.__active_player.stream_next(client=client)
+
     async def stream_data(
         self, data: bytes, player: BaseMediaPlayer, client=None
     ) -> None:

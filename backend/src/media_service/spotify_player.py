@@ -614,3 +614,27 @@ class SpotifyPlayer(BaseMediaPlayer):
         await self._stream_duration(client=client)
         await self._stream_progress(client=client)
         await self._stream_image(client=client)
+
+    async def stream_next(self, client=None) -> None:
+        '''
+        Sends the first item of Spotify's queue as MEDIA_NEXT, all empty when
+        nothing is queued.  Read only when a display asks, not on every poll: a
+        display asks once near a track's end, and only while its Media view
+        shows.  Nothing is sent when the queue could not be read, so the display
+        shows nothing rather than a guess.  Like probe_playback, an independent
+        read that does not take _state_lock.
+        Arguments:
+            client (StreamWriter | None): The client that asked.
+        '''
+        if not self._claimed:
+            return
+        queue = await self._call_spotify(self._spotify.queue)
+        if queue is _FAILED or not isinstance(queue, dict):
+            return
+        upcoming = next((item for item in queue.get("queue") or [] if item), None)
+        if upcoming is None:
+            texts = ("", "", "")
+        else:
+            texts = (upcoming.get("name") or "", self._artist_text(upcoming),
+                     self._image_url(upcoming) or "")
+        await self._send_texts(protocol.MEDIA_NEXT, texts, client)

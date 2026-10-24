@@ -30,6 +30,10 @@ MEDIA_STREAM_TYPE = 0x1E
 # says so, and only displays that do get the frames — to each, not a broadcast.
 MEDIA_SPECTRUM_WATCH = 0x1F  # F->B: on(1B) — 1 showing, 0 not; sent again after a reconnect
 MEDIA_SPECTRUM = 0x20        # B->F: count(1B) + count*level(1B, 0-255), low to high frequency
+# What plays after the current item, read from Spotify's queue when a display asks,
+# and sent to that display only.
+MEDIA_GET_NEXT = 0x21  # F->B: (empty)
+MEDIA_NEXT = 0x22      # B->F: name, artists, cover URL, each len(2B) + UTF-8; all empty = nothing queued
 
 # Media-type byte values carried inside MEDIA_STREAM_TYPE payloads
 MEDIA_TYPE_RADIO = 0x01

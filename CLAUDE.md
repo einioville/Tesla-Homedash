@@ -554,7 +554,9 @@ camera is in the road camera dialog (`RoadCameraMap`: movable, with the home and
 dialog stepping round every camera in Finland from the home outwards, its own map flying from one
 to the next and the map it was opened over held on each, and the place names on every
 map always rather than a layer — and Kartta's radar timeline only for the overlay alone, the minimap
-carrying the time itself.
+carrying the time itself — plus the Media view's *Seuraavaksi* card: what Spotify plays next, asked
+for by a display near a track's end (`MEDIA_GET_NEXT`) and risen on frosted glass into the
+bottom-right corner 20 s before it.
 When you land a change that touches documented behaviour, update this line.
 
 ### 7.8 Keeping the code clean

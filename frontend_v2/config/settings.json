@@ -323,7 +323,7 @@
             "id": "media",
             "icon": "media",
             "label": "Media",
-            "sectionOrder": ["audio", "spotify", "radio", "equalizer", "spectrum"],
+            "sectionOrder": ["audio", "spotify", "radio", "equalizer", "spectrum", "upNext"],
             "sections": [
                 {
                     "id": "spotify",
@@ -363,6 +363,20 @@
                                 {"value": "line", "label": "Viiva"}
                             ],
                             "default": "bars",
+                            "apply": "live"
+                        }
+                    ]
+                },
+                {
+                    "id": "upNext",
+                    "label": "Seuraavaksi",
+                    "settings": [
+                        {
+                            "key": "mediaUpNextEnabled",
+                            "type": "bool",
+                            "label": "Näytä seuraava kappale",
+                            "help": "Spotifyn seuraava kappale musiikkinäkymän oikeassa alakulmassa 20 sekuntia ennen kappaleen loppua.",
+                            "default": true,
                             "apply": "live"
                         }
                     ]
