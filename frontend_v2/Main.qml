@@ -101,6 +101,37 @@ Window {
         function onActivity() {
             if (homeReturnTimer.running)
                 homeReturnTimer.restart()
+            touchedRecently.restart()
+        }
+    }
+
+    // Spotify taking playback over opens the Media view (Yleinen > Navigointi): the
+    // media type turning Spotify, from the radio or from nothing. A pause and resume
+    // is no takeover, so a Media view left while the music plays stays left. It holds
+    // back while someone is using the panel (a touch within spotifyAutoOpenQuietMs),
+    // while the Options view's device scan runs (re-identifying the device in use
+    // takes it over, and leaving the view would cancel the scan), and for the
+    // snapshot a (re)connection brings, which shows a takeover that happened before.
+    readonly property bool spotifyActive: Media.mediaType === 2
+    onSpotifyActiveChanged: {
+        if (spotifyActive && Theme.spotifyAutoOpen && !touchedRecently.running &&
+                !connectionSettling.running && !SpotifyDevice.flowActive)
+            Navigation.open("media")
+    }
+    Timer {
+        id: touchedRecently
+        interval: Theme.spotifyAutoOpenQuietMs
+    }
+    Timer {
+        id: connectionSettling
+        interval: 3000
+    }
+    Connections {
+        target: Server
+
+        function onConnectedChanged() {
+            if (Server.connected)
+                connectionSettling.restart()
         }
     }
 

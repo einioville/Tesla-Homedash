@@ -50,6 +50,10 @@ QtObject {
     readonly property int homeReturnMs: Settings.values.homeReturnMin * 60000
     // How long the view menu waits, left still, before opening the front view.
     readonly property int menuAutoPickMs: Settings.values.menuAutoPickSec * 1000
+    // Spotify taking playback over opens the Media view, unless the panel was
+    // touched within spotifyAutoOpenQuietMs (fixed by choice; Main.qml).
+    readonly property bool spotifyAutoOpen: Settings.values.spotifyAutoOpen
+    readonly property int spotifyAutoOpenQuietMs: 30000
 
     // How long each notification pill is held. Not a setting: notification
     // settings belong to a notifications section of their own (#51).

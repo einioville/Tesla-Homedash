@@ -128,6 +128,14 @@
                             "step": 1,
                             "default": 4,
                             "apply": "live"
+                        },
+                        {
+                            "key": "spotifyAutoOpen",
+                            "type": "bool",
+                            "label": "Avaa musiikki Spotifyn alkaessa",
+                            "help": "Vaihda musiikkinäkymään, kun Spotify alkaa soida, ellei näyttöä ole kosketettu viimeisen puolen minuutin aikana.",
+                            "default": true,
+                            "apply": "live"
                         }
                     ]
                 },

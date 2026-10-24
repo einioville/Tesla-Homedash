@@ -558,7 +558,8 @@ carrying the time itself — plus the Media view's *Seuraavaksi* card: what Spot
 for by a display near a track's end (`MEDIA_GET_NEXT`) and risen on frosted glass into the
 bottom-right corner 20 s before it, dropping again just before the track ends, a new cover
 sliding in from the right (from the left after the back button), and a swipe over the cover
-skipping either way.
+skipping either way — and Spotify's takeover opening the Media view on a panel nobody has touched
+for 30 s (*Yleinen › Navigointi*).
 When you land a change that touches documented behaviour, update this line.
 
 ### 7.8 Keeping the code clean

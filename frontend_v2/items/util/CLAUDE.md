@@ -44,6 +44,19 @@ a placeholder 0 would put the window in effect for one tick and poke the panel a
 onto the dashboard. The view menu's auto-pick delay (`menuAutoPickSec`, `frontend_v2/CLAUDE.md`,
 *View switching*) sits in the same card.
 
+**Spotify's takeover opens the Media view** (`spotifyAutoOpen`, on by default, in the same card),
+also in `Main.qml`: the media type turning Spotify, from the radio or from nothing, which happens
+once per Spotify session, so a pause and resume does not count and a Media view left while the
+music plays stays left. It holds back in three cases:
+- **Someone is using the panel**: a touch (`Idle.activity()`) within
+  `Theme.spotifyAutoOpenQuietMs`, 30 s, a fixed value by choice.
+- **The Options view's device scan is running** (`SpotifyDevice.flowActive`): re-identifying the
+  device already in use takes playback over mid-scan, and leaving the view cancels the scan.
+- **The snapshot a (re)connection brings** (3 s from `Server.connected`): it shows a takeover that
+  happened earlier, and a backend restart would otherwise turn every display to the Media view.
+
+With home return on as well, the dashboard comes back after its delay like after any other view.
+
 ## `HoldRepeatArea.qml` — tap to step, hold to repeat
 
 The press area behind every ± button (the climate card's target arrows, `SettingNumber`'s

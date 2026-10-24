@@ -252,8 +252,9 @@ invisible) a switch is instant and an open menu closes.
   gate below.
 - **Another view is opened with `Navigation.open(key)`** (`app/Navigation.qml`, a singleton), the
   key from `Main.viewModel`: the dashboard's weather card and a map's radar minimap open the Weather
-  view so. `Main.qml` makes the switch, as the menu's pick does, so a view need not know where the
-  other stands on the cylinder.
+  view so, and Spotify taking playback over opens the Media view (`items/util/CLAUDE.md`).
+  `Main.qml` makes the switch, as the menu's pick does, so a view need not know where the other
+  stands on the cylinder.
 - **The target is built before the motion starts** — a swipe's at drag start, a home return's one
   event-loop pass before the animation (`Qt.callLater`), a menu pick's before its glide — so a slow
   view build delays the turn rather than skipping frames of it.
