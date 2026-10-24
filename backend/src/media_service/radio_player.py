@@ -2,6 +2,7 @@ import asyncio
 import logging
 import struct
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import aiohttp
 import vlc
@@ -12,6 +13,9 @@ from .base_media_player import BaseMediaPlayer
 from .media_manager import MediaManager
 
 logger = logging.getLogger("media_service.radio_player")
+
+# A libVLC call slower than this is logged; the usual one takes milliseconds.
+SLOW_VLC_CALL_S = 2.0
 
 
 class RadioPlayer(BaseMediaPlayer):
@@ -60,6 +64,14 @@ class RadioPlayer(BaseMediaPlayer):
         self.__intentional_stop = False
 
         self.__async_loop = asyncio.get_running_loop()
+        # Every libVLC player call runs here, in order (__vlc_call).
+        self.__vlc_thread = ThreadPoolExecutor(max_workers=1, thread_name_prefix="radio-vlc")
+        # Held through a load and by every other player call, so a burst of skips
+        # tunes once to the station it ends on, and a stop or pause waits for the
+        # load before it rather than being undone by its play.
+        self.__tuning = asyncio.Lock()
+        # The station whose stream is in VLC; None when nothing is loaded.
+        self.__loaded: str | None = None
 
     def __initial_channel(self) -> str:
         '''
@@ -137,16 +149,39 @@ class RadioPlayer(BaseMediaPlayer):
                     )
 
     async def __reload_and_play(self) -> None:
+        self.__loaded = None
         try:
-            await self.load_player()
-            self.__vlc_player.play()
+            await self.play()
         except (aiohttp.ClientError, asyncio.TimeoutError, OSError) as e:
             logger.debug("Failed to reload radio stream: %s: %s", type(e).__name__, e)
 
-    async def __fetch_radio_station(self) -> None:
+    async def __vlc_call(self, func, *args):
         '''
-        Fetches the stream URL and image URL for the current channel
-        from the Nelonen Media API.
+        Runs a libVLC player call on the radio's own thread.  stop() and
+        set_media() join VLC's input thread, which can sit inside VLC for ~30 s
+        (seen right after a skip that followed another by a second); on the event
+        loop that froze the whole backend, every display's commands included.  One
+        thread keeps the calls in the order they were made.
+        Arguments:
+            func (callable): A bound vlc.MediaPlayer method.
+            args: Its arguments.
+        '''
+        def timed():
+            started = time.monotonic()
+            result = func(*args)
+            elapsed = time.monotonic() - started
+            if elapsed > SLOW_VLC_CALL_S:
+                logger.warning("libVLC %s took %.1f s", func.__name__, elapsed)
+            return result
+
+        return await self.__async_loop.run_in_executor(self.__vlc_thread, timed)
+
+    async def __fetch_radio_station(self, channel: str) -> None:
+        '''
+        Fetches the stream URL and image URL for a channel from the Nelonen
+        Media API.
+        Arguments:
+            channel (str): A radioMediaIds key.
         '''
         self.__stream_url = None
         self.__image_url = None
@@ -154,7 +189,7 @@ class RadioPlayer(BaseMediaPlayer):
             async with aiohttp.ClientSession() as session:
                 async with session.get(
                     "https://mcc.nm-ovp.nelonenmedia.fi/v2/media/"
-                    + str(self.__media_ids[self.__channel]),
+                    + str(self.__media_ids[channel]),
                     timeout=aiohttp.ClientTimeout(total=10),
                 ) as response:
                     response.raise_for_status()
@@ -170,14 +205,14 @@ class RadioPlayer(BaseMediaPlayer):
                 media.get("images", {}).get("square", {})
             )
             if not self.__stream_url:
-                logger.warning("Nelonen API response missing streamUrls.audioHls.url for %s", self.__channel)
+                logger.warning("Nelonen API response missing streamUrls.audioHls.url for %s", channel)
                 self.__fetch_error = "Asemalle ei löytynyt lähetystä"
             else:
                 self.__fetch_error = None
                 self.__last_ok_ms = int(time.time() * 1000)
         except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as e:
             # ValueError covers JSON decode errors from response.json()
-            logger.warning("Failed to fetch radio station data for %s: %s: %s", self.__channel, type(e).__name__, e)
+            logger.warning("Failed to fetch radio station data for %s: %s: %s", channel, type(e).__name__, e)
             self.__fetch_error = "Aseman tietoja ei saatu"
 
     @staticmethod
@@ -212,23 +247,38 @@ class RadioPlayer(BaseMediaPlayer):
         Fetches the current channel stream and loads it into VLC
         without starting playback.
         '''
-        logger.info("Loading radio player for channel: %s", self.__channel)
-        self.__intentional_stop = True
-        self.__vlc_player.stop()
-        self.__vlc_player.set_media(None)
-        self.__intentional_stop = False
+        async with self.__tuning:
+            await self.__load()
 
-        await self.__fetch_radio_station()
+    async def __load(self) -> None:
+        '''
+        load_player() under __tuning: the station is read once, so a skip during
+        the fetch leaves this load whole and the next one tunes to it.
+        '''
+        channel = self.__channel
+        logger.info("Loading radio player for channel: %s", channel)
+        await self.__unload()
+
+        await self.__fetch_radio_station(channel)
 
         if self.__stream_url:
             media = self.__vlc.media_new(self.__stream_url)
-            self.__vlc_player.set_media(media)
+            await self.__vlc_call(self.__vlc_player.set_media, media)
+            self.__loaded = channel
+
+    async def __unload(self) -> None:
+        '''Stops VLC and empties it, under __tuning.'''
+        self.__loaded = None
+        self.__intentional_stop = True
+        try:
+            await self.__vlc_call(self.__vlc_player.stop)
+            await self.__vlc_call(self.__vlc_player.set_media, None)
+        finally:
+            self.__intentional_stop = False
 
     async def stop(self) -> None:
-        self.__intentional_stop = True
-        self.__vlc_player.stop()
-        self.__vlc_player.set_media(None)
-        self.__intentional_stop = False
+        async with self.__tuning:
+            await self.__unload()
         logger.debug("Radio player stopped")
 
     def describe(self) -> dict:
@@ -251,13 +301,16 @@ class RadioPlayer(BaseMediaPlayer):
         return bool(self.__vlc_player.is_playing())
 
     async def pause(self) -> None:
-        self.__vlc_player.pause()
+        async with self.__tuning:
+            await self.__vlc_call(self.__vlc_player.pause)
 
     async def play(self) -> None:
-        if not self.__vlc_player.get_media():
-            await self.load_player()
-        self.__vlc_player.play()
-        logger.debug("Radio playback started for channel: %s", self.__channel)
+        '''Plays the current station, loading it first unless it is already in VLC.'''
+        async with self.__tuning:
+            if self.__loaded != self.__channel:
+                await self.__load()
+            await self.__vlc_call(self.__vlc_player.play)
+            logger.debug("Radio playback started for channel: %s", self.__loaded)
 
     async def pause_play(self) -> None:
         if self.__vlc_player.is_playing():
@@ -266,24 +319,25 @@ class RadioPlayer(BaseMediaPlayer):
             await self.play()
 
     async def skip_forward(self) -> None:
-        self.__channel_index += 1
-        if self.__channel_index == len(self.__channels):
-            self.__channel_index = 0
-        self.__channel = self.__channels[self.__channel_index]
-        logger.info("Skipped to next channel: %s", self.__channel)
-        self.__remember_channel()
-        await self.load_player()
-        self.__vlc_player.play()
+        await self.__skip(1, "next")
 
     async def skip_backward(self) -> None:
-        self.__channel_index -= 1
-        if self.__channel_index == -1:
-            self.__channel_index = len(self.__channels) - 1
+        await self.__skip(-1, "previous")
+
+    async def __skip(self, step: int, label: str) -> None:
+        '''
+        Moves to a neighbouring station and plays it.  Its name goes to the
+        displays at once, before the stream loads.
+        Arguments:
+            step (int): 1 for the next station, -1 for the previous one.
+            label (str): "next" or "previous", for the log.
+        '''
+        self.__channel_index = (self.__channel_index + step) % len(self.__channels)
         self.__channel = self.__channels[self.__channel_index]
-        logger.info("Skipped to previous channel: %s", self.__channel)
+        logger.info("Skipped to %s channel: %s", label, self.__channel)
         self.__remember_channel()
-        await self.load_player()
-        self.__vlc_player.play()
+        await self.__stream_channel_name()
+        await self.play()
 
     async def __stream_channel_image(self, client=None) -> None:
         await self._send_cover(self.__image_url, client)

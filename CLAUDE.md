@@ -559,7 +559,9 @@ for by a display near a track's end (`MEDIA_GET_NEXT`) and risen on frosted glas
 bottom-right corner 20 s before it, dropping again just before the track ends, a new cover
 sliding in from the right (from the left after the back button), and a swipe over the cover
 skipping either way — and Spotify's takeover opening the Media view on a panel nobody has touched
-for 30 s (*Yleinen › Navigointi*).
+for 30 s (*Yleinen › Navigointi*) — plus the radio's libVLC calls on a thread of their own, so a
+stop stuck inside VLC stalls only the radio, and a burst of skips tuning once to where it ends
+(`backend/src/media_service/CLAUDE.md`).
 When you land a change that touches documented behaviour, update this line.
 
 ### 7.8 Keeping the code clean

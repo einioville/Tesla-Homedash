@@ -44,6 +44,16 @@
   loses the station. Startup takes that, else a legacy `defaultRadioStation`, else the first
   station; an unknown name is skipped rather than raised on, so a renamed station cannot stop the
   backend starting.
+- **No libVLC player call runs on the event loop.** `stop()` and `set_media()` join VLC's input
+  thread, which can sit inside VLC for ~30 s (seen twice, 32 s each, on a skip a second after
+  another); on the loop that froze the whole backend — every display's commands queued in the
+  socket and replayed at once when it let go. `RadioPlayer.__vlc_call` runs them, in order, on one
+  `radio-vlc` thread and logs any that takes over `SLOW_VLC_CALL_S` (`is_playing()` stays inline: it
+  takes only the player's state lock, never the input lock a stop holds). Loads, `play`, `pause` and
+  `stop` all hold `__tuning`, and a load records the station it put in VLC (`__loaded`): a burst of
+  skips loads only the station each waiting skip finds current, so it ends on the last one without
+  a load per skip, and a `stop()` from a Spotify claim waits for a load in flight instead of being
+  undone by its `play()`. A skip sends the station's name before the stream loads.
 - **`setup/spotify_setup.py`**: a one-off helper (run during setup) that completes the OAuth
   handshake and prints the active Connect device id for `config.json`. Not part of the runtime.
 
