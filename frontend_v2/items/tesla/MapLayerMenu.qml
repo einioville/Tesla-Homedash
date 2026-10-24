@@ -47,10 +47,8 @@ Item {
         radius: 18
         rimWidth: 0.75
         highlight: false
-        backdropSource: root.backdrop
         backdropOrigin: Qt.point(x - (root.backdrop ? root.backdrop.x : 0), y - (root.backdrop ? root.backdrop.y : 0))
         frost: root.frost
-        active: visible
         opacity: root.open ? 1 : 0
         scale: root.open ? 1 : 0.9
         transformOrigin: Item.BottomRight
@@ -266,10 +264,8 @@ Item {
         highlight: false
         tintTop: root.open ? "#4d4aa8ff" : Theme.notificationGlassTop
         tintBottom: root.open ? "#334aa8ff" : Theme.notificationGlassBottom
-        backdropSource: root.backdrop
         backdropOrigin: Qt.point(x - (root.backdrop ? root.backdrop.x : 0), y - (root.backdrop ? root.backdrop.y : 0))
         frost: root.frost
-        active: visible
         opacity: root.shown ? 1 : 0
         visible: opacity > 0
         Behavior on opacity { NumberAnimation { duration: 250; easing.type: Easing.OutCubic } }

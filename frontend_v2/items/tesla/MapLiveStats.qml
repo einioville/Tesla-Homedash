@@ -11,6 +11,8 @@ GlassPanel {
     id: root
 
     property Item backdrop: null
+    // Off while nobody sees the card: its clock stops.
+    property bool active: true
 
     readonly property int carTempMaxSleepMs: 60 * 60 * 1000
     property real clock: Date.now()
@@ -31,7 +33,6 @@ GlassPanel {
     radius: 18
     rimWidth: 0.75
     highlight: false
-    backdropSource: backdrop
     backdropOrigin: Qt.point(x - (backdrop ? backdrop.x : 0), y - (backdrop ? backdrop.y : 0))
 
     component Stat: Column {

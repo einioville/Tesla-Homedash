@@ -385,16 +385,24 @@ Item {
             style: Text.Outline
             styleColor: "#80000000"
         }
+        // Barely dimmed: MultiEffect's brightness is added to every channel, so the glass's usual
+        // darkening turns this already dark map black.
+        FrostLayer {
+            id: radarFrost
+            sourceItem: radar
+            live: root.active
+            brightness: -0.05
+        }
         WeatherRadarControls {
             anchors.horizontalCenter: parent.horizontalCenter
             anchors.bottom: parent.bottom
             anchors.bottomMargin: 12
             radar: radar.radarLayer
             backdrop: radar
+            frost: radarFrost
             latestOnlyKey: "weatherRadarLatestOnly"
             rimWidth: 0.75
             highlight: false
-            frostBrightness: -0.05
             tintTop: "#1f1a1a24"
             tintBottom: "#2e121218"
         }

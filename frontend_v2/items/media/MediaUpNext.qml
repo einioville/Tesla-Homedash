@@ -80,6 +80,14 @@ Item {
 
     // Placed by anchors and moved by the transform alone, so laying out the view
     // never animates it.
+    // Undimmed: the notification's dark glass turns black over this dark backdrop.
+    FrostLayer {
+        id: cardFrost
+        sourceItem: root.backdropSource
+        live: card.visible
+        brightness: 0
+    }
+
     Item {
         id: card
         anchors.right: parent.right
@@ -113,18 +121,15 @@ Item {
         GlassPanel {
             id: panel
             anchors.fill: parent
-            // A dashboard card's fill and rim over the frost, undimmed: the
-            // notification's dark glass turns black over this dark backdrop.
+            // A dashboard card's fill and rim over the frost.
             radius: Theme.cardRadius
             tintTop: Theme.cardFill
             tintBottom: Theme.cardFill
-            frostBrightness: 0
             rimWidth: 1
             rimColor: Theme.cardBorder
             highlight: false
-            backdropSource: root.backdropSource
+            frost: cardFrost
             backdropOrigin: Qt.point(card.x, card.y + slide.y)
-            active: card.visible
 
             // Card.qml's title.
             Text {

@@ -59,12 +59,10 @@ Item {
         width: card.width
         height: card.height
         radius: card.radius
-        backdropSource: dialog.backdrop
         backdropOrigin: dialog.backdrop ? Qt.point(dialog.x + card.x - dialog.backdrop.x,
                                                    dialog.y + card.y - dialog.backdrop.y)
                                         : Qt.point(0, 0)
         frost: dialog.frost
-        active: dialog.visible
         tintTop: Theme.dialogGlassTop
         tintBottom: Theme.dialogGlassBottom
     }

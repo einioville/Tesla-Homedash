@@ -10,11 +10,9 @@ Item {
     id: layer
     anchors.fill: parent
 
-    // The item rendered BEHIND the pill (the dashboard host), captured + blurred
-    // for the frosted-glass backdrop. Set from Main.qml; flip frostedBackdrop off
-    // if the live capture is too heavy on the target device.
-    property Item backdropSource: null
-    property bool frostedBackdrop: true
+    // The item rendered BEHIND the pill (the view host), which the pill's glass
+    // frosts. A sibling of this layer, set from Main.qml.
+    property Item backdrop: null
 
     readonly property int topInset: 18
     readonly property int slideMs: 320
@@ -62,6 +60,12 @@ Item {
         onTriggered: layer.__advance()
     }
 
+    FrostLayer {
+        id: pillFrost
+        sourceItem: layer.backdrop
+        live: layer.showing
+    }
+
     // Soft drop shadow so the pill floats above the dashboard (tracks the pill).
     RectangularShadow {
         anchors.fill: pill
@@ -81,12 +85,10 @@ Item {
         implicitHeight: pillLabel.implicitHeight + 2 * Theme.notificationPadding
         radius: Theme.notificationRadius
 
-        backdropSource: layer.backdropSource
-        frostedBackdrop: layer.frostedBackdrop
+        frost: pillFrost
         // The pill is a direct child of this layer (which fills the window), so
         // its x/y are already the backdrop's coordinates.
         backdropOrigin: Qt.point(pill.x, pill.y)
-        active: layer.showing
 
         Behavior on y {
             NumberAnimation { duration: layer.slideMs; easing.type: Easing.OutCubic }

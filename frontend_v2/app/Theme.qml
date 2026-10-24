@@ -217,11 +217,10 @@ QtObject {
     readonly property color seatHeat: "#ff0000"
     readonly property color iconTint: "#ffffff"
 
-    // "Liquid glass" surface — shared by the notification pill and the graph
-    // readout (via items/util/GlassPanel.qml): squarer corners, a bright
-    // white rim and a DARK translucent tint (so white text/icons read clearly)
-    // over a frosted backdrop, plus a specular highlight line and a soft drop
-    // shadow.
+    // "Liquid glass" (items/util/GlassPanel.qml), its defaults the notification
+    // pill's: squarer corners, a bright white rim and a DARK translucent tint (so
+    // white text/icons read clearly) over a frosted backdrop, plus a specular
+    // highlight line and a soft drop shadow.
     readonly property int notificationRadius: 12
     readonly property int notificationPadding: 16
     readonly property color notificationGlassTop: "#4d1a1a24"     // dark translucent sheen (top)
@@ -233,6 +232,9 @@ QtObject {
     // Tone applied to the blurred backdrop so it reads as dark glass.
     readonly property real notificationFrostBrightness: -0.2
     readonly property real notificationFrostSaturation: -0.1
+    // How long a FrostLayer on screen lasts before it is rebuilt: the longest a lost texture
+    // link can leave the glass broken (FrostLayer.qml says why).
+    readonly property int glassRebuildMs: 60000
 
     // --- Trips view -------------------------------------------------------
     // Speed at which a route line reaches the top of the colour ramp (red).

@@ -729,11 +729,10 @@ Item {
         }
 
         // Inspect readout: time at the cursor + held value, in a "liquid glass" pill matching
-        // the notification pill (GlassPanel + a floating drop shadow). The
-        // frosted-blur backdrop is intentionally off: the tooltip lives inside the graph, so a
-        // real backdrop source would have to be an ancestor and would capture the panel itself.
-        // Without it GlassPanel degrades to the glass chrome — dark translucent tint, bright
-        // white rim, specular highlight — which reads cleanly over the dark card.
+        // the notification pill (GlassPanel + a floating drop shadow). It has no frost: what
+        // lies behind it is the graph, an ancestor, whose capture would hold the readout too.
+        // Without a `frost` GlassPanel is the glass alone — dark translucent tint, bright white
+        // rim, specular highlight — which reads cleanly over the dark card.
         RectangularShadow {
             anchors.fill: readout
             visible: readout.visible
@@ -747,7 +746,6 @@ Item {
         GlassPanel {
             id: readout
             visible: overlay.inspecting && !isNaN(overlay.dataY)
-            frostedBackdrop: false
             radius: Theme.notificationRadius
             width: readoutCol.implicitWidth + 28
             height: readoutCol.implicitHeight + 20

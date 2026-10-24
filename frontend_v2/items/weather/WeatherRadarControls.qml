@@ -8,12 +8,13 @@ import frontend_v2
 // `latestOnlyKey`, a *Vain uusin* checkbox writes that setting, which the view hands the layer
 // as `latestOnly` (the Weather card; a map's layer menu sets it with *Historia*). While the
 // layer shows the newest frame alone, the loop's controls are gone and only its time is left.
-// Frosted glass over the map behind it (the app's GlassPanel, as the notification pill has).
+// Frosted glass over the map behind it: its part of the map's FrostLayer (`frost`).
 GlassPanel {
     id: bar
 
     property Item radar: null
-    // What the glass frosts: the map under the radar, a sibling of this bar.
+    // The map under the radar, a sibling of this bar, from which the glass's place in the
+    // frost is measured.
     property Item backdrop: null
     property bool vertical: false
     // The local setting the *Vain uusin* checkbox writes; empty, no checkbox.
@@ -23,9 +24,7 @@ GlassPanel {
     implicitWidth: layout.implicitWidth + 24
     implicitHeight: layout.implicitHeight + (vertical ? 24 : 12)
     radius: 12
-    backdropSource: bar.backdrop
     backdropOrigin: Qt.point(bar.x - (bar.backdrop ? bar.backdrop.x : 0), bar.y - (bar.backdrop ? bar.backdrop.y : 0))
-    active: bar.radar ? bar.radar.active : false
 
     Grid {
         id: layout

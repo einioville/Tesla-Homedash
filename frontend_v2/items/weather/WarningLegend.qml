@@ -19,7 +19,6 @@ GlassPanel {
     radius: 16
     rimWidth: 0.75
     highlight: false
-    backdropSource: backdrop
     backdropOrigin: Qt.point(x - (backdrop ? backdrop.x : 0), y - (backdrop ? backdrop.y : 0))
 
     MouseArea {

@@ -223,14 +223,11 @@ Window {
     }
 
     // Smartphone-style notifications, above all other chrome (top-centre). The
-    // view host is handed in as the frosted-glass backdrop (captured + blurred
-    // behind the pill). Flip frostedBackdrop to false if the live-map capture is
-    // too heavy on the target device — it falls back to the plain glass.
+    // view host is what the pill's glass frosts.
     NotificationLayer {
         anchors.fill: parent
         z: 200
-        backdropSource: viewHost
-        frostedBackdrop: true
+        backdrop: viewHost
     }
 
     // Spotify re-authorization, at APP level rather than inside the Options view.

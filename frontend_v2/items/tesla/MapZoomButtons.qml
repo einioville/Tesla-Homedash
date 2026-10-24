@@ -21,9 +21,7 @@ GlassPanel {
     radius: 28
     rimWidth: 0.75
     highlight: false
-    backdropSource: teslaMap
     backdropOrigin: Qt.point(x - (teslaMap ? teslaMap.x : 0), y - (teslaMap ? teslaMap.y : 0))
-    active: visible
     opacity: shown ? 1 : 0
     visible: opacity > 0
     Behavior on opacity { NumberAnimation { duration: 250; easing.type: Easing.OutCubic } }

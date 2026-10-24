@@ -564,7 +564,10 @@ stop stuck inside VLC stalls only the radio, and a burst of skips tuning once to
 (`backend/src/media_service/CLAUDE.md`) — plus the Media view's cover swipe reaching further and,
 let go past a skip, sliding on from where it is: at once to the cover the skip should bring, held
 in memory with the covers either side of each track and station (`Media.coverAfterSkip`), else
-when the new cover arrives (`frontend_v2/core/CLAUDE.md`, *Media*).
+when the new cover arrives (`frontend_v2/core/CLAUDE.md`, *Media*) — plus one frosted glass: every
+`GlassPanel` takes its frost from a `FrostLayer`, the only maker of frost, which rebuilds itself
+when it goes live and every minute, since Qt never links an effect again to a texture whose provider
+was destroyed (`frontend_v2/items/util/CLAUDE.md`).
 When you land a change that touches documented behaviour, update this line.
 
 ### 7.8 Keeping the code clean
@@ -597,6 +600,8 @@ Four kinds of debris do not belong in this codebase; review your own diff for th
     registry id's property name, `app/Format.js` for displayed values ("—" for a missing one),
     `items/util/Card.qml` for a card (the dashboard's and the Weather view's look; its colours
     are `Theme`'s *card* tokens), `items/util/GlowBorder.qml` for a card's rim lit from inside,
+    `items/util/GlassPanel.qml` for frosted glass, its frost from an `items/util/FrostLayer.qml`
+    beside the backdrop (never a capture or blur of its own),
     `items/settings/ModalDialog.qml` for a dialog, `SettingDetails.qml` for a status line with its
     dot, `DialogButton.qml` for a button, and the motion pieces in `items/util/`.
 

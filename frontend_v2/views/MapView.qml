@@ -92,7 +92,6 @@ Rectangle {
         anchors.top: parent.top
         anchors.margins: 20
         visible: view.showWarnings && view.warnings.length > 0
-        active: view.isCurrent && visible
         warnings: view.warnings
         backdrop: map
         frost: frost

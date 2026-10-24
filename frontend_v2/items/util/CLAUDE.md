@@ -129,23 +129,38 @@ nothing scrolls under the screensaver. The fade is a `MultiEffect` mask over a g
 follows the offset, so it grows in as the line leaves its start and is gone again as the copy
 arrives.
 
-## Frosted glass over a map — `GlassPanel.qml`, `FrostLayer.qml`
+## Frosted glass — `GlassPanel.qml`, `FrostLayer.qml`
 
-A `GlassPanel` frosts the backdrop behind it by capturing its own region (`ShaderEffectSource`),
-blurring it (`MultiEffect`, several passes into textures of its own) and masking it round. Over a
-map that follows the car, that re-renders every frame, for every panel — a few dozen render targets
-on the Kartta view, all inside a view the view switch renders through a layer of its own while it
-moves. **The glass has turned nearly clear at random** on the user's display, a few times, after no
-action they could name (2026-10-18). It was never reproduced offscreen, so the cause is unconfirmed;
-those nested per-panel passes are the suspect. **Panels over a map take their frost from one
-`FrostLayer`** instead (`GlassPanel.frost`): the map
-captured at a quarter of its size and blurred once, in the notification glass's tone, from which
-each panel cuts its part with `resources/shaders/glassfrost.frag` (the rounded rectangle, a
-one-pixel soft edge). That is three render targets for the whole view, and each panel's frost is a
-plain texture lookup. The Kartta view's layer menu, zoom pill, data card, radar bar and warning
-legend share one; the dashboard's map controls another, live only while they show. Panels not over
-a moving backdrop (the notification pill) still frost themselves, and so does the Media view's
-next-track card (`../media/MediaUpNext.qml`) over that view's drifting backdrop and spectrum: one
-panel, live only for the last 20 s of a track. Its `backdropSource` is the view's `backdrop` item,
-which holds every layer under the player and nothing over it, since a capture of an item that
-contains the panel would contain the panel too.
+**One container, one source of frost.** `GlassPanel` is the glass everything sits on — the
+notification pill, the map panels, a dialog over a map, the Media view's next-track card, the
+graph's inspect readout: a dark tint, a rim and a highlight over its part of a `FrostLayer`
+(`frost`, with `backdropOrigin` the panel's top-left in the layer's source item). A `FrostLayer` is
+the only thing that makes frost: its backdrop captured at a quarter of its size and blurred once, in
+the notification glass's tone, from which each panel cuts its part with
+`resources/shaders/glassfrost.frag` (the rounded rectangle, a one-pixel soft edge) — three render
+targets per backdrop however many panels share it, and a texture lookup per panel. A panel never
+captures or blurs on its own; one with no `frost` is the glass alone (the graph's readout, whose
+backdrop would be its own ancestor). A FrostLayer is declared beside its backdrop, never inside it:
+a capture of an item that holds the panels would hold the panels too. One per backdrop: the Kartta
+view's panels share one and its dialogs have another, blurring further and darker
+(`Theme.dialogFrost*`); the dashboard's map controls share one, live only while they show, and its
+dialogs frost all of the dashboard (`surface`); the Sää view's radar bar has one and its dialogs
+another; the notification pill frosts the whole view host while it shows; the next-track card
+frosts the Media view's `backdrop` item (every layer under the player and nothing over it) for the
+last 20 s of a track.
+
+**A FrostLayer rebuilds itself** — capture, blur and output thrown away and made anew — each time
+it goes live and every `Theme.glassRebuildMs` (60 s) while live. The reason is Qt's: an effect holds
+a link to the provider of each texture it reads, and when that provider is destroyed Qt drops the
+link and never looks it up again (`QSGRhiShaderEffectNode::handleTextureProviderDestroyed`; it looks
+again only when the effect's source *property* changes or its node is rebuilt, not on a resize).
+The effect then samples a transparent dummy, with no warning, until the app restarts. That is how
+the glass went clear for good on the dev box (the Kartta layer menu 2026-10-18, the Sää radar bar
+2026-10-24), through map drags, resizes and view switches. What destroyed the provider was never
+found: nothing in the app does, and offscreen neither random view switching nor a watcher on every
+provider caught one dying. A rebuild links everything afresh, so a lost link lasts a minute at
+most, or until its view is opened again. Measured offscreen: a provider released the way Qt
+releases one turns the glass dark (`glassfrost.frag` draws the frost opaque), and a rebuild, a view
+switch and the timer each bring it back; the first frame after a rebuild is already frosted; a
+rebuild costs 0.36 ms of GUI thread on the dev box; memory settles after a few hundred rebuilds
+(measured over 3000).
