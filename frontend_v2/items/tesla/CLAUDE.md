@@ -253,7 +253,8 @@ OSM's place names are no layer: the imagery has no labels of its own, so every m
   straight from `tie.digitraffic.fi` (`ensure()`) when a layer or the view comes live and the list is
   missing or six hours old; and a marker for each camera in view from zoom 9 — at most 60, none within
   30 px of another. A tap opens `RoadCameraPopup.qml`:
-  the station's pictures, one per direction it looks (a tab each), and the nearest road weather
+  the station's pictures, one per direction it looks (a tab each, in a strip as wide as the picture
+  that scrolls sideways when a station has more than fit, its ends faded), and the nearest road weather
   station's readings (`nearestWeatherStationId`: road condition, road and air temperature, wind,
   rain, visibility, humidity), all fetched when it opens. Pictures are taken every ten minutes; the
   time is in the image URL so a new one is not served from the cache. Requests carry the

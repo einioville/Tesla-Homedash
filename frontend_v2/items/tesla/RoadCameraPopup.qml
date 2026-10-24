@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Effects
 import QtPositioning
 import frontend_v2
 import "../../app/Format.js" as Format
@@ -285,17 +286,60 @@ ModalDialog {
         }
     }
 
-    // The directions the camera looks, named as Fintraffic names them.
-    Row {
+    // The directions the camera looks, named as Fintraffic names them: as wide as the picture,
+    // scrolling sideways when a station has more than fit, each end faded while more lies past
+    // it (MarqueeText's mask).
+    Item {
+        id: tabStrip
         anchors.left: picture.left
         anchors.top: picture.bottom
         anchors.topMargin: 10
-        spacing: 8
+        width: picture.width
+        height: 32
+        layer.enabled: tabs.contentWidth > width
+        layer.effect: MultiEffect {
+            maskEnabled: true
+            maskSource: tabFade
+            // smoothstep(0, 1) over the mask's alpha (see RoundedImage).
+            maskThresholdMin: 0.5
+            maskSpreadAtMin: 1.0
+        }
 
-        Repeater {
+        ListView {
+            id: tabs
+            anchors.fill: parent
+            orientation: ListView.Horizontal
+            spacing: 8
             model: popup.station ? popup.station.presets : []
+            // ElasticFlickable's ends, sideways.
+            boundsBehavior: Flickable.DragAndOvershootBounds
+            boundsMovement: Flickable.FollowBoundsBehavior
+            rebound: Transition {
+                NumberAnimation {
+                    properties: "x,y"
+                    duration: Theme.reboundDuration
+                    easing.type: Easing.OutCubic
+                }
+            }
+            onMovementStarted: slide.stop()
 
-            Rectangle {
+            // A tab chosen while partly out of sight slides fully in.
+            function reveal(index) {
+                var from = contentX
+                positionViewAtIndex(index, ListView.Contain)
+                slide.to = contentX
+                contentX = from
+                slide.restart()
+            }
+
+            NumberAnimation on contentX {
+                id: slide
+                running: false
+                duration: 250
+                easing.type: Easing.OutCubic
+            }
+
+            delegate: Rectangle {
                 id: tab
                 required property var modelData
                 required property int index
@@ -313,8 +357,36 @@ ModalDialog {
                 }
                 MouseArea {
                     anchors.fill: parent
-                    onClicked: popup.preset = tab.index
+                    onClicked: {
+                        popup.preset = tab.index
+                        tabs.reveal(tab.index)
+                    }
                 }
+            }
+        }
+    }
+
+    Item {
+        id: tabFade
+        anchors.fill: tabStrip
+        visible: false
+        layer.enabled: true
+
+        readonly property real fadeWidth: 32
+        readonly property real edge: Math.min(0.5, fadeWidth / Math.max(1, width))
+        // 1 at an end with nothing past it, falling to 0 over fadeWidth of tabs past it.
+        readonly property real nearAlpha: 1 - Math.max(0, Math.min(1, (tabs.contentX - tabs.originX) / fadeWidth))
+        readonly property real farAlpha:
+            1 - Math.max(0, Math.min(1, (tabs.originX + tabs.contentWidth - tabs.width - tabs.contentX) / fadeWidth))
+
+        Rectangle {
+            anchors.fill: parent
+            gradient: Gradient {
+                orientation: Gradient.Horizontal
+                GradientStop { position: 0; color: Qt.rgba(1, 1, 1, tabFade.nearAlpha) }
+                GradientStop { position: tabFade.edge; color: "white" }
+                GradientStop { position: 1 - tabFade.edge; color: "white" }
+                GradientStop { position: 1; color: Qt.rgba(1, 1, 1, tabFade.farAlpha) }
             }
         }
     }
