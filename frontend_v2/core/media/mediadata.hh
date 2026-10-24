@@ -3,6 +3,7 @@
 
 #include <QByteArray>
 #include <QColor>
+#include <QElapsedTimer>
 #include <QFutureWatcher>
 #include <QImage>
 #include <QObject>
@@ -46,6 +47,10 @@ class MediaData : public QObject {
     Q_PROPERTY(int mediaType READ mediaType NOTIFY mediaTypeChanged)
     // image://media/<hash> for the current art, or "" before the first image.
     Q_PROPERTY(QString coverArtId READ coverArtId NOTIFY coverArtIdChanged)
+    // Which way the latest cover change went, for the Media view's slide: -1 when
+    // skipBackward() was pressed shortly before it (the previous track or station),
+    // 1 otherwise. Set with coverArtId, so a handler of either reads both new.
+    Q_PROPERTY(int coverDirection READ coverDirection NOTIFY coverArtIdChanged)
     // Dominant colour of the current cover art (k-means), drives the card
     // gradient. A deep Tesla blue until the first art is decoded.
     Q_PROPERTY(QColor dominantColor READ dominantColor NOTIFY dominantColorChanged)
@@ -71,6 +76,7 @@ public:
     bool isPlaying() const { return m_isPlaying; }
     int mediaType() const { return m_mediaType; }
     QString coverArtId() const { return m_coverArtId; }
+    int coverDirection() const { return m_coverDirection; }
     QColor dominantColor() const { return m_dominantColor; }
     QVariantList palette() const { return m_palette; }
     QString nextTitle() const { return m_nextTitle; }
@@ -150,6 +156,9 @@ private:
     bool m_isPlaying = false;
     int m_mediaType = 0;
     QString m_coverArtId;
+    int m_coverDirection = 1;
+    // Running from a skipBackward() until the cover change it brings.
+    QElapsedTimer m_skipBackward;
     QColor m_dominantColor = QColor(0x1E, 0x3A, 0x8A);
     QVariantList m_palette;
     QString m_nextTitle;

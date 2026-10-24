@@ -115,6 +115,9 @@ Item {
             // Gentler, larger rounding than the dashboard card's cover, scaled to
             // the big cover so it reads as softly rounded rather than near-square.
             coverRadius: Math.max(Theme.coverRadius, Math.round(view.coverSize * 0.04))
+            slide: true
+            swipe: true
+            active: view.isCurrent
         }
 
         // Title + artist, below the cover.

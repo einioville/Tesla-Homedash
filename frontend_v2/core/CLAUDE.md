@@ -73,9 +73,16 @@ the backend's Spotify poll or in a connecting display's snapshot. Load-bearing:
   `Theme.mediaUpNextLeadMs` (20 s, fixed by choice: the card is one switch, Media › *Seuraavaksi*),
   and only while the view is current and the switch on, so a display elsewhere costs the backend
   nothing. **A new title or duration clears the answer** — what was next is now playing — so a
-  failed ask leaves the card hidden instead of naming the track already playing. The card keeps
-  its own copy while it drops away, and loads the cover from the URL itself (a QML `Image`, under
-  `QmlNetworkFactory`'s timeout), outside the cover cache above.
+  failed ask leaves the card hidden instead of naming the track already playing. The card drops
+  1 s before the end, on a timer armed from each progress update, so it is gone before the display
+  hears of the next track and the cover slides. It keeps its own copy while it drops away, and
+  loads the cover from the URL itself (a QML `Image`, under `QmlNetworkFactory`'s timeout),
+  outside the cover cache above.
+- **`coverDirection`** is the way the Media view's cover slides in (`../items/media/MediaCover.qml`,
+  `slide`): -1 when `skipBackward()` (the back button, or a swipe right over the cover, `swipe`)
+  was called within 8 s before the change (the backend's Spotify call and next poll, or the
+  radio's stream fetch, then the cover's own fetch), 1 otherwise, a skip from the phone included.
+  Only a new picture slides; the next track off the same album keeps its cover.
 
 ## `QmlNetworkFactory` — `qmlnetworkfactory.hh`
 

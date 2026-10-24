@@ -29,6 +29,9 @@ const Logger logger = Logger::get("media");
 constexpr qint64 kCoverCacheBytes = 50LL * 1024 * 1024;
 // Without a byte for this long, a cover fetch gives up.
 constexpr int kCoverTimeoutMs = 20 * 1000;
+// A cover change this soon after skipBackward() is the one it asked for: the backend's
+// Spotify call and next poll, or the radio's stream fetch, then the cover's own fetch.
+constexpr qint64 kSkipBackwardWindowMs = 8 * 1000;
 
 // A payload that is one len(2B) + UTF-8 string; false (out untouched) when truncated.
 bool readLenString(const QByteArray &payload, QString &out) {
@@ -204,6 +207,9 @@ void MediaData::decodeCoverArt(const QByteArray &bytes) {
             return;
         }
         m_cache->put(id, result.image);
+        m_coverDirection = m_skipBackward.isValid()
+                && m_skipBackward.elapsed() < kSkipBackwardWindowMs ? -1 : 1;
+        m_skipBackward.invalidate();
         m_coverArtId = QStringLiteral("image://media/") + id;
         emit coverArtIdChanged();
         setDominantColor(result.color);
@@ -283,11 +289,13 @@ void MediaData::setMediaType(int value) {
 }
 
 void MediaData::skipForward() {
+    m_skipBackward.invalidate();
     m_server->sendPacket(protocol::frame(protocol::MEDIA_SKIP));
     logger.info(QStringLiteral("Skip forward command issued"));
 }
 
 void MediaData::skipBackward() {
+    m_skipBackward.start();
     m_server->sendPacket(protocol::frame(protocol::MEDIA_SKIP_BACKWARD));
     logger.info(QStringLiteral("Skip backward command issued"));
 }

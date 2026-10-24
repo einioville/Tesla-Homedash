@@ -4,8 +4,8 @@ import frontend_v2
 
 // The Media view's "up next" card: what Spotify plays after the current track, on
 // frosted glass in the bottom-right corner. It rises from below the screen's edge
-// Theme.mediaUpNextLeadMs before the track ends and drops back when the
-// track changes or pauses. Laid over the whole view, as is
+// Theme.mediaUpNextLeadMs before the track ends and drops back just before the
+// end, or when the track changes or pauses. Laid over the whole view, as is
 // `backdropSource`, the view's backdrop the glass frosts. It takes no input, so
 // swipes pass through it.
 Item {
@@ -19,6 +19,9 @@ Item {
     // Each ask is a read of Spotify's queue on the backend, so the card asks once a
     // track, this long before it is due: time for the answer and its cover.
     readonly property int askAheadMs: 6000
+    // It drops this long before the track ends, so it is gone before the display
+    // hears of the next track and the Media view's cover slides in.
+    readonly property int dropAheadMs: 1000
     readonly property int slideMs: 420
     readonly property int margin: 24
     // Far enough below its place that the shadow is off the screen too.
@@ -31,7 +34,12 @@ Item {
     readonly property bool asking:
         playing && remainingMs <= Theme.mediaUpNextLeadMs + askAheadMs
     readonly property bool shown:
-        playing && remainingMs <= Theme.mediaUpNextLeadMs && Media.nextTitle.length > 0
+        playing && remainingMs <= Theme.mediaUpNextLeadMs && Media.nextTitle.length > 0 &&
+        !dropped
+    // Set dropAheadMs before the end, by a timer armed from each progress update
+    // (every 2 s; remainingMs alone steps too coarsely), and cleared by a track
+    // change or a seek back.
+    property bool dropped: false
 
     // The answer, held while the card drops away: Media clears it on a track change.
     property string title
@@ -49,6 +57,25 @@ Item {
             root.artists = Media.nextArtists
             root.imageUrl = Media.nextImageUrl
         }
+        function onProgressMsChanged() {
+            if (root.remainingMs > Theme.mediaUpNextLeadMs + root.askAheadMs) {
+                root.dropped = false
+                dropTimer.stop()
+            } else if (!root.dropped && Media.isPlaying) {
+                dropTimer.interval = Math.max(0, root.remainingMs - root.dropAheadMs)
+                dropTimer.restart()
+            }
+        }
+        // A timer left running through a pause would drop the card for good.
+        function onIsPlayingChanged() {
+            if (!Media.isPlaying)
+                dropTimer.stop()
+        }
+    }
+
+    Timer {
+        id: dropTimer
+        onTriggered: root.dropped = true
     }
 
     // Placed by anchors and moved by the transform alone, so laying out the view
