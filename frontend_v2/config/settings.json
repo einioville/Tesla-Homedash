@@ -97,7 +97,7 @@
                             "key": "homeReturnEnabled",
                             "type": "bool",
                             "label": "Automaattinen paluu kotinäyttöön",
-                            "help": "Vaihda kotinäyttöön automaattisesti järjestelmän oltua käyttämättä tietyn ajan verran.",
+                            "help": "Palaa automaattisesti kotinäyttöön.",
                             "default": false,
                             "apply": "live"
                         },
@@ -105,7 +105,6 @@
                             "key": "homeReturnMin",
                             "type": "int",
                             "label": "Paluuviive",
-                            "help": "Kosketuksetta kulunut aika ennen paluuta.",
                             "unit": "min",
                             "min": 1,
                             "max": 120,
@@ -120,8 +119,8 @@
                         {
                             "key": "menuAutoPickSec",
                             "type": "int",
-                            "label": "Valikon automaattinen valinta",
-                            "help": "Aika, jonka jälkeen avoin näkymävalikko avaa edessä olevan näkymän itsestään.",
+                            "label": "Näkymävalikon automaattinen sulkeminen",
+                            "help": "Aika, jonka jälkeen näkymävalikko avaa keskellä olevan näkymän automaattisesti.",
                             "unit": "s",
                             "min": 1,
                             "max": 30,
@@ -132,8 +131,7 @@
                         {
                             "key": "spotifyAutoOpen",
                             "type": "bool",
-                            "label": "Avaa musiikki Spotifyn alkaessa",
-                            "help": "Vaihda musiikkinäkymään, kun Spotify alkaa soida, ellei näyttöä ole kosketettu viimeisen puolen minuutin aikana.",
+                            "label": "Avaa musiikkinäkymä Spotifytoiston alkaessa",
                             "default": true,
                             "apply": "live"
                         }
