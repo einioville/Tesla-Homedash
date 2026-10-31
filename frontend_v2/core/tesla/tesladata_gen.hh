@@ -59,7 +59,6 @@ class TeslaDataGen : public QObject {
     Q_PROPERTY(bool rearDefrostEnabled READ rearDefrostEnabled NOTIFY rearDefrostEnabledChanged)
     Q_PROPERTY(double seatHeaterLeft READ seatHeaterLeft NOTIFY seatHeaterLeftChanged)
     Q_PROPERTY(double seatHeaterRight READ seatHeaterRight NOTIFY seatHeaterRightChanged)
-    Q_PROPERTY(double estBatteryRange READ estBatteryRange NOTIFY estBatteryRangeChanged)
     Q_PROPERTY(double aCChargingEnergyIn READ aCChargingEnergyIn NOTIFY aCChargingEnergyInChanged)
 
 public:
@@ -110,7 +109,6 @@ public:
     bool rearDefrostEnabled() const { return m_rearDefrostEnabled; }
     double seatHeaterLeft() const { return m_seatHeaterLeft; }
     double seatHeaterRight() const { return m_seatHeaterRight; }
-    double estBatteryRange() const { return m_estBatteryRange; }
     double aCChargingEnergyIn() const { return m_aCChargingEnergyIn; }
 
     // Expected protocol value_type (0=double,1=string,2=bool,3=location)
@@ -163,7 +161,6 @@ signals:
     void rearDefrostEnabledChanged();
     void seatHeaterLeftChanged();
     void seatHeaterRightChanged();
-    void estBatteryRangeChanged();
     void aCChargingEnergyInChanged();
 
 protected:
@@ -217,7 +214,6 @@ private:
     bool m_rearDefrostEnabled = false;
     double m_seatHeaterLeft = 0.0;
     double m_seatHeaterRight = 0.0;
-    double m_estBatteryRange = 0.0;
     double m_aCChargingEnergyIn = 0.0;
 };
 

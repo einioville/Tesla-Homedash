@@ -76,7 +76,7 @@ GlassPanel {
 
         Stat { value: Format.num(Tesla.vehicleSpeed, "", 0); unit: "km/h"; caption: qsTr("NOPEUS") }
         Stat { value: Format.num(Tesla.batteryLevel, "", 0); unit: "%"; caption: qsTr("AKKU") }
-        Stat { value: Format.num(Tesla.estBatteryRange, "", 0); unit: "km"; caption: qsTr("TOIMINTAMATKA") }
+        Stat { value: Format.num(Tesla.ratedRange, "", 0); unit: "km"; caption: qsTr("TOIMINTAMATKA") }
         Stat {
             value: Format.num(root.fmiOutside ? root.fmiTemp : Tesla.outsideTemp, "", 1)
             unit: "°C"

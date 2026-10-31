@@ -148,7 +148,7 @@ Rectangle {
             entries: [
                 { title: "Nopeus",      value: Tesla.vehicleSpeed,    unit: "km/h" },
                 { title: "Akun Varaus", value: Tesla.batteryLevel,    unit: "%" },
-                { title: "Range",       value: Tesla.estBatteryRange, unit: "km" }
+                { title: "Range",       value: Tesla.ratedRange,      unit: "km" }
             ]
         }
 

@@ -338,15 +338,6 @@
             "stream_id": 44,
             "sleep_default": 0
         },
-        "EstBatteryRange": {
-            "category": "Charging",
-            "unit": "km",
-            "log": true,
-            "formula": "x * 1.609344",
-            "stream_id": 45,
-            "line_mode": "linear",
-            "zero_based": true
-        },
         "ACChargingEnergyIn": {
             "category": "Charging",
             "unit": "kWh",
