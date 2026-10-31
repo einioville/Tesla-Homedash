@@ -497,7 +497,7 @@ background yellow and then the answer's colour before it fades back to the cover
 (`items/tesla/CLAUDE.md`; Qt Shader Tools a new build dependency); and a backdrop of the cover's
 colours (`Media.palette`) drifting behind the dashboard's cards and the Media view and resting
 while the music is paused (`items/media/MediaBackdrop.qml`); and the Media view's spectrum along
-its bottom edge, pill bars or a line (Media › Spektri), drawn from what the host is playing
+its bottom edge, pill bars, a line or off (Media › Audion visualisointi), drawn from what the host is playing
 (`backend/src/audio_service/CLAUDE.md`), and the same spectrum behind Media › *Taajuuskorjain*'s
 curve, recorded after the equalizer so a knob shows what it does to the sound; and the Weather
 view's warning strip naming the area that covers the place, a tap opening the warnings whole, and

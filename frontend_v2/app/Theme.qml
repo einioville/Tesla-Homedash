@@ -86,7 +86,7 @@ QtObject {
     // most spectrumFall (of the full height) a second.
     readonly property real spectrumRise: 0.6
     readonly property real spectrumFall: 1.2
-    // "bars" or "line" (Asetukset › Media › Spektri).
+    // "bars", "line" or "off" (Asetukset › Media › Audion visualisointi).
     readonly property string mediaSpectrumStyle: Settings.values.mediaSpectrumStyle
     // The Media view's Seuraavaksi card (items/media/MediaUpNext.qml), shown this long
     // before a Spotify track ends (Asetukset › Media › Seuraavaksi switches it).

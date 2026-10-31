@@ -357,16 +357,16 @@
                 },
                 {
                     "id": "spectrum",
-                    "label": "Spektri",
+                    "label": "Audion visualisointi",
                     "settings": [
                         {
                             "key": "mediaSpectrumStyle",
                             "type": "enum",
                             "label": "Tyyli",
-                            "help": "Soivan musiikin taajuudet musiikkinäkymän alareunassa ja taajuuskorjaimen kuvaajassa.",
                             "options": [
                                 {"value": "bars", "label": "Palkit"},
-                                {"value": "line", "label": "Viiva"}
+                                {"value": "line", "label": "Viiva"},
+                                {"value": "off", "label": "Pois"}
                             ],
                             "default": "bars",
                             "apply": "live"

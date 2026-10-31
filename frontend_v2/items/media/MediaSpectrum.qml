@@ -4,7 +4,7 @@ import frontend_v2
 
 // The spectrum of what is playing, in the cover's colour — a row of pills that
 // grow from dots (`bars`, the default), or one smooth line with a soft fill under
-// it (`line`), Theme.mediaSpectrumStyle. Along the Media view's bottom edge, and
+// it (`line`), or nothing (`off`), Theme.mediaSpectrumStyle. Along the Media view's bottom edge, and
 // behind the equalizer's curve in the Options view (EqualizerPanel), where it
 // shows what the curve does to the sound. The levels are the backend's (a
 // recording of the host's output — backend/src/audio_service/spectrum.py); each
@@ -30,7 +30,8 @@ Item {
 
     // The owning view's isCurrent.
     property bool active: true
-    readonly property bool live: active && visible && !Display.off
+    // Off, it is never live, so it draws nothing and the backend stops recording.
+    readonly property bool live: active && visible && style !== "off" && !Display.off
 
     // The span of the backend's bands (LOW_HZ, HIGH_HZ in spectrum.py), equal
     // steps of log frequency across the width — for placing it on a frequency axis.
