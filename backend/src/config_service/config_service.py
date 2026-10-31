@@ -231,7 +231,6 @@ SETTINGS_SCHEMA: list[dict] = [
                         "key": "media.autoplayRadio",
                         "type": "bool",
                         "label": "Soita radiota käynnistyksessä",
-                        "help": "Toista radiota automaattisesti käynnistyksen jälkeen.",
                         "apply": "hook",
                         "hooks": ["media"],
                     },

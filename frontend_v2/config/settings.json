@@ -381,7 +381,6 @@
                             "key": "mediaUpNextEnabled",
                             "type": "bool",
                             "label": "Näytä seuraava kappale",
-                            "help": "Spotifyn seuraava kappale musiikkinäkymän oikeassa alakulmassa 20 sekuntia ennen kappaleen loppua.",
                             "default": true,
                             "apply": "live"
                         }
