@@ -3,6 +3,7 @@
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QQuickStyle>
+#include <QSurfaceFormat>
 #include <QtQml>
 #include <memory>
 
@@ -49,6 +50,16 @@ int main(int argc, char* argv[]) {
     // QT_IM_MODULE would silently leave the text fields untypeable on the device.
     // Read when the application is constructed, so it must be set before that.
     qputenv("QT_IM_MODULE", QByteArrayLiteral("qtvirtualkeyboard"));
+
+    // 8 bits per colour channel. Asked for nothing, the Pi's EGL picks an RGB565
+    // config, and the fullscreen window is scanned out in it as is: the backdrop's
+    // soft gradients and the frosted glass come out as dither grain. Alpha stays
+    // unset, so the window keeps an opaque buffer the compositor can scan out.
+    QSurfaceFormat surfaceFormat = QSurfaceFormat::defaultFormat();
+    surfaceFormat.setRedBufferSize(8);
+    surfaceFormat.setGreenBufferSize(8);
+    surfaceFormat.setBlueBufferSize(8);
+    QSurfaceFormat::setDefaultFormat(surfaceFormat);
 
     QGuiApplication app(argc, argv);
 
