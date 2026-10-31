@@ -37,7 +37,7 @@ Window {
     // for it by (Navigation). Add a view by adding one entry here plus its inline
     // Component below.
     readonly property var viewModel: [
-        { key: "dashboard", name: qsTr("Dashboard"), icon: "qrc:/resources/icons/home.svg", component: dashboardComponent },
+        { key: "dashboard", name: qsTr("Koti"), icon: "qrc:/resources/icons/home.svg", component: dashboardComponent },
         { key: "map", name: qsTr("Kartta"), icon: "qrc:/resources/icons/location.svg", component: mapComponent },
         { key: "weather", name: qsTr("Sää"), icon: "qrc:/resources/icons/weather/clouds.svg", component: weatherComponent },
         { key: "media", name: qsTr("Musiikki"), icon: "qrc:/resources/icons/music.svg", component: mediaComponent },
