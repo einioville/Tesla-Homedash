@@ -564,9 +564,8 @@
                             "key": "clearMapCache",
                             "type": "action",
                             "label": "Tyhjennä karttavälimuisti",
-                            "help": "Poistaa tallennetut karttakuvat, jotka haetaan sitten uudelleen. Sovellus käynnistyy uudelleen.",
                             "actionLabel": "Tyhjennä",
-                            "apply": "live"
+                            "apply": "restart"
                         },
                         {
                             "key": "mapLayerStats",

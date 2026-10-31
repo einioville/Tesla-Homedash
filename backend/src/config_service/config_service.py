@@ -577,7 +577,6 @@ SETTINGS_SCHEMA: list[dict] = [
                         "key": "server.reachability",
                         "type": "enum",
                         "label": "Palvelimen saavutettavuus",
-                        "help": "Määritä palvelimen saavutettavuus",
                         "options": [
                             {"value": "lan", "label": "Lähiverkko"},
                             {"value": "local", "label": "Vain päälaite"},
@@ -589,8 +588,6 @@ SETTINGS_SCHEMA: list[dict] = [
                         "key": "auth.tokenLifetimeDays",
                         "type": "enum",
                         "label": "Kirjautuminen vanhenee",
-                        "help": "Näytön on kirjauduttava uudelleen, kun se ei ole ollut "
-                                "yhteydessä näin pitkään aikaan.",
                         "options": [
                             {"value": 0, "label": "Ei koskaan"},
                             {"value": 7, "label": "7 päivän jälkeen"},

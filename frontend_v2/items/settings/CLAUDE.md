@@ -276,7 +276,9 @@ setting is written beside a visible one (the DEBUG duration beside the level) wh
 wording: the row's badge and the restart banner already say it.
 
 **The restart badge names the half that restarts**: *sovelluksen uudelleenkäynnistys* on a local
-restart-tier row (read once by `AppConfig` — today the backend address and port), *palvelimen
+restart-tier row (read once by `AppConfig` — the backend address and port) and on an action that
+restarts the app itself (*Tyhjennä karttavälimuisti*: `apply: "restart"` on an action only badges it,
+since an action holds no value for the restart banner to compare), *palvelimen
 uudelleenkäynnistys* on a backend one (read once by a backend service — `spotPrice.enabled`,
 `server.reachability`, a hook setting whose service is absent). `SettingRow` picks it from the
 entry's `origin`. They are two separate restarts with separate banner buttons, so a bare
