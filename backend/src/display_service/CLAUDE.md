@@ -30,5 +30,15 @@ failures are otherwise silent:
   so a slow monitor cannot switch the feature off for good. An unreadable `--json` (an older wlopm)
   is never a fault.
 
-There is no automatic recovery: `wlr-randr --output … --on` fails on a wedged output, and the one
-modeset that revived it did so at the wrong resolution.
+**This service does not recover a wedged output** (#89). What revives one: `wlopm --on` and a
+modeset to the native mode both fail (`failed to apply configuration`), but a modeset through
+another listed mode (1920×1080) and back to the native one brings the picture back at 1280×800, in
+about 7 s. The reference Pi's journal holds seven wedges in three days, all revived that way, and
+none needed the `lightdm` restart. While wedged, `wlr-randr` still lists the output (disabled),
+though `wlopm --json` returns `[]`. The panel advertises no preferred mode, so `--preferred` fails.
+
+**On the reference Pi a host script runs that recovery**, outside the repo: a `swayidle` user
+unit (`wlopm.service`, a fixed 2 h blank) whose resume step is `~/.local/bin/panel-wake`, escalating
+from `wlopm --on` through the modesets above to `sudo systemctl restart lightdm`. With *Näytön
+sammutus* also on, both blank and both wake the panel, and a wedge that `panel-wake` repairs still
+leaves `OUTPUT_LOST` set here until the backend restarts.
