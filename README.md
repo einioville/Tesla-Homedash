@@ -470,14 +470,16 @@ WantedBy=default.target
 > `RestartSec` of 100 ms a crash-looping process trips that in about two seconds; at 5 s it
 > never can, so the unit keeps retrying and heals itself once the cause is fixed.
 
-> **Screen-off (the Options view's *Näytön sammutus*) is unreliable on current Raspberry Pi
-> OS.** It is off by default; two things break it:
+> **Screen-off (the Options view's *Näytön sammutus*, and the night mode, *Yötila*) needs
+> `wlopm`, and `wlr-randr` to recover the panel** (`sudo apt install wlopm wlr-randr`). It is off
+> by default. Let the backend do all the blanking: a `swayidle` + `wlopm` unit of your own would
+> blank and wake the panel beside it. Two things can get in its way:
 >
 > - **labwc 0.20 / wlroots 0.20** (Raspberry Pi OS since September 2026): after a long blank the
->   output can disappear from the compositor and never come back — the panel stays black whatever
->   you touch. Recover with `sudo systemctl restart lightdm` (the backend survives it). The backend
->   detects this, refuses further power-offs until it is restarted, and the Options view says why.
->   A plain `swayidle` + `wlopm` setup wedges the same way; it is not specific to this app.
+>   output can disappear from the compositor, so the panel wakes to black. The backend brings it
+>   back by itself with a modeset through another mode, in about 7 s. If that fails it suspends
+>   screen-off until it recovers or is restarted, and the Options view says why; recover by hand
+>   with `sudo systemctl restart lightdm` (the backend survives it).
 > - **A running VNC server (wayvnc)** blocks `wlopm` in both directions, so the panel simply never
 >   blanks. Stop the VNC server to use screen-off; the Options view reports the refusal.
 

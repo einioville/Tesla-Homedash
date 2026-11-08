@@ -21,10 +21,10 @@ Item {
                    : ""
         switch (Display.fault) {
         case 2:
-            return qsTr("Näyttö ei palannut päälle sammutuksen jälkeen: näyttölähtö katosi "
-                        + "(tunnettu vika labwc 0.20 / wlroots 0.20 -versioissa). Sammutus on "
-                        + "keskeytetty palvelimen seuraavaan uudelleenkäynnistykseen asti. "
-                        + "Pidä se pois käytöstä, kunnes näyttöpino on korjattu.")
+            return qsTr("Näyttölähtö katosi sammutuksen jälkeen, eikä sitä saatu palautettua "
+                        + "omaan näyttötilaansa (tunnettu vika labwc 0.20 / wlroots 0.20 "
+                        + "-versioissa). Sammutus on keskeytetty, kunnes palautus onnistuu tai "
+                        + "palvelin käynnistetään uudelleen.")
         case 1:
             return qsTr("Näytön virtaa ei voitu vaihtaa: wlopm kieltäytyi. Tavallisin syy "
                         + "on käynnissä oleva VNC-palvelin (wayvnc), joka estää sammutuksen.")
