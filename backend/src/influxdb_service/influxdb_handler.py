@@ -429,7 +429,7 @@ class InfluxDBHandler:
         try:
             await self.__client.write_api().write(bucket=self.__bucket, record=valid_points)
             self.__answered()
-            logger.info("Wrote %d points to InfluxDB", len(valid_points))
+            logger.debug("Wrote %d points to InfluxDB", len(valid_points))
         except Exception as e:
             logger.error("Failed to write points to InfluxDB: %s", e)
             raise
@@ -451,7 +451,7 @@ class InfluxDBHandler:
         try:
             await self.__client.write_api().write(bucket=self.__bucket, record=valid_points)
             self.__answered()
-            logger.info("Wrote %d charger points to InfluxDB", len(valid_points))
+            logger.debug("Wrote %d charger points to InfluxDB", len(valid_points))
         except Exception as e:
             logger.error("Failed to write charger points to InfluxDB: %s", e)
 

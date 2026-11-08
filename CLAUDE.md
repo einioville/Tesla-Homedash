@@ -168,8 +168,8 @@ runs the configure + build in one command (Ninja when installed), with compiler-
 
 ### 3.3 Validation
 
-There is no test suite beyond three standalone backend scripts (`backend/tests/test_spot_price.py`,
-`test_trip_loader.py`, `test_auth.py`; run one with `uv run python tests/<file>` from `backend/`). Validate manually:
+There is no test suite beyond four standalone backend scripts (`backend/tests/test_spot_price.py`,
+`test_trip_loader.py`, `test_auth.py`, `test_display_service.py`; run one with `uv run python tests/<file>` from `backend/`). Validate manually:
 - **Backend**: `python -m compileall backend/src`, then start the stack and confirm
   telemetry / media / weather / HVAC flows in the logs.
 - **Frontend**: rebuild, launch, connect to the backend, exercise the affected widgets.
@@ -570,7 +570,11 @@ when it goes live and every minute, since Qt never links an effect again to a te
 was destroyed (`frontend_v2/items/util/CLAUDE.md`) — plus the car on the maps moved along its
 fixes at the speed it reported 1.5 s before (`CarTrack`, `CarMotion`; `frontend_v2/core/CLAUDE.md`),
 since the car skips samples and stamps them up to a second off, with the drive's route growing as
-the arrow reaches each fix.
+the arrow reaches each fix — plus the panel recovering by itself from the labwc 0.20 wedge (#89):
+`DisplayService` learns the output's modes while it is lit and, when a wake finds it dropped,
+modesets through another mode and back (`backend/src/display_service/CLAUDE.md`), so screen-off
+and night mode need no host script beside them; and the InfluxDB per-write lines at DEBUG, which
+filled the Pi's 50 MB journal in four days.
 When you land a change that touches documented behaviour, update this line.
 
 ### 7.8 Keeping the code clean
