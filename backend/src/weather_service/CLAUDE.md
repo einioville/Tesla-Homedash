@@ -77,3 +77,12 @@ document. `WeatherViewBuilder` builds it on `WeatherService`'s job (above), with
 - Times in the document are in the configured zone (`epochtime` converted; the astro rise/set strings
   are in the place's zone and converted too). `now.time` is the newest observation used — the view's
   *havainto* — or `null` when no observation has arrived yet.
+
+## Event flow
+
+**Weather refresh**
+```
+APScheduler (10 min) → WeatherService.__update_view → WeatherViewBuilder.build (FMI timeseries
+  JSON + CAP warnings, parts in parallel) → protocol.frame(WEATHER_VIEW, JSON) → Server.broadcast
+  → Weather.view (frontend_v2) → the Weather view + the dashboard's hourly panel
+```

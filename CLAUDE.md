@@ -33,100 +33,29 @@ The frontend is **`frontend_v2/`**: Qt Quick/QML over a C++20 core.
 
 ## 2. Project structure
 
-★ = the directory has its own `CLAUDE.md`.
+★ = the directory has its own `CLAUDE.md`, which loads when you work there; each file's role is in
+that `CLAUDE.md` or the file's own docstring.
 
 ```
-backend/                          # ★ orchestration, service contracts, .env + config.json keys
-  run.py                          # Entry shim: asyncio.run(main())
-  pyproject.toml                  # Package metadata + dependency pins
-  uv.lock                         # Authoritative dependency lockfile (uv)
-  requirements.txt                # Reference only; uv.lock is authoritative
-  src/
-    start_services.py             # Entrypoint / composition root — builds EVERY service (tesla, media, weather, trips, charging + myenergi), registers handlers, gathers the event loop. NOT tesla-specific despite the neighbours.
-    server/                       # ★
-      server.py                   # asyncio TLS server on :6969 (all interfaces, or loopback: server.reachability) — login gate, fan-out + handler routing
-    auth_service/                 # ★
-      auth_service.py             # AuthService — the login every connection passes (0xF0-0xF8), paired displays, Ylläpito › Näytöt
-      scram.py                    # SCRAM-SHA-256-PLUS, server half (RFC 5802/7677; mirror: frontend_v2/core/scram.cpp)
-      tls.py                      # The self-signed TLS 1.3 certificate, created on first start, pinned by the displays
-    tesla_service/                # ★
-      telemetry.py                # Teslemetry stream client (teslemetry_stream) → Vehicle.on_telemetry_event
-      vehicle.py                  # Vehicle state, telemetry handler, HVAC REST commands, rate limiting, snapshots
-      vehicle_data_property.py    # VehicleDataProperty / CalculatedVehicleDataProperty — value store, formula eval, serialize
-      property_editor.py          # The telemetry-field table: log / line_mode / zero_based (0x63-0x66); its Options card is out of the schema for now
-    media_service/                # ★
-      base_media_player.py        # Abstract player interface
-      media_manager.py            # Orchestrator — owns both players, routes controls, gates streaming to the active one
-      spotify_player.py           # Spotify Web API polling + controls (spotipy); APScheduler poll loop
-      radio_player.py             # libVLC internet radio (Nelonen Media stations)
-      setup/
-        spotify_setup.py          # Standalone OAuth + Connect-device-ID helper (run once during setup)
-      spotify_auth_service.py     # Re-authorisation from the Options view (0xA0-0xA4)
-      spotify_device_service.py   # Device identification — scan playback, confirm, write spotifyDeviceId (0xA5-0xAB)
-      spotify_oauth.py            # The one canonical SPOTIFY_SCOPE, the grant record + NonInteractiveSpotifyOAuth
-    weather_service/              # ★
-      weather_service.py          # WeatherService — the 10-min refresh of the Weather view's document, its cache + health
-      weather_view.py             # The Weather view's document (WEATHER_VIEW): stations, ~10 days, sun/moon, warnings
-    trip_service/
-      trip.py, trip_loader.py     # On-demand trip detection from stored telemetry (the Trips view)
-    charging_service/             # ★
-      charging_loader.py          # On-demand charging-session detection (DetailedChargeState segmentation)
-      charging_session.py         # Per-session energy + loss breakdown (charger vs AC-in vs battery) + spot cost
-      spot_price.py               # SpotPriceProvider — Nord Pool FI spot price fetch/cache/convert (sähkötin.fi) + pricing helpers
-      spot_price_service.py       # SpotPriceService — hourly live spot-price broadcast (SPOT_PRICE_STREAM)
-    myenergi_service/             # ★
-      myenergi_service.py         # myenergi Zappi cloud poll → CHARGER_STREAM broadcast + myenergi_data logging
-    audio_service/                # ★
-      audio_backend.py            # AudioBackend adapters (pactl / wpctl / amixer) + detect_backend()
-      audio_service.py            # AudioService — system volume + output device + equalizer, applied from config.json
-      equalizer.py                # PipeWireEqualizer — the filter-chain sink (5 bands + bass shelf) it owns and retunes live
-      spectrum.py                 # AudioSpectrum — the spectrum of what plays (Media view, equalizer): records it after the equalizer while watched (0x1F/0x20)
-    display_service/              # ★
-      display_service.py          # DisplayService — panel power via wlopm; the frontend decides when
-    system_service/               # ★
-      system_metrics.py           # Pure /proc readers (uptime, CPU per core, memory, network, disk space + I/O, temp)
-      system_status_service.py    # SystemStatusService — SYSTEM_GET_STATUS / _LOG: the service cards' probes and error lists
-      system_history.py           # SystemHistory — background 2 s sampler, 10-min window, SYSTEM_GET_HISTORY (the graphs)
-      log_files.py                # LogFiles — LOG_CLEAR for the app's own log files (Ylläpito › Lokit)
-      log_level.py                # LogLevel — the Options view's log level; DEBUG returns to the previous level by itself
-    config_service/               # ★
-      config_service.py           # ConfigService — the Options view's backend half: SETTINGS_SCHEMA (the allow-list of
-                                  #   runtime-editable config.json keys), validation, persistence, apply hooks, restart
-    update_service/               # ★
-      update_service.py           # UpdateService — in-place app updates (0xD0-0xD3): git fetch/checkout, uv sync,
-                                  #   frontend rebuild, restart of both halves; two channels (main tip / newest v* tag)
-    usb_import_service/           # ★
-      usb_import_service.py       # UsbImportService — screensaver photos from a USB stick (0xE0-0xE4): lsblk,
-                                  #   udisksctl mount, copy into ~/.config/Tesla-Homedash/screensaver
-    influxdb_service/             # ★
-      influxdb_handler.py         # Async InfluxDB client — telemetry write + Flux history reads
-      series.py                   # delta/first/last/positive_increment over a history read
-    utils/                        # ★
-      config_parser.py            # Config (config.json) + get_env (.env)
-      protocol.py                 # Binary protocol constants + frame() — single source of truth
-      process.py                  # run(): every run-to-completion subprocess, timeout kill + reap
-      atomic_write.py             # write_atomic(): every whole-file rewrite (temp + fsync + replace)
-      timeline.py                 # collapse_transitions() + segment(): trips and charging sessions
-      logger_configurator.py      # Shared stdout logging setup
-
-frontend_v2/                      # ★ the Qt Quick/QML frontend (Main.qml, main.cpp)
-  app/                            # Theme.qml (design tokens + settings façade), ViewController.qml, Navigation.qml, Format.js
-  config/                         # settings.json (bundled Options-view schema), notifications.json
-  core/                           # ★ C++: ServerClient, protocol.hh, Logger, AppConfig, Settings + QML singletons
-    tesla/ media/ weather/ charging/ trip/ map/ notification/   # per-domain data models
-  items/                          # QML components by domain
-    settings/                     # ★ the Options view
-    tesla/                        # ★ Tesla cards + the map
-    util/                         # ★ screensaver, notifications, shared widgets and motion pieces
-    charging/ history/ luna/ media/ trip/ weather/
-  views/                          # one screen per view on the switcher
-  resources/                      # fonts, icons, styles, Luna, shaders (ShaderEffect and material, compiled by qt_add_shaders)
-
-scripts/                          # ★ build-frontend.{sh,ps1,cmd}; Windows-only new-/finish-session
-docs/                             # wsl-dev-environment.md (WSL2 bootstrap), images/ (README screenshots)
-.claude/                          # settings.json (permissions + edit hook), hooks/check-edit.py (§7.3)
-config.json                       # Telemetry field metadata + radio/Spotify/weather/timezone config (gitignored; real values)
-config_template.json              # Copy to config.json and fill in
+backend/                 # ★ uv project — uv.lock is authoritative, requirements.txt is reference only
+  run.py                 # entry shim: asyncio.run(main())
+  src/start_services.py  # composition root — builds EVERY service (not just Tesla's), registers handlers
+  src/server/            # ★ the TLS server on :6969 — login gate, fan-out, handler routing
+  src/*_service/         # one directory per service, each ★ except trip_service/: auth, tesla, media,
+                         #   weather, trip, charging, myenergi, audio, display, system, config, update,
+                         #   usb_import, influxdb
+  src/utils/             # ★ protocol.py (wire constants + frame()), process, atomic_write, timeline, config
+frontend_v2/             # ★ the Qt Quick/QML frontend (Main.qml, main.cpp)
+  app/                   # Theme.qml (design tokens + settings façade), ViewController, Navigation, Format.js
+  config/                # settings.json (bundled Options-view schema), notifications.json
+  core/                  # ★ C++: ServerClient, protocol.hh, Settings + QML singletons; per-domain models
+  items/                 # QML components by domain; ★ settings/ (Options view), tesla/ (cards + map), util/
+  views/                 # one screen per view on the switcher
+  resources/             # fonts, icons, styles, Luna, shaders (compiled by qt_add_shaders)
+scripts/                 # ★ build-frontend.{sh,ps1,cmd}; Windows-only new-/finish-session
+docs/                    # wsl-dev-environment.md (WSL2 bootstrap), images/ (README screenshots)
+.claude/                 # settings.json (permissions + edit hook), hooks/check-edit.py (§7.3), skills/
+config_template.json     # copy to config.json (gitignored; real values) and fill in
 ```
 
 ## 3. Build, run & validation
@@ -135,12 +64,8 @@ config_template.json              # Copy to config.json and fill in
 
 The backend is an asyncio app managed with [uv](https://docs.astral.sh/uv/). Run from `backend/`.
 
-- **Install uv (Windows)**: `winget install astral-sh.uv`
-- **Sync deps**: `uv sync` (creates `backend/.venv` from `pyproject.toml` + `uv.lock`)
 - **Run**: `uv run python run.py`
 - **Syntax check**: `python -m compileall backend/src`
-- **Add a package**: `uv add <package>`
-- **Update everything**: `uv lock --upgrade && uv sync`
 
 ### 3.2 Frontend (CMake)
 
@@ -285,15 +210,6 @@ QML tap (e.g. Tesla.switchClimate()) → protocol::frame(…) → ServerClient.s
   → (effect streams back over MSG_STREAM / MEDIA_* and updates the UI)
 ```
 
-**Vehicle sleeps (default reset)**
-```
-Teslemetry state event (state != "online") → Vehicle.__update → VehicleOnline.update(False)
-  + broadcast via MSG_STREAM   (on a change only, waking the same way; repeats are dropped)
-  → (edge) VehicleOnline value-callback → Vehicle.__on_sleep → Vehicle.__apply_sleep_defaults
-  → each property with a sleep_default: apply_sleep_default (force value+timestamp, clear lock)
-  → broadcast changed-only via MSG_STREAM   (no InfluxDB write — display-only)
-```
-
 **New client connects (login, then snapshot)**
 ```
 TLS 1.3 handshake → Server.__handle_connection → AuthService.authenticate → AUTH_HELLO
@@ -318,35 +234,8 @@ SettingRow delegate → Settings.setValue(key, value)
   apply tier "restart": banner → CONFIG_RESTART → ConfigService.run → os._exit(42) → systemd
 ```
 
-**App update (the Options view's Päivitys card — out of the schema until the release-only rework, #56)**
-```
-UpdatePanel opens → Updater.active → UPDATE_GET_STATE{fetch:true}
-  → UpdateService.__refresh → git fetch (throttled) → resolve both channels
-  → verdict per channel (merge-base --is-ancestor ×2) + eligibility (cat-file -e)
-  → UPDATE_STATE broadcast → card renders current / target / verdict / blockers
-second tap on the button → UPDATE_APPLY{channel, commit}
-  → validate (channel enum, 40-hex sha, clean tree, tools, commit still current)
-  → fetch → checkout --detach → build-frontend.sh → verify artifact → uv sync --locked
-     (each step: own process group, streamed output, UPDATE_STATE broadcast ≤2 Hz)
-  → job.restartFrontend → Updater.restartRequested → Settings.restartApp() (exit 42)
-  → ConfigService.request_restart(force=True) → os._exit(42) → systemd restarts both
-  any failure after the checkout → git checkout --detach <previous> + uv sync --locked
-     (the job stays `running` across the rollback, so the banner and the restart veto hold)
-```
-
-**Weather refresh**
-```
-APScheduler (10 min) → WeatherService.__update_view → WeatherViewBuilder.build (FMI timeseries
-  JSON + CAP warnings, parts in parallel) → protocol.frame(WEATHER_VIEW, JSON) → Server.broadcast
-  → Weather.view (frontend_v2) → the Weather view + the dashboard's hourly panel
-```
-
-**Spotify claim / release**
-```
-SpotifyPlayer poll → _update_state (under _state_lock) → device == target?
-  claim:  MediaManager.claim_media_control → stop radio, set active, play, stream media type + state
-  release: MediaManager.release_playback → load_default_media_player (radio, no auto-play)
-```
+Flows that stay inside one service — the car's sleep, the app update, the weather refresh,
+Spotify's claim and release — are in that service's `CLAUDE.md`.
 
 ## 7. Conventions
 
@@ -434,148 +323,8 @@ directory belongs in that directory, and nested files never repeat what is here.
 *current* behaviour and why it is that way; history belongs in commits, issues and PRs.
 
 ### 7.7 Documentation currency
-Current as of the **issue sweep** on `feature/settings-options-view` — the Options-view series
-(#30–#41, host reboot #40 included), the telemetry-field table (#29), the zero-based graph axis
-(#42), the screen-off fixes (#43–#47), hold-to-repeat (#48) and the on-screen keyboard (#49) —
-after the map-tuning pass and the split of this guide into per-directory `CLAUDE.md` files — plus the
-second Options-view batch: navigation/home return, night mode, notification toggles, radio
-autoplay/resume, the temporary debug log, map imagery, and the self-closing Spotify consent window — plus
-the Media section's Spotify card redesign (per-row details, the grant record, device status, section
-order), the radio remembering its last station in place of a default-station setting, inline
-write results and the issues box with its fix spotlight — plus the Yleinen wording pass, the
-screensaver's fixed photo folder with its USB import (the in-app folder browser is gone, #50), and
-the screensaver switch that stays unavailable until that folder holds photos — plus the removal of
-the Yleinen › Ilmoitukset card pending its own section (#51), the Luna card (formerly
-Lisäasetukset) at the bottom of Yleinen, and the timezone as a list defaulting to the host's zone —
-plus the Kuvaajat card as named-level dropdowns (resolution, gesture sensitivity, redraw delay,
-render margin; the gesture settings' Qt Graphs follow-up is #53), the map's Eleherkkyys and warp
-settings as named levels too, whole-step default zoom, and the map imagery choice and MML key out of
-the Options view (the key is `.env`-only) — plus the north-up map's 0.001° bearing bias that makes
-it glide instead of stepping in whole pixels — plus the sidebar's section rows reduced to icon and title, and dependent settings nested under the
-setting they belong to, hidden while it is off — plus the Sähkö section: the tariff as a
-*Kiinteä* / *Pörssi* dropdown with each tariff's rows nested under it, one Zappi poll interval, and
-the price source and Zappi serial out of the Options view (`config.json`-only) — plus the Tesla
-section reduced to *Matkojen tunnistus* (the Telemetriakentät card is out of the schema until a later
-update's fuller Tesla options; its plumbing stays) with the trip distance stepping 0.5 km — plus
-Ylläpito: the *Päivitys* card out of the schema pending a release-only updater (#56), the port as a
-plain typed field, the help lines cut from the connection and restart cards, and restart badges that
-name the half (*sovelluksen* / *palvelimen uudelleenkäynnistys*) — plus the shared motion pieces in
-`items/util/` (stretching `ToggleSwitch`, domino `Reveal` for nested rows, `ElasticFlickable`,
-`WheelStepArea`) and settings rows that survive a write — plus the *Järjestelmän tila* sidebar section:
-a group `view` that replaces the cards with four rolling graphs (CPU per core, memory, disk I/O,
-network) fed by the backend's always-on sampler — plus its second round: a card per backend service
-(standing, settings in effect, connected displays, warning/error counts with a dated list), mouse
-hover on the graphs and a CPU temperature card; and Ylläpito's *Vianetsintä* replaced by *Lokit*: a
-DEBUG switch that asks how long, and a clear with a keep-warnings option, both over the app's own log
-files, to which the DEBUG detail now goes instead of the journal — plus the third round: the switch
-became a *Lokitaso* dropdown (DEBUG asks how long and returns to the previous level), the old status
-card retired from Ylläpito, every dialog swallowing the mouse wheel, and the system graphs rebuilt
-on the app's own `HistoryGraph`, which can now draw several lines over one set of axes — plus its
-fourth round: an overview card on top (healthy or not, the issues behind it, host and backend
-uptime), the *Versio* card folded into *Palvelin* as a row, the charging rows on *Laturi* only with
-trips on a *Matkat* card of their own, and service-card values that wrap instead of eliding — plus
-Media › *Taajuuskorjain*: a five-band equalizer and a bass shelf on a PipeWire filter-chain the
-audio service runs only while the curve is not flat, drawn as knobs on a curve by `EqualizerPanel`
-— plus the Weather view (*Sää*) on live FMI data: the backend's `WEATHER_VIEW` document
-(`weather_service/weather_view.py`) and a pannable, zoomable radar map — plus the pre-release
-cleanup: the shared helpers listed in §7.8 in place of their copies, the dead code and stale
-comments gone, and the rules in §7.8 that keep them out; its second round took the equalizer and
-the Weather view through the same pass (the view's files out of `prototype/`, `frontend_v2`'s unread
-`WEATHER_FORECAST` path removed) and added the settings check of §7.9 — plus the encrypted
-connection (#64): TLS 1.3 on 6969 with a SCRAM password login, remembered per-display tokens and a
-pinned certificate, and Ylläpito › Näytöt to list and revoke displays — plus the carousel view
-switch: every switch a 3D turn the short way round past the views between, edge swipes that turn
-them under the finger, and a swipe up from the bottom that opens them as a menu to spin and pick
-from (left still, it picks the front view itself), which replaces the dock (its screensaver tile and auto-hide setting gone with it) — plus
-the first step of the UI modernization: the home screen's cards on the Weather view's card
-(`items/util/Card.qml`), with the map and the media card taking its corners (the map's painted from
-the background under it, `TeslaMap.background`) and the album art
-rounded to match (`RoundedImage` now honours its radius, smoothly); and the climate button's
-switch as simulated water rippling across the dashboard's background, a new wave each time the
-last has passed the farthest corner until the car answers, every wave drawn at random, the
-background yellow and then the answer's colour before it fades back to the cover's
-(`items/tesla/CLAUDE.md`; Qt Shader Tools a new build dependency); and a backdrop of the cover's
-colours (`Media.palette`) drifting behind the dashboard's cards and the Media view and resting
-while the music is paused (`items/media/MediaBackdrop.qml`); and the Media view's spectrum along
-its bottom edge, pill bars, a line or off (Media › Audion visualisointi), drawn from what the host is playing
-(`backend/src/audio_service/CLAUDE.md`), and the same spectrum behind Media › *Taajuuskorjain*'s
-curve, recorded after the equalizer so a knob shows what it does to the sound; and the Weather
-view's warning strip naming the area that covers the place, a tap opening the warnings whole, and
-its radar refreshing the moment the view opens — plus the Kartta view's layers (#76), switched from
-a menu in its corner: a live data card, the radar (the Weather card's loop, now a shared
-`RadarLayer` that also turns with a heading-up map), the drive under way drawn behind the car
-(`TRIP_GET_CURRENT`, the Trips view's detection) and OSM place names fetched from Overpass and kept
-on disk per tile (#54's first step; `items/tesla/CLAUDE.md`) — then its second round: the drive
-coloured by speed (a `GeoFrame` Shape carried with the map), FMI's warnings as areas (a demo, the
-document's simplified `shapes`), Fintraffic's road cameras with their pictures and road weather,
-the radar timeline upright on the left with a 15-minute loop, and zoom buttons that set the default
-zoom (on the dashboard's map shown on a touch); and every UI icon from the Dazzle Line set, text
-glyphs included (`frontend_v2/CLAUDE.md`, *Icons*); then the road camera dialog centred on frosted
-glass with the maps still under any dialog (`TeslaMap.interactive`), Kartta's outside temperature
-from FMI an hour into the car's sleep (`Tesla.asleepSince`), the Weather view's *Kelikamerat* button
-on the cameras nearest the place, and the home location — *Yleinen › Sijainti › Koti*, an address or
-a point on a map (`Geocoder`, Nominatim) — that the weather and the timezone follow, in place of the
-place and timezone rows — plus the dashboard's hourly card marking each hour a warning covering the
-place is in force in with a badge on its symbol, a tap opening the warnings, whose dialog is frosted
-glass at reading height in every view, and the warnings that have ended left out of the document —
-plus the map back on the car after a view switch and a stopped car centred in Liukuva (#55) —
-plus snow and sleet in the weather charts and cards, snow in estimated cm (#68), the Sää status
-card reporting a failed or partly stale refresh (#61), and the OSM place names on the Trips map with
-the home marked on every map (#54), and EOX's imagery wherever a map looks past MML's coverage
-in place of its blank white tiles (#59) — plus map tiles a Qt Location bug left blank requested
-again (`BasemapSwitch`), with the shared tile cache at 300 MiB, room for EOX's tiles beside MML's —
-and Qt 6.12 — plus the Qt Widgets `frontend/` removed from the
-source tree (#65), `frontend_v2` the one frontend, and with it the backend's `WEATHER_FORECAST` frame
-and its FMI WFS fetch, which only it read — plus the Kartta card's *Tyhjennä karttavälimuisti*,
-which deletes the map tile cache and restarts the app (`items/tesla/CLAUDE.md`) — plus the media
-seek bar's times in hours from an hour up, and a media title or artist line too long for its place
-scrolling every so often while the music plays (`items/util/MarqueeText.qml`) — plus the graphs'
-data work in C++ (#83 A, `GraphSeries`): the series bound as point lists and decimated, stepped and
-traced with no per-point JavaScript, and the extra lines drawn as Shapes — and the Trips map's route
-drawn as the Kartta view's drive is (#83 B, `SpeedRoute`), its geometry built in C++ (`RouteBands`)
-in chunks, so a pan or zoom runs no per-point JavaScript and a live fix processes one short chunk;
-with nothing left drawing with Canvas2D, Qt's default OpenGL context and no `CanvasPainter` module —
-and the spectrum's per-frame work in C++ (#83 C, `SpectrumLevels`): the smoothing, the blur and the
-line's path, with each bar fed its own level by a list model — and the radar's lightning on the GPU
-(#83 D, `LightningLayer`): parsed and grouped by frame in C++, its quads built when the map rests,
-so a loop step redraws nothing on the CPU — plus the fetch split (#79, #84; the rule in §5.4): the
-album cover fetched by each display from the URL the backend sends (`MEDIA_STREAM_IMAGE_URL`),
-through a disk cache, the home's timezone found by the backend when the home is written, one
-road-camera list per display, and a timeout on every QML fetch — plus the car's sleep and waking
-sent to the displays as they happen (#85), so Kartta's outside temperature returns to the car's
-when it wakes, under one *ULKONA* caption whichever source it is — plus the Järjestelmän tila
-cards' warnings and errors split into open ones, logged since a failing service last worked, and
-past ones, muted (#82; `backend/src/system_service/CLAUDE.md`) — plus the dashboard weather card's
-*Sää* pill, which opens the Weather view (`Navigation`), and the maps' radar redesign (#86): a
-minimap in a corner (`RadarInset`) whose tap opens the Weather view too, the overlay translucent and
-in step with it, both chosen and the loop's history set under the layer menu's *Sadetutka* — and
-every radar loop's steps crossfading in a shader (`radarfade.frag`) — plus a still map of where the
-camera is in the road camera dialog (`RoadCameraMap`: movable, with the home and the car), the
-dialog stepping round every camera in Finland from the home outwards, its own map flying from one
-to the next and the map it was opened over held on each, and the place names on every
-map always rather than a layer — and Kartta's radar timeline only for the overlay alone, the minimap
-carrying the time itself — plus the Media view's *Seuraavaksi* card: what Spotify plays next, asked
-for by a display near a track's end (`MEDIA_GET_NEXT`) and risen on frosted glass into the
-bottom-right corner 20 s before it, dropping again just before the track ends, a new cover
-sliding in from the right (from the left after the back button), and a swipe over the cover
-skipping either way — and Spotify's takeover opening the Media view on a panel nobody has touched
-for 30 s (*Yleinen › Navigointi*) — plus the radio's libVLC calls on a thread of their own, so a
-stop stuck inside VLC stalls only the radio, and a burst of skips tuning once to where it ends
-(`backend/src/media_service/CLAUDE.md`) — plus the Media view's cover swipe reaching further and,
-let go past a skip, sliding on from where it is: at once to the cover the skip should bring, held
-in memory with the covers either side of each track and station (`Media.coverAfterSkip`), else
-when the new cover arrives (`frontend_v2/core/CLAUDE.md`, *Media*) — plus one frosted glass: every
-`GlassPanel` takes its frost from a `FrostLayer`, the only maker of frost, which rebuilds itself
-when it goes live and every minute, since Qt never links an effect again to a texture whose provider
-was destroyed (`frontend_v2/items/util/CLAUDE.md`) — plus the car on the maps moved along its
-fixes at the speed it reported 1.5 s before (`CarTrack`, `CarMotion`; `frontend_v2/core/CLAUDE.md`),
-since the car skips samples and stamps them up to a second off, with the drive's route growing as
-the arrow reaches each fix — plus the panel recovering by itself from the labwc 0.20 wedge (#89):
-`DisplayService` learns the output's modes while it is lit and, when a wake finds it dropped,
-modesets through another mode and back (`backend/src/display_service/CLAUDE.md`), so screen-off
-and night mode need no host script beside them; and the InfluxDB per-write lines at DEBUG, which
-filled the Pi's 50 MB journal in four days.
-When you land a change that touches documented behaviour, update this line.
+The documents describe the current tip of the branch; what changed and when is in `git log` and
+the PRs, not here.
 
 ### 7.8 Keeping the code clean
 Four kinds of debris do not belong in this codebase; review your own diff for them before committing.
@@ -680,19 +429,9 @@ worktree's "clean" build is mostly cache hits. Inspect with `sccache --show-stat
 --show-stats`. (Per §7.3 the agent runs this script itself after frontend changes; the user still
 runs the built binary.)
 
-**When you *do* need a parallel session (worktree).**
-1. Ask the user **(a) what we're doing** and **(b) a short name**; choose the branch **type**
-   (`feature` / `fix` / `chore` / `docs` / `refactor` / `test` / `perf`).
-2. **Windows:** `powershell -ExecutionPolicy Bypass -File scripts\new-session.ps1 -Type <type> -Name
-   "<name>"` — **there is no Linux port of the session scripts**; on WSL2 use plain `git worktree
-   add ../Tesla-Homedash-worktrees/<type>-<slug> -b <type>/<slug> origin/main`, then copy `.env` +
-   `config.json` in by hand and repoint `CONFIG_PATH` at the copy. — makes branch `<type>/<slug>`
-   off the freshest `origin/main`, adds a worktree under
-   `..\Tesla-Homedash-worktrees\<type>-<slug>`, copies the gitignored `.env` + `config.json` in, and
-   repoints `CONFIG_PATH` at the worktree's copy. Final stdout line: `WORKTREE_PATH=<path>`.
-3. Switch in with the **`EnterWorktree`** tool (`path:` = that `WORKTREE_PATH`). Build there with
-   the platform's build script; connect to the already-running shared backend (don't start a second
-   one).
+**When you *do* need a parallel session (worktree)**, follow the `parallel-worktree` skill
+(`.claude/skills/parallel-worktree/SKILL.md`): branch + worktree setup, switching in, and the
+cleanup once the PR has merged.
 
 **Finish — land via GitHub, never a local merge** (applies whether you used a branch or a worktree).
 1. Commit per §7.5 (only once the user confirms the work is verified), then
@@ -701,14 +440,4 @@ runs the built binary.)
 3. Merge **on GitHub**: `gh pr merge --squash --delete-branch`. GitHub is the single source of
    truth — **do not** merge into `main` locally (it diverges local `main` from `origin/main`). Then
    update the main checkout: `git checkout main && git pull`.
-4. If a worktree was used: `ExitWorktree` (action `keep`), then on **Windows**
-   `powershell -ExecutionPolicy Bypass -File scripts\finish-session.ps1 -Type <type> -Name "<name>"`
-   — refuses until the PR reads MERGED (via `gh`), then removes the worktree, pulls main, deletes the
-   merged local branch, and prunes. (`-Force` skips the merged check.) On **Linux/WSL2** there is no
-   port: `git worktree remove <path> && git checkout main && git pull && git branch -d <type>/<slug>
-   && git worktree prune`, after checking the PR merged yourself.
-
-**Memory caveat.** Memories load at session start from the main checkout, so their guidance stays in
-context even after an `EnterWorktree`. But the memory *store* follows the working directory, so any
-durable memory you write during a worktree session must target the **main checkout's** project-memory
-dir, not the worktree's (which is deleted at cleanup).
+4. If a worktree was used, remove it as the `parallel-worktree` skill describes.

@@ -114,3 +114,21 @@ Load-bearing details, most of them measured:
 
 **Deliberately deferred:** job state is not persisted across a backend restart, so an update
 interrupted by a power cut is reported only by the journal, not by the card.
+
+## Event flow
+
+**App update (the Options view's Päivitys card — out of the schema until the release-only rework, #56)**
+```
+UpdatePanel opens → Updater.active → UPDATE_GET_STATE{fetch:true}
+  → UpdateService.__refresh → git fetch (throttled) → resolve both channels
+  → verdict per channel (merge-base --is-ancestor ×2) + eligibility (cat-file -e)
+  → UPDATE_STATE broadcast → card renders current / target / verdict / blockers
+second tap on the button → UPDATE_APPLY{channel, commit}
+  → validate (channel enum, 40-hex sha, clean tree, tools, commit still current)
+  → fetch → checkout --detach → build-frontend.sh → verify artifact → uv sync --locked
+     (each step: own process group, streamed output, UPDATE_STATE broadcast ≤2 Hz)
+  → job.restartFrontend → Updater.restartRequested → Settings.restartApp() (exit 42)
+  → ConfigService.request_restart(force=True) → os._exit(42) → systemd restarts both
+  any failure after the checkout → git checkout --detach <previous> + uv sync --locked
+     (the job stays `running` across the rollback, so the banner and the restart veto hold)
+```

@@ -2,7 +2,7 @@
 
 - `build-frontend.sh` / `build-frontend.ps1` (+ the `.cmd` shim) configure and build `frontend_v2`;
   usage is in the root `CLAUDE.md` §3.2 and §8. `new-session.ps1` / `finish-session.ps1` are the
-  Windows-only worktree helpers — there is no Linux port.
+  Windows-only worktree helpers (the `parallel-worktree` skill) — there is no Linux port.
 - **`build-frontend.sh` is also run by the in-app updater** (`backend/src/update_service/`), which
   passes the Qt kit as `--qt-prefix`. Treat its command line as an interface and read that service's
   `CLAUDE.md` before changing it.

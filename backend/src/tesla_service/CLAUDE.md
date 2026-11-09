@@ -71,3 +71,14 @@
   in `trip_service/` and `charging_service/`. The table is broadcast after an accepted change so
   every open card shows the truth; `numeric` is `null` until a field has streamed, because
   `value_type` is inferred lazily. **Talks to:** `Config` (set/save), `Vehicle`, `Server`.
+
+## Event flow
+
+**Vehicle sleeps (default reset)**
+```
+Teslemetry state event (state != "online") → Vehicle.__update → VehicleOnline.update(False)
+  + broadcast via MSG_STREAM   (on a change only, waking the same way; repeats are dropped)
+  → (edge) VehicleOnline value-callback → Vehicle.__on_sleep → Vehicle.__apply_sleep_defaults
+  → each property with a sleep_default: apply_sleep_default (force value+timestamp, clear lock)
+  → broadcast changed-only via MSG_STREAM   (no InfluxDB write — display-only)
+```

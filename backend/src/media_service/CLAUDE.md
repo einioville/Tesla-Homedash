@@ -252,3 +252,12 @@ reported once rather than polled against. Load-bearing details, most of them def
   select. A single "is a flow running" bool cannot tell WHICH flow a packet belongs to: cancel a
   scan, start another, and a state already in flight repopulates the dialog with the previous
   device — which the user can then save. The two fences answer different questions and both stay.
+
+## Event flow
+
+**Spotify claim / release**
+```
+SpotifyPlayer poll → _update_state (under _state_lock) → device == target?
+  claim:  MediaManager.claim_media_control → stop radio, set active, play, stream media type + state
+  release: MediaManager.release_playback → load_default_media_player (radio, no auto-play)
+```
