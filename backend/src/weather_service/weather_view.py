@@ -21,8 +21,8 @@ _WEEKDAYS = ["ma", "ti", "ke", "to", "pe", "la", "su"]
 # The observation fields, each taken from the nearest station that reports it: the place's
 # own station seldom measures everything (Tampere resolves to Siilinkari, which has no
 # precipitation, snow, visibility or cloud), so up to five stations within 50 km are asked.
-_OBS_FIELDS = ["t2m", "ws_10min", "wg_10min", "wd_10min", "rh", "td", "p_sea", "vis",
-               "wawa", "ri_10min", "r_1h", "snow_aws"]
+_OBS_FIELDS = ["t2m", "ws_10min", "wg_10min", "wd_10min", "rh", "td", "wawa", "ri_10min",
+               "r_1h", "snow_aws"]
 
 # The edited forecast (what ilmatieteenlaitos.fi shows) runs about 230 hours ahead; asking
 # for more returns what there is.
@@ -557,7 +557,7 @@ class WeatherViewBuilder:
             "temp": v.get("t2m", hour["temp"]), "feels": hour["feels"],
             "wind": v.get("ws_10min", hour["wind"]), "gust": v.get("wg_10min", hour["gust"]),
             "windDir": v.get("wd_10min", hour["windDir"]), "humidity": v.get("rh", hour["humidity"]),
-            "dewPoint": v.get("td"), "pressure": v.get("p_sea"), "visibility": v.get("vis"),
+            "dewPoint": v.get("td"),
             "precipRate": v.get("ri_10min"), "precip1h": v.get("r_1h"), "snowDepth": v.get("snow_aws"),
             "precipForm": _wawa_form(v.get("wawa")) or hour["precipForm"],
             "wawa": v.get("wawa"), "wawaText": _wawa_text(v.get("wawa")),
