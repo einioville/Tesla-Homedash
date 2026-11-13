@@ -225,12 +225,14 @@ Item {
                     value: Math.round(root.now.wind) + " m/s"
                     sub: qsTr("puuskat ") + Math.round(root.now.gust) + " m/s"
                 }
+                // The form is the forecast's potential one even while nothing falls, so it
+                // names the tile only while the rate says something does.
                 Metric {
                     Layout.fillWidth: true
-                    readonly property bool snowing: root.now.precipForm === "snow" && root.now.precipRate > 0
-                    label: snowing ? qsTr("Lumisade") : qsTr("Sade")
-                    value: snowing ? U.precipAmount(root.now.precipRate, "snow") + " cm/h"
-                                   : U.num(root.now.precipRate) + " mm/h"
+                    readonly property string falling: root.now.precipRate > 0 ? root.now.precipForm : "rain"
+                    label: falling === "snow" ? qsTr("Lumisade") : falling === "sleet" ? qsTr("Räntäsade") : qsTr("Sade")
+                    value: falling === "snow" ? U.precipAmount(root.now.precipRate, "snow") + " cm/h"
+                                              : U.num(root.now.precipRate) + " mm/h"
                     sub: root.now.wawaText || ""
                 }
                 Metric {
@@ -249,16 +251,23 @@ Item {
                     label: qsTr("Näkyvyys")
                     value: U.visibility(root.now.visibility)
                 }
-                // Snow from November to March, UV index for the rest of the year.
+                // What the next 24 hours bring, the hours the hourly chart opens on, by the
+                // day rows' rule: rain and sleet in mm, snow in estimated cm, both when both
+                // fall. The two do not fit the value's line together, so the snow goes below
+                // the rain then, in the place of the snow lying on the ground.
                 Metric {
                     Layout.fillWidth: true
-                    readonly property bool snowSeason: [10, 11, 0, 1, 2].indexOf(root.clock.getMonth()) >= 0
-                    label: snowSeason ? qsTr("Lumi") : qsTr("UV-indeksi")
-                    value: snowSeason
-                           ? (root.now.snowDepth === null || root.now.snowDepth < 0
-                              ? qsTr("Ei lunta") : Math.round(root.now.snowDepth) + " cm")
-                           : (root.now.uvIndex === null || root.now.uvIndex === undefined
-                              ? "–" : Math.round(root.now.uvIndex).toString())
+                    readonly property var hours: (root.wx.hourly || []).slice(0, 24)
+                    readonly property real snowMm: hours.reduce((s, h) => h.precipForm === "snow" ? s + h.precip : s, 0)
+                    readonly property real rainMm: hours.reduce((s, h) => h.precipForm === "snow" ? s : s + h.precip, 0)
+                    readonly property bool rain: rainMm >= 0.1
+                    readonly property bool snow: snowMm >= 0.1
+                    readonly property string snowCm: U.precipAmount(snowMm, "snow") + " cm"
+                    label: snow && !rain ? qsTr("Lumisade 24 h") : qsTr("Sade 24 h")
+                    value: rain ? U.num(rainMm) + " mm" : snow ? snowCm : qsTr("poutaa")
+                    sub: rain && snow ? "+ " + snowCm + qsTr(" lunta")
+                         : root.now.snowDepth >= 0.5 ? qsTr("maassa ") + Math.round(root.now.snowDepth) + " cm"
+                         : ""
                 }
             }
 
