@@ -89,28 +89,6 @@ def _wawa_form(code) -> str | None:
     return None
 
 
-def _uv_index(radiation, elevation) -> float | None:
-    '''
-    Estimates the UV index, which FMI does not publish: a clear-sky index from the sun's
-    elevation (Madronich's 12.5·μ^2.42, scaled to 350 DU of ozone, about Finland's column),
-    times the share of clear-sky radiation that gets through the cloud — HARMONIE's global
-    radiation against a clear-sky model (Haurwitz). Radiation alone cannot carry it: a low
-    spring or autumn sun gives far less UV per W/m². About 6 on a clear midsummer noon in
-    the south, about 1 in October. An estimate, not a measurement.
-    Arguments:
-        radiation (float | None): HARMONIE RadiationGlobal for the hour, W/m².
-        elevation (float | None): The sun's elevation for the hour, degrees.
-    '''
-    if radiation is None or elevation is None:
-        return None
-    mu = math.sin(math.radians(elevation))
-    if mu <= 0:
-        return 0.0
-    clear_uv = 12.5 * mu ** 2.42 * (350 / 300) ** -1.23
-    clear_radiation = 1098 * mu * math.exp(-0.057 / mu)
-    return round(clear_uv * min(1.0, max(0.0, radiation) / clear_radiation), 1)
-
-
 def _inside(polygon: list[tuple[float, float]], lat: float, lon: float) -> bool:
     '''
     Even-odd point-in-polygon test, for whether a warning area covers the place.
@@ -212,7 +190,6 @@ class WeatherViewBuilder:
         self.__location: dict | None = None
         self.__observation: dict | None = None
         self.__hourly: list[dict] | None = None
-        self.__radiation: tuple[str, float | None] | None = None
         self.__astro: dict | None = None
         self.__warnings: list[dict] | None = None
         self.__failed: list[str] = []
@@ -236,7 +213,7 @@ class WeatherViewBuilder:
         if where != self.__where:
             self.__where = where
             self.__location = self.__observation = self.__hourly = None
-            self.__radiation = self.__astro = self.__warnings = None
+            self.__astro = self.__warnings = None
 
         now = datetime.now(self.__zone)
         hour0 = now.replace(minute=0, second=0, microsecond=0)
@@ -247,10 +224,9 @@ class WeatherViewBuilder:
             if self.__location is None:
                 return None
             localtz = ZoneInfo(self.__location["localtz"])
-            observation, hourly, radiation, astro, warnings = await asyncio.gather(
+            observation, hourly, astro, warnings = await asyncio.gather(
                 self.__part("observation", self.__fetch_observation(session, where)),
                 self.__part("forecast", self.__fetch_forecast(session, where, hour0)),
-                self.__part("radiation", self.__fetch_radiation(session, where, hour0)),
                 self.__part("sun and moon", self.__fetch_astro(session, where, now, localtz)),
                 self.__part("warnings", self.__fetch_warnings(session)),
             )
@@ -258,8 +234,6 @@ class WeatherViewBuilder:
             self.__observation = observation
         if hourly:
             self.__hourly = hourly
-        if radiation is not None:
-            self.__radiation = (hour0.isoformat(), radiation)
         if astro is not None:
             self.__astro = astro
         if warnings is not None:
@@ -273,9 +247,6 @@ class WeatherViewBuilder:
             logger.warning("Weather view has no forecast hours for %s — not sent", describe(where))
             return None
 
-        # The UV estimate is for this hour only, so radiation from another hour is not used.
-        radiation_now = (self.__radiation[1] if self.__radiation
-                         and self.__radiation[0] == hour0.isoformat() else None)
         # The feed keeps a warning for a while after it ends.
         in_force = [w for w in self.__warnings or [] if w["span"][1] is None or w["span"][1] > now]
         warnings = self.__mark_warnings(in_force, self.__location["lat"], self.__location["lon"])
@@ -283,7 +254,7 @@ class WeatherViewBuilder:
         return {
             "meta": {"place": self.__location["name"], "lat": self.__location["lat"],
                      "lon": self.__location["lon"], "fetchedMs": int(now.timestamp() * 1000)},
-            "now": self.__now_block(hours[0], radiation_now),
+            "now": self.__now_block(hours[0]),
             "hourly": self.__warned_hours(hours, here),
             "daily": self.__daily(hours),
             "astro": self.__astro or {},
@@ -424,21 +395,6 @@ class WeatherViewBuilder:
                 "thunder": r["probabilitythunderstorm"] or 0, "sunElev": r["sunelevation"],
             })
         return hourly
-
-    async def __fetch_radiation(self, session: aiohttp.ClientSession, where: dict,
-                                hour0: datetime) -> float | None:
-        '''
-        HARMONIE's global radiation for the current hour, for the UV estimate; the edited
-        forecast has none.
-        Arguments:
-            session (aiohttp.ClientSession): Session carrying the request timeout.
-            where (dict): The location as FMI query arguments (Config.weather_location).
-            hour0 (datetime): The start of the current hour.
-        '''
-        rows = await self.__timeseries(session, {
-            **where, "producer": "harmonie_scandinavia_surface", "timesteps": 1,
-            "starttime": _utc(hour0), "param": "epochtime,RadiationGlobal"})
-        return rows[0].get("RadiationGlobal") if rows else None
 
     async def __fetch_astro(self, session: aiohttp.ClientSession, where: dict, now: datetime,
                             localtz: ZoneInfo) -> dict:
@@ -587,13 +543,12 @@ class WeatherViewBuilder:
             marked.append({**h, "warning": max(colors, key=levels.index)} if colors else h)
         return marked
 
-    def __now_block(self, hour: dict, radiation) -> dict:
+    def __now_block(self, hour: dict) -> dict:
         '''
         The current weather: each observed value where a station reports it, the forecast's
         current hour for the rest and for the symbol, text and feels-like.
         Arguments:
             hour (dict): The forecast's current hour.
-            radiation (float | None): HARMONIE's global radiation for this hour.
         '''
         observed = self.__observation or {}
         v = observed.get("values", {})
@@ -603,7 +558,6 @@ class WeatherViewBuilder:
             "wind": v.get("ws_10min", hour["wind"]), "gust": v.get("wg_10min", hour["gust"]),
             "windDir": v.get("wd_10min", hour["windDir"]), "humidity": v.get("rh", hour["humidity"]),
             "dewPoint": v.get("td"), "pressure": v.get("p_sea"), "visibility": v.get("vis"),
-            "uvIndex": _uv_index(radiation, hour["sunElev"]),
             "precipRate": v.get("ri_10min"), "precip1h": v.get("r_1h"), "snowDepth": v.get("snow_aws"),
             "precipForm": _wawa_form(v.get("wawa")) or hour["precipForm"],
             "wawa": v.get("wawa"), "wawaText": _wawa_text(v.get("wawa")),

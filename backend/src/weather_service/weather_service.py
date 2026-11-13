@@ -37,7 +37,7 @@ _VIEW_DEADLINE_SECONDS = 90
 
 # The view's parts (WeatherViewBuilder's log labels) as the status card names them.
 _PART_NAMES = {"location": "paikka", "observation": "havainnot", "forecast": "ennuste",
-               "radiation": "UV-arvio", "sun and moon": "aurinko ja kuu", "warnings": "varoitukset"}
+               "sun and moon": "aurinko ja kuu", "warnings": "varoitukset"}
 
 
 class WeatherService:

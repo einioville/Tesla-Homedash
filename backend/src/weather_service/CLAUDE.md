@@ -37,8 +37,8 @@ document. `WeatherViewBuilder` builds it on `WeatherService`'s job (above), with
   coordinates, its own zone — cached per location), observations (`numberofstations=5`,
   `maxdistance=50 km`, each field from the nearest station reporting it — the place's own station
   rarely measures everything), the **edited** forecast (~230 h, what ilmatieteenlaitos.fi shows),
-  HARMONIE's `RadiationGlobal` for the hour, sun and moon, and the CAP warnings feed, each tested
-  against the place's coordinates (`appliesHere`).
+  sun and moon, and the CAP warnings feed, each tested against the place's coordinates
+  (`appliesHere`).
 - **A warning names the areas that cover the place** (`hereAreas`, from each area's own polygons).
   The headline names the warning's whole region and can lead with one far away — *Keltainen
   liikennesää: Kainuu sekä paikoin maan keskiosa* covers Tampere through Pirkanmaa, its sixth area —
@@ -73,9 +73,6 @@ document. `WeatherViewBuilder` builds it on `WeatherService`'s job (above), with
   FMI's 1 mm ≈ 1 cm). The Weather view decides from these alone whether rain, snow or both show —
   never from the season: the day rows and the now card's *Sade 24 h* tile (the next 24 hours) give
   rain and sleet in mm and snow in cm, each when it falls (`WeatherDashboard.qml`).
-- **The UV index is an estimate** — FMI publishes none: Madronich's clear-sky index from the sun's
-  elevation × HARMONIE's radiation against a Haurwitz clear-sky model. Not radiation alone, which
-  overstates a low spring or autumn sun two to three times.
 - Times in the document are in the configured zone (`epochtime` converted; the astro rise/set strings
   are in the place's zone and converted too). `now.time` is the newest observation used — the view's
   *havainto* — or `null` when no observation has arrived yet.
