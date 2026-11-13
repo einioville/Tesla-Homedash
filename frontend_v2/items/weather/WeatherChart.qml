@@ -23,7 +23,11 @@ Item {
     property int labelEvery: 2
     property bool warningBadges: false
 
-    readonly property real colW: width / hoursVisible
+    // Whole pixels. Past a jump of more than a screen ListView places the hours it skips by
+    // an average delegate width rounded to a whole pixel, so a fractional column would leave
+    // hour 0 short of the chart's start after a glide back from far out. The few pixels left
+    // over are split either side of the list.
+    readonly property int colW: Math.floor(width / hoursVisible)
     readonly property int firstVisible: Math.max(0, Math.min(hours.length - 1, Math.round(list.contentX / colW)))
     readonly property bool atStart: list.contentX < colW / 2
 
@@ -86,7 +90,9 @@ Item {
 
     ListView {
         id: list
-        anchors.fill: parent
+        x: Math.floor((root.width - width) / 2)
+        width: root.colW * root.hoursVisible
+        height: root.height
         orientation: ListView.Horizontal
         model: root.hours
         clip: true
