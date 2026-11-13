@@ -77,8 +77,11 @@ Item {
     }
 
     // Glide to an hour. The scale is fitted to the destination before the glide starts, so
-    // the curve settles into its new shape on the way rather than jumping on arrival.
+    // the curve settles into its new shape on the way rather than jumping on arrival. A flick
+    // or snap still under way is ended first: the glide's first step would end it, and its
+    // movementEnded would refit the scale to the hours being left.
     function scrollToHour(index) {
+        list.cancelFlick()
         var maxX = Math.max(0, hours.length * colW - list.width)
         scrollAnim.to = Math.max(0, Math.min(maxX, index * colW))
         fitRange(Math.round(scrollAnim.to / colW))
