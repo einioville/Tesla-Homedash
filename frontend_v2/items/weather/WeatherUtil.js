@@ -31,12 +31,6 @@ function dayLength(min) {
     return Math.floor(min / 60) + " h " + (min % 60) + " min"
 }
 
-function visibility(m) {
-    if (m === null || m === undefined)
-        return "–"
-    return m >= 1000 ? Math.round(m / 1000) + " km" : Math.round(m / 50) * 50 + " m"
-}
-
 // Fresh snow from its water, as FMI estimates it: a millimetre is about a centimetre.
 var SNOW_CM_PER_MM = 1
 
@@ -46,6 +40,12 @@ var PRECIP_COLORS = { rain: ["#4aa8ff", "#9dd0ff"], sleet: ["#8cb6e0", "#c8ddf2"
 
 function precipColors(form) {
     return PRECIP_COLORS[form] || PRECIP_COLORS.rain
+}
+
+// An hour's precipitation bar as a share of a full one, on a square-root scale so the common
+// light rain still shows: 0.1 mm ≈ 11 %, 1 mm ≈ 35 %, 8 mm and more full.
+function precipBar(mm) {
+    return mm > 0 ? Math.sqrt(Math.min(mm, 8) / 8) : 0
 }
 
 // An amount as the chart labels it: snow in estimated cm, the rest in mm of water.

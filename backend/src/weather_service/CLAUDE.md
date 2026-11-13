@@ -71,8 +71,8 @@ document. `WeatherViewBuilder` builds it on `WeatherService`'s job (above), with
   block's from the station's present-weather code when it says, else the forecast hour's. Amounts
   stay mm of water; the frontend shows snow as estimated cm (`WeatherUtil.js`, `SNOW_CM_PER_MM`,
   FMI's 1 mm ≈ 1 cm). The Weather view decides from these alone whether rain, snow or both show —
-  never from the season: the day rows and the now card's *Sade 24 h* tile (the next 24 hours) give
-  rain and sleet in mm and snow in cm, each when it falls (`WeatherDashboard.qml`).
+  never from the season: the day rows and the now card's strip of the next 24 hours give rain and
+  sleet in mm and snow in cm, each when it falls (`WeatherDashboard.qml`, `PrecipTotals`).
 - Times in the document are in the configured zone (`epochtime` converted; the astro rise/set strings
   are in the place's zone and converted too). `now.time` is the newest observation used — the view's
   *havainto* — or `null` when no observation has arrived yet.

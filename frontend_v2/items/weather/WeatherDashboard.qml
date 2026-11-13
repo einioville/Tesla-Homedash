@@ -90,6 +90,27 @@ Item {
         Text { text: parent.sub || " "; color: "#6f7a86"; font.family: Theme.fontFamily; font.pixelSize: 11 }
     }
 
+    // A span's precipitation: rain and sleet in mm, snow in estimated cm in its own colour;
+    // "lunta" only when it stands alone, or the two do not fit a day row; "poutaa" for neither.
+    component PrecipTotals: Row {
+        id: totals
+        property real rainMm
+        property real snowMm
+        spacing: 6
+        Text {
+            visible: totals.rainMm >= 0.1 || totals.snowMm < 0.1
+            text: totals.rainMm >= 0.1 ? U.num(totals.rainMm) + " mm" : qsTr("poutaa")
+            color: totals.rainMm >= 0.1 ? "#6cb8ff" : "#6f7a86"
+            font.family: Theme.fontFamily; font.pixelSize: 12
+        }
+        Text {
+            visible: totals.snowMm >= 0.1
+            text: U.precipAmount(totals.snowMm, "snow") + " cm" + (totals.rainMm >= 0.1 ? "" : qsTr(" lunta"))
+            color: U.precipColors("snow")[1]
+            font.family: Theme.fontFamily; font.pixelSize: 12
+        }
+    }
+
     // ---- row 1 ---------------------------------------------------------------------------
     Card {
         id: nowCard
@@ -213,11 +234,9 @@ Item {
                 }
             }
 
-            GridLayout {
+            RowLayout {
                 Layout.fillWidth: true
-                columns: 3
-                rowSpacing: 8
-                columnSpacing: 10
+                spacing: 10
                 Metric {
                     Layout.fillWidth: true
                     label: qsTr("Tuuli")
@@ -225,53 +244,97 @@ Item {
                     value: Math.round(root.now.wind) + " m/s"
                     sub: qsTr("puuskat ") + Math.round(root.now.gust) + " m/s"
                 }
-                // The form is the forecast's potential one even while nothing falls, so it
-                // names the tile only while the rate says something does.
-                Metric {
-                    Layout.fillWidth: true
-                    readonly property string falling: root.now.precipRate > 0 ? root.now.precipForm : "rain"
-                    label: falling === "snow" ? qsTr("Lumisade") : falling === "sleet" ? qsTr("Räntäsade") : qsTr("Sade")
-                    value: falling === "snow" ? U.precipAmount(root.now.precipRate, "snow") + " cm/h"
-                                              : U.num(root.now.precipRate) + " mm/h"
-                    sub: root.now.wawaText || ""
-                }
                 Metric {
                     Layout.fillWidth: true
                     label: qsTr("Kosteus")
                     value: Math.round(root.now.humidity) + " %"
                     sub: qsTr("kastepiste ") + U.temp(root.now.dewPoint)
                 }
+                // The form is the forecast's potential one even while nothing falls, so it
+                // names the tile only while the rate says something does. Below: what the
+                // station sees falling, else the snow lying on the ground.
                 Metric {
                     Layout.fillWidth: true
-                    label: qsTr("Paine")
-                    value: Math.round(root.now.pressure) + " hPa"
-                }
-                Metric {
-                    Layout.fillWidth: true
-                    label: qsTr("Näkyvyys")
-                    value: U.visibility(root.now.visibility)
-                }
-                // What the next 24 hours bring, the hours the hourly chart opens on, by the
-                // day rows' rule: rain and sleet in mm, snow in estimated cm, both when both
-                // fall. The two do not fit the value's line together, so the snow goes below
-                // the rain then, in the place of the snow lying on the ground.
-                Metric {
-                    Layout.fillWidth: true
-                    readonly property var hours: (root.wx.hourly || []).slice(0, 24)
-                    readonly property real snowMm: hours.reduce((s, h) => h.precipForm === "snow" ? s + h.precip : s, 0)
-                    readonly property real rainMm: hours.reduce((s, h) => h.precipForm === "snow" ? s : s + h.precip, 0)
-                    readonly property bool rain: rainMm >= 0.1
-                    readonly property bool snow: snowMm >= 0.1
-                    readonly property string snowCm: U.precipAmount(snowMm, "snow") + " cm"
-                    label: snow && !rain ? qsTr("Lumisade 24 h") : qsTr("Sade 24 h")
-                    value: rain ? U.num(rainMm) + " mm" : snow ? snowCm : qsTr("poutaa")
-                    sub: rain && snow ? "+ " + snowCm + qsTr(" lunta")
-                         : root.now.snowDepth >= 0.5 ? qsTr("maassa ") + Math.round(root.now.snowDepth) + " cm"
-                         : ""
+                    readonly property string falling: root.now.precipRate > 0 ? root.now.precipForm : "rain"
+                    label: falling === "snow" ? qsTr("Lumisade") : falling === "sleet" ? qsTr("Räntäsade") : qsTr("Sade")
+                    value: falling === "snow" ? U.precipAmount(root.now.precipRate, "snow") + " cm/h"
+                                              : U.num(root.now.precipRate) + " mm/h"
+                    sub: root.now.wawaText
+                         || (root.now.snowDepth >= 0.5 ? qsTr("maassa ") + Math.round(root.now.snowDepth) + " cm" : "")
                 }
             }
 
-            Item { Layout.fillHeight: true }
+            // The next 24 hours, the ones the hourly chart opens on: their totals, and an hour
+            // a bar in the colour of what falls, on the chart's scale. It takes the card's
+            // remaining height, so the bars are taller while no warning shows.
+            Item {
+                id: precip
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                Layout.minimumHeight: 56
+                readonly property var hours: (root.wx.hourly || []).slice(0, 24)
+                readonly property real colW: width / 24
+
+                Text {
+                    id: precipTitle
+                    text: qsTr("Seuraavat 24 h")
+                    color: "#8f9aa6"
+                    font.family: Theme.fontFamily
+                    font.pixelSize: 12
+                }
+                PrecipTotals {
+                    anchors.right: parent.right
+                    anchors.verticalCenter: precipTitle.verticalCenter
+                    rainMm: precip.hours.reduce((s, h) => h.precipForm === "snow" ? s : s + h.precip, 0)
+                    snowMm: precip.hours.reduce((s, h) => h.precipForm === "snow" ? s + h.precip : s, 0)
+                }
+                Item {
+                    id: bars
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: precipTitle.bottom
+                    anchors.topMargin: 6
+                    anchors.bottom: hourMarks.top
+                    anchors.bottomMargin: 3
+                    Rectangle {
+                        anchors.bottom: parent.bottom
+                        width: parent.width
+                        height: 1
+                        color: "#1affffff"
+                    }
+                    Repeater {
+                        model: precip.hours
+                        Rectangle {
+                            required property int index
+                            required property var modelData
+                            x: index * precip.colW + 1
+                            width: precip.colW - 2
+                            height: modelData.precip > 0 ? Math.max(2, U.precipBar(modelData.precip) * bars.height) : 0
+                            y: bars.height - height
+                            color: U.precipColors(modelData.precipForm)[0]
+                        }
+                    }
+                }
+                // Every sixth hour, under its bar.
+                Item {
+                    id: hourMarks
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.bottom: parent.bottom
+                    height: 13
+                    Repeater {
+                        model: Math.ceil(precip.hours.length / 6)
+                        Text {
+                            required property int index
+                            x: Math.max(0, (index * 6 + 0.5) * precip.colW - width / 2)
+                            text: index === 0 ? qsTr("nyt") : U.hour2(precip.hours[index * 6].hour)
+                            color: index === 0 ? "white" : "#8f9aa6"
+                            font.family: Theme.fontFamily
+                            font.pixelSize: 11
+                        }
+                    }
+                }
+            }
         }
 
         // Beside the temperature, clear of the condition's text below it.
@@ -623,27 +686,10 @@ Item {
                         }
                     }
                     Item { width: 1; height: 4 }
-                    // Rain and sleet in mm, snow in estimated cm in its own colour; "lunta" only
-                    // when it stands alone, or the two do not fit the column.
-                    Row {
-                        id: precipRow
-                        readonly property real snowMm: dayCol.modelData.snow || 0
-                        readonly property real rainMm: dayCol.modelData.precip - snowMm
+                    PrecipTotals {
                         anchors.horizontalCenter: parent.horizontalCenter
-                        spacing: 6
-                        Text {
-                            visible: precipRow.rainMm >= 0.1 || precipRow.snowMm < 0.1
-                            text: precipRow.rainMm >= 0.1 ? U.num(precipRow.rainMm) + " mm" : qsTr("poutaa")
-                            color: precipRow.rainMm >= 0.1 ? "#6cb8ff" : "#6f7a86"
-                            font.family: Theme.fontFamily; font.pixelSize: 12
-                        }
-                        Text {
-                            visible: precipRow.snowMm >= 0.1
-                            text: U.precipAmount(precipRow.snowMm, "snow") + " cm"
-                                  + (precipRow.rainMm >= 0.1 ? "" : qsTr(" lunta"))
-                            color: U.precipColors("snow")[1]
-                            font.family: Theme.fontFamily; font.pixelSize: 12
-                        }
+                        rainMm: dayCol.modelData.precip - (dayCol.modelData.snow || 0)
+                        snowMm: dayCol.modelData.snow || 0
                     }
                     Text {
                         anchors.horizontalCenter: parent.horizontalCenter

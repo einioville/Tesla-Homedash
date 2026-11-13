@@ -51,8 +51,7 @@ Item {
     function yAt(t) {
         return Math.max(2, Math.min(barBase, curveBottom - (t - tMin) / (tMax - tMin) * (curveBottom - curveTop)))
     }
-    // Square-root scale, so the common light rain still shows: 0.1 mm ≈ 11 %, 1 mm ≈ 35 %.
-    function barH(mm) { return mm > 0 ? Math.max(2, Math.sqrt(Math.min(mm, 8) / 8) * barMaxH) : 0 }
+    function barH(mm) { return mm > 0 ? Math.max(2, U.precipBar(mm) * barMaxH) : 0 }
 
     function updateRange() {
         fitRange(firstVisible)
