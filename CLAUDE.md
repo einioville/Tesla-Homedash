@@ -52,7 +52,8 @@ frontend_v2/             # ★ the Qt Quick/QML frontend (Main.qml, main.cpp)
   items/                 # QML components by domain; ★ settings/ (Options view), tesla/ (cards + map), util/
   views/                 # one screen per view on the switcher
   resources/             # fonts, icons, styles, Luna, shaders (compiled by qt_add_shaders)
-scripts/                 # ★ build-frontend.{sh,ps1,cmd}; Windows-only new-/finish-session
+scripts/                 # ★ build-frontend.{sh,ps1,cmd}; release.sh + release/ (the arm64 release build),
+                         #   install.sh; Windows-only new-/finish-session
 docs/                    # wsl-dev-environment.md (WSL2 bootstrap), images/ (README screenshots)
 .claude/                 # settings.json (permissions + edit hook), hooks/check-edit.py (§7.3), skills/
 config_template.json     # copy to config.json (gitignored; real values) and fill in

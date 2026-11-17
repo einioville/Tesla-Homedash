@@ -288,15 +288,20 @@ target_include_directories(appfrontend_v2 PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 # process is still the old one. Resolved at configure time, and the build script
 # configures on every run, so it tracks. Empty when git is unavailable, which
 # counts as unknown rather than as a mismatch (AppUpdate::restartPending).
-set(FRONTEND_V2_BUILD_COMMIT "")
-find_package(Git QUIET)
-if(Git_FOUND)
-    execute_process(
-        COMMAND ${GIT_EXECUTABLE} rev-parse HEAD
-        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-        OUTPUT_VARIABLE FRONTEND_V2_BUILD_COMMIT
-        OUTPUT_STRIP_TRAILING_WHITESPACE
-        ERROR_QUIET)
+# A release (scripts/release.sh) is built from an exported tree with no .git, so the release
+# script passes the commit in, along with the release's version.
+set(FRONTEND_V2_VERSION "" CACHE STRING
+    "The release this binary is, e.g. v2.0.0 (scripts/release.sh sets it; empty in a development build)")
+if(NOT FRONTEND_V2_BUILD_COMMIT)
+    find_package(Git QUIET)
+    if(Git_FOUND)
+        execute_process(
+            COMMAND ${GIT_EXECUTABLE} rev-parse HEAD
+            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+            OUTPUT_VARIABLE FRONTEND_V2_BUILD_COMMIT
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+            ERROR_QUIET)
+    endif()
 endif()
 
 # Bake the source directory so dotenv can locate the repo-root .env even when
@@ -314,7 +319,7 @@ target_compile_definitions(appfrontend_v2 PRIVATE
 # build into tens of minutes with the backend already running on a freshly
 # synced virtualenv.
 set_source_files_properties(core/appupdate.cpp PROPERTIES
-    COMPILE_DEFINITIONS "FRONTEND_V2_BUILD_COMMIT=\"${FRONTEND_V2_BUILD_COMMIT}\"")
+    COMPILE_DEFINITIONS "FRONTEND_V2_BUILD_COMMIT=\"${FRONTEND_V2_BUILD_COMMIT}\";FRONTEND_V2_VERSION=\"${FRONTEND_V2_VERSION}\"")
 
 target_link_libraries(appfrontend_v2
     PRIVATE Qt6::Quick Qt6::Network Qt6::Concurrent Qt6::Svg Qt6::Location Qt6::Positioning
