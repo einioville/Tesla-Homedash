@@ -16,6 +16,7 @@
 #include "core/screensaverphotos.hh"
 #include "core/screenpower.hh"
 #include "core/logger.hh"
+#include "core/map/basemapstatus.hh"
 #include "core/map/geocoder.hh"
 #include "core/map/placenames.hh"
 #include "core/media/mediadata.hh"
@@ -143,6 +144,8 @@ int main(int argc, char* argv[]) {
     PlaceNames placeNames;
     // Address search and lookup for the Options view's Koti dialog (Nominatim, FMI).
     Geocoder geocoder;
+    // Whether MML's tile service answers, so the maps can fall back to EOX's imagery.
+    BasemapStatus basemapStatus(config.mapTilesUrl());
     // Charging view: live CHARGER_STREAM (myenergi) + charger-history / month
     // request-response over the same socket.
     ChargingData chargingData(&serverClient);
@@ -239,6 +242,7 @@ int main(int argc, char* argv[]) {
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "CurrentDrive", &currentDrive);
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "PlaceNames", &placeNames);
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "Geocoder", &geocoder);
+    qmlRegisterSingletonInstance("frontend_v2", 1, 0, "Basemap", &basemapStatus);
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "Charging", &chargingData);
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "Media", &mediaData);
     qmlRegisterSingletonInstance("frontend_v2", 1, 0, "Weather", &weatherData);

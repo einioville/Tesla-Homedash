@@ -73,7 +73,8 @@ AppConfig::AppConfig(const Settings* settings, QObject* parent) : QObject(parent
     // is not an Options-view setting. The OSM plugin reads its tile host once, when
     // the map is created, so a changed key needs a restart. Without a key the maps
     // show only the keyless EOX Sentinel-2 imagery (~10 m), which they also show
-    // outside MML's coverage (items/tesla/BasemapSwitch.qml), and the log says so.
+    // outside MML's coverage and while MML does not answer (items/tesla/BasemapSwitch.qml),
+    // and the log says so.
     const QString mapApiKey = dotenv::valueOr("TESLA_HOMEDASH_MAP_API_KEY", QString()).trimmed();
     if (!mapApiKey.isEmpty()) {
         m_mapTilesUrl = kMmlTilesUrlTemplate.arg(mapApiKey);

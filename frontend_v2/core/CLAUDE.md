@@ -310,10 +310,10 @@ the car has reached it (`fixAdded`, `reachedChanged`). More in `cartrack.hh`:
   live, it is placed at each arrival and nothing runs. Time is fractional milliseconds
   (`nsecsElapsed`): whole ones stepped the car 16 or 17 ms' worth per frame.
 
-## `CurrentDrive`, `PlaceNames` — `trip/currentdrive.{hh,cpp}`, `map/placenames.{hh,cpp}`
+## `CurrentDrive`, `PlaceNames`, `Basemap` — `trip/currentdrive.{hh,cpp}`, `map/placenames.{hh,cpp}`, `map/basemapstatus.{hh,cpp}`
 
-The Kartta view's drive under way and the OSM place names, written up with the map's layers in
-`../items/tesla/CLAUDE.md`.
+The Kartta view's drive under way, the OSM place names, and whether MML's tile service answers
+(the maps' fallback to EOX), written up with the maps in `../items/tesla/CLAUDE.md`.
 
 ## `RouteBands` — `trip/routebands.{hh,cpp}`
 

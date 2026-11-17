@@ -108,6 +108,8 @@ qt_add_executable(appfrontend_v2
     core/map/placenames.cpp
     core/map/geocoder.hh
     core/map/geocoder.cpp
+    core/map/basemapstatus.hh
+    core/map/basemapstatus.cpp
     core/charging/chargingdata.hh
     core/charging/chargingdata.cpp
     core/media/mediaimagecache.hh

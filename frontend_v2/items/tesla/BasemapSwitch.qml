@@ -8,7 +8,8 @@ import "MapCoverage.js" as Coverage
 // blank white tiles, which no map underneath could show through. A grid of points over the view
 // is tested, so a corner of open sea between two inside corners still counts. Decided when the
 // map rests, since a new type reloads every tile on screen, and every 2 s while it keeps moving.
-// Without an MML key (BasemapPlugin), or with `allowMml` off, it is EOX everywhere.
+// Without an MML key (BasemapPlugin), with `allowMml` off, or while MML's tile service does not
+// answer (Basemap, #87), it is EOX everywhere.
 Item {
     id: root
 
@@ -17,7 +18,7 @@ Item {
     property bool active: true
     // Off for the Weather view's radar map: the backdrop to a radar reaching past Finland.
     property bool allowMml: true
-    readonly property bool hasMml: allowMml && App.mapTilesUrl !== ""
+    readonly property bool hasMml: allowMml && App.mapTilesUrl !== "" && Basemap.mmlReachable
     // Points per side of the grid tested over the view.
     readonly property int samples: 6
 
@@ -55,6 +56,7 @@ Item {
     }
 
     Component.onCompleted: choose()
+    onHasMmlChanged: choose()
 
     // When EOX's provider file loads after its type was chosen, the type changes under Qt
     // Location and it puts the map on its first type (Street) until choose() puts it back. That
