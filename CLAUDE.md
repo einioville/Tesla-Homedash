@@ -108,7 +108,7 @@ See the **Agent validation policy** (§7.3) for what the agent does vs. defers t
 
 | File | Read by | Documented in |
 |---|---|---|
-| `.env` (repo root, gitignored) — secrets (`VIN`, `API_KEY`, `INFLUX_TOKEN`, Spotify, myenergi, `TESLA_HOMEDASH_PASSWORD`), `CONFIG_PATH`, log level | backend `get_env`; `frontend_v2`'s `core/dotenv` for env-backed setting defaults | `backend/CLAUDE.md` |
+| `.env` (gitignored) — beside `config.json` on an installed release, in the repo root on a checkout: secrets (`VIN`, `API_KEY`, `INFLUX_TOKEN`, Spotify, myenergi, `TESLA_HOMEDASH_PASSWORD`), `CONFIG_PATH`, log level | backend `get_env`; `frontend_v2`'s `core/dotenv` for env-backed setting defaults | `backend/CLAUDE.md` |
 | The backend config — called `config.json` throughout these docs; by default `~/.config/Tesla-Homedash/backend_config.json`, or `CONFIG_PATH`. Template: `config_template.json`. **Written at runtime** by the Options view | backend `Config` | `backend/CLAUDE.md`, `backend/src/config_service/CLAUDE.md` |
 | `frontend_config.json` beside it — the frontend's saved setting overrides over the bundled schema `frontend_v2/config/settings.json` | `frontend_v2` `Settings` | `frontend_v2/CLAUDE.md` |
 | Login state, not settings: the backend's `paired_displays.json` (the password's verifier + the displays) and `tls/` (its certificate) beside `config.json`; each display's `frontend_credentials.json` (token + certificate pin, 0600) beside `frontend_config.json` | `AuthService`; `ServerClient`'s `CredentialStore` | `backend/src/auth_service/CLAUDE.md`, `frontend_v2/core/CLAUDE.md` |

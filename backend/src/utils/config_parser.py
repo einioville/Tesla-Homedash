@@ -18,9 +18,9 @@ from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import tzlocal
-from dotenv import load_dotenv
 
 from .atomic_write import write_atomic
+from .env_file import app_config_dir, load_env_file
 from .logger_configurator import LEVEL_CHOICES, default_level_name
 
 logger = logging.getLogger("utils.config_parser")
@@ -85,16 +85,6 @@ def _home_zone(data: dict) -> str | None:
     return home.get("timeZone") if isinstance(home, dict) else None
 
 
-def app_config_dir() -> str:
-    '''
-    $XDG_CONFIG_HOME (or ~/.config) / Tesla-Homedash — the folder both halves
-    keep their configuration in, and the screensaver its photos.
-    '''
-    base = os.environ.get("XDG_CONFIG_HOME") or os.path.join(
-        os.path.expanduser("~"), ".config")
-    return os.path.join(base, "Tesla-Homedash")
-
-
 # server.reachability -> the address the backend listens on: "lan" every interface,
 # "local" loopback only, for a dashboard whose only display is on the same host.
 LISTEN_HOSTS = {"lan": "0.0.0.0", "local": "127.0.0.1"}
@@ -116,7 +106,7 @@ def default_config_path() -> str:
 def _ensure_env() -> None:
     global _env_loaded
     if not _env_loaded:
-        load_dotenv()
+        load_env_file()
         _env_loaded = True
 
 

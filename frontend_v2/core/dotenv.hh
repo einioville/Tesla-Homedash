@@ -4,8 +4,9 @@
 #include <QString>
 
 /**
- * dotenv — shared access to the repo-root `.env` the frontend borrows from the
- * backend, with real environment variables taking precedence.
+ * dotenv — shared access to the `.env` the frontend borrows from the backend
+ * (beside the configuration, else a checkout's repo root; findDotEnv), with real
+ * environment variables taking precedence.
  *
  * Shared by AppConfig and Settings: a local setting may declare an `"env"` key
  * in its schema, making the environment supply that setting's DEFAULT (so an
@@ -20,7 +21,7 @@ namespace dotenv {
 
 /**
  * Returns the value for `key`: the real environment variable if set and
- * non-empty, then the repo-root .env entry if non-empty, then `fallback`.
+ * non-empty, then the .env entry if non-empty, then `fallback`.
  * An empty placeholder line in .env therefore reads as "unset".
  */
 QString valueOr(const char *key, const QString &fallback = QString());

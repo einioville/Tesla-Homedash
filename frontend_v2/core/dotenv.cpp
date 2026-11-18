@@ -5,15 +5,24 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QHash>
+#include <QStandardPaths>
 #include <QStringList>
 #include <QTextStream>
 #include <QtGlobal>
 
 namespace {
 
-// Walk up from the working directory and the executable directory to find the
-// first .env. Returns an empty string if none is found.
+// An installed release keeps .env beside the configuration, where install.sh moves
+// it (#56); a development checkout keeps it in the repo root, found by walking up
+// from the working directory and the executable's. The backend looks in the same
+// order (backend/src/utils/env_file.py). Empty when there is none.
 QString findDotEnv() {
+    const QString beside =
+        QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation) +
+        QStringLiteral("/Tesla-Homedash/.env");
+    if (QFileInfo::exists(beside)) {
+        return beside;
+    }
     QStringList starts{QDir::currentPath()};
     if (QCoreApplication::instance() != nullptr) {
         starts << QCoreApplication::applicationDirPath();

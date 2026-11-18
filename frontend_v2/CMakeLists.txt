@@ -308,9 +308,12 @@ endif()
 # Qt Creator builds the exe outside the source tree (shadow build) — the cwd/exe
 # walk-up alone never reaches it. Used only to find .env; real environment
 # variables still take precedence, so this absolute dev path is harmless where
-# the directory does not exist.
-target_compile_definitions(appfrontend_v2 PRIVATE
-    FRONTEND_V2_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+# the directory does not exist. Not in a release, which keeps .env beside its
+# configuration and would otherwise carry the build machine's path.
+if(NOT FRONTEND_V2_VERSION)
+    target_compile_definitions(appfrontend_v2 PRIVATE
+        FRONTEND_V2_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+endif()
 
 # Scoped to the ONE file that reads it, not to the target. As a target-wide
 # definition it lands on every translation unit's command line, and its value

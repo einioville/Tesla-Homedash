@@ -50,8 +50,10 @@ imports a service:
 
 ## Configuration
 
-### `.env` (repo root, gitignored)
-Required secrets/paths, loaded by `utils/config_parser.get_env`:
+### `.env` (beside `config.json`, or a checkout's repo root; gitignored)
+Required secrets/paths, loaded by `utils/config_parser.get_env` from `utils/env_file`'s `.env`: an
+installed release's in `~/.config/Tesla-Homedash/` (`install.sh` moves it there), else a checkout's
+in the repo root:
 - `CONFIG_PATH` — absolute path to the backend's config JSON. **Optional since the
   config relocation (issue #41)**: unset → `$XDG_CONFIG_HOME`(or `~/.config`)`/Tesla-Homedash/
   `backend_config.json`, via `config_parser.default_config_path()`. Set it only when the

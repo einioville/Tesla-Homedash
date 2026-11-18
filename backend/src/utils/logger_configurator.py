@@ -5,7 +5,7 @@ import logging.handlers
 import os
 import threading
 
-from dotenv import load_dotenv
+from .env_file import load_env_file
 
 from .atomic_write import write_atomic
 
@@ -298,7 +298,7 @@ def default_level_name() -> str:
     the default of the Options view's logging.level, so a deployment keeps the
     level it was started with until the dropdown is used.
     '''
-    load_dotenv()
+    load_env_file()
     return logging.getLevelName(_resolve_level()[0]).lower()
 
 
@@ -316,9 +316,9 @@ def configure_logging() -> None:
     global _base_level
     # `.env` is normally loaded lazily by config_parser.get_env, whose first
     # call happens *after* logging is configured — so load it here too.
-    # load_dotenv is idempotent and does not override real env vars, which is
+    # Loading is idempotent and does not override real env vars, which is
     # what lets systemd's Environment= win over a stale `.env` on the Pi.
-    load_dotenv()
+    load_env_file()
     level, invalid = _resolve_level()
 
     global _file_handler, _stdout_handler
