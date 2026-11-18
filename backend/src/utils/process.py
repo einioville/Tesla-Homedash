@@ -11,10 +11,10 @@ import os
 import signal
 
 
-async def run(argv, timeout: float, *, cwd=None, env=None,
-              new_session: bool = False) -> tuple[int, str, str]:
+async def run(argv, timeout: float, *, cwd=None, env=None, new_session: bool = False,
+              stdin: bytes | None = None) -> tuple[int, str, str]:
     '''
-    Runs one command without a shell, stdin from /dev/null, and returns
+    Runs one command without a shell, stdin from /dev/null unless given, and returns
     (returncode, stdout, stderr) decoded as UTF-8 with bad bytes replaced.
     Raises OSError when the command cannot start, and asyncio.TimeoutError once
     `timeout` has passed — by then the child is killed and reaped.  Catch the
@@ -28,18 +28,20 @@ async def run(argv, timeout: float, *, cwd=None, env=None,
         new_session (bool): Start the child in its own session and kill the
             whole process group on timeout — for a command (git) that forks
             helpers which inherit the pipes and outlive a plain kill.
+        stdin (bytes | None): What the command reads on stdin (ssh-keygen -Y verify
+            reads the signed message there); /dev/null when None.
     '''
     process = await asyncio.create_subprocess_exec(
         *argv,
         cwd=cwd,
         env=env,
-        stdin=asyncio.subprocess.DEVNULL,
+        stdin=asyncio.subprocess.DEVNULL if stdin is None else asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
         start_new_session=new_session,
     )
     try:
-        out, err = await asyncio.wait_for(process.communicate(), timeout=timeout)
+        out, err = await asyncio.wait_for(process.communicate(stdin), timeout=timeout)
     except asyncio.TimeoutError:
         with contextlib.suppress(ProcessLookupError, PermissionError):
             if new_session:

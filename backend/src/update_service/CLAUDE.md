@@ -1,134 +1,134 @@
-# `update_service/update_service.py` — in-place app updates
+# `update_service/` — installing releases (#56)
 
 Serves `UPDATE_GET_STATE` / `UPDATE_APPLY` / `UPDATE_CANCEL` (`0xD0`–`0xD3`) and broadcasts
-`UPDATE_STATE`; registered with `register_service`, so a connecting dashboard gets the state —
-including a run already in flight — without asking. The dashboard runs from a git checkout, so
-"update the app" is `git fetch` → `checkout --detach <sha>` → rebuild the frontend →
-`uv sync --locked` → restart both halves, and every one of those is a system call, which is why
-the whole thing lives here rather than in the UI. (The sync comes after the build on purpose —
-see the step-order note below.)
+`UPDATE_STATE`; registered with `register_service`, so a connecting display gets the state —
+including a run in flight — without asking. A device that is not a development machine moves
+between **releases published on GitHub's Releases page** and never builds anything or touches git.
+What a release carries and how one is made is `scripts/CLAUDE.md`, *Releases*; this file is the
+device's half. The *Päivitys* card is out of the Options view until its rework lands
+(`frontend_v2/core/CLAUDE.md`, under `Updater`).
 
-**Its card is out of the Options view for now** (`frontend_v2/core/CLAUDE.md`, under `Updater`):
-#56 reworks this into a release-only updater that can install any `v*` release and drops the
-`development` channel. The service is still registered and serves the protocol, so nothing here
-changed; with no card, nothing sends `UPDATE_APPLY`.
+## The device
 
-**Two channels, one comparison.** `development` targets the tip of `origin/main`; `releases`
-targets the newest `v*` tag (`--sort=-v:refname`, git's own version order, dereferenced with
-`^{commit}` — a bare `rev-parse` on an annotated tag yields the TAG object and finds no ancestry
-at all). Both resolve to a COMMIT and the verdict is a commit comparison, never a version-string
-compare: `up_to_date` / `update` (target descends from HEAD) / `downgrade` (target is an ancestor)
-/ `switch` (divergent), from two `merge-base --is-ancestor` calls (exit 0 = yes, 1 = no, anything
-else = unknown, never guessed). That is what makes switching channels work in **both** directions;
-development → releases normally reads `downgrade`, which is an ordinary outcome here.
+`install.sh` (`scripts/`) lays it out, and this service and `guard.py` keep it:
 
-Load-bearing details, most of them measured:
-- **The trapdoor rule.** A target that does not itself contain `update_service.py` +
-  `UpdatePanel.qml` (checked with `git cat-file -e <sha>:<path>`) is **refused whatever the
-  verdict says**. Move a keyboard-less panel onto a commit with no updater and the only way back
-  is SSH — and this project's only release tag is exactly such a commit. Downgrading between two
-  versions that both carry the feature is the case the feature is for, and works.
-- **`GIT_ASKPASS` set to the EMPTY STRING is what stops a fetch hanging forever.**
-  `GIT_TERMINAL_PROMPT=0` alone only suppresses git's own tty prompt; git then falls through to an
-  askpass helper — measured parking until the step timeout. Setting the variable at all (even
-  empty) also suppresses the `SSH_ASKPASS` fallback, which matters because the Pi runs a full
-  desktop, so `DISPLAY` is set. Also `GIT_CONFIG_NOSYSTEM`, `GIT_SSH_COMMAND` with `BatchMode` +
-  `ConnectTimeout`, `GIT_OPTIONAL_LOCKS=0` and `LC_ALL=C`; `GIT_DIR`/`GIT_WORK_TREE` are scrubbed
-  from every child, since an inherited value would silently redirect the checkout elsewhere.
-- **git 2.43 has no `http.connectTimeout`** and the low-speed knobs do not cover the connect phase
-  (measured against a black-holed address), so `asyncio.wait_for` around the subprocess is the ONLY
-  bound — the same shape `../weather_service/CLAUDE.md` mandates for the FMI fetch.
-- **Every child gets `start_new_session=True` and is killed by PROCESS GROUP.** git forks
-  `git-remote-https`, and the build is a shell → cmake → ninja → one compiler per file; measured,
-  killing the parent alone leaves the tree running AND leaves the inherited stdout pipe open, so
-  the reader never sees EOF.
-- **Output is read in CHUNKS, not with `readline()`.** `StreamReader.readline` raises past its
-  64 KiB buffer and a deep C++ template diagnostic exceeds that; the exception would leave the job
-  "running" forever, refusing every later request.
-- **`uv sync --locked`, never a bare `uv sync`.** A bare sync silently re-resolves and rewrites
-  `uv.lock` — a TRACKED file — so the write would make the tree dirty and permanently wedge this
-  service's own dirty-tree refusal, pointing at a file the user never touched. (`--frozen` avoids
-  the rewrite too but installs a stale lock silently.)
-- **Nothing renames the frontend binary out of the way, and that is correct.** ld UNLINKS its
-  output before creating it rather than truncating in place, so relinking a *running* executable
-  succeeds and the live process keeps its old inode — measured, including that not-yet-paged-in
-  code still faults in correctly afterwards. (`cp` and shell redirection DO fail with ETXTBSY,
-  because they truncate; the linker is the exception.) A rename dance would only add a
-  half-moved-binary failure mode.
-- **The artifact is verified before anything is told to restart**: exists, executable, not
-  implausibly small (an absolute floor, below). Deliberately not a freshness check — a build with
-  nothing to relink legitimately leaves the same file. A build killed mid-link can leave a
-  truncated file, and restarting a keyboard-less panel into a stub leaves no dashboard at all.
-- **Anything that fails AFTER the checkout rolls the tree back** (`checkout --detach <previous>` +
-  `uv sync --locked`). A new source tree beside an old virtualenv is the one genuinely
-  unrecoverable state this feature can produce: the backend's unit re-syncs on every start, so the
-  next restart fails, retries and fails again — with the Options view gone along with the backend.
-- **Checkout is always DETACHED**, uniform across both channels. A release is a tag and can only be
-  checked out detached anyway; detaching never discards a local branch; and — the case that decides
-  it — a linked worktree *refuses* `checkout main` when main is checked out elsewhere, while
-  `checkout --detach <sha>` always works. `advice.detachedHead=false` keeps the eight-line advice
-  block out of the journal. No `-f`: a checkout aborted by a colliding untracked file is a clean
-  refusal, and forcing past it would delete what the user put there.
-- **`--prune --tags --force` on fetch, but NOT `--prune-tags`.** `--tags` uses a non-forced
-  refspec, so a MOVED release tag is rejected with "would clobber existing tag" and the releases
-  channel silently sticks to the old commit; `--prune-tags` is left off because it deletes local
-  tags the remote lacks, which is right for a deployment and wrong for the maintainer's checkout.
-- **Preflight in `tools`**, reported before the button is live: `uv` (PATH, else `~/.local/bin/uv`
-  — a `systemd --user` unit's PATH has neither), the build script, a Qt kit (`$QTDIR` → newest
-  `~/Qt/*/gcc_64`|`gcc_arm64` → `CMAKE_PREFIX_PATH` from an existing `CMakeCache.txt`) and disk
-  headroom. The kit is passed to the script as `--qt-prefix` so the choice appears in the log.
-- **Cancel is step-aware.** Allowed during fetch/deps/build (and then rolled back like any other
-  failure); refused during the checkout, whose interruption is the half-written state everything
-  here avoids. `job.cancellable` tells the frontend, so the button hides rather than being ignored.
-- The state document is ~2 KB; the job log is capped at 80 lines × 240 chars and broadcasts are
-  coalesced to 2 Hz, so a build's hundreds of ninja lines never approach the 1 MB frame cap.
-- **The BUILD runs before the dependency sync**, which is not the obvious order. `uv sync`
-  rewrites the virtualenv this interpreter is running from, and a build that followed it takes
-  tens of minutes on a Pi — a lazily-imported submodule of a replaced package failing in that
-  window ends a process with no supervisor, and systemd would restart it mid-build, destroying
-  the run's own rollback. Syncing last shrinks that window to seconds.
-- **The job is claimed synchronously.** `handle_apply` sets `__starting` before its first await,
-  because `Server` dispatches every packet as its own task and the validation awaits ~10 git
-  queries before the run exists — two applies would otherwise both pass a guard that only looked
-  at `__job`. `self.__job` is then built before the task is created, so one fence holds until the
-  other takes over. A refusal likewise **never overwrites a live job**: it replaces the
-  whole document, which would erase the running progress, re-arm the restart button and hand the
-  step loop an empty `steps` list to index.
-- **The run task closes the job out in a `finally`.** Every gate in the service reads
-  `finished`, so an exception escaping the loop would leave the device unable to update, unable
-  to refresh the card, and — through the restart veto — unable to restart. That veto is itself
-  **bounded by a deadline**, so a wedged job can never trap a keyboard-less panel.
-- **The artifact check is an absolute floor, not a ratio** against the previous binary: the
-  first in-app update legitimately replaces the build script's default *Debug* binary with a
-  *Release* one several times smaller, and a ratio test would reject that good build and roll a
-  successful update back.
-- **The job's fetch goes through the streaming runner, not the `__git` helper.** Only the runner
-  registers the child on `self.__proc`, so only through it can a cancel or a timeout reach the
-  process group — otherwise *Peruuta* is a button that visibly does nothing for up to three
-  minutes. The read path's fetch keeps a much shorter timeout, since the card waits on its reply,
-  and the throttle keys on the fetch ATTEMPT: keying on success means an unreachable remote is
-  never throttled and every card open pays the full timeout again.
+```
+~/.local/share/Tesla-Homedash/     the install root (utils/version.install_root)
+  releases/<tag>/                  backend/ (with its own .venv), frontend/, manifest.json,
+                                   .complete — written last, so a half-made folder is never used
+  current -> releases/<tag>        what both systemd units start; moved with one rename
+  guard.py                         the health gate's guard, outside every release folder
+  switch.json                      the open health gate: {from, to, deadline, starts,
+                                   restoredSnapshot, localDisplay}
+  rollback.json                    the guard's record of a rollback, shown until a switch succeeds
+  last-switch.json                 the last switch that passed the gate
+  snapshots/<tag>/                 the state files as they were when <tag> was left (0700)
+  downloads/<tag>/                 a run's downloads, removed when it ends
+~/.config/Tesla-Homedash/.env      moved out of the checkout (utils/env_file)
+```
 
-**Talks to:** `git`/`uv`/`bash` (subprocesses), `ConfigService` (restart + veto), `Server`
-(broadcast/send_to), the *Palvelin* status card (`version_label()`, the running version).
+- **Mode comes from where the code runs** (`utils/version`): a backend under
+  `releases/<tag>/backend` with a `manifest.json` is an installed release, and anything else a
+  development checkout, whose card shows the commit and says it is updated with git — nothing is
+  listed, downloaded or switched there.
+- **A local display** is one whose dashboard unit `install.sh` wrote
+  (`~/.config/systemd/user/tesla-homedash-frontend.service`). Only then does a run download the
+  frontend bundle, stop and restart the dashboard, check `arch`, `glibc` and `displayCommands`,
+  and wait for the display to log in before the gate closes. **The updater updates only its own
+  device**; a display elsewhere reports its version at login (`../auth_service/CLAUDE.md`).
 
-**Deliberately deferred:** job state is not persisted across a backend restart, so an update
-interrupted by a power cut is reported only by the journal, not by the card.
+## Listing
+
+`GET /repos/einioville/Tesla-Homedash/releases`, a minute after start, every 6 h, and when a
+card asks (`fetch: true`, throttled to one per 2 min **per attempt**, so an unreachable GitHub is
+not asked again on every card open). Unauthenticated: 60 calls an hour, and an unchanged list
+answers 304 to the ETag, which costs none. Drafts never appear, so a half-uploaded release is never
+seen.
+
+- **Each release's manifest is verified before the card sees it**: `SHA256SUMS` and its signature
+  and `manifest.json` (three small downloads, cached per tag until the assets change), the signature
+  checked with `ssh-keygen -Y verify` against **`release_signers` of the running release**, so a
+  new key has to arrive in a release the old one signed. `ssh-keygen` reads the signed message on
+  stdin (`utils/process.run(stdin=…)`).
+- **Not installable, with the reason the card shows**: no manifest and checksums ("ei
+  päivitystoimintoa" — **the trapdoor rule**: v1.0.0 and anything else from before this updater,
+  since moving a keyboard-less panel onto one leaves no way back but SSH), a bad signature, and
+  missing requirements ("Vaatii: wlr-randr, .env: VIN"). The requirements are the manifest's
+  `commands` (PATH plus `~/.local/bin`), `env` (in the environment, which holds `.env` by then)
+  and, with a local display, `arch`, `glibc` and `displayCommands`. The Python version is not
+  checked: `uv sync` fetches the one `.python-version` names.
+- **The order is the version's**, `vX.Y.Z` with `-rcN` before its release; `direction` is
+  `current` / `update` / `downgrade` against the running release. Pre-releases are listed with
+  `prerelease: true`; which ones a display shows is its own choice. A release with a snapshot here
+  says so (`snapshot`), for the card's downgrade warning.
+
+## A run
+
+`UPDATE_APPLY {tag}`: the tag must match `_TAG` and be one this service listed as installable, and
+the preflight (uv, 1 GB free, the backend running under its systemd unit) must pass. Steps:
+
+1. **download** — the checksums, signature and manifest are fetched **and verified again**, never
+   trusted from the listing; then each bundle streams to disk and is hashed on the way.
+2. **unpack** — into `releases/<tag>` in a worker thread, tarfile's `data` filter refusing links and
+   paths out of the folder, and nothing but `backend/` and `frontend/` allowed.
+3. **deps** — `uv sync --locked --no-install-project` in the new folder: its own venv, so a failed
+   sync never touches the running one. `--locked` fails loudly on a lock that does not match;
+   `--no-install-project` skips building the backend as a package, which `run.py` does not need.
+   `VIRTUAL_ENV` and the like are scrubbed, or uv would aim at the running release's venv. Then
+   `.complete`.
+4. **snapshot** — `config.json`, `paired_displays.json`, `tls/` and the frontend's
+   `frontend_config.json` and `frontend_credentials.json` copied to `snapshots/<the version being
+   left>` with `snapshot.json` mapping each to where it lives, replacing an older snapshot of it.
+5. **switch** — stops the local dashboard, restores the target's snapshot on a downgrade that has
+   one, writes `switch.json` **before** moving `current` (a power cut between the two leaves a marker
+   the guard undoes, never a moved link nothing watches), arms the guard's 5-minute timer and
+   restarts both units with `systemctl --user --no-block restart` — which ends this process.
+
+A release folder that is already `.complete` (the one before is kept) is switched to after only
+the small files are checked. **Nothing before the switch touches the running release**, so a
+failure or a cancel (allowed in steps 1–3) only removes the half-made folder and the downloads.
+
+**The state files are additive** (root `CLAUDE.md`): an older release ignores keys a newer one
+added, which is what lets a snapshot-less downgrade run on today's files, and a version field
+arrives only with the first change that cannot be additive.
+
+## The health gate
+
+The new backend reads `switch.json` at start. When the gate is its own (`to` is this release), it
+closes once the display on this device logs in to it (`AuthService.add_login_listener`, a login from
+loopback) — at once with no local display. Closing removes the marker and stops the timer,
+installs **this release's** `guard.py` beside the releases (a release must pass the gate before its
+guard is trusted), writes `last-switch.json`, and removes every release folder but this one and the
+one before it. Until then `guard.py` — the backend unit's `ExecStartPre` and the timer — rolls
+`current` back on a crash loop or once the 5 minutes are up, restoring the previous release's
+snapshot when the switch restored one, and leaves `rollback.json` (`guard.py`'s docstring). The
+guard runs under the system `python3`, never a release's venv.
+
+## Kept from the git updater, on purpose
+
+- **The slot is claimed synchronously**: `handle_apply` sets `__starting` before its first await
+  and `__job` before the task exists, since `Server` dispatches every packet as its own task.
+- **A refusal never overwrites a live job**, and the run closes its job out in a `finally`: every
+  gate reads `finished`, the restart veto included, and the veto stands down past a deadline so a
+  wedged job cannot leave a device that never restarts.
+- **Every child runs in its own process group** and is killed by group; output is read in chunks,
+  not `readline()`, which raises past 64 KiB. The document stays small: the log is 80 × 240 chars,
+  notes are cut at 4000 chars, the list at 20 releases, and broadcasts are coalesced to 2 Hz.
+
+**Talks to:** GitHub (aiohttp), `ssh-keygen`, `uv`, `systemctl` / `systemd-run`, `ConfigService`
+(the veto, and its restart as the fallback), `AuthService` (logins), `Server`, the *Palvelin*
+status card (`version_label()`).
 
 ## Event flow
 
-**App update (the Options view's Päivitys card — out of the schema until the release-only rework, #56)**
 ```
-UpdatePanel opens → Updater.active → UPDATE_GET_STATE{fetch:true}
-  → UpdateService.__refresh → git fetch (throttled) → resolve both channels
-  → verdict per channel (merge-base --is-ancestor ×2) + eligibility (cat-file -e)
-  → UPDATE_STATE broadcast → card renders current / target / verdict / blockers
-second tap on the button → UPDATE_APPLY{channel, commit}
-  → validate (channel enum, 40-hex sha, clean tree, tools, commit still current)
-  → fetch → checkout --detach → build-frontend.sh → verify artifact → uv sync --locked
-     (each step: own process group, streamed output, UPDATE_STATE broadcast ≤2 Hz)
-  → job.restartFrontend → Updater.restartRequested → Settings.restartApp() (exit 42)
-  → ConfigService.request_restart(force=True) → os._exit(42) → systemd restarts both
-  any failure after the checkout → git checkout --detach <previous> + uv sync --locked
-     (the job stays `running` across the rollback, so the banner and the restart veto hold)
+UpdatePanel opens → UPDATE_GET_STATE{fetch:true} → __check (throttled) → GitHub's list
+  → per release: SHA256SUMS + .sig + manifest → ssh-keygen -Y verify → requirements
+  → UPDATE_STATE → the card lists them
+a tap → UPDATE_APPLY{tag} → listed + installable + preflight
+  → download (verify again) → unpack → uv sync → snapshot → switch.json + current + timer
+  → systemctl --user --no-block restart backend [frontend]
+guard.py (ExecStartPre) → starts++ → new backend → the local display logs in
+  → switch.json removed, timer stopped, guard.py installed, old releases pruned → UPDATE_STATE
+  (a crash loop or 5 min without that login → guard.py points current back, rollback.json)
 ```

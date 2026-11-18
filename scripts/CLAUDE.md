@@ -3,9 +3,6 @@
 - `build-frontend.sh` / `build-frontend.ps1` (+ the `.cmd` shim) configure and build `frontend_v2`;
   usage is in the root `CLAUDE.md` §3.2 and §8. `new-session.ps1` / `finish-session.ps1` are the
   Windows-only worktree helpers (the `parallel-worktree` skill) — there is no Linux port.
-- **`build-frontend.sh` is also run by the in-app updater** (`backend/src/update_service/`), which
-  passes the Qt kit as `--qt-prefix`. Treat its command line as an interface and read that service's
-  `CLAUDE.md` before changing it.
 - It globs **both** `~/Qt/*/gcc_64` and `~/Qt/*/gcc_arm64` (the Raspberry Pi's kit name) and uses
   Ninja only when installed, because the Pi's setup does not install it.
 - **A kit counts only if it is at least the Qt that `frontend_v2/CMakeLists.txt` requires** (its
@@ -19,7 +16,7 @@
 - **It wipes the build directory when the generator or the Qt kit changed** since the last
   configure (`CMAKE_GENERATOR`, `Qt6_DIR` in the cache): CMake refuses a new generator outright, and
   a new kit would otherwise go on building against the cached old one. A box that installs a newer
-  Qt — picked by the glob — rebuilds from scratch once, the in-app updater included.
+  Qt — picked by the glob — rebuilds from scratch once.
 - `gen-map-coverage.py` writes `frontend_v2/items/tesla/MapCoverage.js`, where MML's orthophoto has
   imagery (`frontend_v2/items/tesla/CLAUDE.md`, *The basemap*). Run once, by hand, with shapely and
   pyproj (`uv run --with`); its header has the steps.

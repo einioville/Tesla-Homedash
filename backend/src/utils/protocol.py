@@ -343,32 +343,25 @@ DISPLAY_FAULT_OUTPUT_LOST = 2  # wlopm --on exited 0 but the output is gone from
                                # compositor (the labwc 0.20 / wlroots 0.20 wedge); sticky,
                                # and power-off is refused until the backend restarts
 
-# ── App update (the Options view's "Päivitys" card) ─────────────────────────
-# Updates the checkout this backend and the dashboard are running FROM, in place:
-# fetch, move the working tree to a target commit, re-sync the backend's deps,
-# rebuild the frontend, then restart both halves.  Two channels the frontend
-# picks between: "development" tracks origin/main, "releases" tracks the newest
-# v* tag.  The verdict is a COMMIT COMPARISON, not a version-string compare, so
-# switching channels in either direction — including back to an older release —
-# is an ordinary outcome rather than a special case.
-#
-# UPDATE_STATE is a BROADCAST, unlike the Spotify device scan's per-client
-# stream.  A scan is one user's dialog; an update rewrites the installation both
-# dashboards are running, so a second panel must see it happening rather than be
-# free to start its own.  It is also the progress channel: the state document
-# carries a "job" object while a run is in flight, so there is one B->F code
-# instead of a separate progress packet that a late client would never see.
+# ── App update (the Options view's "Päivitys" card, #56) ────────────────────
+# Installs a release from GitHub's Releases page beside the running one and
+# switches to it (update_service/CLAUDE.md).  UPDATE_STATE is a BROADCAST: an
+# install replaces what every display on this backend talks to, so each must see
+# it happening rather than be free to start its own.  It is also the progress
+# channel: the document carries a "job" object while a run is in flight, so a
+# display that connects mid-update sees it in its snapshot.
 UPDATE_GET_STATE = 0xD0   # F->B: len(4B) + UTF-8 JSON {"fetch": <bool>}
-                          #   fetch=true contacts origin first (seconds, network);
-                          #   fetch=false answers from the local repository only
+                          #   fetch=true lists the releases again (throttled)
 UPDATE_STATE = 0xD1       # B->F: status(1B) + len(4B) + UTF-8 JSON, BROADCAST
-                          #   {available, reason, repoPath, remoteUrl, branch, dirty,
-                          #    current{...}, channels{development{...}, releases{...}},
-                          #    job: null | {steps, log, ok, finished, restartFrontend, ...}}
-UPDATE_APPLY = 0xD2       # F->B: len(4B) + UTF-8 JSON {"channel": <str>, "commit": <sha>}
-                          #   the commit FENCES the request: if the channel no longer
-                          #   resolves to what the user was shown, the run is refused
-UPDATE_CANCEL = 0xD3      # F->B: (empty) — kill the running step's process group
+                          #   {mode, available, reason, current{version, commit, built},
+                          #    localDisplay, releases[{tag, name, notes, publishedAt,
+                          #    prerelease, direction, installable, reason, size, snapshot}],
+                          #    checkedMs, checkError, health, lastSwitch, rollback,
+                          #    job: null | {tag, from, direction, restoresSnapshot, steps,
+                          #    stepId, progress, cancellable, log, ok, finished, message, ...}}
+UPDATE_APPLY = 0xD2       # F->B: len(4B) + UTF-8 JSON {"tag": "v2.1.0"} — a release this
+                          #   service listed as installable; anything else is refused
+UPDATE_CANCEL = 0xD3      # F->B: (empty) — stop a run before its switch step
 
 # ── Screensaver photo import from USB (the Options view's "Kuvakansio" row) ──
 # Copies the images in a USB stick's tesla_homedash_screensaver folder into the

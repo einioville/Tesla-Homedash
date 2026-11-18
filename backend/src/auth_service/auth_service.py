@@ -79,6 +79,8 @@ class AuthService:
         self.__verifier: scram.Verifier | None = None
         # id -> {id, name, tokenHash, created, lastSeen, address}
         self.__displays: dict[str, dict] = {}
+        # Called as listener(display, address) for every display let in (add_login_listener).
+        self.__login_listeners: list = []
         # id -> how many of its connections are open right now
         self.__connections: dict[str, int] = {}
         # address -> (wrong passwords in a row, monotonic time of the last one)
@@ -89,6 +91,15 @@ class AuthService:
     def ssl_context(self):
         '''The TLS 1.3 server context for the Server's listening socket.'''
         return self.__ssl_context
+
+    def add_login_listener(self, listener) -> None:
+        '''
+        Registers a callable told of every display let in, after its AUTH_RESULT: the updater's
+        health gate waits for the display on its own device.
+        Arguments:
+            listener (Callable[[dict, str], None]): Called with the display and its address.
+        '''
+        self.__login_listeners.append(listener)
 
     def attach_server(self, server) -> None:
         '''
@@ -340,6 +351,8 @@ class AuthService:
             protocol.AUTH_RESULT, protocol.CONFIG_STATUS_OK,
             {"ok": True, "deviceId": display["id"], "name": display["name"], **extra}))
         await self.__broadcast_displays()
+        for listener in self.__login_listeners:
+            listener(display, connection.address)
         return {"id": display["id"], "name": display["name"]}
 
     async def __refuse(self, connection, reason: str, message: str = "",

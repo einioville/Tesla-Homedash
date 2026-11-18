@@ -992,11 +992,10 @@ async def main():
     )
     logger.debug("Spotify device service initialized")
 
-    # In-place app updates (the Options view's "Päivitys" card). Constructed
-    # after config_service because that owns the only way out of this process:
-    # the updater rewrites the checkout underneath us and then has to come back
-    # on the new code, which is the same exit CONFIG_RESTART performs.
-    updater = UpdateService(server=server, config_service=config_service)
+    # Release installs (the Options view's "Päivitys" card). It vetoes config_service's
+    # restarts while it runs, and its health gate closes when this device's display logs in.
+    updater = UpdateService(server=server, config_service=config_service, config=config)
+    auth.add_login_listener(updater.on_display_login)
     logger.debug("Update service initialized")
 
     # The Options view's telemetry-field table: log / line_mode / zero_based per
@@ -1056,8 +1055,8 @@ async def main():
 
     # Audio detects its stack then refreshes the device list forever; display
     # makes its assumed-on state true and returns.
-    # The updater's run task only locates the checkout and publishes the first
-    # state; the runs themselves are started by a client and own their own task.
+    # The updater's run task lists the releases every few hours; an install is
+    # started by a client and owns its own task.
     # The system history samples forever and swallows its own failures.
     tasks = [t1, t2, t3, t4, t5, t6, audio.get_run_task(), display.get_run_task(),
              updater.get_run_task(), system_history.get_run_task()]

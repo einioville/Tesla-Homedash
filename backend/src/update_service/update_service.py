@@ -1,346 +1,308 @@
 '''
-In-place application updates, the backend half of the Options view's "Päivitys"
-card.  That card is out of the view's schema pending the release-only rework
-(#56); this service is still registered and serves the protocol.
+Installs releases from GitHub's Releases page: the backend half of the Options view's "Päivitys"
+card (#56). backend/src/update_service/CLAUDE.md has the load-bearing details.
 
-The dashboard runs from a git checkout, so "update the app" is a git operation
-plus everything that has to follow it: re-sync the backend's dependencies,
-rebuild the frontend binary, restart both halves.  This service owns all of it,
-because every step is a system call and system calls are the backend's job — the
-same split display_service makes for the panel's power state.
+A device runs an installed release from <root>/releases/<tag> (utils/version), where <root> also
+holds the "current" link the systemd units start, the guard (guard.py) and the switch marker. To
+move to another release this service downloads its assets, checks the signature over SHA256SUMS
+against the key the running release carries (release_signers) and every asset against SHA256SUMS,
+unpacks the release beside the running one, builds its venv, snapshots the state files under the
+version being left, points "current" at it and restarts both halves. The new backend confirms the
+health gate once the display on this device has logged in to it; until then the guard rolls a
+crash loop or a timeout back to the release before.
 
-**Two channels, one comparison.**  The frontend picks between:
+A development machine runs from a git checkout instead: the card shows its commit and nothing is
+downloaded or switched.
 
-  development — track ``origin/main``: whatever is on the default branch now.
-  releases    — track the newest ``v*`` tag.
+Why UPDATE_STATE is a broadcast: an install replaces what every display on this backend talks to,
+so each one must see it happening rather than be free to start its own. The state document is also
+the progress channel — a run in flight is its "job" object — so a display that connects mid-update
+sees the whole picture in its on-connect snapshot.
 
-Both resolve to a COMMIT, and the verdict is a commit comparison rather than a
-version-string compare:
-
-  up_to_date  HEAD already is the target
-  update      the target is a descendant of HEAD          (move forward)
-  downgrade   the target is an ancestor of HEAD           (move back)
-  switch      neither is an ancestor of the other         (different history)
-
-That is what makes switching channels work in both directions.  Going from
-development to releases usually lands on `downgrade` — the newest release is
-older than the tip of main — and that is an ordinary, expected outcome here, not
-an error to be special-cased.
-
-**The trapdoor rule.**  A target that does not itself contain this service is
-REFUSED, however the verdict reads.  Move a keyboard-less panel onto a commit
-with no updater and the only way back is SSH; the v1.0.0 release tag is exactly
-such a commit.  Downgrading between two versions that both carry the feature is
-fine, and is the case the feature is for.
-
-**Safety.**  A run is refused unless the working tree is clean of *tracked*
-changes.  config.json and .env are gitignored, so they are never at risk; a
-modified tracked file means somebody edited on-device, and a checkout that
-silently discarded that would be unforgivable on a machine whose only recovery
-path is a 10" touchscreen.  The requested commit is also fenced: the frontend
-posts back the exact 40-hex sha it was shown, and a target that has moved since
-(a fetch in between) is rejected rather than silently applied.  And anything that
-fails AFTER the checkout rolls the tree back to where it started (__fail says
-why).
-
-**Nothing user-supplied ever reaches a shell.**  Every command is an argv list,
-the channel must be one of the two literals above, and the commit must match
-``[0-9a-f]{40}``, so there is no ref to inject into.  Same reasoning as the
-``_SAFE_ID`` guard in influxdb_handler.
-
-**Why UPDATE_STATE is a broadcast.**  A Spotify device scan belongs to the panel
-that started it; an update rewrites the installation *both* panels are running,
-so the second one must see it happening rather than be free to start its own.
-The state document doubles as the progress channel — a run in flight appears as
-its ``job`` object — so a dashboard that connects mid-update sees the whole
-picture from its on-connect snapshot instead of having missed the packets.
+Nothing a client sends reaches a shell: every command is an argv list, and the one thing a request
+names, the tag, must match _TAG and be a release this service listed itself.
 '''
 
 import asyncio
 import contextlib
+import hashlib
+import json
 import logging
 import os
+import platform
 import re
 import shutil
 import signal
+import tarfile
+import tempfile
 import time
 from collections import deque
 from pathlib import Path
 
-from ..utils import process, protocol
+import aiohttp
+
+from . import guard
+from ..auth_service.auth_service import STORE_FILE, TLS_DIR
+from ..utils import process, protocol, version
+from ..utils.atomic_write import write_atomic
+from ..utils.env_file import app_config_dir
 
 logger = logging.getLogger("update_service")
 
-# ── Channels ──────────────────────────────────────────────────────────────────
+# Where releases come from. Constants rather than settings: they are this project's, not a
+# deployment's.
+REPOSITORY = "einioville/Tesla-Homedash"
+_API = f"https://api.github.com/repos/{REPOSITORY}/releases?per_page=30"
+# A generic client name: GitHub wants one, and it says nothing about the device.
+_USER_AGENT = "Tesla-Homedash-updater"
 
-CHANNEL_DEVELOPMENT = "development"
-CHANNEL_RELEASES = "releases"
-CHANNELS = (CHANNEL_DEVELOPMENT, CHANNEL_RELEASES)
+SIGN_NAMESPACE = "tesla-homedash-release"
+SIGN_IDENTITY = "release@tesla-homedash"
+_SIGNERS = Path(__file__).with_name("release_signers")
+_GUARD = Path(__file__).with_name("guard.py")
+# The interpreter the guard runs under (install.sh's ExecStartPre): the system's, so a broken
+# release's venv cannot take its way back with it.
+_SYSTEM_PYTHON = "/usr/bin/python3"
 
-# The remote and branch the development channel tracks, and the tag shape the
-# releases channel considers a release. Constants rather than settings: they are
-# properties of this project's git layout, not of a deployment.
-REMOTE = "origin"
-DEV_BRANCH = "main"
-RELEASE_TAG_GLOB = "v*"
+BACKEND_UNIT = "tesla-homedash-backend.service"
+FRONTEND_UNIT = "tesla-homedash-frontend.service"
 
-# A target commit is only ever accepted as a full object name. Anything shorter
-# would be a ref this service resolves, and a ref is a string the frontend chose.
-_FULL_SHA = re.compile(r"\A[0-9a-f]{40}\Z")
+# A release tag: v2.0.0, or v2.1.0-rc1 for a pre-release.
+_TAG = re.compile(r"\Av(\d+)\.(\d+)\.(\d+)(?:-rc(\d+))?\Z")
+_SUMS_LINE = re.compile(r"\A([0-9a-f]{64})  (\S+)\Z")
+# What a release must carry to be installable here; one without them predates this updater
+# (v1.0.0), and moving a keyboard-less panel onto it would leave no way back but SSH.
+_REQUIRED_ASSETS = ("manifest.json", "SHA256SUMS", "SHA256SUMS.sig")
 
-# Paths a candidate target must contain before this service will move onto it:
-# "the trapdoor rule" in the module docstring.
-_REQUIRED_PATHS = (
-    "backend/src/update_service/update_service.py",
-    "frontend_v2/items/settings/UpdatePanel.qml",
-)
+# The frontend's own state files, at its default location (frontend_v2/CLAUDE.md): the display on
+# this device is started by install.sh's unit, which sets no override.
+_FRONTEND_STATE_FILES = ("frontend_config.json", "frontend_credentials.json")
 
-# ── Timeouts ──────────────────────────────────────────────────────────────────
-# Generous, because the Pi is slow and a cancel button exists; the point of these
-# is that nothing can wedge the card forever, not that they are tight.
-
-_QUERY_TIMEOUT = 20.0        # any single read-only git query
-_FETCH_TIMEOUT = 180.0       # git fetch as an update step
-# The read path's own bound. Deliberately much shorter: this one runs while the
-# card waits for its reply, and a user staring at a spinner for three minutes
-# because the remote is black-holed is worse than a stale answer.
-_FETCH_READ_TIMEOUT = 45.0
-_CHECKOUT_TIMEOUT = 180.0
+_LIST_TIMEOUT = 30.0
+_SMALL_TIMEOUT = 30.0
+_SMALL_LIMIT = 1_000_000
+_DOWNLOAD_TIMEOUT = 1800.0
 _DEPS_TIMEOUT = 1800.0       # uv sync can compile wheels on ARM
-_BUILD_TIMEOUT = 5400.0      # a cold Qt build on a Pi is measured in tens of minutes
-_ROLLBACK_TIMEOUT = 1800.0
+_SYSTEMCTL_TIMEOUT = 30.0
+_VERIFY_TIMEOUT = 20.0
 
-# A fetch this recent is reused rather than repeated, so opening the card cannot
-# hammer the remote when the user taps between sections.
+# The releases are listed this long after start, then this often. GitHub allows 60 unauthenticated
+# API calls an hour, and an unchanged list (ETag) costs none of them.
+_FIRST_CHECK_DELAY = 60.0
+_CHECK_INTERVAL = 6 * 3600.0
+# A card opened again within this long reuses the last list.
 _FETCH_MIN_INTERVAL = 120.0
+# Notes are a release's own text; capped so the state document stays small at 2 Hz.
+_NOTES_CHARS = 4000
+_LIST_LENGTH = 20
 
-# Progress is coalesced: a build emits hundreds of lines and every one of them
-# would otherwise be a whole state document to every client.
+# How long a new release has to prove healthy (the guard rolls it back after).
+HEALTH_GATE_S = 300
+# Between the last broadcast and the restart that ends this process.
+_RESTART_GRACE = 1.5
+
+# A download, the unpacked release and its venv: about 70 MB, 170 MB and 300 MB.
+_MIN_FREE_BYTES = 1_000_000_000
+
 _BROADCAST_MIN_INTERVAL = 0.5
-
-# How much build output is kept. The tail is what matters — a failure explains
-# itself in its last few lines — and the whole document has to stay far below the
-# protocol's 1 MB cap even at the worst line length.
 _LOG_LINES = 80
 _LOG_LINE_CHARS = 240
-
-# Longest run of bytes accepted without a newline before it is flushed as one
-# line. StreamReader.readline() would RAISE past its buffer limit and a deep C++
-# template diagnostic really does exceed 64 KiB, so the pump reads chunks and
-# splits them itself; this is the backstop for output with no newlines at all.
+# Longest run of bytes without a newline before it is flushed as one line (__pump says why).
 _MAX_LINE_BYTES = 8192
 
-# Refuse to start a build with less headroom than this. frontend_v2/build is
-# ~230 MB and a link needs room for a second copy of a 57 MB binary; running an
-# SD card out of space mid-link is one of the few ways to produce an artifact
-# that exists, is executable, and does not run.
-_MIN_FREE_BYTES = 1_500_000_000
+# Removed from every child's environment: a venv or project setting inherited from this process
+# would point uv at the running release's venv instead of the new one's.
+_SCRUBBED = ("VIRTUAL_ENV", "UV_PROJECT_ENVIRONMENT", "PYTHONHOME", "PYTHONPATH")
+_UV_ENV = {"UV_NO_PROGRESS": "1", "TERM": "dumb"}
 
-# Smallest believable frontend binary. A floor, NOT a ratio against the previous
-# one: the first in-app update legitimately replaces a Debug binary (the build
-# script's default, ~60 MB here) with a Release one several times smaller, and a
-# ratio test would reject that perfectly good build and roll the update back. What
-# is actually being detected is a link killed part-way, which leaves bytes, not
-# megabytes.
-_MIN_ARTIFACT_BYTES = 1_000_000
-
-# Longest a run could legitimately take, used only to stand the restart veto
-# down. Past this the job is wedged rather than slow, and a device that cannot be
-# restarted is worse than one that restarts mid-nothing.
-_JOB_SANITY_MS = int((_FETCH_TIMEOUT + _CHECKOUT_TIMEOUT + _BUILD_TIMEOUT
-                      + _DEPS_TIMEOUT + _ROLLBACK_TIMEOUT + 600.0) * 1000)
-
-# Between telling the frontend to restart and restarting ourselves. Long enough
-# for the broadcast to reach it and for it to exit; short enough that the two
-# halves come back together rather than the dashboard reconnecting to a backend
-# that is about to disappear.
-_FRONTEND_RESTART_GRACE = 2.0
-
-# Environment forced onto every git subprocess.
-#
-# GIT_ASKPASS set to the EMPTY STRING is the load-bearing entry, and it is not
-# obvious: GIT_TERMINAL_PROMPT=0 alone only suppresses git's own tty prompt, and
-# git then falls through to an askpass helper — measured hanging forever on a
-# credential prompt nobody can answer. Setting the variable at all (even empty)
-# also suppresses the SSH_ASKPASS fallback, which matters here because the Pi
-# runs a full desktop, so DISPLAY is set and a GUI helper is a real possibility.
-# With it, an unauthenticated fetch fails in milliseconds with "terminal prompts
-# disabled" instead of parking the step until its timeout.
-#
-# GIT_DIR / GIT_WORK_TREE are scrubbed, not set: inherited values would silently
-# redirect the checkout at a different repository.
-_GIT_ENV = {
-    "GIT_TERMINAL_PROMPT": "0",
-    "GIT_ASKPASS": "",
-    "SSH_ASKPASS": "",
-    "GIT_CONFIG_NOSYSTEM": "1",
-    "GIT_SSH_COMMAND": "ssh -oBatchMode=yes -oStrictHostKeyChecking=accept-new "
-                       "-oConnectTimeout=10",
-    "GIT_OPTIONAL_LOCKS": "0",
-    "GIT_PAGER": "cat",
-    "LC_ALL": "C",
-}
-
-# Environment variables removed from every child, git or not.
-_SCRUBBED = ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE")
-
-# Environment for the build and dependency steps. NINJA_STATUS is what turns the
-# log into a progress report — ninja prints "[12/177 8.4s]" per finished edge —
-# and both tools are told not to draw progress bars, since a carriage-returned
-# spinner is noise in a line-oriented log.
-_BUILD_ENV = {
-    "NINJA_STATUS": "[%f/%t %es] ",
-    "UV_NO_PROGRESS": "1",
-    "GCC_COLORS": "",
-    "TERM": "dumb",
-}
-
-# The frontend binary the build produces, and the script that produces it.
-#
-# Nothing renames it out of the way first, and that is deliberate: ld UNLINKS its
-# output before creating it rather than truncating in place, so relinking a
-# running executable succeeds and the live process keeps its old inode intact —
-# measured, including that never-paged-in code still faults in correctly
-# afterwards. (cp and shell redirection DO fail with ETXTBSY, because they
-# truncate. The linker is the exception.) A rename dance would only add a
-# half-moved-binary failure mode to solve a problem that does not exist.
-_FRONTEND_EXE = Path("frontend_v2") / "build" / "appfrontend_v2"
-_BUILD_SCRIPT = Path("scripts") / "build-frontend.sh"
-_BUILD_CACHE = Path("frontend_v2") / "build" / "CMakeCache.txt"
-
-# Qt kit directory names looked for under ~/Qt/<version>/: gcc_64 on x86,
-# gcc_arm64 on the Pi — the same pair the build script globs.
-_QT_KIT_DIRS = ("gcc_64", "gcc_arm64")
-
-# The step ids of a run; _STEPS below gives their order.
-_STEP_FETCH = "fetch"
-_STEP_CHECKOUT = "checkout"
+_STEP_DOWNLOAD = "download"
+_STEP_UNPACK = "unpack"
 _STEP_DEPS = "deps"
-_STEP_BUILD = "build"
-_STEP_RESTART = "restart"
-
-# The BUILD runs BEFORE the dependency sync, which is not the obvious order.
-# `uv sync` rewrites backend/.venv — the virtualenv this very interpreter is
-# running from — and the build that follows it takes tens of minutes on a Pi. Any
-# lazily-imported submodule of a package the sync replaced would then fail in a
-# process with no supervisor (backend/CLAUDE.md, "Service orchestration": an
-# unhandled failure ends it), and systemd would restart the backend mid-build,
-# destroying the run's own rollback.
-# Syncing last shrinks that window from the whole build to the seconds before the
-# restart, and means a failed build rolls back without ever having touched the
-# virtualenv.
+_STEP_SNAPSHOT = "snapshot"
+_STEP_SWITCH = "switch"
 _STEPS = (
-    (_STEP_FETCH, "Haetaan muutokset"),
-    (_STEP_CHECKOUT, "Vaihdetaan versio"),
-    (_STEP_BUILD, "Käännetään käyttöliittymä"),
-    (_STEP_DEPS, "Päivitetään riippuvuudet"),
-    (_STEP_RESTART, "Käynnistetään uudelleen"),
+    (_STEP_DOWNLOAD, "Ladataan"),
+    (_STEP_UNPACK, "Puretaan"),
+    (_STEP_DEPS, "Asennetaan riippuvuudet"),
+    (_STEP_SNAPSHOT, "Tallennetaan asetukset"),
+    (_STEP_SWITCH, "Vaihdetaan versio"),
 )
+# Nothing before the switch touches the running release, so stopping there loses nothing; the
+# switch itself is a few renames that must not stop halfway.
+_CANCELLABLE_STEPS = (_STEP_DOWNLOAD, _STEP_UNPACK, _STEP_DEPS)
 
-# Steps a cancel may interrupt. A checkout takes seconds and stopping halfway is
-# how you get a half-written index; the restart step is a sleep and a signal.
-_CANCELLABLE_STEPS = (_STEP_FETCH, _STEP_DEPS, _STEP_BUILD)
+# Longest a run could legitimately take, used only to stand the restart veto down: a device that
+# cannot be restarted is worse than one restarted mid-nothing.
+_JOB_SANITY_MS = int((_DOWNLOAD_TIMEOUT * 2 + _DEPS_TIMEOUT + 600.0) * 1000)
 
 
-def _short(sha: str) -> str:
+class _Refusal(Exception):
+    '''Why a release cannot be installed, in the Finnish the card shows.'''
+
+
+class _Cancelled(Exception):
+    '''A cancel reached a step running in a worker thread.'''
+
+
+def _version_key(tag: str) -> tuple | None:
     '''
-    Abbreviates a commit sha for display.
+    Orders release tags: by number, and a pre-release before the release it leads to.
     Arguments:
-        sha (str): Full or partial object name; may be empty.
+        tag (str): A tag such as v2.1.0 or v2.1.0-rc1.
     '''
-    return sha[:7] if sha else ""
+    match = _TAG.match(tag or "")
+    if match is None:
+        return None
+    major, minor, patch, rc = match.groups()
+    return (int(major), int(minor), int(patch), int(rc) if rc else 10**9)
 
 
-def _version_key(path: Path) -> list:
+def _numbers(text: str) -> tuple:
     '''
-    Sort key that orders Qt kit directories by version rather than lexically, so
-    6.11.1 beats 6.9.0.
+    A dotted version as a tuple of ints, for comparing (2.38 < 2.41).
     Arguments:
-        path (Path): A kit directory such as ~/Qt/6.11.1/gcc_64.
+        text (str): "2.38".
     '''
-    return [int(part) if part.isdigit() else 0
-            for part in re.split(r"[._-]", path.parent.name)]
+    return tuple(int(part) for part in str(text).split(".") if part.isdigit())
+
+
+def _which(command: str) -> str | None:
+    '''
+    Finds a command on PATH or in ~/.local/bin, where uv installs itself and which a systemd
+    user unit's PATH may lack.
+    Arguments:
+        command (str): The command's name.
+    '''
+    path = os.environ.get("PATH", "") + os.pathsep + str(Path.home() / ".local" / "bin")
+    return shutil.which(command, path=path)
+
+
+def _parse_sums(text: str) -> dict[str, str]:
+    '''
+    Reads SHA256SUMS (sha256sum's format) into {file name: hex digest}.
+    Arguments:
+        text (str): The file's text.
+    '''
+    sums = {}
+    for line in text.splitlines():
+        match = _SUMS_LINE.match(line.strip())
+        if match:
+            sums[match.group(2)] = match.group(1)
+    return sums
+
+
+def _is_local(address: str) -> bool:
+    '''
+    Whether a connection came from this device itself.
+    Arguments:
+        address (str): The client's IP address.
+    '''
+    return address in ("127.0.0.1", "::1") or address.startswith("::ffff:127.")
 
 
 class UpdateService:
     '''
-    Serves UPDATE_GET_STATE / UPDATE_APPLY / UPDATE_CANCEL and broadcasts
-    UPDATE_STATE.
+    Serves UPDATE_GET_STATE / UPDATE_APPLY / UPDATE_CANCEL and broadcasts UPDATE_STATE.
 
-    Registered with Server.register_service, so every connecting dashboard gets
-    the last known state without asking — including a run already in progress.
+    Registered with Server.register_service, so every connecting display gets the last known
+    state without asking — including a run already in progress.
 
     Arguments:
         server (Server): TLS server used to broadcast and to reply.
-        config_service (ConfigService): Consulted for its restart trigger, so the
-            updater does not grow a second way to exit the process, and given a
-            veto so the Options view's own restart button cannot kill a run.
+        config_service (ConfigService): Given a veto, so the Options view's restart buttons
+            cannot interrupt a run, and its restart as the fallback when systemd cannot restart
+            the unit.
+        config (Config): For the config file's path, the first of the state files a switch
+            snapshots.
     '''
 
-    def __init__(self, server, config_service):
+    def __init__(self, server, config_service, config):
         self.__server = server
         self.__config_service = config_service
+        self.__config = config
 
-        # Resolved on the first probe in run(); until then the card reports that
-        # it is still working it out rather than claiming the feature is missing.
-        self.__root: Path | None = None
-        self.__available = False
-        self.__reason = "Selvitetään…"
+        self.__root = version.install_root()
+        self.__version = version.app_version()
+        self.__commit = version.commit()
+        self.__reason = "" if self.__root is not None else (
+            "Kehitysversio: tämä laite ajaa git-työhakemistoa, joka päivitetään gitillä")
+        # install.sh writes the dashboard's unit only on a device with its own panel.
+        unit_dir = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config") / "systemd" / "user"
+        self.__local_display = (unit_dir / FRONTEND_UNIT).is_file()
 
-        self.__state: dict = {}
+        self.__releases: list[dict] = []
+        self.__assets: dict[str, dict] = {}
+        self.__verified: dict[str, tuple] = {}
+        self.__checked_ms: int | None = None
+        self.__check_error = ""
+        # Throttling keys on the ATTEMPT: keyed on success, an unreachable GitHub would never be
+        # throttled and every card open would pay the full timeout again.
+        self.__last_check_attempt: float | None = None
+        self.__etag = ""
+        self.__raw_releases: list = []
+        self.__session: aiohttp.ClientSession | None = None
+
+        self.__health: dict | None = None
+        self.__last_switch: dict | None = None
+        self.__rollback: dict | None = None
+        self.__load_records()
+
         self.__job: dict | None = None
         self.__job_seq = 0
+        self.__job_assets: list[str] = []
         self.__log: deque[str] = deque(maxlen=_LOG_LINES)
         self.__proc: asyncio.subprocess.Process | None = None
         self.__task: asyncio.Task | None = None
         self.__cancelled = False
-        # Throttling keys on the ATTEMPT, not the success. Keying on success
-        # means an unreachable remote is never throttled at all, so every card
-        # open pays the full fetch timeout again.
-        self.__last_fetch_attempt: float | None = None
-        self.__last_fetch_ms: int | None = None
-        # Set by handle_apply before its first await, while self.__job does not
-        # exist yet; handle_apply says why.
+        # Set by handle_apply before its first await, while self.__job does not exist yet.
         self.__starting = False
         self.__last_broadcast = 0.0
-        # Serialises state rebuilds so two clients opening the card at once do
-        # not run overlapping git queries against the same working tree.
+        # One listing at a time: two cards opening together share it.
         self.__lock = asyncio.Lock()
 
-        # A restart during a checkout or a dependency sync is how a device gets
-        # left half-updated. ConfigService asks every registered veto before it
-        # arms the exit or starts a host reboot.
         config_service.register_restart_veto("update", self.__veto_restart)
 
-    @property
-    def __repo(self) -> Path:
+    # ── Records beside the releases ───────────────────────────────
+
+    def __load_records(self) -> None:
         '''
-        The repository root, for paths already gated on availability.  Raising
-        here rather than returning Optional keeps every call site free of a check
-        that can only fail if the gating above it was skipped.
+        Reads what the last switch left: the open health gate (switch.json, when it is this
+        release's), a rollback the guard made and the last switch confirmed.
         '''
         if self.__root is None:
-            raise RuntimeError("No git working tree resolved")
-        return self.__root
+            return
+        marker = self.__read_json(self.__root / "switch.json")
+        if marker and marker.get("to") == self.__version:
+            self.__health = {key: marker.get(key) for key in
+                             ("from", "to", "deadline", "localDisplay", "restoredSnapshot")}
+        self.__rollback = self.__read_json(self.__root / "rollback.json")
+        self.__last_switch = self.__read_json(self.__root / "last-switch.json")
+
+    @staticmethod
+    def __read_json(path: Path) -> dict | None:
+        '''
+        One small JSON record; None when it is missing or unreadable.
+        Arguments:
+            path (Path): The file.
+        '''
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        return data if isinstance(data, dict) else None
+
+    # ── Gates ─────────────────────────────────────────────────────
 
     def __run_in_flight(self) -> bool:
-        '''
-        Whether a run is live — either already broadcasting a job, or claimed by
-        a handle_apply that has not scheduled one yet.
-        '''
+        '''Whether a run is live, or claimed by a handle_apply that has not started one yet.'''
         if self.__starting:
             return True
         return self.__job is not None and not self.__job.get("finished")
 
     def __veto_restart(self) -> str:
         '''
-        Refuses a CONFIG_RESTART while a run is in flight, with the reason shown
-        to whoever asked.  Empty string means "no objection".
-
-        BOUNDED by a deadline.  A veto that can never lapse would turn a wedged
-        job into a device that cannot be restarted at all — and restarting is the
-        only recovery this screen has left at that point.  Past the longest a
-        legitimate run could take, the veto stands down and says so in the log.
+        Refuses a CONFIG_RESTART while a run is in flight; empty string means no objection.
+        Bounded by _JOB_SANITY_MS, so a wedged job cannot leave a device that never restarts.
         '''
         if not self.__run_in_flight():
             return ""
@@ -355,39 +317,27 @@ class UpdateService:
 
     async def handle_get_state(self, payload: bytes, writer) -> None:
         '''
-        UPDATE_GET_STATE handler: rebuilds the state document and replies to the
-        requesting client.  A request may ask for a network fetch first; that is
-        throttled, so a user tapping between sections cannot hammer the remote.
-
-        Never rebuilds while a run is in progress — the working tree is being
-        rewritten underneath us, so any answer would be a lie, and the job's own
-        progress is already being broadcast.
+        UPDATE_GET_STATE handler: lists the releases again when asked (throttled), then replies
+        with the state to the requesting client.
         Arguments:
             payload (bytes): len(4B) + UTF-8 JSON {"fetch": <bool>}.
             writer (StreamWriter): The requesting client.
         '''
-        body = self.__decode_json(payload, "UPDATE_GET_STATE")
-        want_fetch = bool(body.get("fetch")) if body else False
-
-        if self.__job is None or self.__job.get("finished"):
-            await self.__refresh(fetch=want_fetch)
+        body = self.__decode_json(payload, "UPDATE_GET_STATE") or {}
+        if body.get("fetch") and not self.__run_in_flight():
+            await self.__check(force=False)
         await self.__server.send_to(writer, self.__state_frame())
 
     async def handle_apply(self, payload: bytes, _writer) -> None:
         '''
-        UPDATE_APPLY handler: validates the request and starts the run.  A
-        refusal is reported by broadcasting a finished, failed job rather than by
-        replying privately — the other dashboard has to learn why nothing
-        happened too, and the card renders one thing either way.
+        UPDATE_APPLY handler: validates the request and starts the run. A refusal is broadcast
+        as a finished, failed job, so every display learns why nothing happened.
         Arguments:
-            payload (bytes): len(4B) + UTF-8 JSON {"channel": str, "commit": sha}.
-            _writer (StreamWriter): Unused — the answer is a broadcast, not a reply.
+            payload (bytes): len(4B) + UTF-8 JSON {"tag": "v2.1.0"}.
+            _writer (StreamWriter): Unused — the answer is a broadcast.
         '''
-        # The running-job test comes FIRST and claims the slot before any await.
-        # self.__job is not assigned until __run_job is scheduled, and the server
-        # dispatches every packet as its own task, so two applies arriving inside
-        # the ~1 s __refresh below would both pass a test that only looked at
-        # __job — and would each start a full run against one working tree.
+        # Claimed before any await: the server runs each packet as its own task, and two applies
+        # inside the listing below would otherwise both pass a test that only read __job.
         if self.__run_in_flight():
             await self.__refuse("Päivitys on jo käynnissä")
             return
@@ -399,9 +349,7 @@ class UpdateService:
 
     async def __start(self, payload: bytes) -> None:
         '''
-        Validates one apply request and launches the run.  Split out of
-        handle_apply so the slot claimed there is released on every exit path,
-        including a raise, without a `finally` per refusal.
+        Validates one apply request and launches the run.
         Arguments:
             payload (bytes): The raw UPDATE_APPLY body.
         '''
@@ -409,70 +357,42 @@ class UpdateService:
         if body is None:
             await self.__refuse("Virheellinen päivityspyyntö")
             return
-
-        # Truncated before it is interpolated into a message that is broadcast and
-        # then re-sent in every later state frame: the body may be up to
-        # MAX_MSG_SIZE, and the server takes connections from the whole LAN.
-        channel = str(body.get("channel", ""))[:32]
-        commit = str(body.get("commit", "")).lower()
-
-        if not self.__available or self.__root is None:
-            await self.__refuse(self.__reason or "Päivitys ei ole käytettävissä")
+        # Truncated before it can reach a message every later state frame repeats.
+        tag = str(body.get("tag", ""))[:40]
+        if self.__root is None:
+            await self.__refuse(self.__reason)
             return
-        if channel not in CHANNELS:
-            await self.__refuse(f"Tuntematon päivityskanava: {channel!r}")
-            return
-        if not _FULL_SHA.match(commit):
-            await self.__refuse("Virheellinen kohdeversio")
+        if _version_key(tag) is None:
+            await self.__refuse("Virheellinen versio")
             return
 
-        # Re-resolve from scratch: the state the user tapped on may be minutes
-        # old, and everything below is decided from what is true now.
-        await self.__refresh(fetch=False)
-        if self.__state.get("dirty"):
-            await self.__refuse("Työhakemistossa on paikallisia muutoksia")
+        await self.__check(force=False)
+        entry = next((e for e in self.__releases if e["tag"] == tag), None)
+        if entry is None:
+            await self.__refuse(f"Versiota {tag} ei löytynyt julkaisuista")
             return
-
-        blocker = self.__state.get("tools", {}).get("blocker", "")
+        if entry["direction"] == "current":
+            await self.__refuse("Tämä versio on jo käytössä")
+            return
+        if not entry["installable"]:
+            await self.__refuse(entry["reason"] or "Tätä versiota ei voi asentaa")
+            return
+        blocker = await self.__preflight()
         if blocker:
             await self.__refuse(blocker)
             return
 
-        target = self.__state.get("channels", {}).get(channel, {})
-        if target.get("commit") != commit:
-            await self.__refuse(
-                "Kohdeversio on muuttunut sitten tarkistuksen — tarkista uudelleen"
-            )
-            return
-        if target.get("verdict") == "up_to_date":
-            await self.__refuse("Tämä versio on jo käytössä")
-            return
-        if not target.get("eligible", False):
-            await self.__refuse(target.get("eligibleReason")
-                                or "Kohdeversioon ei voi siirtyä tästä näytöstä")
-            return
-
-        # Claim the slot in self.__job BEFORE creating the task. handle_apply's
-        # `finally` clears __starting as soon as this returns, and the task has
-        # not run yet at that point — so without this there is a window in which
-        # neither fence holds and a second apply slips through.
-        previous = self.__state.get("current", {}).get("commit", "")
+        # self.__job is set before the task exists, so one of the two fences always holds.
         self.__cancelled = False
         self.__log.clear()
-        self.__job = self.__new_job(channel, target, previous)
-        self.__task = asyncio.create_task(self.__run_job(target, previous))
-        # The loop holds only a weak reference to a task, so a bare create_task
-        # can be collected mid-flight and take its exception with it.
+        self.__job = self.__new_job(entry)
+        self.__task = asyncio.create_task(self.__run_job(entry))
+        # The loop holds only a weak reference to a task.
         self.__task.add_done_callback(self.__on_job_done)
 
     async def handle_cancel(self, _payload: bytes, _writer) -> None:
         '''
-        UPDATE_CANCEL handler: stops the run at the end of the current step.
-
-        Refused outside _CANCELLABLE_STEPS (the checkout, the restart).  During
-        the dependency sync or the build a cancel kills the step's process group
-        (see __run_step_process) and is then rolled back like any other failure,
-        so "cancel" means "put it back", not "abandon it wherever it got to".
+        UPDATE_CANCEL handler: stops a run during a step before the switch (job.cancellable).
         Arguments:
             _payload (bytes): Unused; the command carries no body.
             _writer (StreamWriter): Unused.
@@ -489,472 +409,350 @@ class UpdateService:
 
     async def stream_everything(self, writer) -> None:
         '''
-        On-connect snapshot: the last known state, including a run in progress.
-        Deliberately does not re-probe git — a connect burst must stay cheap, and
-        the card asks for a fresh state the moment it opens anyway.
+        On-connect snapshot: the last known state, including a run in progress. Lists nothing:
+        a connect burst must stay cheap, and the card asks for a fresh list when it opens.
         Arguments:
             writer (StreamWriter): The newly connected client.
         '''
         await self.__server.send_to(writer, self.__state_frame())
 
-    # ── Health probe (the maintenance dashboard) ──────────────────
+    def on_display_login(self, _display: dict, address: str) -> None:
+        '''
+        AuthService's login listener: the display on this device logging in to the new release
+        is what closes its health gate.
+        Arguments:
+            _display (dict): The display that logged in.
+            address (str): Its IP address.
+        '''
+        if self.__health is not None and _is_local(address):
+            asyncio.get_running_loop().create_task(self.__confirm())
 
     def version_label(self) -> str | None:
-        '''
-        What this checkout is running — the tag on HEAD, else its short sha — for
-        the Palvelin status card; None when the tree cannot be read (no git, not
-        a working tree) or before the startup task has described it.
-        '''
-        if not self.__available:
-            return None
-        return self.__state.get("current", {}).get("label") or None
+        '''What this backend runs — the release, or a checkout's commit — for the Palvelin card.'''
+        return self.__version or None
 
     # ── Run task ──────────────────────────────────────────────────
 
     async def run(self) -> None:
         '''
-        Startup task: locates the checkout and publishes the first state.  A host
-        with no git, or a copy of the source that is not a working tree, reports
-        itself unavailable and every later request is refused — the same shape
-        display_service uses for a missing wlopm.
+        Closes a health gate that needs no display, then lists the releases shortly after start
+        and every _CHECK_INTERVAL, broadcasting each list so a new release shows its notice.
         '''
-        await self.__locate_repository()
-        await self.__refresh(fetch=False)
-        await self.__server.broadcast(self.__state_frame())
+        await self.__broadcast(force=True)
+        if self.__root is None:
+            return
+        if self.__health is not None and not self.__health.get("localDisplay"):
+            await self.__confirm()
+        await asyncio.sleep(_FIRST_CHECK_DELAY)
+        while True:
+            try:
+                if not self.__run_in_flight():
+                    await self.__check(force=True)
+                    await self.__broadcast(force=True)
+            except Exception as e:  # noqa: BLE001 - one bad check must not end the loop
+                logger.error("Release check failed: %s", e)
+            await asyncio.sleep(_CHECK_INTERVAL)
 
     def get_run_task(self):
-        '''Returns the startup task for start_services to gather.'''
+        '''Returns the run task for start_services to gather.'''
         return asyncio.create_task(self.run())
 
-    # ── Repository discovery ──────────────────────────────────────
+    # ── The health gate ───────────────────────────────────────────
 
-    async def __locate_repository(self) -> None:
+    async def __confirm(self) -> None:
         '''
-        Resolves the checkout to operate on and records why it could not be, in
-        the exact words the card shows.
-
-        The starting point is this file's own location, so the service updates
-        the tree it is running from rather than a path in a config file that may
-        no longer be the one systemd launched.  `rev-parse --show-toplevel` does
-        the resolving, which is what makes a LINKED WORKTREE (CLAUDE.md §8)
-        resolve to that worktree — the right answer, since that is the tree the
-        running backend was launched from.  --path-format=absolute matters: the
-        related --git-common-dir is returned relative to cwd in a main worktree
-        and absolute in a linked one.
+        This release is healthy: removes the switch marker and its timer, installs this
+        release's guard beside the releases, records the switch and removes every release but
+        this one and the one before it.
         '''
-        if shutil.which("git") is None:
-            self.__available = False
-            self.__reason = "Gitiä ei löydy tästä järjestelmästä"
-            logger.warning("git not found; the app-update card will be inert")
+        health, self.__health = self.__health, None
+        if health is None or self.__root is None:
             return
-
-        start = Path(__file__).resolve().parent
-        code, out, err = await self.__git(
-            "rev-parse", "--path-format=absolute", "--show-toplevel", cwd=start
-        )
-        if code != 0 or not out.strip():
-            self.__available = False
-            self.__reason = "Sovellus ei ole git-työhakemistossa"
-            logger.warning("Not a git working tree at %s: %s", start, err.strip())
-            return
-
-        self.__root = Path(out.strip())
-        self.__available = True
-        self.__reason = ""
-        logger.info("App updates available from %s", self.__root)
-
-    # ── State ─────────────────────────────────────────────────────
-
-    async def __refresh(self, fetch: bool) -> None:
-        '''
-        Rebuilds the state document from the repository.
-        Arguments:
-            fetch (bool): Contact the remote first. Throttled to at most one
-                fetch per _FETCH_MIN_INTERVAL regardless of how often asked.
-        '''
-        async with self.__lock:
-            if not self.__available or self.__root is None:
-                self.__state = self.__unavailable_state()
-                return
-            if fetch and self.__fetch_is_due():
-                await self.__fetch()
-            self.__state = await self.__build_state()
-
-    def __fetch_is_due(self) -> bool:
-        '''True when enough time has passed since the last fetch ATTEMPT.'''
-        if self.__last_fetch_attempt is None:
-            return True
-        return (time.monotonic() - self.__last_fetch_attempt) >= _FETCH_MIN_INTERVAL
-
-    async def __fetch(self) -> bool:
-        '''
-        Fetches refs and tags from the remote.  A failure is not fatal on the
-        read path: the card still renders from what is already local, with the
-        last fetch time showing how stale that is.
-
-        --force is there for tags specifically: --tags uses a non-forced refspec,
-        so a release tag that was MOVED on the remote is rejected with "would
-        clobber existing tag" and the releases channel would silently keep
-        pointing at the old commit. --prune-tags is deliberately NOT used: it
-        deletes local tags the remote does not have, which is right for a
-        deployment and wrong for the maintainer's own checkout.
-        '''
-        self.__last_fetch_attempt = time.monotonic()
-        code, _out, err = await self.__git(
-            "fetch", "--prune", "--tags", "--force", REMOTE, timeout=_FETCH_READ_TIMEOUT
-        )
-        if code != 0:
-            logger.warning("git fetch failed: %s", err.strip()[:200])
-            return False
-        self.__last_fetch_ms = int(time.time() * 1000)
-        return True
-
-    def __unavailable_state(self) -> dict:
-        '''The state document for a host that cannot update itself.'''
-        return {
-            "available": False,
-            "reason": self.__reason,
-            "repoPath": str(self.__root) if self.__root else "",
-            "remoteUrl": "",
-            "branch": "",
-            "dirty": False,
-            "dirtyFiles": [],
-            "fetchedMs": self.__last_fetch_ms,
-            "current": {},
-            "channels": {},
-            "tools": {"blocker": self.__reason},
-            "job": self.__job,
-        }
-
-    async def __build_state(self) -> dict:
-        '''
-        Queries the repository and assembles the whole state document: what is
-        checked out now, what each channel would move to, the verdict for each,
-        and whether the host has what a run would need.  Both channels are
-        reported every time — the second costs only a few more local git queries,
-        and it means switching the channel in the card is instant instead of
-        another round trip.
-        '''
-        current = await self.__describe_commit("HEAD")
-        _c, branch_out, _e = await self.__git("rev-parse", "--abbrev-ref", "HEAD")
-        branch = branch_out.strip()
-        if branch == "HEAD":
-            branch = ""  # detached; the label below carries the useful part
-
-        _c, status_out, _e = await self.__git(
-            "status", "--porcelain", "--untracked-files=no"
-        )
-        dirty_files = [line[3:] for line in status_out.splitlines() if line.strip()]
-
-        _c, remote_out, _e = await self.__git("remote", "get-url", REMOTE)
-
-        channels = {
-            CHANNEL_DEVELOPMENT: await self.__resolve_development(current),
-            CHANNEL_RELEASES: await self.__resolve_releases(current),
-        }
-
-        return {
-            "available": True,
-            "reason": "",
-            "repoPath": str(self.__root),
-            "remoteUrl": remote_out.strip(),
-            "branch": branch,
-            "dirty": bool(dirty_files),
-            "dirtyFiles": dirty_files[:10],
-            "fetchedMs": self.__last_fetch_ms,
-            "current": current,
-            "channels": channels,
-            "tools": self.__probe_tools(),
-            "job": self.__job,
-        }
-
-    def __probe_tools(self) -> dict:
-        '''
-        Checks everything a run needs BEFORE the button can be tapped: uv, the
-        build script, a Qt kit and disk headroom.
-
-        Every one of these is a failure that would otherwise land minutes into a
-        run, after the tree had already been moved.  The Qt kit is the sharpest:
-        a `systemd --user` unit inherits none of the user's shell environment, so
-        QTDIR is unset there.
-        '''
-        uv = self.__uv_path()
-        script = self.__repo / _BUILD_SCRIPT
-        qt = self.__qt_prefix()
+        root = self.__root
+        (root / "switch.json").unlink(missing_ok=True)
+        await self.__systemctl("stop", f"{guard.TIMER}.timer")
         try:
-            free = shutil.disk_usage(self.__repo).free
-        except OSError:
-            free = None
+            write_atomic(str(root / "guard.py"), _GUARD.read_text(encoding="utf-8"), 0o755)
+        except OSError as e:
+            logger.warning("Could not install the guard: %s", e)
+        self.__last_switch = {"from": health.get("from"), "to": health.get("to"),
+                              "atMs": int(time.time() * 1000)}
+        self.__rollback = None
+        try:
+            write_atomic(str(root / "last-switch.json"), json.dumps(self.__last_switch))
+            (root / "rollback.json").unlink(missing_ok=True)
+        except OSError as e:
+            logger.warning("Could not record the switch: %s", e)
+        await asyncio.to_thread(self.__prune, {self.__version, str(health.get("from") or "")})
+        logger.warning("Release %s confirmed healthy (from %s)", health.get("to"), health.get("from"))
+        await self.__broadcast(force=True)
 
-        blocker = ""
-        if uv is None:
-            blocker = "uv-työkalua ei löydy — riippuvuuksia ei voi päivittää"
-        elif not script.exists():
-            blocker = f"Käännösskripti puuttuu: {_BUILD_SCRIPT}"
-        elif qt is None:
-            blocker = ("Qt-käännösympäristöä ei löydy — aseta QTDIR palvelimen "
-                       "ympäristöön")
-        elif free is not None and free < _MIN_FREE_BYTES:
-            blocker = "Levytilaa on liian vähän käännökseen"
-
-        return {
-            "uvPath": str(uv) if uv else "",
-            "qtPrefix": str(qt) if qt else "",
-            "buildScript": str(script) if script.exists() else "",
-            "freeBytes": free,
-            "blocker": blocker,
-        }
-
-    def __uv_path(self) -> Path | None:
+    def __prune(self, keep: set[str]) -> None:
         '''
-        Locates uv.  PATH first, then the install location the README's unit
-        hardcodes — a systemd user unit's PATH does not include ~/.local/bin, so
-        which() alone finds nothing exactly where it matters most.
+        Removes the release folders not in keep, and every download.
+        Arguments:
+            keep (set[str]): The tags to keep: the running release and the one before it.
         '''
-        found = shutil.which("uv")
-        if found:
-            return Path(found)
-        fallback = Path.home() / ".local" / "bin" / "uv"
-        return fallback if fallback.exists() else None
+        assert self.__root is not None
+        for folder in (self.__root / "releases").iterdir():
+            if folder.is_dir() and folder.name not in keep:
+                shutil.rmtree(folder, ignore_errors=True)
+                logger.info("Removed release %s", folder.name)
+        shutil.rmtree(self.__root / "downloads", ignore_errors=True)
 
-    def __qt_prefix(self) -> Path | None:
+    # ── Listing ───────────────────────────────────────────────────
+
+    async def __check(self, force: bool) -> None:
         '''
-        Resolves the Qt kit to build against: QTDIR, then the newest
-        ~/Qt/*/gcc_64 or gcc_arm64, then whatever the existing build directory
-        was configured with.
-
-        That last source is the most reliable one on a device that has built
-        before — it is by definition a prefix that worked here — and it is why a
-        Pi whose kit lives somewhere unusual still updates without configuration.
-        A kit is only accepted if it actually holds bin/qmake6.
+        Lists the releases from GitHub and decides for each whether it can be installed here.
+        A failure keeps the last list and says so (checkError).
+        Arguments:
+            force (bool): Skip the _FETCH_MIN_INTERVAL throttle (the periodic check).
         '''
-        def usable(path: Path) -> bool:
-            return (path / "bin" / "qmake6").exists()
-
-        env_prefix = os.environ.get("QTDIR", "").strip()
-        if env_prefix and usable(Path(env_prefix)):
-            return Path(env_prefix)
-
-        candidates: list[Path] = []
-        for name in _QT_KIT_DIRS:
-            candidates.extend(Path.home().glob(f"Qt/*/{name}"))
-        for path in sorted((p for p in candidates if usable(p)),
-                           key=_version_key, reverse=True):
-            return path
-
-        cache = self.__repo / _BUILD_CACHE
-        if cache.exists():
+        if self.__root is None:
+            return
+        if (not force and self.__last_check_attempt is not None
+                and time.monotonic() - self.__last_check_attempt < _FETCH_MIN_INTERVAL):
+            return
+        async with self.__lock:
+            self.__last_check_attempt = time.monotonic()
             try:
-                for line in cache.read_text(encoding="utf-8", errors="replace").splitlines():
-                    if line.startswith("CMAKE_PREFIX_PATH:"):
-                        _, _, value = line.partition("=")
-                        path = Path(value.strip())
-                        if value.strip() and usable(path):
-                            return path
-            except OSError:
-                pass
-        return None
+                raw = await self.__fetch_list()
+            except asyncio.TimeoutError:
+                self.__check_error = "GitHub ei vastannut"
+                logger.warning("Release list timed out")
+                return
+            except (aiohttp.ClientError, ValueError) as e:
+                self.__check_error = "Julkaisuja ei voitu hakea GitHubista"
+                logger.warning("Release list failed: %s", e)
+                return
+            entries = []
+            for release in raw:
+                if not isinstance(release, dict) or release.get("draft"):
+                    continue
+                tag = str(release.get("tag_name", ""))
+                if _version_key(tag) is not None:
+                    entries.append(await self.__describe(release, tag))
+            entries.sort(key=lambda e: _version_key(e["tag"]) or (), reverse=True)
+            self.__releases = entries[:_LIST_LENGTH]
+            self.__check_error = ""
+            self.__checked_ms = int(time.time() * 1000)
 
-    async def __resolve_development(self, current: dict) -> dict:
+    async def __http(self) -> aiohttp.ClientSession:
+        '''The shared HTTP session, made on first use (it needs the running loop).'''
+        if self.__session is None or self.__session.closed:
+            self.__session = aiohttp.ClientSession(
+                headers={"User-Agent": _USER_AGENT},
+                timeout=aiohttp.ClientTimeout(total=None, sock_connect=15, sock_read=60))
+        return self.__session
+
+    async def __fetch_list(self) -> list:
         '''
-        Resolves the development channel: the tip of the remote's default branch.
+        GitHub's release list, newest first. An unchanged list answers 304 to the ETag, which
+        GitHub does not count against the hourly limit.
+        '''
+        session = await self.__http()
+        headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
+        if self.__etag:
+            headers["If-None-Match"] = self.__etag
+
+        async def fetch() -> list:
+            async with session.get(_API, headers=headers) as response:
+                if response.status == 304:
+                    return self.__raw_releases
+                response.raise_for_status()
+                data = await response.json(content_type=None)
+                self.__raw_releases = data if isinstance(data, list) else []
+                self.__etag = response.headers.get("ETag", "")
+                return self.__raw_releases
+
+        return await asyncio.wait_for(fetch(), _LIST_TIMEOUT)
+
+    async def __get_small(self, url: str) -> bytes:
+        '''
+        Downloads one small asset (the manifest, the checksums, the signature) into memory.
         Arguments:
-            current (dict): The described HEAD, for the verdict comparison.
+            url (str): Its browser_download_url.
         '''
-        ref = f"{REMOTE}/{DEV_BRANCH}"
-        code, out, _err = await self.__git("rev-parse", "--verify", f"{ref}^{{commit}}")
-        if code != 0:
-            return self.__unresolved_channel(
-                ref, DEV_BRANCH, f"{ref} ei ole tiedossa — tarkista päivitykset"
-            )
-        described = await self.__describe_commit(out.strip())
-        described["label"] = DEV_BRANCH
-        described["ref"] = ref
-        described.update(await self.__compare(current.get("commit", ""), described["commit"]))
-        described.update(await self.__eligibility(described["commit"]))
-        return described
+        session = await self.__http()
 
-    async def __resolve_releases(self, current: dict) -> dict:
+        async def fetch() -> bytes:
+            async with session.get(url) as response:
+                response.raise_for_status()
+                data = await response.content.read(_SMALL_LIMIT + 1)
+                if len(data) > _SMALL_LIMIT:
+                    raise ValueError(f"{url} is larger than {_SMALL_LIMIT} bytes")
+                return data
+
+        return await asyncio.wait_for(fetch(), _SMALL_TIMEOUT)
+
+    async def __describe(self, release: dict, tag: str) -> dict:
         '''
-        Resolves the releases channel: the newest v* tag.
-
-        `--sort=-v:refname` is git's own version ordering, so v1.10.0 sorts above
-        v1.9.0 where a lexical sort would not.  The tag is dereferenced with
-        `^{commit}`, which matters for annotated tags: a bare `rev-parse v1.0.0`
-        yields the TAG object, and comparing that against a commit finds no
-        ancestry at all.
+        One release as the card shows it, with whether and why not it can be installed here.
         Arguments:
-            current (dict): The described HEAD, for the verdict comparison.
+            release (dict): The release from GitHub's list.
+            tag (str): Its tag, already checked against _TAG.
         '''
-        code, out, _err = await self.__git(
-            "tag", "--list", RELEASE_TAG_GLOB, "--sort=-v:refname"
-        )
-        tags = [line.strip() for line in out.splitlines() if line.strip()] if code == 0 else []
-        if not tags:
-            return self.__unresolved_channel("", "", "Julkaisuja ei löytynyt")
+        assets = {a.get("name"): a for a in release.get("assets", []) if isinstance(a, dict)}
+        self.__assets[tag] = assets
+        current = _version_key(self.__version)
+        direction = ("current" if tag == self.__version
+                     else "update" if current is None or (_version_key(tag) or ()) > current
+                     else "downgrade")
+        entry = {
+            "tag": tag,
+            "name": str(release.get("name") or tag)[:120],
+            "notes": str(release.get("body") or "")[:_NOTES_CHARS],
+            "publishedAt": release.get("published_at") or "",
+            "prerelease": bool(release.get("prerelease")),
+            "direction": direction,
+            "installable": False,
+            "reason": "",
+            "size": 0,
+            "snapshot": (self.__root / "snapshots" / tag / "snapshot.json").is_file()
+            if self.__root else False,
+        }
+        try:
+            if any(name not in assets for name in _REQUIRED_ASSETS):
+                raise _Refusal("Julkaisussa ei ole päivitystoimintoa, joten sitä ei voi asentaa "
+                               "näytöltä")
+            manifest, _sums = await self.__verified_manifest(tag, assets)
+            names = self.__bundle_names(manifest)
+            if any(name not in assets for name in names):
+                raise _Refusal("Julkaisusta puuttuu tiedostoja")
+            entry["size"] = sum(int(assets[name].get("size") or 0) for name in names)
+            missing = self.__missing(manifest)
+            if missing:
+                raise _Refusal("Vaatii: " + ", ".join(missing))
+            entry["installable"] = direction != "current"
+        except _Refusal as e:
+            entry["reason"] = str(e)
+        except asyncio.TimeoutError:
+            entry["reason"] = "Julkaisun tietoja ei saatu ladattua"
+        except (aiohttp.ClientError, ValueError, KeyError, TypeError) as e:
+            entry["reason"] = "Julkaisun tietoja ei voitu tarkistaa"
+            logger.warning("Release %s could not be checked: %s", tag, e)
+        return entry
 
-        latest = tags[0]
-        code, sha_out, _err = await self.__git("rev-parse", "--verify", f"{latest}^{{commit}}")
-        if code != 0:
-            resolved = self.__unresolved_channel(
-                latest, latest, f"Julkaisua {latest} ei voitu selvittää"
-            )
-            resolved["releases"] = tags
-            return resolved
+    def __bundle_names(self, manifest: dict) -> list[str]:
+        '''
+        The bundles this device needs from a release: the backend, and the frontend when the
+        dashboard runs here too.
+        Arguments:
+            manifest (dict): The release's verified manifest.
+        '''
+        assets = manifest["assets"]
+        return [str(assets["backend"])] + ([str(assets["frontend"])] if self.__local_display else [])
 
-        described = await self.__describe_commit(sha_out.strip())
-        described["label"] = latest
-        described["ref"] = latest
-        described["releases"] = tags
-        described.update(await self.__compare(current.get("commit", ""), described["commit"]))
-        described.update(await self.__eligibility(described["commit"]))
-        return described
+    async def __verified_manifest(self, tag: str, assets: dict) -> tuple[dict, dict]:
+        '''
+        A release's manifest and checksums, once the signature over the checksums has verified
+        and the manifest matches them. Kept per tag until its assets change.
+        Arguments:
+            tag (str): The release.
+            assets (dict): Its assets by name.
+        '''
+        key = tuple((assets[n].get("id"), assets[n].get("updated_at")) for n in _REQUIRED_ASSETS)
+        cached = self.__verified.get(tag)
+        if cached is not None and cached[0] == key:
+            return cached[1], cached[2]
+        sums_bytes = await self.__get_small(assets["SHA256SUMS"]["browser_download_url"])
+        signature = await self.__get_small(assets["SHA256SUMS.sig"]["browser_download_url"])
+        manifest_bytes = await self.__get_small(assets["manifest.json"]["browser_download_url"])
+        sums = await self.__check_signature(sums_bytes, signature)
+        manifest = self.__check_manifest(tag, manifest_bytes, sums)
+        self.__verified[tag] = (key, manifest, sums)
+        return manifest, sums
 
     @staticmethod
-    def __unresolved_channel(ref: str, label: str, message: str) -> dict:
+    def __check_manifest(tag: str, manifest_bytes: bytes, sums: dict) -> dict:
         '''
-        The channel description used when no target could be resolved at all.
+        Parses a manifest the checksums vouch for.
         Arguments:
-            ref (str): The ref that was attempted, for display.
-            label (str): Human-facing name of the target, if there is one.
-            message (str): Finnish explanation shown in the card.
+            tag (str): The release it must name.
+            manifest_bytes (bytes): manifest.json as downloaded.
+            sums (dict): The verified checksums.
         '''
-        return {
-            "ref": ref,
-            "label": label,
-            "commit": "",
-            "releases": [],
-            "verdict": "unknown",
-            "eligible": False,
-            "eligibleReason": message,
-            "message": message,
-        }
+        if hashlib.sha256(manifest_bytes).hexdigest() != sums.get("manifest.json"):
+            raise _Refusal("Julkaisun tiedot eivät täsmää sen tarkistussummiin")
+        manifest = json.loads(manifest_bytes)
+        if not isinstance(manifest, dict) or manifest.get("version") != tag:
+            raise _Refusal("Julkaisun tiedot kuuluvat toiselle versiolle")
+        return manifest
 
-    async def __eligibility(self, commit: str) -> dict:
+    async def __check_signature(self, sums_bytes: bytes, signature: bytes) -> dict:
         '''
-        Decides whether this service is willing to move onto a commit at all: a
-        target missing any of _REQUIRED_PATHS is refused outright rather than
-        warned about (the trapdoor rule, module docstring).
+        Checks the signature over SHA256SUMS against the key this release carries, and parses
+        the checksums once it holds.
         Arguments:
-            commit (str): The resolved target commit.
+            sums_bytes (bytes): SHA256SUMS.
+            signature (bytes): SHA256SUMS.sig.
         '''
-        if not commit:
-            return {"eligible": False,
-                    "eligibleReason": "Kohdeversiota ei voitu selvittää"}
-        for path in _REQUIRED_PATHS:
-            code, _out, _err = await self.__git("cat-file", "-e", f"{commit}:{path}")
-            if code != 0:
-                return {
-                    "eligible": False,
-                    "eligibleReason": ("Kohdeversiossa ei ole päivitystoimintoa, "
-                                       "joten siihen ei voi siirtyä tästä näytöstä"),
-                }
-        return {"eligible": True, "eligibleReason": ""}
+        keygen = _which("ssh-keygen")
+        if keygen is None:
+            raise _Refusal("ssh-keygen puuttuu, joten julkaisun allekirjoitusta ei voi tarkistaa")
+        if not _SIGNERS.is_file():
+            raise _Refusal("Tästä versiosta puuttuu julkaisujen allekirjoitusavain")
+        with tempfile.NamedTemporaryFile(prefix="tesla-homedash-", suffix=".sig") as sig_file:
+            sig_file.write(signature)
+            sig_file.flush()
+            try:
+                code, out, err = await process.run(
+                    (keygen, "-Y", "verify", "-f", str(_SIGNERS), "-I", SIGN_IDENTITY,
+                     "-n", SIGN_NAMESPACE, "-s", sig_file.name), _VERIFY_TIMEOUT, stdin=sums_bytes)
+            except asyncio.TimeoutError:
+                raise _Refusal("Allekirjoituksen tarkistus ei valmistunut") from None
+        if code != 0:
+            logger.warning("Release signature did not verify: %s", (err or out).strip()[:200])
+            raise _Refusal("Julkaisun allekirjoitus ei kelpaa")
+        return _parse_sums(sums_bytes.decode("utf-8", "replace"))
 
-    async def __describe_commit(self, rev: str) -> dict:
+    def __missing(self, manifest: dict) -> list[str]:
         '''
-        Reads the identity of one commit: sha, commit date, subject and the tag
-        on it if there is one.
-
-        %cI is the strict ISO-8601 form, which the frontend can hand straight to
-        Date(); %ci would give a space-separated form it cannot parse. Fields are
-        separated by %x1f (US), the one byte a commit subject cannot contain.
+        What this device lacks of a release's requirements, as the card names it.
         Arguments:
-            rev (str): Anything git can resolve to a commit.
+            manifest (dict): The release's verified manifest.
         '''
-        code, out, _err = await self.__git(
-            "log", "-1", "--format=%H%x1f%cI%x1f%s", rev
-        )
-        if code != 0 or not out.strip():
-            return {"commit": "", "short": "", "date": "", "subject": "", "tag": "",
-                    "label": ""}
+        requires = manifest.get("requires") or {}
+        missing = []
+        if self.__local_display:
+            arch = requires.get("arch")
+            if arch and platform.machine() != arch:
+                missing.append(f"{arch}-suoritin")
+            glibc = requires.get("glibc")
+            if glibc and _numbers(platform.libc_ver()[1]) < _numbers(glibc):
+                missing.append(f"glibc {glibc}")
+        commands = list(requires.get("commands") or [])
+        if self.__local_display:
+            commands += list(requires.get("displayCommands") or [])
+        missing += [str(c) for c in commands if _which(str(c)) is None]
+        # .env is loaded into the environment by then (config_parser.get_env).
+        missing += [f".env: {name}" for name in requires.get("env") or [] if not os.environ.get(name)]
+        return missing
 
-        sha, _, rest = out.strip().partition("\x1f")
-        date, _, subject = rest.partition("\x1f")
-
-        # --exact-match answers "is this commit released?", which is the question
-        # the card asks; the nearest-tag form would label every dev commit with
-        # the last release and read as if it were that release.
-        code, tag_out, _err = await self.__git(
-            "describe", "--tags", "--exact-match", sha
-        )
-        tag = tag_out.strip() if code == 0 else ""
-
-        return {
-            "commit": sha,
-            "short": _short(sha),
-            "date": date,
-            "subject": subject,
-            "tag": tag,
-            "label": tag or _short(sha),
-        }
-
-    async def __compare(self, current: str, target: str) -> dict:
-        '''
-        Compares two commits into a verdict plus a commit distance.
-
-        `merge-base --is-ancestor` exits 0 for "yes" and 1 for "no"; anything
-        else is a broken repository or a missing object, which is reported as
-        unknown rather than guessed at.
-        Arguments:
-            current (str): The checked-out commit.
-            target (str): The commit the channel would move to.
-        '''
-        if not current or not target:
-            return {"verdict": "unknown", "ahead": 0, "behind": 0, "message": ""}
-        if current == target:
-            return {"verdict": "up_to_date", "ahead": 0, "behind": 0, "message": ""}
-
-        ahead = behind = 0
-        code, counts, _err = await self.__git(
-            "rev-list", "--left-right", "--count", f"{current}...{target}"
-        )
-        if code == 0:
-            parts = counts.split()
-            if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
-                # left = commits only on current, right = commits only on target
-                behind, ahead = int(parts[0]), int(parts[1])
-
-        forward = await self.__is_ancestor(current, target)
-        backward = await self.__is_ancestor(target, current)
-        if forward is None or backward is None:
-            verdict = "unknown"
-        elif forward:
-            verdict = "update"
-        elif backward:
-            verdict = "downgrade"
-        else:
-            verdict = "switch"
-
-        return {"verdict": verdict, "ahead": ahead, "behind": behind, "message": ""}
-
-    async def __is_ancestor(self, ancestor: str, descendant: str) -> bool | None:
-        '''
-        True/False for the ancestry question, None when git could not answer it.
-        Arguments:
-            ancestor (str): Candidate ancestor commit.
-            descendant (str): Candidate descendant commit.
-        '''
-        code, _out, _err = await self.__git(
-            "merge-base", "--is-ancestor", ancestor, descendant
-        )
-        if code == 0:
-            return True
-        if code == 1:
-            return False
-        return None
+    async def __preflight(self) -> str:
+        '''What stops a run from starting on this device, in the card's words; empty for nothing.'''
+        assert self.__root is not None
+        if _which("uv") is None:
+            return "uv puuttuu, joten riippuvuuksia ei voi asentaa"
+        try:
+            free = shutil.disk_usage(self.__root).free
+        except OSError:
+            free = None
+        if free is not None and free < _MIN_FREE_BYTES:
+            return "Levytilaa on liian vähän päivitykseen"
+        if not await self.__systemctl("is-active", "--quiet", BACKEND_UNIT):
+            return "Palvelinta ei ajeta systemd-palveluna, joten päivitys ei voi käynnistää sitä uudelleen"
+        return ""
 
     # ── The run ───────────────────────────────────────────────────
 
-    def __new_job(self, channel: str, target: dict, previous: str) -> dict:
+    def __new_job(self, entry: dict) -> dict:
         '''
-        Builds the job document for one run.  Synchronous on purpose — see the
-        call site: it is what holds the slot between handle_apply returning and
-        the run task first being scheduled.
+        Builds the job document for one run. Synchronous on purpose: it is what holds the slot
+        between handle_apply returning and the run task first being scheduled.
         Arguments:
-            channel (str): The validated channel this run targets.
-            target (dict): The resolved target description for that channel.
-            previous (str): The commit the run starts from.
+            entry (dict): The listed release being installed.
         '''
         self.__job_seq += 1
         return {
@@ -965,37 +763,28 @@ class UpdateService:
             "cancellable": False,
             "stepId": "",
             "stepIndex": 0,
-            "channel": channel,
-            "targetLabel": target.get("label", ""),
-            "targetCommit": target.get("commit", ""),
-            "previousCommit": previous,
-            "verdict": target.get("verdict", ""),
+            "tag": entry["tag"],
+            "from": self.__version,
+            "direction": entry["direction"],
+            "restoresSnapshot": entry["direction"] == "downgrade" and entry["snapshot"],
             "startedMs": int(time.time() * 1000),
             "finishedMs": None,
             "message": "",
-            "restartFrontend": False,
-            "steps": [{"id": sid, "label": label, "state": "pending"}
-                      for sid, label in _STEPS],
+            "progress": None,
+            "steps": [{"id": sid, "label": label, "state": "pending"} for sid, label in _STEPS],
             "log": [],
         }
 
-    async def __run_job(self, target: dict, previous: str) -> None:
+    async def __run_job(self, entry: dict) -> None:
         '''
-        Executes the whole update, one step at a time, broadcasting after every
-        transition.  Each step's failure ends the run, and anything that fails
-        after the checkout rolls the tree back first.
-
-        The whole body is wrapped so the job is ALWAYS closed out.  An exception
-        escaping this coroutine would leave `finished: False` forever, and every
-        gate in the service reads that flag: no later update could start, the
-        card would freeze on stale data, and the restart veto would refuse the
-        one recovery a keyboard-less panel still has.
+        Executes the whole install, closing the job out whatever happens: every gate in the
+        service reads "finished", and a job left open would block every later run and, through
+        the veto, every restart.
         Arguments:
-            target (dict): The resolved target description for the channel.
-            previous (str): The commit the run starts from.
+            entry (dict): The listed release being installed.
         '''
         try:
-            await self.__run_steps(target, previous)
+            await self.__run_steps(entry)
         except Exception as e:  # noqa: BLE001 - the job must never stay open
             logger.error("Update run crashed: %s", e)
             self.__append_log(f"{type(e).__name__}: {e}")
@@ -1006,301 +795,342 @@ class UpdateService:
                 self.__finish(False, "Päivitys päättyi kesken")
                 await self.__broadcast(force=True)
 
-    async def __run_steps(self, target: dict, previous: str) -> None:
+    async def __run_steps(self, entry: dict) -> None:
         '''
-        The step loop itself.  Separated from __run_job only so that method can
-        be a pure guarantee that the job is closed out.
+        The step loop. A release folder left complete by an earlier install (the one before
+        this one is kept) is switched to without downloading it again.
         Arguments:
-            target (dict): The resolved target description for the channel.
-            previous (str): The commit the run starts from.
+            entry (dict): The listed release being installed.
         '''
-        logger.warning(
-            "Updating %s -> %s (%s)",
-            _short(previous), target.get("label"), _short(target.get("commit", "")),
-        )
+        assert self.__root is not None
+        tag = entry["tag"]
+        ready = (self.__root / "releases" / tag / ".complete").is_file()
+        logger.warning("Installing %s over %s (%s)", tag, self.__version, entry["direction"])
         await self.__broadcast(force=True)
 
         runners = {
-            _STEP_FETCH: self.__run_fetch,
-            _STEP_CHECKOUT: lambda: self.__run_checkout(target["commit"]),
-            _STEP_DEPS: self.__run_deps,
-            _STEP_BUILD: self.__run_build,
-            _STEP_RESTART: self.__run_restart,
+            _STEP_DOWNLOAD: lambda: self.__run_download(tag, ready),
+            _STEP_UNPACK: lambda: self.__run_unpack(tag, ready),
+            _STEP_DEPS: lambda: self.__run_deps(tag, ready),
+            _STEP_SNAPSHOT: lambda: self.__run_snapshot(tag),
+            _STEP_SWITCH: lambda: self.__run_switch(entry),
         }
-
-        moved = False
         for index, (step_id, label) in enumerate(_STEPS):
             if self.__cancelled:
-                await self.__fail(index, "Päivitys peruutettiin", previous, moved)
+                await self.__fail(index, "Päivitys peruutettiin", tag)
                 return
             self.__set_step(index, "running")
             await self.__broadcast(force=True)
-
             try:
                 ok = await runners[step_id]()
             except Exception as e:  # noqa: BLE001 - a broken step must not kill the loop
                 logger.error("Update step %s crashed: %s", step_id, e)
                 self.__append_log(f"{type(e).__name__}: {e}")
                 ok = False
-
-            if step_id == _STEP_CHECKOUT and ok:
-                moved = True
+            if self.__job is not None and self.__job.get("finished"):
+                return
             if self.__cancelled:
-                await self.__fail(index, "Päivitys peruutettiin", previous, moved)
+                await self.__fail(index, "Päivitys peruutettiin", tag)
                 return
             if not ok:
-                await self.__fail(index, f"Vaihe epäonnistui: {label}", previous, moved)
+                await self.__fail(index, f"Vaihe epäonnistui: {label}", tag)
                 return
             self.__set_step(index, "done")
             await self.__broadcast(force=True)
 
-        self.__finish(True, "Päivitys valmis")
-        await self.__broadcast(force=True)
-
-    async def __fail(self, index: int, message: str, previous: str, moved: bool) -> None:
+    async def __fail(self, index: int, message: str, tag: str) -> None:
         '''
-        Ends a run that did not succeed, rolling the working tree back when it
-        had already been moved.
-
-        The rollback is what keeps a failure recoverable from the touchscreen.
-        A new source tree beside an old virtualenv is the one genuinely
-        unrecoverable state this feature can produce: the backend's service unit
-        re-syncs on every start, so the next restart would fail, retry, and fail
-        again — with the Options view gone along with the backend.
-
-        The job is NOT closed out until the rollback has finished.  Everything
-        the dashboard gates on a run being in flight — the "do not cut the power"
-        banner, the suppressed screensaver and panel blackout, the disabled
-        restart buttons — reads `finished`, and a rollback is a `uv sync` that
-        must be protected exactly like the sync that failed.
+        Ends a run that did not succeed. Nothing before the switch touches the running release,
+        so this only removes what the run left half-made: an incomplete release folder and the
+        downloads.
         Arguments:
             index (int): The step that failed.
             message (str): Finnish summary for the card.
-            previous (str): The commit the run started from.
-            moved (bool): Whether the working tree was actually moved.
+            tag (str): The release the run was installing.
         '''
         self.__set_step(index, "failed")
-        if self.__job is not None:
-            self.__job["message"] = message
-            self.__job["cancellable"] = False
+        assert self.__root is not None
+        folder = self.__root / "releases" / tag
+        if not (folder / ".complete").is_file():
+            await asyncio.to_thread(shutil.rmtree, folder, True)
+        await asyncio.to_thread(shutil.rmtree, self.__root / "downloads" / tag, True)
+        self.__finish(False, message)
         await self.__broadcast(force=True)
-
-        suffix = ""
-        if moved and previous:
-            suffix = await self.__rollback(previous)
-        self.__finish(False, message + suffix)
-        await self.__broadcast(force=True)
-
-    async def __rollback(self, previous: str) -> str:
-        '''
-        Puts the working tree and the virtualenv back where the run found them,
-        and returns the sentence to append to the job's message.  Best effort and
-        never fatal — a failed rollback is reported, because at that point the
-        only useful thing left to do is tell the user exactly what state the
-        device is in.
-        Arguments:
-            previous (str): The commit the run started from.
-        '''
-        if self.__job is None:
-            return ""
-        step = {"id": "rollback", "label": "Palautetaan edellinen versio",
-                "state": "running"}
-        self.__job["steps"].append(step)
-        await self.__broadcast(force=True)
-
-        ok = await self.__run_step_process(
-            ["git", "-c", "advice.detachedHead=false", "checkout", "--detach", previous],
-            cwd=self.__repo, timeout=_CHECKOUT_TIMEOUT, env=_GIT_ENV,
-        )
-        if ok:
-            uv = self.__uv_path()
-            if uv is not None:
-                ok = await self.__run_step_process(
-                    [str(uv), "sync", "--locked", "--no-progress"],
-                    cwd=self.__repo / "backend", timeout=_ROLLBACK_TIMEOUT,
-                    env=_BUILD_ENV,
-                )
-
-        step["state"] = "done" if ok else "failed"
-        logger.warning("Rollback to %s %s", _short(previous), "ok" if ok else "FAILED")
-        return (" · Palautettu versioon " + _short(previous)) if ok \
-            else " · Palautus epäonnistui — laite on välitilassa"
 
     def __on_job_done(self, task: asyncio.Task) -> None:
         '''
-        Retrieves a finished run task's exception so it is logged rather than
-        surfacing as "Task exception was never retrieved" at shutdown.
+        Retrieves a finished run task's exception so it is logged rather than lost.
         Arguments:
             task (Task): The completed run task.
         '''
         self.__task = None
-        if task.cancelled():
-            return
-        error = task.exception()
-        if error is not None:
-            logger.error("Update task failed: %s", error)
+        if not task.cancelled() and task.exception() is not None:
+            logger.error("Update task failed: %s", task.exception())
 
-    async def __run_fetch(self) -> bool:
+    async def __run_download(self, tag: str, ready: bool) -> bool:
         '''
-        Fetch step: refresh refs and tags, ignoring the read-path throttle.
+        Download step: the checksums, their signature and the manifest again — checked afresh
+        rather than trusted from the listing — then the bundles, each against its checksum.
+        Arguments:
+            tag (str): The release.
+            ready (bool): The release folder is already complete; only the manifest is needed.
+        '''
+        assert self.__root is not None
+        folder = self.__root / "downloads" / tag
+        await asyncio.to_thread(shutil.rmtree, folder, True)
+        folder.mkdir(parents=True)
+        assets = self.__assets.get(tag, {})
+        sums_bytes = await self.__get_small(assets["SHA256SUMS"]["browser_download_url"])
+        signature = await self.__get_small(assets["SHA256SUMS.sig"]["browser_download_url"])
+        manifest_bytes = await self.__get_small(assets["manifest.json"]["browser_download_url"])
+        try:
+            sums = await self.__check_signature(sums_bytes, signature)
+            manifest = self.__check_manifest(tag, manifest_bytes, sums)
+        except _Refusal as e:
+            self.__append_log(str(e))
+            return False
+        (folder / "manifest.json").write_bytes(manifest_bytes)
+        self.__append_log("Allekirjoitus tarkistettu")
+        if ready:
+            self.__append_log(f"{tag} on jo tällä laitteella, sitä ei ladata uudelleen")
+            return True
 
-        Runs through __run_step_process rather than the __git helper the read
-        path uses, and that is the point: only __run_step_process registers the
-        child on self.__proc, so only through it can a cancel — or a timeout —
-        actually reach the process group. It also streams git's own progress into
-        the job log instead of swallowing it.
+        self.__job_assets = self.__bundle_names(manifest)
+        total = sum(int(assets[name].get("size") or 0) for name in self.__job_assets)
+        assert self.__job is not None
+        self.__job["progress"] = {"done": 0, "total": total}
+        for name in self.__job_assets:
+            if not await self.__download(assets[name]["browser_download_url"], folder / name,
+                                         sums.get(name, "")):
+                return False
+        return True
+
+    async def __download(self, url: str, path: Path, expected: str) -> bool:
         '''
-        self.__last_fetch_attempt = time.monotonic()
+        Streams one bundle to disk, hashing it on the way, and checks it against SHA256SUMS.
+        Arguments:
+            url (str): Its browser_download_url.
+            path (Path): Where it goes.
+            expected (str): Its hex digest from the verified SHA256SUMS.
+        '''
+        self.__append_log(f"Ladataan {path.name}")
+        digest = hashlib.sha256()
+        session = await self.__http()
+        assert self.__job is not None
+        progress = self.__job["progress"]
+        try:
+            async with session.get(url, timeout=aiohttp.ClientTimeout(
+                    total=_DOWNLOAD_TIMEOUT, sock_connect=15, sock_read=60)) as response:
+                response.raise_for_status()
+                with path.open("wb") as out:
+                    async for chunk in response.content.iter_chunked(65536):
+                        if self.__cancelled:
+                            return False
+                        out.write(chunk)
+                        digest.update(chunk)
+                        progress["done"] += len(chunk)
+                        await self.__broadcast()
+        except asyncio.TimeoutError:
+            self.__append_log(f"{path.name}: lataus aikakatkaistiin")
+            return False
+        except (aiohttp.ClientError, OSError) as e:
+            self.__append_log(f"{path.name}: {e}")
+            return False
+        if not expected or digest.hexdigest() != expected:
+            self.__append_log(f"{path.name} ei täsmää tarkistussummaansa")
+            return False
+        return True
+
+    async def __run_unpack(self, tag: str, ready: bool) -> bool:
+        '''
+        Unpack step: the bundles into releases/<tag>, in a worker thread. tarfile's "data"
+        filter refuses links and paths that leave the folder; on top of that, nothing but
+        backend/ and frontend/ may be in a bundle.
+        Arguments:
+            tag (str): The release.
+            ready (bool): The release folder is already complete.
+        '''
+        if ready:
+            return True
+        assert self.__root is not None
+        destination = self.__root / "releases" / tag
+        downloads = self.__root / "downloads" / tag
+        names = list(self.__job_assets)
+
+        def unpack() -> None:
+            shutil.rmtree(destination, ignore_errors=True)
+            destination.mkdir(parents=True)
+            for name in names:
+                with tarfile.open(downloads / name, "r:gz") as archive:
+                    for member in archive:
+                        if self.__cancelled:
+                            raise _Cancelled
+                        if member.name.split("/")[0] not in ("backend", "frontend"):
+                            raise ValueError(f"unexpected {member.name} in {name}")
+                        archive.extract(member, destination, filter="data")
+            shutil.copy2(downloads / "manifest.json", destination / "manifest.json")
+
+        self.__append_log(f"Puretaan {destination}")
+        try:
+            await asyncio.to_thread(unpack)
+        except _Cancelled:
+            return False
+        except (OSError, tarfile.TarError, ValueError) as e:
+            self.__append_log(f"Purku epäonnistui: {e}")
+            return False
+        return True
+
+    async def __run_deps(self, tag: str, ready: bool) -> bool:
+        '''
+        Dependency step: the release's own venv, from its uv.lock. --locked fails loudly on a
+        lock that does not match pyproject.toml; --no-install-project skips building the backend
+        as a package, which run.py does not need.
+        Arguments:
+            tag (str): The release.
+            ready (bool): The release folder is already complete.
+        '''
+        if ready:
+            return True
+        assert self.__root is not None
+        uv = _which("uv")
+        if uv is None:
+            self.__append_log("uv puuttuu")
+            return False
+        folder = self.__root / "releases" / tag
         ok = await self.__run_step_process(
-            ["git", "fetch", "--prune", "--tags", "--force", REMOTE],
-            cwd=self.__repo, timeout=_FETCH_TIMEOUT, env=_GIT_ENV,
-        )
+            [uv, "sync", "--locked", "--no-install-project", "--no-progress"],
+            cwd=folder / "backend", timeout=_DEPS_TIMEOUT, env=_UV_ENV)
         if ok:
-            self.__last_fetch_ms = int(time.time() * 1000)
+            (folder / ".complete").touch()
         return ok
 
-    async def __run_checkout(self, commit: str) -> bool:
+    def __state_files(self) -> list[tuple[str, Path]]:
+        '''The state files a switch snapshots: the name each is saved under, and where it lives.'''
+        config = Path(self.__config.path)
+        frontend = Path(app_config_dir())
+        return ([("config.json", config),
+                 (STORE_FILE, config.parent / STORE_FILE),
+                 (TLS_DIR, config.parent / TLS_DIR)]
+                + [(name, frontend / name) for name in _FRONTEND_STATE_FILES])
+
+    async def __run_snapshot(self, tag: str) -> bool:
         '''
-        Checkout step: moves the working tree onto the target commit, DETACHED.
-
-        Detaching is deliberate and uniform across both channels.  A release is a
-        tag and can only be checked out detached anyway, so a branch-tracking
-        development channel would mean two code paths; detaching also never
-        discards a local branch, and — the case that decides it — a LINKED
-        WORKTREE refuses `checkout main` outright when main is checked out
-        elsewhere, while `checkout --detach <sha>` always works.  The cost is
-        that `git status` reads "HEAD detached at …", which the card compensates
-        for by naming the version itself.
-
-        No -f. A checkout aborted because an untracked file collides with a path
-        the target adds is a clean refusal, and forcing past it would delete
-        whatever the user had put there.
+        Snapshot step: copies the state files into snapshots/<the version being left>, replacing
+        an older snapshot of it, so going back to this version later restores them (guard.py
+        restores one the same way). Private (0700): it holds the certificate's key and the login.
         Arguments:
-            commit (str): Validated 40-hex target commit.
+            tag (str): The release being installed, recorded in the snapshot.
         '''
-        return await self.__run_step_process(
-            ["git", "-c", "advice.detachedHead=false", "checkout", "--detach", commit],
-            cwd=self.__repo,
-            timeout=_CHECKOUT_TIMEOUT,
-            env=_GIT_ENV,
-        )
+        assert self.__root is not None
+        if not self.__version:
+            self.__append_log("Käytössä olevan version nimi puuttuu, asetuksia ei tallenneta")
+            return True
+        folder = self.__root / "snapshots" / self.__version
+        files = self.__state_files()
 
-    async def __run_deps(self) -> bool:
-        '''
-        Dependency step: `uv sync` against the checked-out lockfile.
+        def take() -> int:
+            staging = folder.with_name(folder.name + ".new")
+            shutil.rmtree(staging, ignore_errors=True)
+            staging.mkdir(parents=True, mode=0o700)
+            saved = {}
+            for name, source in files:
+                if source.is_dir():
+                    shutil.copytree(source, staging / name)
+                elif source.is_file():
+                    shutil.copy2(source, staging / name)
+                else:
+                    continue
+                saved[name] = str(source)
+            (staging / "snapshot.json").write_text(json.dumps(
+                {"files": saved, "takenMs": int(time.time() * 1000), "leftFor": tag}),
+                encoding="utf-8")
+            shutil.rmtree(folder, ignore_errors=True)
+            os.replace(staging, folder)
+            return len(saved)
 
-        `--locked` rather than a bare sync, and this is not a style choice.  A
-        bare `uv sync` SILENTLY RE-RESOLVES and rewrites uv.lock when it drifts
-        from pyproject.toml — and uv.lock is a TRACKED file, so that write makes
-        the working tree dirty and every future run of this service refuses to
-        start, pointing at a file the user never touched.  `--locked` turns the
-        same drift into a loud, correct failure here.  (`--frozen` also avoids
-        the rewrite but installs the stale lock silently, which is the drift you
-        most want to hear about when moving to someone else's commit.)
-        '''
-        uv = self.__uv_path()
-        if uv is None:
-            self.__append_log("uv ei löydy — riippuvuuksia ei voitu päivittää")
+        try:
+            count = await asyncio.to_thread(take)
+        except OSError as e:
+            self.__append_log(f"Asetusten tallennus epäonnistui: {e}")
             return False
-        return await self.__run_step_process(
-            [str(uv), "sync", "--locked", "--no-progress"],
-            cwd=self.__repo / "backend",
-            timeout=_DEPS_TIMEOUT,
-            env=_BUILD_ENV,
-        )
-
-    async def __run_build(self) -> bool:
-        '''
-        Build step: rebuilds the frontend from the checked-out sources, then
-        verifies that what came out is runnable.
-
-        The Qt kit is passed explicitly rather than left to the script's own
-        detection, so the build uses the kit the preflight reported — which
-        __qt_prefix may take from the existing CMakeCache.txt, a source the
-        script does not read — and the choice appears in the streamed log.
-
-        __verify_artifact must pass before the restart step may signal anything.
-        '''
-        script = self.__repo / _BUILD_SCRIPT
-        if not script.exists():
-            self.__append_log(f"{_BUILD_SCRIPT} puuttuu tästä versiosta")
-            return False
-        qt = self.__qt_prefix()
-        if qt is None:
-            self.__append_log("Qt-käännösympäristöä ei löytynyt")
-            return False
-
-        exe = self.__repo / _FRONTEND_EXE
-        bash = shutil.which("bash") or "/bin/bash"
-        ok = await self.__run_step_process(
-            [bash, str(script), "--config", "Release", "--qt-prefix", str(qt)],
-            cwd=self.__repo,
-            timeout=_BUILD_TIMEOUT,
-            env=_BUILD_ENV,
-        )
-        if not ok:
-            return False
-        return self.__verify_artifact(exe)
-
-    def __verify_artifact(self, exe: Path) -> bool:
-        '''
-        Checks that the build left a runnable binary behind.
-
-        Deliberately NOT a freshness check: a build that exits 0 having found
-        nothing to relink is a success — a commit touching only backend files
-        legitimately produces the same file.  The size test is an absolute floor
-        (_MIN_ARTIFACT_BYTES says why not a ratio).  What is worth testing is the
-        shape of an interrupted link: a killed build leaves either nothing or a
-        stub (ld unlinks its output first, see _FRONTEND_EXE), and restarting a
-        keyboard-less panel into a stub leaves no dashboard at all.
-        Arguments:
-            exe (Path): The expected frontend executable.
-        '''
-        if not exe.exists():
-            self.__append_log(f"Käännös ei tuottanut binääriä: {exe.name}")
-            return False
-        if not os.access(exe, os.X_OK):
-            self.__append_log("Käännetty binääri ei ole suoritettava")
-            return False
-        if exe.stat().st_size < _MIN_ARTIFACT_BYTES:
-            self.__append_log("Käännetty binääri on epäilyttävän pieni — keskeytetään")
-            return False
+        self.__append_log(f"{count} asetustiedostoa tallennettu versiolle {self.__version}")
         return True
 
-    async def __run_restart(self) -> bool:
+    async def __run_switch(self, entry: dict) -> bool:
         '''
-        Restart step: tells the dashboard to restart itself, then restarts the
-        backend.
+        Switch step: stops this device's dashboard, restores the target's snapshot on a
+        downgrade that has one, leaves the switch marker, points "current" at the target, arms
+        the guard's timer and restarts both units — which ends this process.
 
-        The order is forced by the link between them.  The dashboard is still
-        running the binary that was just replaced (it holds the old inode, see
-        _FRONTEND_EXE), and only a restart picks the new one up.  But the only
-        way to tell it so is over the socket, which dies with the backend.  So
-        the frontend is told first, given a moment to act, and the backend
-        follows it out; both service units bring their process back.
+        The marker goes down BEFORE the link moves: a power cut between the two leaves a marker
+        for a release that never ran, which the guard reads as a failed start and undoes, rather
+        than a moved link with no marker and nothing watching it.
+        Arguments:
+            entry (dict): The listed release being installed.
         '''
-        assert self.__job is not None
-        self.__job["restartFrontend"] = True
-        self.__append_log("Käynnistetään käyttöliittymä uudelleen")
+        assert self.__root is not None and self.__job is not None
+        root, tag = self.__root, entry["tag"]
+        stopped = False
+        if self.__local_display:
+            if not await self.__systemctl("stop", FRONTEND_UNIT):
+                self.__append_log("Näkymää ei voitu pysäyttää")
+                return False
+            stopped = True
+        restored = False
+        try:
+            snapshot = root / "snapshots" / tag
+            if entry["direction"] == "downgrade" and (snapshot / "snapshot.json").is_file():
+                await asyncio.to_thread(guard.restore_snapshot, snapshot)
+                restored = True
+                self.__append_log(f"Palautettiin asetukset, jotka tallennettiin versiosta {tag}")
+            guard.write_json(root / "switch.json", {
+                "from": self.__version, "to": tag, "deadline": time.time() + HEALTH_GATE_S,
+                "starts": 0, "restoredSnapshot": restored, "localDisplay": self.__local_display})
+            guard.point_current(root, tag)
+        except OSError as e:
+            self.__append_log(f"Versiota ei voitu vaihtaa: {e}")
+            (root / "switch.json").unlink(missing_ok=True)
+            if stopped:
+                await self.__systemctl("start", FRONTEND_UNIT)
+            return False
+        await asyncio.to_thread(guard.arm_timer, root / "guard.py", HEALTH_GATE_S, _SYSTEM_PYTHON)
+        logger.warning("Switched to %s; restarting", tag)
+        self.__finish(True, f"Vaihdettu versioon {tag} — käynnistetään uudelleen")
         await self.__broadcast(force=True)
-        await asyncio.sleep(_FRONTEND_RESTART_GRACE)
-        self.__append_log("Käynnistetään palvelin uudelleen")
-        self.__config_service.request_restart(force=True)
+        await asyncio.sleep(_RESTART_GRACE)
+        units = [BACKEND_UNIT] + ([FRONTEND_UNIT] if self.__local_display else [])
+        # --no-block: restarting the backend's own unit stops this process before a blocking
+        # call could return.
+        if not await self.__systemctl("--no-block", "restart", *units):
+            self.__config_service.request_restart(force=True)
         return True
+
+    async def __systemctl(self, *args: str) -> bool:
+        '''
+        One systemctl --user command; True when it exits 0.
+        Arguments:
+            *args (str): The command after "systemctl --user".
+        '''
+        try:
+            code, _out, err = await process.run(("systemctl", "--user", *args), _SYSTEMCTL_TIMEOUT)
+        except asyncio.TimeoutError:
+            logger.warning("systemctl %s timed out", " ".join(args))
+            return False
+        except OSError as e:
+            logger.warning("systemctl %s: %s", " ".join(args), e)
+            return False
+        if code != 0 and args[:1] != ("is-active",):
+            logger.warning("systemctl %s exited %s: %s", " ".join(args), code, err.strip()[:200])
+        return code == 0
 
     # ── Subprocess plumbing ───────────────────────────────────────
 
     async def __run_step_process(self, argv: list[str], cwd: Path, timeout: float,
                                  env: dict | None = None) -> bool:
         '''
-        Runs one step's command, streaming its output into the job log.
-
-        start_new_session puts the child in its own process GROUP, which is what
-        makes cancellation and timeouts actually work: the build step is a shell
-        that spawns cmake, which spawns ninja, which spawns a compiler per file.
-        Measured — killing the shell alone leaves that tree running AND leaves
-        the inherited stdout pipe open, so the reader below never sees EOF and
-        waits forever.
+        Runs one step's command, streaming its output into the job log. start_new_session puts
+        the child in its own process group, which is what lets a cancel or a timeout stop
+        everything it started: uv runs build backends that run compilers.
         Arguments:
             argv (list[str]): Command and arguments; never passed through a shell.
             cwd (Path): Working directory for the child.
@@ -1309,69 +1139,52 @@ class UpdateService:
         '''
         self.__append_log("$ " + " ".join(argv))
         try:
-            process = await asyncio.create_subprocess_exec(
-                *argv,
-                cwd=str(cwd),
-                env=self.__child_env(env),
-                stdin=asyncio.subprocess.DEVNULL,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.STDOUT,
-                start_new_session=True,
-            )
+            child = await asyncio.create_subprocess_exec(
+                *argv, cwd=str(cwd), env=self.__child_env(env),
+                stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT, start_new_session=True)
         except OSError as e:
             self.__append_log(f"Komentoa ei voitu käynnistää: {e}")
             return False
 
-        self.__proc = process
-        # A cancel that arrived between the guard and the spawn saw self.__proc
-        # as None and signalled nothing, so honour it here instead of letting a
-        # whole build run to completion before the step loop notices.
+        self.__proc = child
+        # A cancel between the guard and the spawn signalled nothing; honour it now.
         if self.__cancelled:
             self.__kill_process()
         try:
-            await asyncio.wait_for(self.__pump(process), timeout=timeout)
-            code = process.returncode if process.returncode is not None else -1
+            await asyncio.wait_for(self.__pump(child), timeout=timeout)
+            code = child.returncode if child.returncode is not None else -1
         except asyncio.TimeoutError:
             self.__append_log(f"Aikakatkaisu {int(timeout)} s jälkeen")
             self.__kill_process()
-            code = await self.__reap(process)
+            code = await self.__reap(child)
         except BaseException:
-            # Anything else — CancelledError at loop teardown, an error escaping
-            # the pump — must still take the process group down. The build is a
-            # tree of compilers writing into the directory the rollback is about
-            # to check out from underneath them; orphaning it produces a build
-            # directory matching neither commit.
+            # CancelledError at loop teardown, or an error out of the pump: the group must not
+            # outlive the step.
             self.__kill_process()
-            await self.__reap(process)
+            await self.__reap(child)
             raise
         finally:
             self.__proc = None
-
         if code != 0:
             self.__append_log(f"Komento päättyi koodilla {code}")
         await self.__broadcast(force=True)
         return code == 0
 
-    async def __pump(self, process) -> None:
+    async def __pump(self, child) -> None:
         '''
-        Reads the child's merged output and turns it into log lines.
-
-        Read in chunks rather than with readline(): StreamReader.readline RAISES
-        once a single line exceeds its 64 KiB buffer, and a deep C++ template
-        diagnostic really does exceed that — an exception there would leave the
-        job "running" forever, refusing every later request.  Splitting here also
-        turns a \\r-updated progress line into a line, for any tool that still
-        emits one on a pipe.
+        Turns the child's merged output into log lines, reading chunks rather than lines:
+        StreamReader.readline raises past its 64 KiB buffer, which would leave the job running
+        forever.
         Arguments:
-            process (Process): The running child, with stdout piped.
+            child (Process): The running child, with stdout piped.
         '''
         buffer = b""
         while True:
-            chunk = await process.stdout.read(4096)
+            chunk = await child.stdout.read(4096)
             if not chunk:
                 break
-            buffer += chunk
-            buffer = buffer.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+            buffer = (buffer + chunk).replace(b"\r\n", b"\n").replace(b"\r", b"\n")
             while b"\n" in buffer:
                 line, _, buffer = buffer.partition(b"\n")
                 self.__append_log(line.decode("utf-8", "replace"))
@@ -1381,81 +1194,44 @@ class UpdateService:
             await self.__broadcast()
         if buffer:
             self.__append_log(buffer.decode("utf-8", "replace"))
-        await process.wait()
+        await child.wait()
 
     def __kill_process(self) -> None:
-        '''
-        Kills the running step's whole process group, SIGTERM first.  Absent a
-        process (the step is between commands) this is a no-op.
-        '''
-        process = self.__proc
-        if process is None or process.returncode is not None:
+        '''Kills the running step's whole process group, SIGTERM first; no-op between commands.'''
+        child = self.__proc
+        if child is None or child.returncode is not None:
             return
         try:
-            os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+            os.killpg(os.getpgid(child.pid), signal.SIGTERM)
         except (ProcessLookupError, PermissionError) as e:
             logger.warning("Could not signal the update step: %s", e)
 
-    async def __reap(self, process) -> int:
+    async def __reap(self, child) -> int:
         '''
-        Waits for a killed child, escalating to SIGKILL if it ignores SIGTERM.
-        Returns its exit code, or -1 when it could not be collected at all.
+        Waits for a killed child, escalating to SIGKILL; its exit code, or -1.
         Arguments:
-            process (Process): The child that was signalled.
+            child (Process): The child that was signalled.
         '''
         try:
-            return await asyncio.wait_for(process.wait(), timeout=10.0)
+            return await asyncio.wait_for(child.wait(), timeout=10.0)
         except asyncio.TimeoutError:
             with contextlib.suppress(ProcessLookupError, PermissionError):
-                os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+                os.killpg(os.getpgid(child.pid), signal.SIGKILL)
             try:
-                return await asyncio.wait_for(process.wait(), timeout=10.0)
+                return await asyncio.wait_for(child.wait(), timeout=10.0)
             except asyncio.TimeoutError:
                 return -1
 
-    def __child_env(self, overrides: dict | None) -> dict:
+    @staticmethod
+    def __child_env(overrides: dict | None) -> dict:
         '''
-        Builds a child environment: everything inherited, minus the variables
-        that could redirect git at another repository, plus this step's own.
+        A child's environment: this process's, less _SCRUBBED, plus the step's own.
         Arguments:
             overrides (dict | None): Step-specific variables.
         '''
         env = {k: v for k, v in os.environ.items() if k not in _SCRUBBED}
         env.update(overrides or {})
         return env
-
-    # ── git helper ────────────────────────────────────────────────
-
-    async def __git(self, *args: str, cwd: Path | None = None,
-                    timeout: float = _QUERY_TIMEOUT) -> tuple[int, str, str]:
-        '''
-        Runs one git command and captures it.  Returns (exit code, stdout,
-        stderr); a command that could not run at all returns a negative code, so
-        a caller checking `!= 0` treats it as a failure without special cases.
-
-        The timeout is the ONLY bound on a network operation: git 2.43 has no
-        http.connectTimeout, and the low-speed knobs do not cover the connect
-        phase — measured, a fetch at a black-holed address sits there until
-        something else kills it.  Same shape, same remedy as the FMI fetch in
-        weather_service.  new_session=True makes process.run kill the whole
-        process group on timeout, since git forks git-remote-https.
-        Arguments:
-            *args (str): Arguments after "git".
-            cwd (Path | None): Working directory; the repository root by default.
-            timeout (float): Seconds before the command is killed.
-        '''
-        directory = cwd or self.__root
-        try:
-            return await process.run(
-                ("git", *args), timeout,
-                cwd=str(directory) if directory else None,
-                env=self.__child_env(_GIT_ENV),
-                new_session=True,
-            )
-        except asyncio.TimeoutError:
-            return -1, "", f"git {' '.join(args)} timed out"
-        except OSError as e:
-            return -1, "", str(e)
 
     # ── Job bookkeeping + framing ─────────────────────────────────
 
@@ -1466,42 +1242,32 @@ class UpdateService:
             index (int): Index into _STEPS.
             state (str): "pending" | "running" | "done" | "failed".
         '''
-        if self.__job is None or not (0 <= index < len(self.__job["steps"])):
+        if self.__job is None or not 0 <= index < len(self.__job["steps"]):
             return
         step_id = _STEPS[index][0]
         self.__job["steps"][index]["state"] = state
         self.__job["stepIndex"] = index
         self.__job["stepId"] = step_id
-        # Tells the frontend when the button is meaningless rather than leaving
-        # it to send taps the backend silently drops.
-        self.__job["cancellable"] = (state == "running"
-                                     and step_id in _CANCELLABLE_STEPS)
+        self.__job["cancellable"] = state == "running" and step_id in _CANCELLABLE_STEPS
 
     def __finish(self, ok: bool, message: str) -> None:
         '''
-        Closes the job out.  Steps still pending are left pending rather than
-        marked failed: they never ran, and saying otherwise would point the user
-        at the wrong step.
+        Closes the job out; steps that never ran stay pending.
         Arguments:
             ok (bool): Whether the run succeeded.
             message (str): Finnish summary shown in the card.
         '''
         if self.__job is None:
             return
-        self.__job["running"] = False
-        self.__job["finished"] = True
-        self.__job["cancellable"] = False
-        self.__job["ok"] = ok
-        self.__job["message"] = message
-        self.__job["finishedMs"] = int(time.time() * 1000)
+        self.__job.update(running=False, finished=True, cancellable=False, ok=ok, message=message,
+                          finishedMs=int(time.time() * 1000))
         logger.warning("Update finished: ok=%s %s", ok, message)
 
     def __append_log(self, line: str) -> None:
         '''
         Adds one line to the capped job log.
         Arguments:
-            line (str): Raw output line; truncated so one pathological line
-                cannot dominate the state document.
+            line (str): Raw output line; truncated so one line cannot dominate the document.
         '''
         text = line.rstrip()
         if not text:
@@ -1512,53 +1278,59 @@ class UpdateService:
 
     async def __refuse(self, message: str) -> None:
         '''
-        Publishes a refusal as a finished, failed job so the card explains itself
-        the same way a real failure does.
+        Publishes a refusal as a finished, failed job, so the card explains itself the way it
+        does a failure. Never over a run in flight: that would erase its progress and re-arm the
+        restart buttons it vetoes.
         Arguments:
             message (str): Finnish reason, shown verbatim.
         '''
-        # A refusal must never overwrite a run that is happening. It replaces
-        # self.__job wholesale, so doing that mid-run would erase the progress
-        # the card is showing, make `busy` false (re-arming the restart button
-        # this service vetoes for), leave the run uncancellable, and hand the
-        # step loop an empty steps list to index into. The refusing client's own
-        # card is already showing the live job, which IS the explanation for why
-        # its tap did nothing.
         if self.__job is not None and not self.__job.get("finished"):
             logger.warning("Update refusal suppressed (run in flight): %s", message)
             return
         logger.warning("Update refused: %s", message)
-        job = self.__new_job("", {}, "")
-        job.update(running=False, finished=True, ok=False, finishedMs=job["startedMs"],
-                   message=message, steps=[])
-        self.__job = job
+        self.__job_seq += 1
+        now = int(time.time() * 1000)
+        self.__job = {"id": self.__job_seq, "running": False, "finished": True, "ok": False,
+                      "cancellable": False, "stepId": "", "stepIndex": 0, "tag": "", "from": "",
+                      "direction": "", "restoresSnapshot": False, "startedMs": now,
+                      "finishedMs": now, "message": message, "progress": None, "steps": [],
+                      "log": []}
         self.__log.clear()
         await self.__broadcast(force=True)
 
     async def __broadcast(self, force: bool = False) -> None:
         '''
-        Broadcasts the current state, coalescing the stream of build output.
+        Broadcasts the state, at most every _BROADCAST_MIN_INTERVAL unless forced.
         Arguments:
-            force (bool): Send regardless of the rate limit — used for every step
-                transition and for the final result, which must never be the
-                update that got throttled away.
+            force (bool): Send regardless — every step transition and the final result.
         '''
         now = time.monotonic()
-        if not force and (now - self.__last_broadcast) < _BROADCAST_MIN_INTERVAL:
+        if not force and now - self.__last_broadcast < _BROADCAST_MIN_INTERVAL:
             return
         self.__last_broadcast = now
         await self.__server.broadcast(self.__state_frame())
 
     def __state_frame(self) -> bytes:
         '''Builds an UPDATE_STATE packet from the current state and job.'''
-        document = dict(self.__state) if self.__state else self.__unavailable_state()
+        job = None
         if self.__job is not None:
             job = dict(self.__job)
             job["log"] = list(self.__log)
-            document["job"] = job
-        else:
-            document["job"] = None
-
+        document = {
+            "mode": "release" if self.__root is not None else "development",
+            "available": self.__root is not None,
+            "reason": self.__reason,
+            "current": {"version": self.__version, "commit": self.__commit,
+                        "built": version.manifest().get("built", "")},
+            "localDisplay": self.__local_display,
+            "releases": self.__releases,
+            "checkedMs": self.__checked_ms,
+            "checkError": self.__check_error,
+            "health": self.__health,
+            "lastSwitch": self.__last_switch,
+            "rollback": self.__rollback,
+            "job": job,
+        }
         return protocol.json_frame(protocol.UPDATE_STATE, protocol.CONFIG_STATUS_OK, document)
 
     @staticmethod

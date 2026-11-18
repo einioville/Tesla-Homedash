@@ -1,16 +1,23 @@
 # `utils/` — config, protocol, logging
 
-- **`config_parser.py`**: `Config` validates + exposes `config.json`; `get_env` loads `.env` once.
+- **`config_parser.py`**: `Config` validates + exposes `config.json`; `get_env` loads `.env` once (`env_file`).
 - **`protocol.py`**: every message-type byte, sub-id, `MAX_MSG_SIZE`, and `frame()`. The
   single source of truth — add new constants here, never on a class. Every JSON-bodied code goes
   through `json_frame()` (a `status(1B) + len(4B) + UTF-8 JSON` reply, raw UTF-8) and
   `parse_json_body()` (a `len(4B) + UTF-8 JSON` object request; raises `ValueError` with the
   Finnish message the Options view shows).
 - **`process.py`**: `run(argv, timeout, …)` — the one way a service runs a command to completion
-  (audio, display, USB import, git queries, host reboot). stdin is `/dev/null`; a timeout kills
-  and **reaps** the child (the whole process group with `new_session=True`) and raises
-  `asyncio.TimeoutError`, which callers must catch **before** `OSError` — it is a subclass since
-  Python 3.11. The updater's streaming build runner is the exception: it reads output live.
+  (audio, display, USB import, systemctl, the release signature check, host reboot). stdin is
+  `/dev/null` unless `stdin=` bytes are given; a timeout kills and **reaps** the child (the whole
+  process group with `new_session=True`) and raises `asyncio.TimeoutError`, which callers must
+  catch **before** `OSError` — it is a subclass since Python 3.11. The updater's `uv sync` runner
+  is the exception: it reads output live.
+- **`version.py`**: which version this backend is — an installed release (`release_dir()`,
+  `install_root()`, its `manifest()`) or a checkout's `git describe` — for the login's
+  `appVersion`, the *Palvelin* card and the updater.
+- **`env_file.py`**: the `.env` both halves read — beside `config.json` in `app_config_dir()`
+  (an installed release's, where `install.sh` moves it) else the nearest above this file (a
+  checkout's repo root) — and `app_config_dir()` itself.
 - **`atomic_write.py`**: `write_atomic(path, text, mode)` — every whole-file rewrite (`config.json`,
   the Spotify grant record, the error store, kept log backups): a temp file in the same directory,
   fsynced, then `os.replace`d, and removed on any failure. `mode` is applied through the umask;
@@ -120,10 +127,10 @@ with inbound messages capped at `MAX_PREAUTH_MSG_SIZE` (4 KB) — `../auth_servi
 | `0xB7` | LOG_CLEAR_RESULT | B→F | `status(1B) + len(4B) + JSON` — `{ok, freedBytes, message}`; to the requester only |
 | `0xC0` | DISPLAY_SET_POWER | F→B | `on(1B)` — 1 wakes the panel, 0 powers it down |
 | `0xC1` | DISPLAY_POWER_STATE | B→F | `available(1B) + on(1B) + fault(1B)`; `available=0` = no wlopm on the host; `fault` 0 none, 1 wlopm refused the change, 2 output lost after a wake (sticky, power-off refused until restart). The frontend reads a 2-byte payload as fault 0 |
-| `0xD0` | UPDATE_GET_STATE | F→B | `len(4B) + UTF-8 JSON` — `{"fetch": <bool>}`; `fetch` contacts the remote (backend-throttled to one per 2 min) |
-| `0xD1` | UPDATE_STATE | B→F | `status(1B) + len(4B) + JSON`, **broadcast** — `{available, reason, repoPath, remoteUrl, branch, dirty, dirtyFiles, fetchedMs, current{…}, channels{development{…},releases{…}}, tools{…}, job}`. `job` is `null` when idle and the whole progress report while a run is in flight, so there is no second progress code and a client connecting mid-update sees it in its snapshot |
-| `0xD2` | UPDATE_APPLY | F→B | `len(4B) + UTF-8 JSON` — `{"channel": "development"\|"releases", "commit": <40-hex>}`; the commit **fences** the request (a target that moved since the check is refused) |
-| `0xD3` | UPDATE_CANCEL | F→B | (empty) — kill the running step's process group; honoured only during fetch/deps/build (`job.cancellable`) |
+| `0xD0` | UPDATE_GET_STATE | F→B | `len(4B) + UTF-8 JSON` — `{"fetch": <bool>}`; `fetch` lists the releases again (throttled to one attempt per 2 min) |
+| `0xD1` | UPDATE_STATE | B→F | `status(1B) + len(4B) + JSON`, **broadcast** — `{mode, available, reason, current{version, commit, built}, localDisplay, releases[{tag, name, notes, publishedAt, prerelease, direction, installable, reason, size, snapshot}], checkedMs, checkError, health, lastSwitch, rollback, job}`. `job` is `null` when idle and the whole progress report while a run is in flight, so a client connecting mid-update sees it in its snapshot (`../update_service/CLAUDE.md`) |
+| `0xD2` | UPDATE_APPLY | F→B | `len(4B) + UTF-8 JSON` — `{"tag": "v2.1.0"}`; only a release the backend itself listed as installable |
+| `0xD3` | UPDATE_CANCEL | F→B | (empty) — stop the run; honoured before the switch step only (`job.cancellable`) |
 | `0xE0` | USB_IMPORT_LIST | F→B | `len(4B) + UTF-8 JSON` — `{flowId}`; takes the flow over and lists the USB drives |
 | `0xE1` | USB_IMPORT_SCAN | F→B | `len(4B) + UTF-8 JSON` — `{flowId, device}`; mount if needed, count the photos in `tesla_homedash_screensaver` |
 | `0xE2` | USB_IMPORT_START | F→B | `len(4B) + UTF-8 JSON` — `{flowId, device}`; copy them into the screensaver folder |

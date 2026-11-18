@@ -364,6 +364,11 @@ Four kinds of debris do not belong in this codebase; review your own diff for th
 
   Two copies that behave differently are merged only once you know which behaviour is right — ask
   when it is not obvious.
+- **State files change additively** (#56): `config.json`, `frontend_config.json`,
+  `paired_displays.json` and the other files a device keeps between releases gain keys with
+  defaults, and every reader ignores keys it does not know — which is how both halves already read
+  them. That is what lets an older release run on a newer one's files after a downgrade. A version
+  field and a conversion step come only with the first change that cannot be additive.
 
 ### 7.9 Settings for a new feature
 Every feature you build or change ends with a **settings check**: list what in it a user could want

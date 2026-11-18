@@ -64,6 +64,14 @@ backend runs, `AUTH_HELLO` says `passwordSet: false`, and every login is refused
   is broadcast, so it asks (`AUTH_GET_DISPLAYS`) when its card is built.
 - **`AUTH_REVOKE` closes the display's connections** (`Server.disconnect`), the requester's own
   included; the display then reconnects, its token is refused, and it asks for the password.
+- **Versions at login** (#56): each half names its app version (a release, or a checkout's commit)
+  and `protocol.PROTOCOL_VERSION` in its first message. A display on a different version still
+  logs in; its `appVersion` is stamped on its record at every login and listed in Näytöt, and the
+  display compares the backend's for itself (`frontend_v2/core/CLAUDE.md`, *ServerClient*). A
+  display from before #56 sends none and lists as "".
+- **`add_login_listener(fn)`** is told `(display, address)` after every admitted login; the
+  updater's health gate waits on it for the display on its own device
+  (`../update_service/CLAUDE.md`).
 - `health()` is the *Kirjautuminen* card in Järjestelmän tila: `error` with no password, otherwise
   the number of displays, the lifetime and the certificate's fingerprint.
 

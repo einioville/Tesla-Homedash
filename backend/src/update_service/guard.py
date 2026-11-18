@@ -53,27 +53,27 @@ def write_json(path: Path, data: dict) -> None:
     os.replace(tmp, path)
 
 
-def point_current(tag: str) -> None:
+def point_current(root: Path, tag: str) -> None:
     '''
     Points `current` at a release with one rename, so it is never missing.
     Arguments:
+        root (Path): The directory holding `current` and releases/.
         tag (str): The release folder's name.
     '''
-    link = ROOT / "current.new"
+    link = root / "current.new"
     if link.is_symlink() or link.exists():
         link.unlink()
     os.symlink(Path("releases") / tag, link)
-    os.replace(link, CURRENT)
+    os.replace(link, root / "current")
 
 
-def restore_snapshot(tag: str) -> None:
+def restore_snapshot(folder: Path) -> None:
     '''
     Puts back the state files saved when a release was left (snapshot.json maps each saved name
     to where it came from).
     Arguments:
-        tag (str): The release whose snapshot to restore.
+        folder (Path): The snapshot, snapshots/<tag>.
     '''
-    folder = SNAPSHOTS / tag
     index = json.loads((folder / "snapshot.json").read_text(encoding="utf-8"))
     for name, destination in index.get("files", {}).items():
         target = Path(destination)
@@ -108,24 +108,25 @@ def roll_back(marker: dict, reason: str) -> None:
         print(f"guard: {failed} failed ({reason}) and there is no release to go back to")
         return
     if marker.get("restoredSnapshot") and (SNAPSHOTS / previous / "snapshot.json").exists():
-        restore_snapshot(previous)
-    point_current(previous)
+        restore_snapshot(SNAPSHOTS / previous)
+    point_current(ROOT, previous)
     write_json(RECORD, {"failed": failed, "restored": previous, "reason": reason,
                         "at": int(time.time())})
     print(f"guard: rolled back {failed} -> {previous} ({reason})")
 
 
-def arm_timer(seconds: float) -> None:
+def arm_timer(guard: Path, seconds: float, python: str) -> None:
     '''
-    Arms the transient timer that runs this script with --expire.
+    Arms the transient timer that runs the guard with --expire.
     Arguments:
+        guard (Path): The installed guard.py, beside the release folders.
         seconds (float): Seconds until it fires.
+        python (str): The interpreter to run it with: the system's, never a release's venv.
     '''
     systemctl("stop", f"{TIMER}.timer")
     systemctl("reset-failed", f"{TIMER}.service")
     subprocess.run(("systemd-run", "--user", "--quiet", "--collect", f"--unit={TIMER}",
-                    f"--on-active={max(1, int(seconds))}s", sys.executable, "-I",
-                    str(Path(__file__).resolve()), "--expire"),
+                    f"--on-active={max(1, int(seconds))}s", python, "-I", str(guard), "--expire"),
                    stdin=subprocess.DEVNULL, timeout=30, check=False)
 
 
@@ -149,7 +150,7 @@ def on_start() -> None:
     probe = subprocess.run(("systemctl", "--user", "is-active", "--quiet", f"{TIMER}.timer"),
                            stdin=subprocess.DEVNULL, timeout=30, check=False)
     if probe.returncode != 0:
-        arm_timer(remaining)
+        arm_timer(Path(__file__).resolve(), remaining, sys.executable)
 
 
 def on_expire() -> None:

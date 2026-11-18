@@ -83,10 +83,9 @@ write there would leave the reply and the disk disagreeing. **Talks to:** `Confi
 
 **Restart vetoes.** `register_restart_veto(name, callable)` is the sibling of `register_guard`:
 a callable returning a non-empty Finnish reason refuses a `CONFIG_RESTART` before it is armed.
-`UpdateService` registers one, because killing the backend mid-checkout is exactly what
-everything else in the updater exists to prevent.
-`request_restart(force=True)` skips the vetoes — the updater's own final restart IS the thing
-they protect.
+`UpdateService` registers one, because a restart mid-install would cut a download, an unpack or
+a venv build short. `request_restart(force=True)` skips the vetoes: it is the updater's fallback
+when systemd cannot restart its unit after a switch.
 
 **Host reboot** (issue #40). `HOST_REBOOT` (`0x95`) lives here beside `CONFIG_RESTART` because it
 shares its **vetoes** (`__veto_reason()`, used by both — rebooting mid-update is the same harm as
