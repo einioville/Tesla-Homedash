@@ -325,7 +325,9 @@ the pan still gets the gesture), fading 4 s after the last touch — held while 
 open. A step is `TeslaMap.stepZoom`: a whole level from where the map is, **written as
 `mapDefaultZoom`**, so the snap-back after a gesture returns there and the other map follows
 (`onDefaultZoomChanged`: eased if it is on screen, set if hidden, left alone mid-gesture). Steps
-stay within the setting's 10–19.
+stay within the setting's 10–19. The Weather view's radar map has the same buttons, revealed the same
+way, stepping its own default (`WeatherRadarMap.stepZoom`, the hidden `weatherRadarDefaultZoom`, 5–10:
+all of Finland to a town; #93) — at the place it glides there keeping the place where it sits.
 
 **Inside the `Map`, the layers are ordered by `z`**: the radar overlay's Loader 1, the warnings 1
 (declared after it), the route 2, the names 3, the cameras 4, the home 5, the car arrow 10. The

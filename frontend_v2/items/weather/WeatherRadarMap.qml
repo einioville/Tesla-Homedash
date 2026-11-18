@@ -33,6 +33,9 @@ Item {
     property bool latestOnly: false
     // Off while a dialog lies over the map (TeslaMap.interactive says why).
     property bool interactive: true
+
+    // Any press, wheel or pinch on the map: the zoom buttons show themselves on it.
+    signal touched()
     readonly property alias radarLayer: radarLayer
     // The radars' reach, about: the map's centre stays inside it, so a pan cannot leave the
     // radar behind.
@@ -44,8 +47,8 @@ Item {
         return map.mapReady ? map.fromCoordinate(QtPositioning.coordinate(latitude, longitude), false)
                             : Qt.point(-100, -100)
     }
-    // Off the place or its zoom, so the way back is offered.
-    readonly property bool moved: map.mapReady
+    // Off the place or its zoom, so the way back is offered — not while gliding there.
+    readonly property bool moved: map.mapReady && !homeAnim.running
                                   && (Math.abs(map.zoomLevel - zoom) > 0.01
                                       || Math.abs(placePt.x - (width / 2 + placeOffset.x)) > 2
                                       || Math.abs(placePt.y - (height / 2 + placeOffset.y)) > 2)
@@ -65,6 +68,7 @@ Item {
     // A gesture holds the map where it is; letting go starts the wait to go back.
     function gestureActive(isActive) {
         if (isActive) {
+            root.touched()
             homeAnim.stop()
             returnTimer.stop()
         } else if (moved) {
@@ -77,6 +81,28 @@ Item {
         var mpp = 156543.03392 / Math.pow(2, z)
         var home = radarLayer.merc({ latitude: latitude, longitude: longitude })
         return radarLayer.unmerc(home.x - placeOffset.x * mpp, home.y + placeOffset.y * mpp)
+    }
+
+    // One whole zoom level from where the map is (or is heading), made the default zoom, as the
+    // home map's zoom buttons do (TeslaMap.stepZoom). At the place the map glides there with
+    // the place kept where it sits; moved away, it zooms where it is, and the way back returns
+    // at the new zoom.
+    function stepZoom(direction) {
+        const atHome = !moved
+        const from = homeAnim.running ? homeZoomAnim.to
+                   : stepAnim.running ? stepAnim.to : Math.round(map.zoomLevel)
+        const to = Math.max(minimumZoom, Math.min(maximumZoom, from + direction))
+        if (atHome) {
+            homeAnim.stop()
+            homeCenterAnim.to = homeCenter(to)
+            homeZoomAnim.to = to
+            homeAnim.start()
+        } else {
+            stepAnim.to = to
+            stepAnim.restart()
+            returnTimer.restart()
+        }
+        Settings.setValue("weatherRadarDefaultZoom", to)
     }
 
     // The Map's own minimumZoomLevel and maximumZoomLevel do not hold it there (the OSM plugin
@@ -129,6 +155,13 @@ Item {
         BasemapSwitch {
             geoMap: map
             allowMml: false
+        }
+
+        // Any press at all, moved or not. A passive grab, so the pan and pinch handlers still
+        // take the gesture.
+        PointHandler {
+            enabled: root.interactive
+            onActiveChanged: if (active) root.touched()
         }
 
         DragHandler {
@@ -207,6 +240,14 @@ Item {
             duration: 500
             easing.type: Easing.OutCubic
         }
+    }
+
+    NumberAnimation {
+        id: stepAnim
+        target: map
+        property: "zoomLevel"
+        duration: 300
+        easing.type: Easing.OutCubic
     }
 
     RadarLayer {

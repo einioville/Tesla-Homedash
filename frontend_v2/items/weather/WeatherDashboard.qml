@@ -441,7 +441,7 @@ Item {
             anchors.fill: parent
             latitude: root.wx.meta.lat
             longitude: root.wx.meta.lon
-            zoom: 8.0
+            zoom: Theme.weatherRadarDefaultZoom
             placeOffset: Qt.point(0, -20)
             active: root.active
             interactive: root.interactive
@@ -464,6 +464,21 @@ Item {
             sourceItem: radar
             live: root.active
             brightness: -0.05
+        }
+        // The zoom buttons, out of sight until the map is touched, as on the home map.
+        MapTouchReveal {
+            id: radarZoomReveal
+            teslaMap: radar
+        }
+        MapZoomButtons {
+            anchors.right: parent.right
+            anchors.rightMargin: 12
+            anchors.bottom: parent.bottom
+            anchors.bottomMargin: 12
+            teslaMap: radar
+            frost: radarFrost
+            shown: radarZoomReveal.shown
+            onUsed: radarZoomReveal.poke()
         }
         WeatherRadarControls {
             anchors.horizontalCenter: parent.horizontalCenter

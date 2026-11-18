@@ -352,6 +352,10 @@ QtObject {
     // same pan/pinch/wheel handlers.
     // Zoom the map returns to when auto-follow resumes after a gesture.
     readonly property real mapDefaultZoom: Settings.values.mapDefaultZoom
+    // The Weather view's radar map opens at and returns to this, and its zoom buttons write it
+    // (WeatherRadarMap.stepZoom); its own range, all of Finland (5) to a town (10), does not meet
+    // the street maps' 10–19 (#93).
+    readonly property real weatherRadarDefaultZoom: Settings.values.weatherRadarDefaultZoom
     // Multiplier on pan/pinch/wheel response, the same levels as graphSensitivity.
     // At "normal" (1.0) a drag is EXACT 1:1 — the grabbed point stays under the
     // finger — so any other level deliberately trades that away for reach.

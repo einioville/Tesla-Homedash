@@ -474,6 +474,17 @@
                             "apply": "live"
                         },
                         {
+                            "key": "weatherRadarDefaultZoom",
+                            "type": "int",
+                            "label": "Oletuszoomaus (sää)",
+                            "hidden": true,
+                            "min": 5,
+                            "max": 10,
+                            "step": 1,
+                            "default": 8,
+                            "apply": "live"
+                        },
+                        {
                             "key": "mapGestureSensitivity",
                             "type": "enum",
                             "label": "Eleherkkyys",
