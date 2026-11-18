@@ -361,17 +361,23 @@ Window {
                : Settings.values.screenOffMin * 60000
     }
 
-    // An update rewrote this binary while the app was running, so the file on
-    // disk is no longer the one this process is executing — only a restart picks
-    // it up. Routed here rather than inside the Options view for the same reason
-    // the Spotify prompt is: a rebuild takes minutes, and the user is free to
-    // walk away to the dashboard while it runs. Settings::restartApp() quits with
-    // exit code 42 so the service unit relaunches it.
+    // Pre-releases count only on a display that shows them (Ylläpito › Päivitys).
+    Binding {
+        target: Updater
+        property: "showPrereleases"
+        value: Settings.values.updateShowPrereleases === true
+    }
+
+    // A release the backend's device could move to, said once each time a newer
+    // one appears (the backend lists them every few hours); the Päivitys card
+    // marks it too.
     Connections {
         target: Updater
 
-        function onRestartRequested() {
-            Settings.restartApp()
+        function onNewReleaseChanged() {
+            if (Updater.newRelease !== "")
+                Notifications.post("update", qsTr("Uusi versio %1 on saatavilla: Asetukset › Ylläpito › Päivitys")
+                                   .arg(Updater.newRelease))
         }
     }
 

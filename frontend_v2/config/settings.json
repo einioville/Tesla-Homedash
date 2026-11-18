@@ -711,8 +711,23 @@
             "id": "maintenance",
             "icon": "system",
             "label": "Ylläpito",
-            "sectionOrder": ["connection", "displays", "restart", "logs"],
+            "sectionOrder": ["update", "connection", "displays", "restart", "logs"],
             "sections": [
+                {
+                    "id": "update",
+                    "label": "Päivitys",
+                    "status": "appUpdate",
+                    "settings": [
+                        {
+                            "key": "updateShowPrereleases",
+                            "type": "bool",
+                            "label": "Näytä esijulkaisut",
+                            "help": "Listaa myös testiversiot (esim. v2.1.0-rc1).",
+                            "default": false,
+                            "apply": "live"
+                        }
+                    ]
+                },
                 {
                     "id": "connection",
                     "label": "Yhteydet",

@@ -441,11 +441,6 @@ ExecStart=%h/.local/bin/uv run python run.py
 # not, because this unit is wanted by default.target rather than
 # graphical-session.target. Drop this line if you do not use that setting.
 Environment=WAYLAND_DISPLAY=wayland-1
-# The in-app updater rebuilds the dashboard from source, and this unit is what
-# runs that build (its card is out of the Options view for now, see #56). A --user unit inherits none of your login shell's
-# environment, so point it at the Qt kit you installed. Drop this line only if
-# the kit is in ~/Qt/<version>/gcc_arm64, which is found automatically.
-Environment=QTDIR=%h/Qt/6.12.0/gcc_arm64
 Restart=on-failure
 RestartSec=5
 
@@ -512,21 +507,27 @@ WantedBy=graphical-session.target
 
 ### Updating
 
-The Options view has no update card for now. The in-app updater is being reworked so that it
-installs **release versions only**, and lets you pick any release rather than just the newest
-one ([#56](https://github.com/einioville/Tesla-Homedash/issues/56)). Until then, update over SSH:
+Releases are published on the [Releases page](https://github.com/einioville/Tesla-Homedash/releases),
+from v2.0.0 on. A device installs them itself from **Asetukset › Ylläpito › Päivitys**: the card lists
+the releases, marks a new one (and says so in a notification), and installs the one you pick, newer
+or older, beside the running one. It checks each release's signature first, and switches only once
+everything is in place; if the new version does not come up within five minutes, the previous one is
+put back by itself. Going back to an older release restores the settings you had when you left it.
+*Näytä esijulkaisut* lists the test versions too.
+
+**Moving a device from a git checkout onto releases** is one command, once v2.0.0 is out:
 
 ```bash
-cd ~/Tesla-Homedash
-git fetch --tags
-git checkout --detach v1.0.0        # the release to install
-./scripts/build-frontend.sh --config Release
-(cd backend && ~/.local/bin/uv sync --locked)
-systemctl --user restart tesla-homedash-backend.service tesla-homedash-frontend.service
+curl -fsSL https://github.com/einioville/Tesla-Homedash/releases/latest/download/install.sh | bash
 ```
 
-`config.json`, `.env` and the dashboard's own settings file are all outside the repository
-or gitignored, so an update never touches them.
+It installs that release under `~/.local/share/Tesla-Homedash`, moves `.env` from `~/Tesla-Homedash`
+to `~/.config/Tesla-Homedash/.env`, and rewrites the two service units to start the installed release,
+keeping the old ones as `.bak`. For a backend-only host, pipe it to `bash -s -- --no-display`. A
+development machine keeps running from its checkout and updates with git; its card says so.
+
+`config.json`, `.env` and the dashboard's own settings file live outside the release folders, so an
+update never replaces them.
 
 ### Rebooting the device from the dashboard (Laitteen uudelleenkäynnistys)
 

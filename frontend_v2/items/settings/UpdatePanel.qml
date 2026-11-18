@@ -1,625 +1,330 @@
 import QtQuick
 import frontend_v2
 
-// The "Päivitys" card: which version this dashboard is running, which one the
-// selected channel offers, and the one button that moves between them.
+// The Ylläpito › Päivitys card's status widget (#56): what the backend's device runs, the
+// releases it could move to, and an install while it runs. The backend does all of it
+// (backend/src/update_service/CLAUDE.md; Updater in core/CLAUDE.md); this lists, asks and shows.
+// The card's one row, under it, is Näytä esijulkaisut.
 //
-// Rendered from the subsection's `status: "appUpdate"` key, the same hook the
-// backend probe and the screen-power status use; no subsection names it while
-// the card is out of the schema (#56). Everything it shows is the backend's
-// UPDATE_STATE document, read defensively out of an opaque map — a deployment
-// with no git reports `available: false` and this card explains that rather
-// than offering a button that could not work.
-//
-// The CHANNEL SELECTOR lives here rather than as a settings row below. It decides
-// what the verdict underneath it says, so it has to come first; and a two-way
-// choice on a 10" touch panel is a pair of segments you hit with a fingertip, not
-// a dropdown. Its value is `updateChannel`, which no schema defines at present:
-// it reads as "development", and a write goes to the backend and is refused.
-Item {
-    id: panel
+// Asenna takes a second tap within 4 s, the Options view's guard for a button with no way back
+// (SettingAction): a dialog would need a way to dismiss it, which a keyboard-less panel lacks. The
+// warnings for that move show while the row is open.
+Column {
+    id: root
 
-    readonly property string channel: {
-        const saved = Settings.values.updateChannel
-        return saved === "releases" ? "releases" : "development"
+    readonly property var doc: Updater.state
+    readonly property var current: doc.current !== undefined ? doc.current : ({})
+    readonly property var job: doc.job !== undefined && doc.job !== null ? doc.job : null
+    readonly property bool development: doc.mode === "development"
+    readonly property var releases: {
+        const all = doc.releases !== undefined ? doc.releases : []
+        return all.filter(r => Updater.showPrereleases || !r.prerelease || r.direction === "current")
     }
-    readonly property var current: Updater.state.current !== undefined
-                                   ? Updater.state.current : ({})
-    // Indexed straight out of `Updater.state`, NOT through a Q_INVOKABLE helper.
-    // Calling an invokable registers no property dependency, so a binding built
-    // on one never re-evaluates: the card would freeze on whatever state existed
-    // when the Loader constructed it, while the sibling bindings that do read
-    // `Updater.state` keep refreshing around it — a check time updating above a
-    // stale version.
-    readonly property var target: {
-        const channels = Updater.state.channels
-        if (channels === undefined || channels === null)
-            return ({})
-        const entry = channels[panel.channel]
-        return entry !== undefined && entry !== null ? entry : ({})
-    }
-    readonly property var job: Updater.state.job !== undefined && Updater.state.job !== null
-                               ? Updater.state.job : ({})
-    readonly property bool hasJob: Object.keys(panel.job).length > 0
-    readonly property string verdict: target.verdict !== undefined ? target.verdict : "unknown"
-    readonly property var dirtyFiles: Updater.state.dirtyFiles !== undefined
-                                      ? Updater.state.dirtyFiles : []
-
-    // What stops an update right now, in the order the user should fix it. Empty
-    // means the button is live.
-    readonly property string blocker: {
-        if (!Server.connected)
-            return qsTr("Ei yhteyttä palvelimeen")
-        if (Updater.loaded && !Updater.available)
-            return Updater.reason
-        if (Updater.state.dirty === true)
-            return qsTr("Työhakemistossa on paikallisia muutoksia — päivitys ei ylikirjoita niitä")
-        if (verdict === "unknown")
-            return target.message !== undefined && target.message.length > 0
-                   ? target.message : qsTr("Kohdeversiota ei voitu selvittää")
-        // A target that does not itself carry the update card is a one-way door
-        // on a device with no keyboard, so the backend refuses it and says so.
-        if (verdict !== "up_to_date" && target.eligible === false)
-            return target.eligibleReason !== undefined && target.eligibleReason.length > 0
-                   ? target.eligibleReason : qsTr("Kohdeversioon ei voi siirtyä")
-        // Everything a run needs, checked before the button rather than ten
-        // minutes into it: uv, the build script, a Qt kit, disk headroom.
-        const tools = Updater.state.tools !== undefined ? Updater.state.tools : ({})
-        if (tools.blocker !== undefined && tools.blocker.length > 0)
-            return tools.blocker
-        return ""
+    // A display on another device than the backend runs the release it was installed with; one
+    // on the backend's own device switches together with it.
+    readonly property bool displayBehind: /^v\d/.test(Updater.appVersion)
+                                          && /^v\d/.test(Server.backendVersion)
+                                          && Updater.appVersion !== Server.backendVersion
+    readonly property var status: {
+        if (!Updater.loaded)
+            return { level: "unknown", text: qsTr("Haetaan tietoja…") }
+        if (development)
+            return { level: "unknown", text: Updater.reason }
+        if (doc.rollback)
+            return { level: "error",
+                     text: qsTr("%1 ei toiminut, joten %2 palautettiin (%3)")
+                           .arg(doc.rollback.failed).arg(doc.rollback.restored)
+                           .arg(doc.rollback.reason === "crashloop" ? qsTr("kaatui käynnistyessään")
+                                                                   : qsTr("ei vastannut 5 minuutissa")) }
+        if (doc.health)
+            return { level: "warn", text: qsTr("Varmistetaan, että %1 toimii…").arg(doc.health.to) }
+        if (doc.checkError)
+            return { level: "warn", text: doc.checkError }
+        if (Updater.newRelease !== "")
+            return { level: "warn", text: qsTr("Uusi versio %1 on saatavilla").arg(Updater.newRelease) }
+        return { level: "ok", text: qsTr("Ajan tasalla") }
     }
 
-    readonly property bool canUpdate: blocker.length === 0 && !Updater.busy
-                                      && verdict !== "up_to_date"
-                                      && target.eligible === true
-                                      && target.commit !== undefined
-                                      && target.commit.length > 0
+    // The open row, and the one whose Asenna waits for its second tap.
+    property string expanded: ""
+    property string armed: ""
 
-    implicitHeight: content.implicitHeight
+    width: parent ? parent.width : 0
+    spacing: 12
 
-    // Asking is gated on being on screen: the check contacts the remote, and a
-    // settings section nobody opened must not do that.
     onVisibleChanged: Updater.active = visible
     Component.onCompleted: Updater.active = visible
     Component.onDestruction: Updater.active = false
 
-    // A tap arms, a second tap within four seconds runs — the same second-tap
-    // confirmation SettingAction uses for the restart buttons, and for the same
-    // reason: a stray palm must not start a ten-minute rebuild, and a modal would
-    // need somewhere to put a Cancel button on a keyboard-less panel.
-    property bool armed: false
-
     Timer {
         id: disarm
         interval: 4000
-        onTriggered: panel.armed = false
+        onTriggered: root.armed = ""
     }
 
-    // Arming is meaningless once the target or the ability to act on it changes.
-    onCanUpdateChanged: { armed = false; disarm.stop() }
-
-    function fmtDate(iso) {
-        if (iso === undefined || iso === null || iso.length === 0)
-            return ""
-        const date = new Date(iso)
-        return isNaN(date.getTime()) ? "" : Qt.formatDateTime(date, "d.M.yyyy HH:mm")
+    function dateText(iso) {
+        return iso ? new Date(iso).toLocaleDateString(Qt.locale("fi_FI"), "d.M.yyyy") : ""
     }
 
-    function fmtClock(ms) {
-        if (ms === undefined || ms === null)
-            return ""
-        return Qt.formatDateTime(new Date(ms), "HH:mm")
+    function warningFor(release) {
+        if (release.direction !== "downgrade")
+            return qsTr("Laite käynnistyy uudelleen. Jos uusi versio ei toimi viidessä minuutissa, "
+                        + "edellinen palautetaan itsestään.")
+        if (release.snapshot)
+            return qsTr("Asetukset palautetaan sellaisiksi kuin ne olivat, kun versiosta %1 "
+                        + "siirryttiin pois. Sen jälkeen tehdyt muutokset menetetään.").arg(release.tag)
+        return qsTr("Versiota %1 ei ole ajettu tällä laitteella: se käynnistyy nykyisillä asetuksilla, "
+                    + "joista se ei välttämättä tunne kaikkia.").arg(release.tag)
     }
 
-    function verdictColor(name) {
-        switch (name) {
-        case "up_to_date": return "#4ade80"
-        case "update":     return Theme.accent
-        case "downgrade":  return "#ffb020"
-        case "switch":     return "#ffb020"
-        default:           return Theme.dataLabelTitle
+    component Note: Text {
+        width: root.width
+        wrapMode: Text.WordWrap
+        font.family: Theme.fontFamily
+        font.pixelSize: 12
+        color: Theme.dataLabelTitle
+    }
+
+    component Badge: Rectangle {
+        property alias text: badgeText.text
+        property color tint: Theme.accent
+        width: badgeText.implicitWidth + 12
+        height: 18
+        radius: 9
+        color: Qt.rgba(tint.r, tint.g, tint.b, 0.18)
+
+        Text {
+            id: badgeText
+            anchors.centerIn: parent
+            font.family: Theme.fontFamily
+            font.pixelSize: 11
+            color: parent.tint
         }
     }
 
-    function verdictText(name) {
-        switch (name) {
-        case "up_to_date": return qsTr("Ajan tasalla")
-        case "update":     return qsTr("Päivitys saatavilla")
-        case "downgrade":  return qsTr("Tarjolla on vanhempi versio")
-        case "switch":     return qsTr("Eri kehityshaara")
-        default:           return qsTr("Tuntematon")
-        }
-    }
-
-    // The action's own wording. A downgrade and a branch switch are not
-    // "updates", and calling them that on the button would be a lie about what
-    // the next tap does.
-    function actionText() {
-        const name = target.label !== undefined ? target.label : ""
-        switch (verdict) {
-        case "update":    return qsTr("Päivitä") + (name.length > 0 ? " → " + name : "")
-        case "downgrade": return qsTr("Palaa versioon") + " " + name
-        case "switch":    return qsTr("Vaihda versioon") + " " + name
-        default:          return qsTr("Päivitä")
-        }
-    }
-
-    function distanceText() {
-        const ahead = target.ahead !== undefined ? target.ahead : 0
-        const behind = target.behind !== undefined ? target.behind : 0
-        if (verdict === "update" && ahead > 0)
-            return ahead + " " + qsTr("uutta committia")
-        if (verdict === "downgrade" && behind > 0)
-            return behind + " " + qsTr("committia taaksepäin")
-        if (verdict === "switch")
-            return ahead + " " + qsTr("eteen") + ", " + behind + " " + qsTr("taakse")
-        return ""
-    }
-
-    Column {
-        id: content
-        anchors.left: parent.left
-        anchors.right: parent.right
-        spacing: 10
-
-        // --- Channel ------------------------------------------------------
-        Row {
-            spacing: 10
-
-            Text {
-                anchors.verticalCenter: parent.verticalCenter
-                text: qsTr("Päivityskanava")
-                font.family: Theme.fontFamily
-                font.pixelSize: 12
-                color: Theme.dataLabelTitle
+    SettingDetails {
+        width: root.width
+        level: root.status.level
+        statusText: root.status.text
+        rows: {
+            const out = [{ label: qsTr("Versio"), value: root.current.version || "—" }]
+            if (root.development) {
+                out.push({ label: qsTr("Commit"), value: (root.current.commit || "").substring(0, 7) || "—" })
+                return out
             }
+            if (root.doc.lastSwitch)
+                out.push({ label: qsTr("Asennettu"),
+                           value: qsTr("%1 → %2, %3").arg(root.doc.lastSwitch.from)
+                                  .arg(root.doc.lastSwitch.to).arg(Format.moment(root.doc.lastSwitch.atMs)) })
+            out.push({ label: qsTr("Tarkistettu"),
+                       value: root.doc.checkedMs ? Format.moment(root.doc.checkedMs) : "—" })
+            return out
+        }
+    }
 
+    Note {
+        visible: root.displayBehind
+        color: "#ffd48a"
+        text: qsTr("Päivitä tämä näyttö: näyttö on %1, palvelin %2. Näyttö päivitetään omalla laitteellaan.")
+              .arg(Updater.appVersion).arg(Server.backendVersion)
+    }
+
+    // An install: running, or how the last one ended.
+    Column {
+        width: root.width
+        spacing: 6
+        visible: root.job !== null
+
+        Text {
+            width: root.width
+            wrapMode: Text.WordWrap
+            text: Updater.busy ? qsTr("Asennetaan %1").arg(root.job ? root.job.tag : "")
+                               : (root.job ? root.job.message : "")
+            font.family: Theme.fontFamily
+            font.pixelSize: 14
+            color: Updater.busy || root.job === null ? Theme.dataLabelValue
+                 : root.job.ok ? "#4ade80" : "#f87171"
+        }
+
+        Repeater {
+            model: root.job ? root.job.steps : []
             Row {
-                spacing: 0
+                id: step
+                required property var modelData
+                spacing: 8
 
-                Repeater {
-                    model: [
-                        { "value": "development", "label": qsTr("Kehitys") },
-                        { "value": "releases", "label": qsTr("Julkaisut") }
-                    ]
+                Rectangle {
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 8
+                    height: 8
+                    radius: 4
+                    color: step.modelData.state === "done" ? "#4ade80"
+                         : step.modelData.state === "running" ? Theme.accent
+                         : step.modelData.state === "failed" ? "#f87171" : "#55ffffff"
+                }
+                Text {
+                    text: step.modelData.label
+                    font.family: Theme.fontFamily
+                    font.pixelSize: 12
+                    color: step.modelData.state === "pending" ? Theme.dataLabelTitle : Theme.dataLabelValue
+                }
+            }
+        }
 
-                    Rectangle {
-                        required property int index
-                        required property var modelData
+        Rectangle {
+            readonly property var progress: root.job ? root.job.progress : null
+            visible: Updater.busy && progress !== null && progress !== undefined && progress.total > 0
+                     && root.job.stepId === "download"
+            width: root.width
+            height: 4
+            radius: 2
+            color: "#33ffffff"
 
-                        readonly property bool selected: panel.channel === modelData.value
+            Rectangle {
+                width: parent.visible ? parent.width * Math.min(1, parent.progress.done / parent.progress.total) : 0
+                height: parent.height
+                radius: 2
+                color: Theme.accent
+            }
+        }
 
-                        width: 108
-                        height: 32
-                        color: selected ? Theme.accent
-                             : (segmentTap.pressed ? Theme.tripComboPressed : Theme.tripComboBg)
-                        border.width: 1
-                        border.color: selected ? Theme.accent : Theme.tripCardBorder
-                        // One pill split in two: only the outer corners round, so
-                        // the pair reads as a single control rather than as two
-                        // buttons that happen to be adjacent.
-                        topLeftRadius: index === 0 ? 8 : 0
-                        bottomLeftRadius: index === 0 ? 8 : 0
-                        topRightRadius: index === 1 ? 8 : 0
-                        bottomRightRadius: index === 1 ? 8 : 0
+        Note {
+            visible: root.job !== null && root.job.log.length > 0 && (Updater.busy || !root.job.ok)
+            text: root.job ? root.job.log.slice(-6).join("\n") : ""
+            font.family: "monospace"
+            font.pixelSize: 11
+            maximumLineCount: 6
+            elide: Text.ElideRight
+        }
 
-                        Behavior on color {
-                            ColorAnimation { duration: Theme.pressDuration }
-                        }
+        DialogButton {
+            visible: root.job !== null && root.job.cancellable === true
+            label: qsTr("Peruuta")
+            onActivated: Updater.cancel()
+        }
+    }
+
+    // The releases, newest first.
+    Column {
+        width: root.width
+        visible: !root.development && root.releases.length > 0
+
+        Repeater {
+            model: root.releases
+
+            Item {
+                id: row
+                required property var modelData
+                readonly property bool open: root.expanded === modelData.tag
+                readonly property bool isArmed: root.armed === modelData.tag
+
+                width: root.width
+                height: content.implicitHeight + 20
+
+                Rectangle {
+                    width: parent.width
+                    height: 1
+                    color: "#1fffffff"
+                }
+
+                MouseArea {
+                    anchors.fill: parent
+                    onClicked: root.expanded = row.open ? "" : row.modelData.tag
+                }
+
+                Column {
+                    id: content
+                    y: 10
+                    width: parent.width
+                    spacing: 6
+
+                    Row {
+                        spacing: 8
 
                         Text {
-                            anchors.centerIn: parent
-                            text: modelData.label
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: row.modelData.tag
                             font.family: Theme.fontFamily
-                            font.pixelSize: 13
-                            color: parent.selected ? "#08192b" : Theme.dataLabelValue
+                            font.pixelSize: 14
+                            color: Theme.dataLabelValue
                         }
+                        Badge {
+                            anchors.verticalCenter: parent.verticalCenter
+                            visible: row.modelData.direction === "current"
+                            text: qsTr("Käytössä")
+                            tint: "#4ade80"
+                        }
+                        Badge {
+                            anchors.verticalCenter: parent.verticalCenter
+                            visible: row.modelData.tag === Updater.newRelease
+                            text: qsTr("Uusi")
+                        }
+                        Badge {
+                            anchors.verticalCenter: parent.verticalCenter
+                            visible: row.modelData.prerelease
+                            text: qsTr("Esijulkaisu")
+                            tint: "#ffb020"
+                        }
+                        Text {
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: [root.dateText(row.modelData.publishedAt),
+                                   row.modelData.size > 0 && row.modelData.installable
+                                       ? Format.bytes(row.modelData.size) : ""]
+                                  .filter(s => s !== "").join(" · ")
+                            font.family: Theme.fontFamily
+                            font.pixelSize: 12
+                            color: Theme.dataLabelTitle
+                        }
+                    }
 
-                        MouseArea {
-                            id: segmentTap
-                            anchors.fill: parent
-                            // Nothing may change the target under a run that is
-                            // already applying one.
-                            enabled: !Updater.busy
-                            onClicked: {
-                                if (!parent.selected)
-                                    Settings.setValue("updateChannel", modelData.value)
+                    Note {
+                        visible: !row.modelData.installable && row.modelData.direction !== "current"
+                                 && row.modelData.reason !== ""
+                        text: row.modelData.reason
+                        color: "#ffd48a"
+                    }
+
+                    Note {
+                        visible: row.open && row.modelData.notes !== ""
+                        text: row.modelData.notes
+                        maximumLineCount: 12
+                        elide: Text.ElideRight
+                    }
+
+                    Note {
+                        visible: row.open && row.modelData.installable
+                        text: root.warningFor(row.modelData)
+                        color: row.modelData.direction === "downgrade" && !row.modelData.snapshot
+                               ? "#f87171" : "#ffd48a"
+                    }
+
+                    DialogButton {
+                        visible: row.open && row.modelData.installable && !Updater.busy
+                        primary: row.isArmed
+                        label: row.isArmed ? qsTr("Vahvista: asenna %1").arg(row.modelData.tag)
+                                           : (row.modelData.direction === "downgrade"
+                                              ? qsTr("Palaa versioon %1").arg(row.modelData.tag)
+                                              : qsTr("Asenna %1").arg(row.modelData.tag))
+                        onActivated: {
+                            if (row.isArmed) {
+                                root.armed = ""
+                                disarm.stop()
+                                Updater.apply(row.modelData.tag)
+                            } else {
+                                root.armed = row.modelData.tag
+                                disarm.restart()
                             }
                         }
                     }
                 }
             }
-
-            Text {
-                anchors.verticalCenter: parent.verticalCenter
-                text: Updater.checking
-                      ? qsTr("Tarkistetaan…")
-                      : (Updater.state.fetchedMs
-                         ? qsTr("Tarkistettu klo") + " " + panel.fmtClock(Updater.state.fetchedMs)
-                         : "")
-                font.family: Theme.fontFamily
-                font.pixelSize: 11
-                color: Theme.dataLabelTitle
-            }
         }
+    }
 
-        // --- Versions -----------------------------------------------------
-        Row {
-            width: parent.width
-            spacing: 24
-            visible: Updater.loaded && Updater.available
-
-            // Asymmetric on purpose: the running version is a fact, the offered
-            // one is the decision, so the offered column gets the extra room for
-            // its commit subject.
-            Column {
-                width: (parent.width - 24) * 0.42
-                spacing: 2
-
-                Text {
-                    text: qsTr("Käytössä")
-                    font.family: Theme.fontFamily
-                    font.pixelSize: 11
-                    color: Theme.dataLabelTitle
-                }
-                Text {
-                    width: parent.width
-                    elide: Text.ElideRight
-                    text: (panel.current.label !== undefined && panel.current.label.length > 0
-                           ? panel.current.label : "—")
-                          + (Updater.state.branch !== undefined && Updater.state.branch.length > 0
-                             ? "  ·  " + Updater.state.branch : "")
-                    font.family: Theme.fontFamily
-                    font.pixelSize: 16
-                    color: Theme.dataLabelValue
-                }
-                Text {
-                    width: parent.width
-                    elide: Text.ElideRight
-                    text: panel.fmtDate(panel.current.date)
-                    font.family: Theme.fontFamily
-                    font.pixelSize: 11
-                    color: Theme.dataLabelTitle
-                }
-                Text {
-                    width: parent.width
-                    elide: Text.ElideRight
-                    visible: text.length > 0
-                    text: panel.current.subject !== undefined ? panel.current.subject : ""
-                    font.family: Theme.fontFamily
-                    font.pixelSize: 11
-                    color: Theme.dataLabelTitle
-                }
-            }
-
-            Column {
-                width: (parent.width - 24) * 0.58
-                spacing: 2
-
-                Text {
-                    text: qsTr("Tarjolla")
-                    font.family: Theme.fontFamily
-                    font.pixelSize: 11
-                    color: Theme.dataLabelTitle
-                }
-
-                Row {
-                    width: parent.width
-                    spacing: 8
-
-                    Text {
-                        text: (panel.target.label !== undefined && panel.target.label.length > 0
-                               ? panel.target.label : "—")
-                        font.family: Theme.fontFamily
-                        font.pixelSize: 16
-                        color: Theme.dataLabelValue
-                    }
-
-                    Rectangle {
-                        anchors.verticalCenter: parent.verticalCenter
-                        width: verdictLabel.implicitWidth + 16
-                        height: 20
-                        radius: 10
-                        color: Qt.rgba(0, 0, 0, 0.25)
-                        border.width: 1
-                        border.color: panel.verdictColor(panel.verdict)
-
-                        Text {
-                            id: verdictLabel
-                            anchors.centerIn: parent
-                            text: panel.verdictText(panel.verdict)
-                            font.family: Theme.fontFamily
-                            font.pixelSize: 11
-                            color: panel.verdictColor(panel.verdict)
-                        }
-                    }
-
-                    Text {
-                        anchors.verticalCenter: parent.verticalCenter
-                        visible: text.length > 0
-                        text: panel.distanceText()
-                        font.family: Theme.fontFamily
-                        font.pixelSize: 11
-                        color: Theme.dataLabelTitle
-                    }
-                }
-
-                Text {
-                    width: parent.width
-                    elide: Text.ElideRight
-                    text: panel.fmtDate(panel.target.date)
-                    font.family: Theme.fontFamily
-                    font.pixelSize: 11
-                    color: Theme.dataLabelTitle
-                }
-                Text {
-                    width: parent.width
-                    elide: Text.ElideRight
-                    visible: text.length > 0
-                    text: panel.target.subject !== undefined ? panel.target.subject : ""
-                    font.family: Theme.fontFamily
-                    font.pixelSize: 11
-                    color: Theme.dataLabelTitle
-                }
-            }
-        }
-
-        // --- Why the button is not live -----------------------------------
-        Column {
-            width: parent.width
-            spacing: 2
-            visible: panel.blocker.length > 0 && !panel.hasJob
-
-            Text {
-                width: parent.width
-                wrapMode: Text.WordWrap
-                text: panel.blocker
-                font.family: Theme.fontFamily
-                font.pixelSize: 12
-                color: "#ffd48a"
-            }
-
-            // Naming the files is the whole point: "there are local changes" on a
-            // screen with no shell is not something the user can act on.
-            Repeater {
-                model: panel.dirtyFiles
-
-                Text {
-                    required property var modelData
-                    width: content.width
-                    elide: Text.ElideMiddle
-                    text: "· " + modelData
-                    font.family: Theme.fontFamily
-                    font.pixelSize: 10
-                    color: Theme.dataLabelTitle
-                }
-            }
-        }
-
-        // --- Actions ------------------------------------------------------
-        Row {
-            spacing: 10
-            visible: !Updater.busy
-
-            Rectangle {
-                width: 150
-                height: 34
-                radius: 8
-                opacity: Server.connected && !Updater.checking ? 1.0 : 0.4
-                color: checkTap.pressed ? Theme.tripComboPressed : Theme.tripComboBg
-                border.width: 1
-                border.color: Theme.tripCardBorder
-
-                Text {
-                    anchors.centerIn: parent
-                    text: qsTr("Tarkista")
-                    font.family: Theme.fontFamily
-                    font.pixelSize: 13
-                    color: Theme.dataLabelValue
-                }
-
-                MouseArea {
-                    id: checkTap
-                    anchors.fill: parent
-                    enabled: Server.connected && !Updater.checking
-                    onClicked: Updater.check(true)
-                }
-            }
-
-            Rectangle {
-                width: Math.max(190, actionLabel.implicitWidth + 32)
-                height: 34
-                radius: 8
-                opacity: panel.canUpdate ? 1.0 : 0.4
-                color: !panel.armed
-                       ? (applyTap.pressed ? Theme.tripComboPressed : Theme.tripComboBg)
-                       : (applyTap.pressed ? "#ccffb020" : "#99ffb020")
-                border.width: 1
-                border.color: panel.armed ? "#80ffb020" : Theme.tripCardBorder
-
-                Behavior on color {
-                    ColorAnimation { duration: Theme.pressDuration }
-                }
-
-                Text {
-                    id: actionLabel
-                    anchors.centerIn: parent
-                    text: panel.armed ? qsTr("Vahvista") : panel.actionText()
-                    font.family: Theme.fontFamily
-                    font.pixelSize: 13
-                    color: panel.armed ? "#1a1206" : Theme.dataLabelValue
-                }
-
-                MouseArea {
-                    id: applyTap
-                    anchors.fill: parent
-                    enabled: panel.canUpdate
-                    onClicked: {
-                        if (panel.armed) {
-                            panel.armed = false
-                            disarm.stop()
-                            Updater.apply(panel.channel, panel.target.commit)
-                        } else {
-                            panel.armed = true
-                            disarm.restart()
-                        }
-                    }
-                }
-            }
-        }
-
-        // --- The run ------------------------------------------------------
-        Column {
-            width: parent.width
-            spacing: 6
-            visible: panel.hasJob
-
-            Rectangle {
-                width: parent.width
-                height: 1
-                color: "#1affffff"
-            }
-
-            Text {
-                width: parent.width
-                wrapMode: Text.WordWrap
-                visible: text.length > 0
-                text: {
-                    if (panel.job.message !== undefined && panel.job.message.length > 0)
-                        return panel.job.message
-                    if (panel.job.targetLabel !== undefined && panel.job.targetLabel.length > 0)
-                        return qsTr("Päivitetään versioon") + " " + panel.job.targetLabel
-                    return ""
-                }
-                font.family: Theme.fontFamily
-                font.pixelSize: 13
-                color: panel.job.ok === false ? "#f87171"
-                     : panel.job.ok === true ? "#4ade80" : Theme.dataLabelValue
-            }
-
-            // Step list. A failed run leaves the steps after the failure PENDING
-            // rather than marking them failed: they never ran, and saying
-            // otherwise would point at the wrong step.
-            Repeater {
-                model: panel.job.steps !== undefined ? panel.job.steps : []
-
-                Row {
-                    required property var modelData
-                    spacing: 8
-
-                    Rectangle {
-                        anchors.verticalCenter: parent.verticalCenter
-                        width: 7
-                        height: 7
-                        radius: 3.5
-                        color: modelData.state === "done" ? "#4ade80"
-                             : modelData.state === "running" ? Theme.accent
-                             : modelData.state === "failed" ? "#f87171"
-                             : Theme.sliderGroove
-
-                        SequentialAnimation on opacity {
-                            running: modelData.state === "running"
-                            loops: Animation.Infinite
-                            NumberAnimation { to: 0.25; duration: 600 }
-                            NumberAnimation { to: 1.0; duration: 600 }
-                        }
-                    }
-
-                    Text {
-                        text: modelData.label
-                        font.family: Theme.fontFamily
-                        font.pixelSize: 12
-                        color: modelData.state === "pending"
-                               ? Theme.dataLabelTitle : Theme.dataLabelValue
-                    }
-                }
-            }
-
-            // The tail of the command output. A build that fails explains itself
-            // in its last few lines, and on this device there is no journal to
-            // go and read instead.
-            Column {
-                width: parent.width
-                spacing: 0
-                visible: logView.count > 0
-
-                Repeater {
-                    id: logView
-                    model: {
-                        const lines = panel.job.log !== undefined ? panel.job.log : []
-                        return lines.slice(Math.max(0, lines.length - 6))
-                    }
-
-                    Text {
-                        required property var modelData
-                        width: content.width
-                        elide: Text.ElideRight
-                        text: modelData
-                        font.family: "monospace"
-                        font.pixelSize: 10
-                        color: Theme.dataLabelTitle
-                    }
-                }
-            }
-
-            Rectangle {
-                visible: Updater.busy && panel.job.cancellable === true
-                width: 150
-                height: 32
-                radius: 8
-                color: cancelTap.pressed ? Theme.tripComboPressed : Theme.tripComboBg
-                border.width: 1
-                border.color: Theme.tripCardBorder
-
-                Text {
-                    anchors.centerIn: parent
-                    text: qsTr("Peruuta")
-                    font.family: Theme.fontFamily
-                    font.pixelSize: 13
-                    color: Theme.dataLabelValue
-                }
-
-                MouseArea {
-                    id: cancelTap
-                    anchors.fill: parent
-                    onClicked: Updater.cancel()
-                }
-            }
-        }
-
-        // --- This binary is older than the checkout ------------------------
-        // Only possible if a restart was missed (a failed build that still moved
-        // the tree, or a rollback that did not run). Worth saying out loud: every
-        // version figure above describes the REPOSITORY, and until this is
-        // resolved the dashboard on screen is not that version.
-        Text {
-            width: parent.width
-            wrapMode: Text.WordWrap
-            visible: Updater.restartPending
-            text: qsTr("Käyttöliittymä on käännetty versiosta")
-                  + " " + Updater.buildCommit.substring(0, 7) + " — "
-                  + qsTr("käynnistä sovellus uudelleen Ylläpito-osiosta")
-            font.family: Theme.fontFamily
-            font.pixelSize: 12
-            color: "#ffd48a"
-        }
-
-        // --- Where this checkout lives ------------------------------------
-        Text {
-            width: parent.width
-            elide: Text.ElideMiddle
-            visible: Updater.available && text.length > 0
-            text: {
-                const path = Updater.state.repoPath !== undefined ? Updater.state.repoPath : ""
-                const remote = Updater.state.remoteUrl !== undefined ? Updater.state.remoteUrl : ""
-                if (path.length === 0)
-                    return ""
-                return path + (remote.length > 0 ? "  ·  " + remote : "")
-            }
-            font.family: Theme.fontFamily
-            font.pixelSize: 10
-            color: Theme.dataLabelTitle
-        }
+    DialogButton {
+        visible: !root.development && Updater.loaded
+        enabled: !Updater.checking && !Updater.busy
+        label: Updater.checking ? qsTr("Tarkistetaan…") : qsTr("Tarkista päivitykset")
+        onActivated: Updater.check(true)
     }
 }

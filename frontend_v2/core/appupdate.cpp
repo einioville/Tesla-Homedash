@@ -1,6 +1,7 @@
 #include "appupdate.hh"
 
 #include <QJsonObject>
+#include <QVariantList>
 
 #include "appversion.hh"
 #include "logger.hh"
@@ -36,21 +37,7 @@ QString AppUpdate::reason() const {
     return m_state.value(QStringLiteral("reason")).toString();
 }
 
-QString AppUpdate::buildCommit() const { return appversion::commit(); }
-
-bool AppUpdate::restartPending() const {
-    // Only meaningful when both halves are known and nothing is in flight: a run
-    // moves the checkout well before it restarts anything, so during one this
-    // would be true for entirely expected reasons.
-    const QString built = buildCommit();
-    if (built.isEmpty() || busy()) {
-        return false;
-    }
-    const QString head =
-        m_state.value(QStringLiteral("current")).toMap()
-            .value(QStringLiteral("commit")).toString();
-    return !head.isEmpty() && head != built;
-}
+QString AppUpdate::appVersion() const { return appversion::label(); }
 
 bool AppUpdate::busy() const {
     const QVariantMap job = m_state.value(QStringLiteral("job")).toMap();
@@ -68,6 +55,38 @@ void AppUpdate::setActive(bool active) {
     }
 }
 
+void AppUpdate::setShowPrereleases(bool show) {
+    if (show == m_showPrereleases) {
+        return;
+    }
+    m_showPrereleases = show;
+    emit showPrereleasesChanged();
+    updateNewRelease();
+}
+
+void AppUpdate::updateNewRelease() {
+    // The backend sends the list newest first.
+    QString found;
+    const QVariantList releases = m_state.value(QStringLiteral("releases")).toList();
+    for (const QVariant &entry : releases) {
+        const QVariantMap release = entry.toMap();
+        if (release.value(QStringLiteral("prerelease")).toBool() && !m_showPrereleases) {
+            continue;
+        }
+        if (release.value(QStringLiteral("direction")).toString() != QStringLiteral("update")) {
+            break;
+        }
+        if (release.value(QStringLiteral("installable")).toBool()) {
+            found = release.value(QStringLiteral("tag")).toString();
+            break;
+        }
+    }
+    if (found != m_newRelease) {
+        m_newRelease = found;
+        emit newReleaseChanged();
+    }
+}
+
 void AppUpdate::check(bool fetch) {
     if (m_server == nullptr || !m_server->connected()) {
         return;
@@ -79,15 +98,13 @@ void AppUpdate::check(bool fetch) {
         protocol::frame(protocol::UPDATE_GET_STATE, protocol::jsonRequestBody(request)));
 }
 
-void AppUpdate::apply(const QString &channel, const QString &commit) {
-    if (m_server == nullptr || !m_server->connected() || commit.isEmpty()) {
+void AppUpdate::apply(const QString &tag) {
+    if (m_server == nullptr || !m_server->connected() || tag.isEmpty()) {
         return;
     }
     QJsonObject request;
-    request.insert(QStringLiteral("channel"), channel);
-    request.insert(QStringLiteral("commit"), commit);
-    logger.info(QStringLiteral("Requesting update to %1 (%2)")
-                    .arg(commit.left(7), channel));
+    request.insert(QStringLiteral("tag"), tag);
+    logger.info(QStringLiteral("Requesting the install of %1").arg(tag));
     m_server->sendPacket(
         protocol::frame(protocol::UPDATE_APPLY, protocol::jsonRequestBody(request)));
 }
@@ -96,7 +113,7 @@ void AppUpdate::cancel() {
     if (m_server == nullptr || !m_server->connected()) {
         return;
     }
-    logger.info(QStringLiteral("Cancelling the running update"));
+    logger.info(QStringLiteral("Cancelling the running install"));
     m_server->sendPacket(protocol::frame(protocol::UPDATE_CANCEL));
 }
 
@@ -117,32 +134,13 @@ void AppUpdate::onPacket(quint8 type, const QByteArray &payload) {
         logger.warning(QStringLiteral("Malformed UPDATE_STATE"));
         return;
     }
+    setChecking(false);
     if (reply->status != protocol::CONFIG_STATUS_OK) {
         logger.warning(QStringLiteral("Backend could not report the update state"));
-        setChecking(false);
         return;
     }
-    applyDocument(reply->body.toVariantMap());
-}
-
-void AppUpdate::applyDocument(const QVariantMap &document) {
-    m_state = document;
+    m_state = reply->body.toVariantMap();
     m_loaded = true;
-    setChecking(false);
     emit stateChanged();
-
-    // The backend has written a new binary and is about to restart itself; this
-    // process is still running the file it replaced, and only a restart picks
-    // the new one up. Fenced by m_restartedForJobStart.
-    const QVariantMap job = m_state.value(QStringLiteral("job")).toMap();
-    if (job.isEmpty() || !job.value(QStringLiteral("restartFrontend")).toBool()) {
-        return;
-    }
-    const qint64 startedMs = job.value(QStringLiteral("startedMs")).toLongLong();
-    if (startedMs == 0 || startedMs == m_restartedForJobStart) {
-        return;
-    }
-    m_restartedForJobStart = startedMs;
-    logger.info(QStringLiteral("Update complete; restarting to run the new build"));
-    emit restartRequested();
+    updateNewRelease();
 }

@@ -408,34 +408,30 @@ ever started from this screen.
 
 ## `Updater` — `appupdate.{hh,cpp}`
 
-In-place app updates: `items/settings/UpdatePanel.qml` as the `appUpdate` widget of a *Päivitys*
-subsection, which is **out of `config/settings.json`** until the release-only rework (#56). The
-singleton, the banner, the screensaver inhibit and the backend service stay wired, so restoring the
-card is one schema entry — first in Ylläpito, which a local subsection gets for free since local
-ones fold in first. **This side runs no process**: the backend does the git work, the sync and the
-rebuild (`backend/src/update_service/CLAUDE.md`); the singleton picks a channel, shows the opaque
-`UPDATE_STATE` map, and restarts the app when told.
+The Ylläpito › *Päivitys* card (#56): `items/settings/UpdatePanel.qml`, the `appUpdate` status widget
+of the card whose one row is *Näytä esijulkaisut* (`updateShowPrereleases`, local). **This side runs
+nothing**: the backend lists the releases on GitHub, verifies and installs one on its own device and
+restarts both units itself (`backend/src/update_service/CLAUDE.md`); the singleton shows the opaque
+`UPDATE_STATE` map, asks for a fresh list when the card opens (`active`), installs by tag and cancels.
 
-- **The channel is `Settings.values.updateChannel`**, read and written by `UpdatePanel`'s own
-  segmented control, because the channel decides the verdict beneath it. No schema declares the key,
-  so the restored subsection must declare it a `hidden` local setting — otherwise
-  `Settings.setValue` treats it as a backend key. #56 removes the channel.
-- **The restart is a signal, not a call**: `restartRequested()` is connected in `Main.qml` to
-  `Settings.restartApp()`, app-level because a rebuild takes minutes and the user may walk back to
-  the dashboard meanwhile. It is fenced on the job's **`startedMs`** — the job keeps being broadcast
-  after the flag is set — and NOT on the job id, a per-process counter that restarts at 1 with the
-  backend and could swallow a later job's restart.
+- **`newRelease`** — the newest installable release newer than the backend's, skipping pre-releases
+  unless `showPrereleases` (bound in `Main.qml` to the display's own setting) — is the card's *Uusi*
+  mark, and `Main.qml` posts a notification each time it changes to a release. It has a signal of
+  its own, so the notice is said once per release, not on every state the backend broadcasts.
+- **Installing takes a second tap within 4 s** on the row's button, as `SettingAction` arms; while
+  armed the row shows what the move does — a restart with the 5-minute gate, or on a downgrade that
+  the settings return to that release's snapshot (or, with none, that it starts on today's files).
+- **"Päivitä tämä näyttö"** shows when this display and the backend both run releases and they
+  differ (`appVersion`, from `appversion`, against `Server.backendVersion`): the updater updates
+  only the backend's device, so a display elsewhere is updated on its own.
 - **The screensaver and the panel blackout are inhibited while `Updater.busy`**
   (`ScreenSaver.inhibited`, the `Display.enabled` Binding), and `items/settings/UpdateBanner.qml`
-  shows *"Älä katkaise virtaa"* over every view: a black screen mid-flash is precisely when a user
-  reaches for the plug.
-- **`SettingAction` is disabled while a run is in flight**: two of those buttons restart a process;
-  the backend vetoes that anyway, but a button that silently does nothing is worse.
-- **`UpdatePanel` indexes `Updater.state.channels` directly; there is no `channelInfo()`
-  invokable** — a binding on one never re-evaluated, and the card froze on the state from when its
-  Loader was built while the sibling bindings kept refreshing.
+  shows *"Älä katkaise virtaa"* over every view; **`SettingAction` is disabled meanwhile** — the
+  backend vetoes a restart anyway, but a button that silently does nothing is worse.
+- **`UpdatePanel` indexes `Updater.state` directly; there is no per-release invokable** — a binding
+  on a `Q_INVOKABLE` never re-evaluates (`frontend_v2/CLAUDE.md`, *QML ↔ C++ traps*).
 - **The build's commit and release are compiled into `appversion.cpp` alone** (`appversion`:
   `release()`, `commit()`, `label()`; `FRONTEND_V2_BUILD_COMMIT` resolved at each CMake configure,
   `FRONTEND_V2_VERSION` passed by `scripts/release.sh`), scoped by `set_source_files_properties`:
   a target-wide definition would change every translation unit's command line per commit and
-  rebuild the whole frontend. `Updater.buildCommit` reads it.
+  rebuild the whole frontend.

@@ -5,8 +5,7 @@ Serves `UPDATE_GET_STATE` / `UPDATE_APPLY` / `UPDATE_CANCEL` (`0xD0`–`0xD3`) a
 including a run in flight — without asking. A device that is not a development machine moves
 between **releases published on GitHub's Releases page** and never builds anything or touches git.
 What a release carries and how one is made is `scripts/CLAUDE.md`, *Releases*; this file is the
-device's half. The *Päivitys* card is out of the Options view until its rework lands
-(`frontend_v2/core/CLAUDE.md`, under `Updater`).
+device's half. The card is Ylläpito › *Päivitys* (`frontend_v2/core/CLAUDE.md`, under `Updater`).
 
 ## The device
 
