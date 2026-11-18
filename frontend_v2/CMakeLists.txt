@@ -82,6 +82,8 @@ qt_add_executable(appfrontend_v2
     core/logcontrol.cpp
     core/appupdate.hh
     core/appupdate.cpp
+    core/appversion.hh
+    core/appversion.cpp
     core/spotifyauth.hh
     core/spotifyauth.cpp
     core/spotifydevice.hh
@@ -281,13 +283,9 @@ set_target_properties(appfrontend_v2 PROPERTIES WIN32_EXECUTABLE TRUE)
 # Includes resolve as "core/..." from main.cpp and as siblings within core/.
 target_include_directories(appfrontend_v2 PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
-# Stamp the commit this binary was BUILT from. The Options view's update card
-# otherwise has to report the repository's HEAD as "the running version", which
-# stops being true the moment an update checks out a new commit: between the
-# checkout and the app restarting, the repo is at the new version and this
-# process is still the old one. Resolved at configure time, and the build script
-# configures on every run, so it tracks. Empty when git is unavailable, which
-# counts as unknown rather than as a mismatch (AppUpdate::restartPending).
+# Stamp the version this binary is (core/appversion): the release, or in a
+# development build the commit, resolved at configure time — which the build
+# script runs on every build, so it tracks. Empty when git is unavailable.
 # A release (scripts/release.sh) is built from an exported tree with no .git, so the release
 # script passes the commit in, along with the release's version.
 set(FRONTEND_V2_VERSION "" CACHE STRING
@@ -317,11 +315,8 @@ endif()
 
 # Scoped to the ONE file that reads it, not to the target. As a target-wide
 # definition it lands on every translation unit's command line, and its value
-# changes with every commit — so each in-app update would recompile the entire
-# C++ frontend on the Pi even for a one-line QML change, turning a sub-minute
-# build into tens of minutes with the backend already running on a freshly
-# synced virtualenv.
-set_source_files_properties(core/appupdate.cpp PROPERTIES
+# changes with every commit, so every commit would recompile the whole frontend.
+set_source_files_properties(core/appversion.cpp PROPERTIES
     COMPILE_DEFINITIONS "FRONTEND_V2_BUILD_COMMIT=\"${FRONTEND_V2_BUILD_COMMIT}\";FRONTEND_V2_VERSION=\"${FRONTEND_V2_VERSION}\"")
 
 target_link_libraries(appfrontend_v2

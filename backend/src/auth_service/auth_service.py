@@ -25,7 +25,7 @@ import os
 import secrets
 import time
 
-from ..utils import protocol
+from ..utils import protocol, version
 from ..utils.atomic_write import write_atomic
 from . import scram, tls
 
@@ -40,6 +40,7 @@ _FREE_FAILURES = 3
 _MAX_LOCKOUT_S = 300
 
 _NAME_MAX = 64
+_VERSION_MAX = 64
 _DAY_MS = 86_400_000
 
 
@@ -218,7 +219,8 @@ class AuthService:
         '''
         await connection.send(protocol.json_frame(
             protocol.AUTH_HELLO, protocol.CONFIG_STATUS_OK,
-            {"passwordSet": self.__verifier is not None}))
+            {"passwordSet": self.__verifier is not None, "appVersion": version.app_version(),
+             "protocol": protocol.PROTOCOL_VERSION}))
         msg_type, payload = await connection.recv()
         try:
             request = protocol.parse_json_body(payload)
@@ -267,7 +269,7 @@ class AuthService:
             await self.__broadcast_displays()
             return await self.__refuse(connection, protocol.AUTH_REASON_TOKEN,
                                        "Kirjautuminen on vanhentunut")
-        return await self.__admit(connection, display, {})
+        return await self.__admit(connection, display, {}, request)
 
     async def __password_login(self, connection, request: dict) -> dict | None:
         '''
@@ -316,9 +318,9 @@ class AuthService:
         logger.info("Display logged in with the password: %s (%s) from %s",
                     name, display["id"], connection.address)
         return await self.__admit(connection, display,
-                                  {"serverFinal": server_final, "token": token})
+                                  {"serverFinal": server_final, "token": token}, request)
 
-    async def __admit(self, connection, display: dict, extra: dict) -> dict:
+    async def __admit(self, connection, display: dict, extra: dict, first: dict) -> dict:
         '''
         Lets a display in: counts the connection, stamps it and says so.
         Arguments:
@@ -326,10 +328,13 @@ class AuthService:
             display (dict): The stored display.
             extra (dict): Fields the result carries beside ok (a new login's
                 serverFinal and token).
+            first (dict): The display's first login message, which carries its
+                app version (absent from a display older than #56).
         '''
         self.__connections[display["id"]] = self.__connections.get(display["id"], 0) + 1
         display["lastSeen"] = _now_ms()
         display["address"] = connection.address
+        display["appVersion"] = str(first.get("appVersion") or "")[:_VERSION_MAX]
         self.__save()
         await connection.send(protocol.json_frame(
             protocol.AUTH_RESULT, protocol.CONFIG_STATUS_OK,
@@ -395,6 +400,7 @@ class AuthService:
             "created": d.get("created", 0),
             "lastSeen": d.get("lastSeen", 0),
             "connected": self.__connections.get(d["id"], 0) > 0,
+            "appVersion": d.get("appVersion", ""),
         } for d in sorted(self.__displays.values(), key=lambda d: d.get("created", 0))]
         return protocol.json_frame(protocol.AUTH_DISPLAYS, protocol.CONFIG_STATUS_OK,
                                    {"displays": displays})

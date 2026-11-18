@@ -134,6 +134,10 @@ that has not logged in.
   file before the write). Not the settings file, which is not a secret, and not the OS keyring, which
   is never unlocked on a kiosk that logs in by itself. A refused token (revoked, expired, the password
   changed) is forgotten.
+- **Versions at login** (#56): the token and the SCRAM start carry `appversion::label()` and
+  `protocol::PROTOCOL_VERSION`, and the backend's from `AUTH_HELLO` are `backendVersion` /
+  `backendProtocol`, logged once per change and kept across a disconnect. A different version is
+  no reason to refuse a session; what the display makes of it is the *Päivitys* card's.
 
 ## `PairedDisplays` — `paireddisplays.{hh,cpp}`
 
@@ -430,9 +434,8 @@ rebuild (`backend/src/update_service/CLAUDE.md`); the singleton picks a channel,
 - **`UpdatePanel` indexes `Updater.state.channels` directly; there is no `channelInfo()`
   invokable** — a binding on one never re-evaluated, and the card froze on the state from when its
   Loader was built while the sibling bindings kept refreshing.
-- **The build's commit is compiled in** as `Updater.buildCommit` (`FRONTEND_V2_BUILD_COMMIT`,
-  resolved at each CMake configure, which the build script always runs, and scoped by
-  `set_source_files_properties` to the one file that reads it — a target-wide definition would change
-  every translation unit's command line per commit and make each update a full C++ rebuild on the
-  Pi). HEAD and the running binary differ between a checkout and the restart, exactly when it
-  matters; `restartPending` derives the mismatch and the card says so.
+- **The build's commit and release are compiled into `appversion.cpp` alone** (`appversion`:
+  `release()`, `commit()`, `label()`; `FRONTEND_V2_BUILD_COMMIT` resolved at each CMake configure,
+  `FRONTEND_V2_VERSION` passed by `scripts/release.sh`), scoped by `set_source_files_properties`:
+  a target-wide definition would change every translation unit's command line per commit and
+  rebuild the whole frontend. `Updater.buildCommit` reads it.

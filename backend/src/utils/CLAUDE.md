@@ -129,14 +129,14 @@ with inbound messages capped at `MAX_PREAUTH_MSG_SIZE` (4 KB) — `../auth_servi
 | `0xE2` | USB_IMPORT_START | F→B | `len(4B) + UTF-8 JSON` — `{flowId, device}`; copy them into the screensaver folder |
 | `0xE3` | USB_IMPORT_CLOSE | F→B | `len(4B) + UTF-8 JSON` — `{flowId}`; stop a copy after the current file, unmount what was mounted; nothing replied |
 | `0xE4` | USB_IMPORT_STATE | B→F | `status(1B, always 1) + len(4B) + JSON` — `{flowId, phase, message, drives[{device,label,size,fstype,model,mountpoint}], device, found, count, bytes, copied, skipped, total, unmounted}`; to the flow's client only. Every request carries the frontend's `flowId` and every state echoes it (`../usb_import_service/CLAUDE.md`) |
-| `0xF0` | AUTH_HELLO | B→F | `status(1B, always OK) + len(4B) + JSON` — `{passwordSet}`; the first frame on every connection, before login |
-| `0xF1` | AUTH_TOKEN | F→B | `len(4B) + JSON` — `{deviceId, token}`: a remembered login |
-| `0xF2` | AUTH_SCRAM_START | F→B | `len(4B) + JSON` — `{message}`: the SCRAM client-first-message (`p=tls-server-end-point,,n=homedash,r=…`) |
+| `0xF0` | AUTH_HELLO | B→F | `status(1B, always OK) + len(4B) + JSON` — `{passwordSet, appVersion, protocol}`; the first frame on every connection, before login |
+| `0xF1` | AUTH_TOKEN | F→B | `len(4B) + JSON` — `{deviceId, token, appVersion, protocol}`: a remembered login |
+| `0xF2` | AUTH_SCRAM_START | F→B | `len(4B) + JSON` — `{message, appVersion, protocol}`: the SCRAM client-first-message (`p=tls-server-end-point,,n=homedash,r=…`) |
 | `0xF3` | AUTH_SCRAM_CHALLENGE | B→F | `status(1B, always OK) + len(4B) + JSON` — `{message}`: the server-first-message |
 | `0xF4` | AUTH_SCRAM_PROOF | F→B | `len(4B) + JSON` — `{message, name}`: the client-final-message and the display's name |
 | `0xF5` | AUTH_RESULT | B→F | `status(1B) + len(4B) + JSON` — `{ok, reason, message, retryAfter?}`, plus `serverFinal, deviceId, token, name` after a password login; `reason` is an `AUTH_REASON_*` (`token`, `password`, `noPassword`, `throttled`, `binding`, `protocol`). Only `ok` is followed by the snapshot |
 | `0xF6` | AUTH_GET_DISPLAYS | F→B | (empty) — the Ylläpito › Näytöt list |
-| `0xF7` | AUTH_DISPLAYS | B→F | `status(1B, always OK) + len(4B) + JSON` — `{displays[{id, name, address, created, lastSeen, connected}]}`; to the requester, and **broadcast** on any change |
+| `0xF7` | AUTH_DISPLAYS | B→F | `status(1B, always OK) + len(4B) + JSON` — `{displays[{id, name, address, created, lastSeen, connected, appVersion}]}`; to the requester, and **broadcast** on any change |
 | `0xF8` | AUTH_REVOKE | F→B | `len(4B) + JSON` — `{id}`; forgets that login and closes its connections |
 
 (Trip codes `0x74`–`0x7F` — the Trips view, and `TRIP_GET_CURRENT`/`TRIP_CURRENT` for the Kartta

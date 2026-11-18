@@ -17,9 +17,10 @@ again. `end_point_hash()` is that SHA-256 — both the pin and SCRAM's channel b
 ## The exchange
 
 ```
-backend → AUTH_HELLO {passwordSet}
-display → AUTH_TOKEN {deviceId, token}                       a remembered login
-          or AUTH_SCRAM_START {message: "p=tls-server-end-point,,n=homedash,r=<nonce>"}
+backend → AUTH_HELLO {passwordSet, appVersion, protocol}
+display → AUTH_TOKEN {deviceId, token, appVersion, protocol}  a remembered login
+          or AUTH_SCRAM_START {message: "p=tls-server-end-point,,n=homedash,r=<nonce>",
+                               appVersion, protocol}
 backend → AUTH_SCRAM_CHALLENGE {message: "r=…,s=<salt>,i=<rounds>"}
 display → AUTH_SCRAM_PROOF {message: "c=<binding>,r=…,p=<proof>", name}
 backend → AUTH_RESULT {ok, reason, message, retryAfter?, serverFinal?, deviceId?, token?, name?}
@@ -43,7 +44,7 @@ backend → AUTH_RESULT {ok, reason, message, retryAfter?, serverFinal?, deviceI
 ## The store — `paired_displays.json`
 
 Beside `config.json`, 0600, written with `write_atomic`: `{version, scram: {salt, iterations,
-storedKey, serverKey}, displays: [{id, name, tokenHash, created, lastSeen, address}]}`. **The
+storedKey, serverKey}, displays: [{id, name, tokenHash, created, lastSeen, address, appVersion}]}`. **The
 password is `TESLA_HOMEDASH_PASSWORD` in `.env`**, never a setting. At start the stored verifier is
 re-derived from it with the stored salt: the same password keeps every display (a new round count
 re-derives silently), a different one — or none — **forgets every display**. With no password the

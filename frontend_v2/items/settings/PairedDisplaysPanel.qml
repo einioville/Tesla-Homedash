@@ -88,6 +88,7 @@ Column {
                            ? qsTr("Yhdistetty")
                            : qsTr("Viimeksi %1").arg(Format.moment(entry.modelData.lastSeen)))
                           + " · " + entry.modelData.address
+                          + (entry.modelData.appVersion ? " · " + entry.modelData.appVersion : "")
                           + " · " + qsTr("kirjautui %1").arg(Format.moment(entry.modelData.created))
                     font.family: Theme.fontFamily
                     font.pixelSize: 12

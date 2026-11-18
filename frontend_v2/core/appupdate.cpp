@@ -2,6 +2,7 @@
 
 #include <QJsonObject>
 
+#include "appversion.hh"
 #include "logger.hh"
 #include "protocol.hh"
 #include "serverclient.hh"
@@ -35,13 +36,7 @@ QString AppUpdate::reason() const {
     return m_state.value(QStringLiteral("reason")).toString();
 }
 
-QString AppUpdate::buildCommit() const {
-#ifdef FRONTEND_V2_BUILD_COMMIT
-    return QString::fromLatin1(FRONTEND_V2_BUILD_COMMIT);
-#else
-    return {};
-#endif
-}
+QString AppUpdate::buildCommit() const { return appversion::commit(); }
 
 bool AppUpdate::restartPending() const {
     // Only meaningful when both halves are known and nothing is in flight: a run

@@ -63,6 +63,11 @@ class ServerClient : public QObject {
     // this display. Empty before the first login.
     Q_PROPERTY(QString deviceId READ deviceId NOTIFY authChanged)
     Q_PROPERTY(QString endpoint READ endpoint CONSTANT)
+    // What the backend said it is in AUTH_HELLO (#56): its release, or a checkout's
+    // commit, and its protocol version. Kept across a disconnect; empty / 0 until
+    // the first hello, and from a backend older than #56.
+    Q_PROPERTY(QString backendVersion READ backendVersion NOTIFY backendVersionChanged)
+    Q_PROPERTY(int backendProtocol READ backendProtocol NOTIFY backendVersionChanged)
 
 public:
     enum class State { Disconnected, Connecting, Connected, Reconnecting };
@@ -83,6 +88,8 @@ public:
     bool loginPromptVisible() const;
     QString deviceId() const;
     QString endpoint() const { return m_endpoint; }
+    QString backendVersion() const { return m_backendVersion; }
+    int backendProtocol() const { return m_backendProtocol; }
 
     // Begins connecting and arms the reconnect loop. Call once after construction.
     void start();
@@ -105,6 +112,7 @@ signals:
     void connectedChanged();
     void stateTextChanged();
     void authChanged();
+    void backendVersionChanged();
 
 private slots:
     void onEncrypted();
@@ -124,6 +132,7 @@ private:
     void setState(State state);
     void setAuth(Auth auth, const QString &message = QString());
     void handleLoginPacket(quint8 type, const QByteArray &payload);
+    void setBackendVersion(const QString &version, int protocolVersion);
     void onHello(bool passwordSet);
     void startPasswordLogin();
     void onChallenge(const QByteArray &serverFirst);
@@ -138,6 +147,8 @@ private:
     QString m_host;
     quint16 m_port;
     QString m_endpoint;
+    QString m_backendVersion;
+    int m_backendProtocol = 0;
     QTimer *m_reconnectTimer;
     State m_state = State::Disconnected;
 

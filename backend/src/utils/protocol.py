@@ -394,10 +394,20 @@ USB_IMPORT_STATE = 0xE4   # B->F: status(1B, always OK) + len(4B) + UTF-8 JSON
 # remembered token or a SCRAM-SHA-256-PLUS exchange (RFC 5802 / 7677 messages,
 # channel binding tls-server-end-point), and only an AUTH_RESULT with ok=true
 # is followed by the snapshot. auth_service/CLAUDE.md has the whole exchange.
+# The wire protocol's version, which each half sends the other at login (#56) beside its app
+# version: a release (v2.0.0), or for a development checkout its commit. A display on a
+# different version still connects. Raised only by a change the other half cannot read: a
+# change to a JSON body is additive (a new key has a default, an unknown one is ignored), so it
+# needs no new version.
+PROTOCOL_VERSION = 1
+
 AUTH_HELLO = 0xF0              # B->F: status(1B, always OK) + len(4B) + UTF-8 JSON
-                               #   {"passwordSet": <bool>} — the first frame on a connection
-AUTH_TOKEN = 0xF1              # F->B: len(4B) + UTF-8 JSON {"deviceId", "token"}
-AUTH_SCRAM_START = 0xF2        # F->B: len(4B) + UTF-8 JSON {"message": client-first-message}
+                               #   {"passwordSet": <bool>, "appVersion", "protocol"} — the
+                               #   first frame on a connection
+AUTH_TOKEN = 0xF1              # F->B: len(4B) + UTF-8 JSON {"deviceId", "token",
+                               #   "appVersion", "protocol"}
+AUTH_SCRAM_START = 0xF2        # F->B: len(4B) + UTF-8 JSON {"message": client-first-message,
+                               #   "appVersion", "protocol"}
 AUTH_SCRAM_CHALLENGE = 0xF3    # B->F: status(1B, always OK) + len(4B) + UTF-8 JSON
                                #   {"message": server-first-message}
 AUTH_SCRAM_PROOF = 0xF4        # F->B: len(4B) + UTF-8 JSON {"message": client-final-message,
@@ -408,7 +418,8 @@ AUTH_RESULT = 0xF5             # B->F: status(1B) + len(4B) + UTF-8 JSON {"ok", 
 AUTH_GET_DISPLAYS = 0xF6       # F->B: (empty) — the Ylläpito › Näytöt list
 AUTH_DISPLAYS = 0xF7           # B->F: status(1B, always OK) + len(4B) + UTF-8 JSON
                                #   {"displays": [{id, name, address, created, lastSeen,
-                               #   connected}]}; to the requester, and broadcast on any change
+                               #   connected, appVersion}]}; to the requester, and broadcast on
+                               #   any change
 AUTH_REVOKE = 0xF8             # F->B: len(4B) + UTF-8 JSON {"id"} — forget a display's login
                                #   and close its connection
 

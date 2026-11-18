@@ -8,6 +8,7 @@
 #include <QtEndian>
 #include <utility>
 
+#include "appversion.hh"
 #include "logger.hh"
 #include "protocol.hh"
 
@@ -262,12 +263,28 @@ void ServerClient::handleLoginPacket(quint8 type, const QByteArray &payload) {
     }
     const QJsonObject &body = reply->body;
     if (type == protocol::AUTH_HELLO) {
+        setBackendVersion(body.value(QStringLiteral("appVersion")).toString(),
+                          body.value(QStringLiteral("protocol")).toInt());
         onHello(body.value(QStringLiteral("passwordSet")).toBool());
     } else if (type == protocol::AUTH_SCRAM_CHALLENGE) {
         onChallenge(body.value(QStringLiteral("message")).toString().toUtf8());
     } else {
         onResult(body);
     }
+}
+
+void ServerClient::setBackendVersion(const QString &version, int protocolVersion) {
+    if (version == m_backendVersion && protocolVersion == m_backendProtocol) {
+        return;
+    }
+    m_backendVersion = version;
+    m_backendProtocol = protocolVersion;
+    logger.info(QStringLiteral("Backend %1 (protocol %2); this display %3 (protocol %4)")
+                    .arg(version.isEmpty() ? QStringLiteral("?") : version)
+                    .arg(protocolVersion)
+                    .arg(appversion::label().isEmpty() ? QStringLiteral("?") : appversion::label())
+                    .arg(protocol::PROTOCOL_VERSION));
+    emit backendVersionChanged();
 }
 
 void ServerClient::onHello(bool passwordSet) {
@@ -304,7 +321,9 @@ void ServerClient::onHello(bool passwordSet) {
     setAuth(Auth::Authenticating);
     m_phase = Phase::Result;
     sendJson(protocol::AUTH_TOKEN, {{QStringLiteral("deviceId"), credential->deviceId},
-                                    {QStringLiteral("token"), credential->token}});
+                                    {QStringLiteral("token"), credential->token},
+                                    {QStringLiteral("appVersion"), appversion::label()},
+                                    {QStringLiteral("protocol"), protocol::PROTOCOL_VERSION}});
 }
 
 void ServerClient::startPasswordLogin() {
@@ -312,7 +331,9 @@ void ServerClient::startPasswordLogin() {
     m_scramStart = scram::start();
     m_phase = Phase::Challenge;
     sendJson(protocol::AUTH_SCRAM_START,
-             {{QStringLiteral("message"), QString::fromLatin1(m_scramStart.first)}});
+             {{QStringLiteral("message"), QString::fromLatin1(m_scramStart.first)},
+              {QStringLiteral("appVersion"), appversion::label()},
+              {QStringLiteral("protocol"), protocol::PROTOCOL_VERSION}});
 }
 
 void ServerClient::onChallenge(const QByteArray &serverFirst) {
