@@ -94,8 +94,8 @@ runs the configure + build in one command (Ninja when installed), with compiler-
 
 ### 3.3 Validation
 
-There is no test suite beyond five standalone backend scripts (`backend/tests/test_spot_price.py`,
-`test_trip_loader.py`, `test_auth.py`, `test_display_service.py`, `test_update_guard.py`; run one with `uv run python tests/<file>` from `backend/`). Validate manually:
+There is no test suite beyond three standalone backend scripts (`backend/tests/test_spot_price.py`,
+`test_trip_loader.py`, `test_display_service.py`; run one with `uv run python tests/<file>` from `backend/`). Validate manually:
 - **Backend**: `python -m compileall backend/src`, then start the stack and confirm
   telemetry / media / weather / HVAC flows in the logs.
 - **Frontend**: rebuild, launch, connect to the backend, exercise the affected widgets.

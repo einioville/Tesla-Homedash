@@ -31,7 +31,7 @@ backend → AUTH_RESULT {ok, reason, message, retryAfter?, serverFinal?, deviceI
   proves it knows the verifier (`serverFinal`), which is what lets a display pin a certificate it
   has never seen. The binding is inside the proof, so a man in the middle with its own certificate
   cannot complete it (`binding` refusal). A client without channel binding (`n,,` / `y,,`) is
-  refused. `scram.py` reproduces RFC 7677's test vector (`backend/tests/test_auth.py`); the
+  refused. `scram.py` is RFC 7677's SCRAM-SHA-256 and reproduces its test vector; the
   frontend's half is `frontend_v2/core/scram.cpp` — **change both together**.
 - **Rounds: `scram.ITERATIONS` = 200 000**, because Qt's PBKDF2 runs ~10× slower than OpenSSL's (a
   few seconds on a Pi 4, paid once per login). The display refuses fewer than 100 000, so a
@@ -74,7 +74,3 @@ backend runs, `AUTH_HELLO` says `passwordSet: false`, and every login is refused
   (`../update_service/CLAUDE.md`).
 - `health()` is the *Kirjautuminen* card in Järjestelmän tila: `error` with no password, otherwise
   the number of displays, the lifetime and the certificate's fingerprint.
-
-Tests: `uv run python tests/test_auth.py` (from `backend/`) — the RFC vector, and whole logins over
-TLS against a `Server` on a spare port: password, token, wrong password, binding, revoke, throttle,
-a changed and a missing password, expiry.
